@@ -103,7 +103,7 @@ func TestAppTypeOf(t *testing.T) {
 // moo.json（V2 包裹 + Moo 扩展字段）应被现有解析器完整吃下。
 func TestParseMooJsonSample(t *testing.T) {
 	doc := []byte(`{
-	  "schema_version": "moo/v1",
+	  "schema_version": "moo",
 	  "source_info": {"name": "示例仓", "distributor": "Blue-Mink"},
 	  "apps": {
 	    "demo-app": {

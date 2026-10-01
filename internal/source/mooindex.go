@@ -24,8 +24,8 @@ import (
 const (
 	// MooIndexFile Moo 原生索引文件名。
 	MooIndexFile = "moo.json"
-	// MooSchemaV1 当前协议标识（解析只要求 schema_version 键存在，不校验取值）。
-	MooSchemaV1 = "moo/v1"
+	// MooSchema 当前协议标识（解析只要求 schema_version 键存在，不校验取值）。
+	MooSchema = "moo"
 )
 
 // jsonNamesFor 返回一个仓库地址下应按优先级尝试的索引文件名序列：

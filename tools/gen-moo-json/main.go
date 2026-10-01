@@ -15,7 +15,7 @@
 //     appname/version/display_name/desc/author/distributor/platform/…；
 //   - 计算 sha256 与体积（字节）——Moo 下载后会校验；
 //   - 同目录（FPK 旁）存在 ICON.PNG / ICON_256.PNG 时自动带上 icon_url；
-//   - 输出 V2 包裹格式（schema_version=moo/v1 + source_info + apps）。
+//   - 输出 V2 包裹格式（schema_version=moo + source_info + apps）。
 //
 // 设计上刻意只用标准库：任何装了 Go 的机器都能直接 `go run`，不需要额外依赖。
 package main
@@ -106,7 +106,7 @@ func main() {
 	}
 
 	doc := map[string]any{
-		"schema_version": "moo/v1",
+		"schema_version": "moo",
 		"source_info": map[string]any{
 			"name":        *name,
 			"homepage":    *homepage,

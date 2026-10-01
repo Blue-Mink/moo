@@ -148,7 +148,7 @@ def main():
         entry["updated_at"] = latest_when
 
     doc = {
-        "schema_version": "moo/v1",
+        "schema_version": "moo",
         "source_info": {
             "name": args.name or repo,
             "homepage": args.homepage or base,
