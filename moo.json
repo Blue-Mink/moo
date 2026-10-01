@@ -1,5 +1,5 @@
 {
-  "schema_version": "moo/m1",
+  "schema_version": "moo",
   "source_info": {
     "name": "Moo 应用商店",
     "homepage": "http://192.168.3.15:3033/bluemink/moo",
