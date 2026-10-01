@@ -35,8 +35,12 @@ func TestWeComFullGoesMarkdown(t *testing.T) {
 	if !strings.Contains(*sink, `"msgtype":"markdown"`) {
 		t.Fatalf("full 模式应发 classic markdown: %s", *sink)
 	}
-	if !strings.Contains(*sink, "全量列表内容") || !strings.Contains(*sink, "http://detail.example/v1?t=1") {
-		t.Fatalf("full 正文/详情链接缺失: %s", *sink)
+	if !strings.Contains(*sink, "全量列表内容") {
+		t.Fatalf("full 正文缺失: %s", *sink)
+	}
+	// 0.6.213：尾部「完整明细：链接」已按用户要求移除（正文已全量列出，链接属冗余）
+	if strings.Contains(*sink, "http://detail.example/v1?t=1") {
+		t.Fatalf("0.6.213 起 full 模式不应再附详情链接: %s", *sink)
 	}
 }
 

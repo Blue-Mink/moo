@@ -16,6 +16,7 @@ import (
 
 	"moo/internal/config"
 	"moo/internal/netguard"
+	"moo/internal/official"
 	"moo/internal/operation"
 	"moo/internal/pipeline"
 	"moo/internal/platform"
@@ -40,6 +41,8 @@ type Server struct {
 	Panel     *Panel
 	// GHStats GitHub Release 资产下载量同步（第三方源目录不统计下载量的补数通道）
 	GHStats *source.GHStats
+	// Official 官方应用中心 OAuth 管理器（合并自主线：token 持久化 + 自动刷新）
+	Official *official.Manager
 
 	iconStoreOnce sync.Once
 	iconStoreV    *iconStore // 图标两级缓存（内存 10min + 磁盘 7 天 + 负缓存 30min）
@@ -172,6 +175,11 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/mirrors/check", s.requireAdmin(s.mirrorsCheck))
 
 	mux.HandleFunc("POST /api/panel/test", s.requireAdmin(s.panelTest))
+
+	// ---- 官方应用中心（OAuth 连接 + 商店列表/搜索/详情；合并自主线 moo-w）----
+	if s.Official != nil {
+		s.officialRoutes(mux, newOfficialStore(s.Official))
+	}
 
 	// ---- FPK 下载缓存 ----
 	mux.HandleFunc("GET /api/fpk-downloads", s.requireAdmin(s.listDownloads))

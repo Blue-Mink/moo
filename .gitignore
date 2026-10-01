@@ -20,3 +20,9 @@ MOO_06187_MIRROR_PUSH_TODO.md
 # 本地构建缓存/基线产物
 .gocache/
 *.orig-baseline
+
+# 工作区运维脚本（含凭据，绝不入库）
+attach_gitea_assets.py
+create_gap_releases.py
+fix_panel_tags.py
+sync_gitea_releases*.py

@@ -171,7 +171,7 @@ SHA256 `2eee416fc11cf40a36794525454c07ed464656d5e6d73e476a228e159e88eb22`（3 79
 ## 10. 可复现命令
 
 ```bash
-source /var/apps/com.dustinky.qwenpaw/home/venv/bin/activate
+source /var/apps/<app>/home/venv/bin/activate
 cd work/moo_icon
 python3 opt_round1.py                    # 九造型 + 四配色候选（V0 与定稿母版 IoU 0.9679 自校）
 python3 make_v8_slots.py                 # 出母版 + 五个槽位（光学补偿档）

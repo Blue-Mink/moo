@@ -151,7 +151,8 @@ func TestCapWeComContent(t *testing.T) {
 		t.Fatalf("截断后仍超企微上限: %d 字节", len([]byte(got)))
 	}
 	// 截断点落在行边界（截断前最后一行完整或为标注行）
-	if !strings.HasSuffix(got, "…（超出企业微信单条消息长度上限，完整明细见应用内通知记录）") {
+	// 0.6.214：尾部措辞由「完整明细」改为「其余条目」（实测企微右列截断更友好）
+	if !strings.HasSuffix(got, "…（超出企业微信单条消息长度上限，其余条目见应用内通知记录）") {
 		t.Fatalf("截断标注不完整: %q", got[len(got)-60:])
 	}
 }

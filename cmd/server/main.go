@@ -21,6 +21,7 @@ import (
 	"moo/internal/api"
 	"moo/internal/config"
 	"moo/internal/netx"
+	"moo/internal/official"
 	"moo/internal/operation"
 	"moo/internal/pipeline"
 	"moo/internal/source"
@@ -90,8 +91,12 @@ func main() {
 		WebFS:     webdist.Dist,
 		Mirrors:   api.NewMirrorMonitor(),
 		Panel:     api.NewPanel(cfg),
+		Official:  official.NewManager(dataDir),
 	}
 	pipe.FPKCandidates = srv.FpkCandidates
+
+	// 官方应用中心：加载持久化 OAuth 会话（token 未过期则免重新授权）
+	srv.Official.LoadSession()
 
 	// 出站抓取安全策略（2026-09-27 代码审核）：源数据驱动的 URL
 	// （readme/preview/icon/download）只放行公共地址，防 SSRF。
@@ -131,6 +136,7 @@ func main() {
 	go srv.StartIconWarm(ctx)
 
 	// ---- 主入口：unix socket（统一网关） ----
+	var unixSrv *http.Server // 网关入口服务器（下方赋值，退出时一并优雅关闭）
 	socketPath := config.SocketPath()
 	_ = os.Remove(socketPath) // 清掉上次残留
 	unixLn, err := net.Listen("unix", socketPath)
@@ -142,8 +148,15 @@ func main() {
 		// 非 root 进程也无法连接伪造管理员身份。
 		_ = os.Chmod(socketPath, 0o700)
 		log.Printf("unix socket 监听: %s", socketPath)
+		// 超时策略（2026-10-01 API 审计）：只设读头与空闲超时；WriteTimeout 故意不设——
+		// 安装/更新/向导走 SSE 长流（向导单次最长 12 分钟），设了会中途掐断流式响应。
+		unixSrv = &http.Server{
+			Handler:           srv.Handler(true),
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
 		go func() {
-			if err := http.Serve(unixLn, srv.Handler(true)); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := unixSrv.Serve(unixLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Printf("unix socket 服务异常: %v", err)
 			}
 		}()
@@ -164,6 +177,8 @@ func main() {
 	httpSrv := &http.Server{
 		Handler:           srv.Handler(false),
 		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// WriteTimeout 故意不设：安装/更新为 SSE 长流（同网关入口）。
 	}
 	go func() {
 		<-ctx.Done()
@@ -171,6 +186,9 @@ func main() {
 		srv.StopReadmeStore() // README 两级缓存收尾落盘
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
+		if unixSrv != nil {
+			_ = unixSrv.Shutdown(shutCtx)
+		}
 		_ = httpSrv.Shutdown(shutCtx)
 	}()
 	if err := httpSrv.Serve(tcpLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
