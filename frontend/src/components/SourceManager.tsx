@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { shouldWarnPlainHttp } from '@/lib/sourceWarnings'
 import { toast } from 'sonner'
 
 interface SourceManagerProps {
@@ -27,8 +28,7 @@ interface SourceManagerProps {
   saveCounter?: number;
 }
 
-/** 0.6.216 P1①：是否为明文 http 源（无 scheme / https 的源不算——无 scheme 默认按 https 处理） */
-const isPlainHttp = (u?: string) => !!u && /^http:\/\//i.test(u)
+/** 0.6.216 P1①：明文 http 源警示规则抽到 lib（官方源豁免，见 sourceWarnings） */
 
 const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCounter = 0 }) => {
   const [sources, setSources] = useState<SourceEntry[]>([]);
@@ -785,8 +785,10 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   >
                     {src.url}
                   </button>
-                  {/* 0.6.216 P1①：http 明文源警示（展示层，不影响下载逻辑） */}
-                  {isPlainHttp(src.url) && (
+                  {/* 0.6.216 P1①：http 明文源警示（展示层，不影响下载逻辑）。
+                      官方应用源（fnos-official）豁免：它是平台本机面板地址，属可信来源，
+                      对它标「未加密」只会误导；其余 http 明文源（社区源/自建源）仍保留警示。 */}
+                  {shouldWarnPlainHttp(src) && (
                     <span
                       title="非加密 http 源：下载内容未做传输完整性保护，请核对 sha256"
                       className="shrink-0 text-amber-500"
