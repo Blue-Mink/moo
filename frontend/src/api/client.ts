@@ -602,6 +602,8 @@ export interface Settings {
   panel_username?: string;
   panel_base_url?: string;
   panel_has_password?: boolean;
+  /** 0.6.220：库里有凭据但解不开（换机/密钥文件丢失）→ 前端提示重填 */
+  panel_decrypt_failed?: boolean;
   // 备份设置（备份设置 tab）
   backup_dir?: string;
   backup_auto?: boolean;

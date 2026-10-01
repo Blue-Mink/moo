@@ -1082,6 +1082,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		PanelUsername:       s.Cfg.PanelUsername,
 		PanelBaseURL:        s.Cfg.PanelBaseURL,
 		PanelHasPassword:    s.Cfg.PanelPassword != "",
+		PanelDecryptFailed:  s.Cfg.SecretDecryptFailed,
 		SourceListOff:       s.Cfg.SourceListOff,
 		SourceAutoCareOff:   s.Cfg.SourceAutoCareOff,
 		AutoUpdate:          s.Cfg.AutoUpdate,

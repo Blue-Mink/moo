@@ -143,6 +143,8 @@ type Settings struct {
 	PanelUsername       string                `json:"panel_username,omitempty"`
 	PanelBaseURL        string                `json:"panel_base_url,omitempty"`
 	PanelHasPassword    bool                  `json:"panel_has_password"`
+	// 0.6.220：库里有凭据但解不开（换机/密钥文件丢失）→ 前端提示重填
+	PanelDecryptFailed bool `json:"panel_decrypt_failed,omitempty"`
 	// 备份设置（备份设置 tab）
 	BackupDir         string `json:"backup_dir,omitempty"`
 	BackupAuto        bool   `json:"backup_auto"`

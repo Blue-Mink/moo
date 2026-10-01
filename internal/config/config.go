@@ -3,9 +3,66 @@ package config
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+
+	"moo/internal/secret"
 )
+
+// ── 敏感字段落盘加密（0.6.220「方案 X」）──────────────────────────────
+//
+// 内存里一律明文（面板客户端、通知发送直接用）；只在 **写盘时加密**、
+// **读盘后解密**。加密器由 cmd/server 启动时注入（见 internal/secret）。
+//
+// 为避免 config → notify 的循环依赖（notify 反向 import 本包），通知渠道
+// 参数的加解密由 notify 包通过 SetExtraCodec 注册钩子完成。
+//
+// 未注入加密器时（如单测、旧嵌入场景）行为与旧版一致：凭据明文读写。
+
+// Codec 敏感字段加解密器（internal/secret.Sealer 满足该接口）。
+type Codec interface {
+	Seal(string) (string, error)
+	Open(string) (string, error)
+}
+
+var codec Codec
+var extraCodec func(c *Config, seal bool) (foundPlaintext bool, err error)
+var migrationNeeded bool
+
+// SetCodec 注入加解密器（启动时调用）。
+func SetCodec(c Codec) { codec = c }
+
+// SetExtraCodec 注册附加字段处理钩子（notify 渠道参数）。
+// seal=true 加密、false 解密；返回「是否遇到明文」（供迁移判定）。
+func SetExtraCodec(f func(c *Config, seal bool) (bool, error)) { extraCodec = f }
+
+// CodecReady 是否已注入加解密器。
+func CodecReady() bool { return codec != nil }
+
+// SealValue / OpenValue / IsSealedValue 供 notify 包处理渠道参数。
+// 未注入加密器时 Seal/Open 原样返回（保持旧行为）。
+func SealValue(v string) (string, error) {
+	if codec == nil {
+		return v, nil
+	}
+	return codec.Seal(v)
+}
+
+func OpenValue(v string) (string, error) {
+	if codec == nil {
+		return v, nil
+	}
+	return codec.Open(v)
+}
+
+// IsSealedValue 判断值是否为密文（`enc:v1:` 前缀）。
+func IsSealedValue(v string) bool { return secret.IsSealed(v) }
+
+// MigrationNeeded 上次 Load 是否发现「明文凭据」——上层据此触发一次 Save
+// 把存量明文改写为密文（完成后自动归 false，因为 Save 后内存值不变、
+// 下次 Load 读到的是密文）。
+func MigrationNeeded() bool { return migrationNeeded }
 
 // SourceRef 是一个应用源引用（名称 + fnpack.json 地址或仓库地址）。
 type SourceRef struct {
@@ -59,6 +116,9 @@ type Config struct {
 	PanelEnabled  bool   `json:"panel_enabled,omitempty"`
 	PanelUsername string `json:"panel_username,omitempty"`
 	PanelPassword string `json:"panel_password,omitempty"`
+	// 运行期状态（不落盘，0.6.220）：有凭据存在但解不开（换机/密钥文件丢失）
+	// → 已按「未设置」处理；设置页据此提示用户重填，而不是静默失效。
+	SecretDecryptFailed bool `json:"-"`
 	PanelBaseURL  string `json:"panel_base_url,omitempty"`
 	// 设置备份目录（config.json 全量快照的存放位置；空 = 本机应用数据目录下 backups/）。
 	// 可选 /volN 下共享目录 = 外部存储，手机/电脑可同步备份走。
@@ -92,7 +152,8 @@ type Config struct {
 	// 逐事件开关：key = 事件 key，false = 关闭；key 缺失 = 用目录缺省。
 	NotifyEvents map[string]bool `json:"notify_events,omitempty"`
 	// 通知渠道（外部推送：企微/钉钉/飞书/Server酱/PushPlus/Bark/通用 Webhook）。
-	// 参数在 Params（敏感字段明文存本机 config.json，root 权限；GET 返回时脱敏）。
+	// 参数在 Params（0.6.220 起敏感字段加密落盘 enc:v1:；GET 返回时脱敏）。
+	// 内存里始终是明文，加密只作用于写盘（见本文件顶部「敏感字段落盘加密」）。
 	NotifyChannels []NotifyChannel `json:"notify_channels,omitempty"`
 	// 通知详情页基础地址（0.6.144，卡片形式跳转用）：
 	// 卡片消息的跳转链接 = {NotifyViewBase}/api/notify-view/{id}?t={token}。
@@ -243,15 +304,80 @@ func Load(dataDir string) (*Config, error) {
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return Default(), nil // 配置损坏不致命，回退默认
 	}
+	openSecrets(cfg)
 	return cfg, nil
 }
 
-// Save 将配置写回 dataDir（目录不存在时创建）。
+// openSecrets 就地解密敏感字段（0.6.220）；解不开的按「未设置」处理并打
+// 标记，绝不因此让启动失败——最坏情况是官方源不可用、需用户重填一次口令。
+func openSecrets(cfg *Config) {
+	migrationNeeded = false
+	if codec == nil {
+		return
+	}
+	if cfg.PanelPassword != "" {
+		if secret.IsSealed(cfg.PanelPassword) {
+			if plain, err := codec.Open(cfg.PanelPassword); err == nil {
+				cfg.PanelPassword = plain
+			} else {
+				log.Printf("面板口令解密失败（密钥变化或密文损坏），已按未设置处理，请在设置页重新填写: %v", err)
+				cfg.PanelPassword = ""
+				cfg.SecretDecryptFailed = true
+			}
+		} else {
+			migrationNeeded = true // 存量明文：下次 Save 自动改写为密文
+		}
+	}
+	if extraCodec != nil {
+		if found, err := extraCodec(cfg, false); err != nil {
+			log.Printf("通知渠道凭据解密出错: %v", err)
+		} else if found {
+			migrationNeeded = true
+		}
+	}
+}
+
+// storageCopy 返回用于落盘的副本：敏感字段加密，其余原样；**内存实例不被改写**
+// （面板客户端/通知发送始终拿到明文）。
+func (c *Config) storageCopy() *Config {
+	snap := *c
+	if c.NotifyChannels != nil {
+		snap.NotifyChannels = make([]NotifyChannel, len(c.NotifyChannels))
+		copy(snap.NotifyChannels, c.NotifyChannels)
+		for i := range snap.NotifyChannels {
+			if c.NotifyChannels[i].Params == nil {
+				continue
+			}
+			m := make(map[string]string, len(c.NotifyChannels[i].Params))
+			for k, v := range c.NotifyChannels[i].Params {
+				m[k] = v
+			}
+			snap.NotifyChannels[i].Params = m
+		}
+	}
+	if codec != nil {
+		if snap.PanelPassword != "" {
+			if sealed, err := codec.Seal(snap.PanelPassword); err == nil {
+				snap.PanelPassword = sealed
+			} else {
+				log.Printf("面板口令加密失败（将以明文落盘，请检查数据目录写入权限）: %v", err)
+			}
+		}
+		if extraCodec != nil {
+			if _, err := extraCodec(&snap, true); err != nil {
+				log.Printf("通知渠道凭据加密出错: %v", err)
+			}
+		}
+	}
+	return &snap
+}
+
+// Save 将配置写回 dataDir（目录不存在时创建）；敏感字段在此加密（0.6.220）。
 func (c *Config) Save(dataDir string) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}
-	raw, err := json.MarshalIndent(c, "", "  ")
+	raw, err := json.MarshalIndent(c.storageCopy(), "", "  ")
 	if err != nil {
 		return err
 	}

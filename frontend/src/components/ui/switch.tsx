@@ -17,7 +17,11 @@ const Switch = React.forwardRef<
   >
     <SwitchPrimitives.Thumb
       className={cn(
-        "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0"
+        // 0.6.226：滑钮改用**布局定位**（margin-left）而不是 transform —— 真机录屏实锤
+        // 「键盘弹出那一刻开关会闪一下」：那一帧滑钮整块没画出来（纯蓝药丸），
+        // 原因是 translate 让滑钮进了独立合成层，WebView 在窗口尺寸变化时丢了它一帧。
+        // 用 margin 后滑钮与父级同层绘制，不再有"丢帧"问题（动画幅度仅 16px，观感无差）。
+        "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-[margin] data-[state=checked]:ml-4 data-[state=unchecked]:ml-0"
       )}
     />
   </SwitchPrimitives.Root>

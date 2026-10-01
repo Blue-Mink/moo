@@ -614,6 +614,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [panelPassword, setPanelPassword] = useState('');
   const [panelBaseURL, setPanelBaseURL] = useState('');
   const [panelHasPassword, setPanelHasPassword] = useState(false);
+  /** 0.6.220：库里有凭据但解不开（密钥文件丢失/换机）→ 提示重填 */
+  const [panelDecryptFailed, setPanelDecryptFailed] = useState(false);
   const [panelTesting, setPanelTesting] = useState(false);
   // 0.6.208：测试登录冷却秒数（面板限流防护，见 handlePanelTest）
   const [panelCooldown, setPanelCooldown] = useState(0);
@@ -623,9 +625,69 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   //   clip（iOS/微信 可视裁剪）  → 不位移（0.6.209 位移导致大黑框），
   //   改由对话框高度 open 期间切 100dvh 跟随可视视口、底边停在键盘上方；
   //   pan（壳平移）              → 聚焦期间整体隐藏。
-  const { open: kbOpen, mode: kbMode, hidden: kbDockHidden, liftPx: kbLiftPx } = useKeyboardDock();
-  const dvhSupported = typeof CSS !== 'undefined' && CSS.supports?.('height', '100dvh') === true;
-  const dialogKeyboardStyle = kbOpen && dvhSupported ? { height: '100dvh' } : undefined;
+  const { open: kbOpen, hidden: kbDockHidden, vvTop: kbVvTop, vvHeight: kbVvHeight, baseHeight: kbBaseH } = useKeyboardDock();
+  // 0.6.225（用户 2026-10-01 定稿）：「保存按钮**不管键盘有没有弹出都一直在底部**，
+  // 不要贴键盘上沿」。做法＝键盘弹出时**不改对话框高度**，保持键盘弹出前的整屏高度
+  // （baseHeight）→ 对话框底边 = **物理屏幕底边**，按钮待在原地不动；键盘只是盖住它
+  // （收起键盘即见可点）。这样布局零重排，按钮位置与键盘无关。
+  // 若拿不到基线（异常）→ 不套用内联样式（退回自然布局，不劣化）。
+  const narrowViewport = typeof window !== 'undefined' && window.innerWidth < 640;
+  // 0.6.226：不再等键盘弹出才写内联几何——只要拿到基线就常驻写入。
+  // 这样键盘弹出那一刻 **DOM 不发生变化**（基线未变），减少一次重绘/重排，
+  // 进一步降低"开关滑钮丢一帧"（真机录屏实锤 0.63s 那一帧）的概率。
+  const dialogKeyboardStyle: React.CSSProperties | undefined =
+    narrowViewport && kbBaseH > 240
+      ? { top: 0, height: kbBaseH, bottom: 'auto' }
+      : undefined;
+
+  // 0.6.222：键盘几何调试浮层（**长按顶部版本号 chip** 切换显示）。
+  // 用于真机排查「保存按钮位置」类问题：一张截图即可拿到 innerHeight /
+  // visualViewport（含 offsetTop）/ 保存按钮与对话框的实际范围。
+  const [kbDebug, setKbDebug] = useState(false);
+  const [kbDebugText, setKbDebugText] = useState('');
+  const kbDebugPressTimer = useRef<number | undefined>(undefined);
+  const startKbDebugPress = () => {
+    window.clearTimeout(kbDebugPressTimer.current);
+    kbDebugPressTimer.current = window.setTimeout(() => setKbDebug((v) => !v), 650);
+  };
+  const cancelKbDebugPress = () => window.clearTimeout(kbDebugPressTimer.current);
+  useEffect(() => {
+    if (!kbDebug) return;
+    const tick = () => {
+      const vv = window.visualViewport;
+      const btn = [...document.querySelectorAll('button')].find((b) => (b.textContent || '').trim() === '保存');
+      const r = btn ? btn.getBoundingClientRect() : null;
+      const d = document.querySelector('[role=dialog]')?.getBoundingClientRect();
+      const vk = (navigator as unknown as { virtualKeyboard?: { boundingRect?: DOMRect } }).virtualKeyboard;
+      const vkTop = vk?.boundingRect && vk.boundingRect.height > 0 ? Math.round(vk.boundingRect.y) : null;
+      setKbDebugText(
+        `innerH=${window.innerHeight} vvH=${vv ? Math.round(vv.height) : '-'} vvTop=${vv ? Math.round(vv.offsetTop) : '-'}` +
+          ` | kb=${kbOpen ? 1 : 0} vvPx=${kbVvHeight} styleTop=${kbVvTop}` +
+          ` | dock=${r ? `${Math.round(r.top)}~${Math.round(r.bottom)}` : '-'}` +
+          ` | dlg=${d ? `${Math.round(d.top)}~${Math.round(d.bottom)}` : '-'}` +
+          ` | vkTop=${vkTop ?? 'n/a'}`
+      );
+    };
+    tick();
+    const id = window.setInterval(tick, 300);
+    return () => window.clearInterval(id);
+  }, [kbDebug, kbOpen, kbVvHeight, kbVvTop]);
+
+  // 0.6.225：键盘弹出后，若聚焦的输入框恰好落在键盘覆盖区（看不到），
+  // 只做**最小滚动**把它带进可见区；布局与保存按钮位置不受影响。
+  useEffect(() => {
+    if (!kbOpen) return;
+    const t = window.setTimeout(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+      const r = el.getBoundingClientRect();
+      const visibleBottom = window.innerHeight; // 0.6.225：布局视口 = 键盘顶边（resize 壳）
+      if (r.bottom > visibleBottom || r.top < 0) {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }, 140);
+    return () => window.clearTimeout(t);
+  }, [kbOpen]);
   useEffect(() => {
     if (panelCooldown <= 0) return;
     const t = setTimeout(() => setPanelCooldown((v) => v - 1), 1000);
@@ -1114,6 +1176,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setPanelUsername(settings.panel_username || 'fnos');
         setPanelBaseURL(settings.panel_base_url || '');
         setPanelHasPassword(!!settings.panel_has_password);
+        setPanelDecryptFailed(!!settings.panel_decrypt_failed);
         setPanelPassword('');
         panelPasswordDirtyRef.current = false;
         setBackupDir(settings.backup_dir || '');
@@ -1317,6 +1380,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <DialogContent
         style={dialogKeyboardStyle}
         className="inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden bg-background sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex">
+        {/* 键盘几何调试浮层（**长按版本 chip** 才显示；真机排查用，默认不打扰） */}
+        {kbDebug && (
+          <div className="pointer-events-none fixed left-1 top-1 z-[9999] max-w-[97vw] rounded bg-black/85 px-1.5 py-1 font-mono text-[9px] leading-tight text-lime-300">
+            {kbDebugText}
+          </div>
+        )}
         {/* 顶栏：← 返回 + 标题 */}
         <div className="flex items-center gap-1 border-b border-border/60 px-2 py-2 shrink-0">
           <Button
@@ -1353,8 +1422,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     toast.info('版本信息加载中，请稍后再试');
                   }
                 }}
+                onPointerDown={startKbDebugPress}
+                onPointerUp={cancelKbDebugPress}
+                onPointerLeave={cancelKbDebugPress}
+                onPointerCancel={cancelKbDebugPress}
                 className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-muted"
-                title={`Moo 版本 v${storeInfo?.current_version || '…'}，点击查看更新`}
+                title={`Moo 版本 v${storeInfo?.current_version || '…'}，点击查看更新（长按显示键盘调试信息）`}
               >
                 v{storeInfo?.current_version || '…'}
               </button>
@@ -2268,8 +2341,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         仅浏览/安装官方应用时需要，填写一次自动记住
                       </p>
                       <p className="text-xs text-amber-600 dark:text-amber-400/90">
-                        ⚠ 面板密码 = 主机 root 密码，以明文存于应用数据目录：请勿与 SSH 口令复用，并只安装可信来源的应用
+                        ⚠ 面板密码加密存于应用数据目录（密钥同机，仅防外带）：请勿复用其他系统口令，只装可信来源应用
                       </p>
+                      {panelDecryptFailed && (
+                        <p className="text-xs text-red-500">
+                          检测到已保存的面板密码无法解密（可能是数据目录迁移或密钥文件丢失），为避免误用已按「未设置」处理：请重新填写面板密码。
+                        </p>
+                      )}
                       <div className="rounded-lg border border-border/30">
                         <button
                           onClick={togglePanelAdvanced}
@@ -2510,14 +2588,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               外框与内容卡片同宽（px-3 / sm:px-6）。 */}
           {tab !== 'about' && !kbDockHidden && (
             <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 sm:px-6">
-              <div
-                className="mx-auto w-full sm:w-72"
-                style={
-                  kbMode === 'resize' && kbLiftPx > 0
-                    ? { transform: `translateY(-${kbLiftPx}px)` }
-                    : undefined
-                }
-              >
+              {/* 0.6.221：不再做 translateY 上抬——对话框底边已等于可见底边
+                  （见上方 dialogKeyboardStyle），再抬就会过冲：按钮浮在键盘上方、
+                  不像"固定在底部"（用户实报）。这里保持流式钉在对话框底边即可。 */}
+              <div className="mx-auto w-full sm:w-72">
                 <Button
                   className="w-full h-11 rounded-2xl shadow-lg shadow-black/10"
                   onClick={handleSave}

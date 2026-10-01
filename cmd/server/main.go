@@ -21,9 +21,11 @@ import (
 	"moo/internal/api"
 	"moo/internal/config"
 	"moo/internal/netx"
+	"moo/internal/notify"
 	"moo/internal/official"
 	"moo/internal/operation"
 	"moo/internal/pipeline"
+	"moo/internal/secret"
 	"moo/internal/source"
 	"moo/internal/task"
 	webdist "moo/web"
@@ -36,9 +38,31 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	dataDir := config.DataDir()
+	// 0.6.220（方案 X）：敏感字段落盘加密——注入加解密器后再 Load，
+	// 这样读到的面板口令/通知渠道密钥已在内存里是明文。
+	// 密钥 = 每次安装独有的随机值（<dataDir>/.moo-secret.key，0600）；
+	// 不用 /etc/machine-id 派生（实测多台 fnOS 设备 machine-id 相同）。
+	if sealer, serr := secret.LoadOrCreate(dataDir); serr != nil {
+		log.Printf("[security] 凭据加密密钥不可用，凭据将以明文存储（建议检查数据目录权限）: %v", serr)
+	} else {
+		config.SetCodec(sealer)
+		config.SetExtraCodec(notify.SealChannelSecrets)
+		log.Printf("[security] 凭据落盘加密已启用（密钥指纹 %s）", sealer.KeyID())
+	}
 	cfg, err := config.Load(dataDir)
 	if err != nil {
 		log.Printf("配置加载失败，使用默认配置: %v", err)
+	}
+	// 存量明文凭据 → 立刻改写为密文（一次性迁移，幂等）
+	if config.MigrationNeeded() {
+		if err := cfg.Save(dataDir); err != nil {
+			log.Printf("[security] 明文凭据迁移失败（下次保存会重试）: %v", err)
+		} else {
+			log.Printf("[security] 已把存量明文凭据迁移为密文（enc:v1）")
+		}
+	}
+	if cfg.SecretDecryptFailed {
+		log.Printf("[security] 存在无法解密的凭据（密钥文件缺失/变更）——相关功能需在设置页重新填写")
 	}
 	// 0.6.207-panel：启动时清理旧版本遗留的明文凭据残留（config.bak-*/
 	// *.bak-removed/official_session.json*/含明文口令的备份快照），逐条留痕。

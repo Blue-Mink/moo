@@ -64,6 +64,16 @@ export interface KeyboardDockState {
   liftPx: number;
   /** pan 型壳兜底：聚焦输入框期间整体隐藏 dock */
   hidden: boolean;
+  /** 0.6.221：可视视口几何（布局坐标；键盘未开或 vv 不可用时 vvHeight = 0）。
+      消费方据此把容器**直接**钉在可见区域上——比 100dvh / liftPx 的间接推算可靠：
+      resize（布局压扁）/ clip（可视裁剪）/ pan（壳平移）三种壳共用同一份几何，
+      容器底边恒等于可见底边（键盘顶边）。 */
+  vvTop: number;
+  vvHeight: number;
+  /** 0.6.225：键盘弹出前的「整屏」高度基线（布局视口 px）。
+      消费方用它可以**保持键盘弹出前的布局**（容器高度 = 整屏），
+      于是容器底边＝物理屏幕底边：键盘只是盖住它，按钮/布局都不位移。 */
+  baseHeight: number;
 }
 
 export function useKeyboardDock(
@@ -71,7 +81,7 @@ export function useKeyboardDock(
   keyboardThresholdPx = 220,
   settleMs = 400
 ): KeyboardDockState {
-  const [state, setState] = useState<KeyboardDockState>({ open: false, mode: null, offsetPx: 0, liftPx: 0, hidden: false });
+  const [state, setState] = useState<KeyboardDockState>({ open: false, mode: null, offsetPx: 0, liftPx: 0, hidden: false, vvTop: 0, vvHeight: 0, baseHeight: 0 });
   useEffect(() => {
     const vv = window.visualViewport;
     // 初始固有差（iframe 高于可视区、地址栏等）
@@ -89,11 +99,12 @@ export function useKeyboardDock(
     let focusRefVv = vv ? vv.height : 0;
     let keyboardActive = false; // 视口收缩超过阈值 = 键盘开着
 
-    const setAll = (open: boolean, mode: 'resize' | 'clip' | 'pan' | null, offsetPx: number, liftPx: number, hidden: boolean) =>
+    const setAll = (open: boolean, mode: 'resize' | 'clip' | 'pan' | null, offsetPx: number, liftPx: number, hidden: boolean, vvTop: number, vvHeight: number, baseHeight: number) =>
       setState(prev =>
-        prev.open === open && prev.mode === mode && prev.offsetPx === offsetPx && prev.liftPx === liftPx && prev.hidden === hidden
+        prev.open === open && prev.mode === mode && prev.offsetPx === offsetPx && prev.liftPx === liftPx &&
+        prev.hidden === hidden && prev.vvTop === vvTop && prev.vvHeight === vvHeight && prev.baseHeight === baseHeight
           ? prev
-          : { open, mode, offsetPx, liftPx, hidden }
+          : { open, mode, offsetPx, liftPx, hidden, vvTop, vvHeight, baseHeight }
       );
 
     const measure = () => {
@@ -171,7 +182,12 @@ export function useKeyboardDock(
       const liftPx =
         mode === 'resize' && vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
       const hidden = shellMode === 'pan' && focusedEditable;
-      setAll(keyboardActive, mode, offsetPx, liftPx, hidden);
+      // 0.6.221：把当前可视视口几何一并交给消费方（键盘未开时归零）。
+      // 这是"保存按钮固定可见底边"的**权威**依据：无论壳是压扁布局、
+      // 裁剪可视区还是整体平移，容器按 (top, height) 钉住即可。
+      const vvTop = keyboardActive && vv ? Math.round(vv.offsetTop) : 0;
+      const vvHeight = keyboardActive && vv ? Math.round(vv.height) : 0;
+      setAll(keyboardActive, mode, offsetPx, liftPx, hidden, vvTop, vvHeight, Math.round(baseH));
     };
 
     const onFocusIn = () => {
@@ -204,6 +220,8 @@ export function useKeyboardDock(
     measure();
     window.addEventListener('resize', measure);
     vv?.addEventListener('resize', measure);
+    // pan 型壳靠 vv.offsetTop 变化暴露平移，必须监听 vv 的 scroll
+    vv?.addEventListener('scroll', measure);
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     return () => {
@@ -211,6 +229,7 @@ export function useKeyboardDock(
       clearTimeout(settleTimer);
       window.removeEventListener('resize', measure);
       vv?.removeEventListener('resize', measure);
+      vv?.removeEventListener('scroll', measure);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
     };
