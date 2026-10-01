@@ -406,6 +406,32 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   const carouselRef = useRef<HTMLDivElement>(null);
   // 灯箱滑动切换：pointer 拖拽（触屏/鼠标通用），水平位移足够才翻页
   const lightboxDrag = useRef<{ x: number; y: number; swiping: boolean } | null>(null);
+  // ── 0.6.227：预览图双指缩放（pinch-zoom）+ 缩放后单指拖动平移 ──────────────
+  // 交互口径：
+  //  · 双指捏合 = 以两指中点为锚点缩放（1×–5×），手松开停在当前倍数；
+  //  · 缩放态下单指拖动 = 平移图片（带边界，防拖出屏幕）；
+  //  · 缩回 1× 自动归位；缩放态下**禁用**点按关闭与左右滑动翻页（避免误触）；
+  //  · 桌面端滚轮也可缩放（调试与桌面体验）。
+  // 实现要点：用 pointer events 同时跟踪多个触点（pointerId → 坐标），
+  // 两指时算距离比值得到倍数；锚点数学保证「手指下那一点不动」。
+  const ZOOM_MAX = 5;
+  const [zoom, setZoom] = useState<{ s: number; x: number; y: number }>({ s: 1, x: 0, y: 0 });
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{ dist: number; cx: number; cy: number; s0: number; x0: number; y0: number; rectCx: number; rectCy: number; rectW: number; rectH: number } | null>(null);
+  const zoomPanRef = useRef<{ x: number; y: number; tx: number; ty: number; rectW: number; rectH: number } | null>(null);
+  const zoomClamp = (s: number) => Math.min(ZOOM_MAX, Math.max(1, s));
+  const zoomPanClamp = (x: number, y: number, s: number, w: number, h: number) => {
+    const mx = Math.max(0, ((s - 1) * w) / 2);
+    const my = Math.max(0, ((s - 1) * h) / 2);
+    return { x: Math.min(mx, Math.max(-mx, x)), y: Math.min(my, Math.max(-my, y)) };
+  };
+  // 切图 / 关闭灯箱时缩放归位（否则下一张会带着上一张的倍数与位移）
+  useEffect(() => {
+    setZoom({ s: 1, x: 0, y: 0 });
+    pointers.current.clear();
+    pinchRef.current = null;
+    zoomPanRef.current = null;
+  }, [lightbox]);
   // 悬浮返回钮（移动端）：磨玻璃圆钮磁吸贴左缘（半露出）—— x 恒锁定左边缘，
   // 只能沿左缘纵向拖动（y 持久化）；静置 = 比背景浅一档的半透白磨玻璃（不影响阅读），
   // 拖动 = 加深为页面背景色 + 微放大；细线 ‹ 箭头右移、露出区内完全可见；轻点 = 返回。
@@ -1243,10 +1269,65 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               顶部浅色提示行说明手势，不干扰看图 */}
           <div
             className="relative flex items-center justify-center w-full h-full"
-            style={{ pointerEvents: 'auto' }}
+            // touchAction:none —— 让浏览器别把双指手势当成「缩放整个网页」
+            style={{ pointerEvents: 'auto', touchAction: 'none' }}
             onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => { lightboxDrag.current = { x: e.clientX, y: e.clientY, swiping: false }; }}
+            onPointerDown={(e) => {
+              pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+              // 双指落下 → 进入缩放（取消点按/滑动判定）
+              if (pointers.current.size === 2) {
+                const [a, b] = [...pointers.current.values()];
+                const rect = e.currentTarget.getBoundingClientRect();
+                pinchRef.current = {
+                  dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+                  cx: (a.x + b.x) / 2,
+                  cy: (a.y + b.y) / 2,
+                  s0: zoom.s,
+                  x0: zoom.x,
+                  y0: zoom.y,
+                  rectCx: rect.left + rect.width / 2,
+                  rectCy: rect.top + rect.height / 2,
+                  rectW: rect.width,
+                  rectH: rect.height,
+                };
+                lightboxDrag.current = null;
+                zoomPanRef.current = null;
+                return;
+              }
+              if (zoom.s > 1.01) {
+                // 缩放态：单指 = 平移
+                const rect = e.currentTarget.getBoundingClientRect();
+                zoomPanRef.current = { x: e.clientX, y: e.clientY, tx: zoom.x, ty: zoom.y, rectW: rect.width, rectH: rect.height };
+                lightboxDrag.current = null;
+              } else {
+                lightboxDrag.current = { x: e.clientX, y: e.clientY, swiping: false };
+              }
+            }}
             onPointerMove={(e) => {
+              if (!pointers.current.has(e.pointerId)) return;
+              pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+              // ① 双指缩放：以两指中点为锚点，保证手指下那一点不动
+              if (pinchRef.current && pointers.current.size >= 2) {
+                const [a, b] = [...pointers.current.values()];
+                const p = pinchRef.current;
+                const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+                const s = zoomClamp(p.s0 * (dist / p.dist));
+                const cx = (a.x + b.x) / 2;
+                const cy = (a.y + b.y) / 2;
+                const px = (p.cx - p.rectCx - p.x0) / p.s0;
+                const py = (p.cy - p.rectCy - p.y0) / p.s0;
+                const cl = zoomPanClamp(cx - p.rectCx - s * px, cy - p.rectCy - s * py, s, p.rectW, p.rectH);
+                setZoom({ s, x: cl.x, y: cl.y });
+                return;
+              }
+              // ② 缩放态单指平移
+              if (zoomPanRef.current && zoom.s > 1.01) {
+                const p = zoomPanRef.current;
+                const cl = zoomPanClamp(p.tx + (e.clientX - p.x), p.ty + (e.clientY - p.y), zoom.s, p.rectW, p.rectH);
+                setZoom((z) => ({ ...z, x: cl.x, y: cl.y }));
+                return;
+              }
+              // ③ 原有：判定是否横向滑动（用于翻页）
               const d = lightboxDrag.current;
               if (!d) return;
               const dx = e.clientX - d.x;
@@ -1254,8 +1335,15 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) d.swiping = true;
             }}
             onPointerUp={(e) => {
+              pointers.current.delete(e.pointerId);
+              if (pointers.current.size < 2) pinchRef.current = null;
+              zoomPanRef.current = null;
+              // 缩回 1× 自动归位
+              if (zoom.s <= 1.02) setZoom({ s: 1, x: 0, y: 0 });
               const d = lightboxDrag.current;
               lightboxDrag.current = null;
+              // 缩放态：不响应点按关闭与翻页（退出缩放后手势恢复）
+              if (zoom.s > 1.01) return;
               if (!d || lightbox == null) return;
               // 点按在按钮上（箭头/X/重试）不触发"点按关闭"
               if (e.target instanceof Element && e.target.closest('button')) return;
@@ -1271,8 +1359,32 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 setLightbox((dx < 0 ? lightbox + 1 : lightbox - 1 + previewCount) % previewCount);
               }
             }}
+            onPointerCancel={(e) => {
+              pointers.current.delete(e.pointerId);
+              if (pointers.current.size < 2) pinchRef.current = null;
+              zoomPanRef.current = null;
+              lightboxDrag.current = null;
+              if (zoom.s <= 1.02) setZoom({ s: 1, x: 0, y: 0 });
+            }}
             onPointerLeave={() => { lightboxDrag.current = null; }}
+            // 桌面端滚轮缩放（以指针为锚点）
+            onWheel={(e) => {
+              if (lightboxError) return;
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const s = zoomClamp(zoom.s * (e.deltaY < 0 ? 1.12 : 0.89));
+              const cx = rect.left + rect.width / 2;
+              const cy = rect.top + rect.height / 2;
+              const mx = e.clientX - cx;
+              const my = e.clientY - cy;
+              const px = (mx - zoom.x) / zoom.s;
+              const py = (my - zoom.y) / zoom.s;
+              const cl = zoomPanClamp(mx - s * px, my - s * py, s, rect.width, rect.height);
+              setZoom({ s, x: cl.x, y: cl.y });
+            }}
           >
+            {/* 提示行文案保持原样（用户要求：不要在屏上出现「双指缩放」字样；
+                缩放手势本身默默可用即可） */}
             <div className="absolute top-3 left-1/2 -translate-x-1/2 text-[13px] tracking-wide text-white/45 pointer-events-none select-none whitespace-nowrap">
               上下滑动可退出 · 左右滑动切换
             </div>
@@ -1291,17 +1403,30 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 </Button>
               </div>
             ) : (
-              <img
-                key={`${lightbox}-${lightboxRetry}`}
-                src={previewSrc(lightbox) + (lightboxRetry ? `&r=${lightboxRetry}` : '')}
-                alt={`${app.display_name} 预览 ${lightbox + 1}`}
-                className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-150 pointer-events-auto touch-none select-none ${lightboxLoading ? 'opacity-0' : 'opacity-100'} ${
-                  lightboxAnim === 'next' ? 'lightbox-anim-next' : lightboxAnim === 'prev' ? 'lightbox-anim-prev' : 'lightbox-anim-open'
-                }`}
-                onLoad={() => setLightboxLoading(false)}
-                onError={() => { setLightboxLoading(false); setLightboxError(true); }}
-                draggable={false}
-              />
+              /* 0.6.227：缩放/平移包一层 —— transform 只作用在这层，
+                 img 自身的换页动画（lightbox-anim-*）不受影响 */
+              <div
+                className="flex items-center justify-center w-full h-full"
+                style={{
+                  transform: `translate3d(${zoom.x}px, ${zoom.y}px, 0) scale(${zoom.s})`,
+                  transformOrigin: 'center center',
+                  transition: pinchRef.current || zoomPanRef.current ? 'none' : 'transform 160ms ease-out',
+                }}
+              >
+                <img
+                  key={`${lightbox}-${lightboxRetry}`}
+                  src={previewSrc(lightbox) + (lightboxRetry ? `&r=${lightboxRetry}` : '')}
+                  alt={`${app.display_name} 预览 ${lightbox + 1}`}
+                  className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-150 pointer-events-auto touch-none select-none ${
+                    lightboxLoading ? 'opacity-0' : 'opacity-100'
+                  } ${
+                    lightboxAnim === 'next' ? 'lightbox-anim-next' : lightboxAnim === 'prev' ? 'lightbox-anim-prev' : 'lightbox-anim-open'
+                  }`}
+                  onLoad={() => setLightboxLoading(false)}
+                  onError={() => { setLightboxLoading(false); setLightboxError(true); }}
+                  draggable={false}
+                />
+              </div>
             )}
           </div>
           <button
