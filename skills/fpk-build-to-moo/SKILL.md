@@ -6,36 +6,39 @@ description: 从应用包到发布「Moo 应用源」的全流程：moo.json 协
 name: fpk-build-to-moo
 ---
 
-# 从应用包到发布「Moo 应用源」 — 全链路 Skill
+# 从构建 FPK 到发布「Moo 应用源」 — 全链路 Skill
 
-> 整合来源：**Moo 应用源协议**（仓库 `docs/MOO-PROTOCOL.md`）+ 仓库内两个生成器
+> 全流程：**构建 FPK → 本地/测试机验证 → 写索引 → 放仓库 → 自测 → 添加为源 → 详情页验收 → 版本迭代**。
+> 整合来源：**Moo 应用源协议**（`docs/MOO-PROTOCOL.md`）+ 仓库内两个生成器
 > （`tools/gen-moo-json`、`tools/gen-repo-moo-json.py`）+ Moo 仓库自身被当作应用源的完整实战。
 >
-> **构建 / 打包 / 安装测试 FPK 的权威工具链在 `fn-fpk-builder` 技能**；
-> 发布到 **FnDepot** 开源商店请用姊妹技能 `fpk-build-to-fndepot`。本技能只讲 **发布到 Moo**。
+> 深层构建规范（完整字段表 / 环境变量 / 生命周期）见姊妹技能 **`fn-fpk-builder`**；
+> 发布到 **FnDepot** 开源商店请用姊妹技能 `fpk-build-to-fndepot`。
 
 ## 一、全链路总览
 
 ```
-① 准备应用（已有 FPK 包，或 Docker 应用）
-        ↓
-② 写 moo.json（手写 / 生成器一键生成）
-        ↓
-③ 放到仓库（仓库根或任意 HTTP 路径，能 200 返回即可）
-        ↓
-④ 自测：把链接粘到 Moo 首页搜索框 → 应能即时列出应用
-        ↓
-⑤ 添加为源：设置 → 应用源设置 → 添加应用源
-        ↓
-⑥ 验收详情页：图标 / 体积 / 校验和 / 预览 / README / 更新日志 / 分类
-        ↓
-⑦ 发布卫生：脱敏复扫（内网地址、token、真实未公开 sha）
+① 构建 FPK（源码 → 包）              → references/fpk-build.md
+        ↓  判据：产出 *.fpk、manifest/ICON 齐、记下 sha256
+② 本地/测试机验证（装一次、启一次）    → references/fpk-build.md §七
+        ↓  判据：能装能启、功能可用、版本号与 manifest 一致
+③ 写 moo.json（手写 / 生成器一键生成） → 本文件 §2
+        ↓  判据：json 合法、download_url + sha256 齐、单位正确、分类取自固定清单
+④ 放到仓库（仓库根或任意 HTTP 路径）   → references/publish-workflow.md §4
+        ↓  判据：curl -sI 链接 = 200，图标/预览/README/包都能匿名取到
+⑤ 自测：链接粘到 Moo 首页搜索框        → 本文件 §3
+        ↓  判据：能即时列出该源应用且展示名/版本/图标正确
+⑥ 添加为源 + 详情页验收               → 本文件 §3
+        ↓  判据：体积/校验和/预览/README/更新日志/分类/运行方式都对，且真装一次成功
+⑦ 版本迭代与发布卫生                  → references/publish-workflow.md §7 + 本文件 §七
 ```
 
 ## 按需阅读（路由）
 
 | 场景 | 读哪里 |
 |------|--------|
+| **构建阶段**：开发目录 / manifest 字段 / 图标 / 生命周期脚本 / privilege / build.sh / 本机安装与热替换 / 构建失败排查 | [references/fpk-build.md](references/fpk-build.md) |
+| **操作流程**（每步的"做完判据" / 多应用仓库维护 / 发布新版） | [references/publish-workflow.md](references/publish-workflow.md) |
 | 协议全文（字段表 / 14 项固定分类 / 7 份带注释示例 / 错误与缓存 / FAQ） | [docs/MOO-PROTOCOL.md](../../docs/MOO-PROTOCOL.md) |
 | 只想抄一份能用的索引 | 本文件 §2 的两个生成器 + 协议文档 §6 示例合集 |
 | 排查「搜不到 / 没图标 / 体积 0.0MB / 更新红点不消」 | [docs/MOO-PROTOCOL.md](../../docs/MOO-PROTOCOL.md#10-faq--排查手册) |
@@ -134,6 +137,11 @@ Moo 比较版本：去前导 `v` → 拆「数字前缀 + 后缀」→ 数字逐
 
 | 操作 | 命令 |
 |------|------|
+| 构建 FPK（项目自带脚本） | `./build.sh x86` |
+| 手动打包 | `fnpack build -d <开发目录>` |
+| 记录包校验和 | `sha256sum <appname>.fpk` |
+| 装到测试机 | `scp <fpk> root@<NAS>:/tmp/ && ssh root@<NAS> 'appcenter-cli install /tmp/<fpk>'` |
+| 热替换（只换二进制） | `ssh root@<NAS> 'appcenter-cli stop <app> && cp <bin> <安装目录>/ && appcenter-cli start <app>'` |
 | 从 FPK 目录生成索引 | `go run ./tools/gen-moo-json -dir <fpk目录> -base-url <前缀> -out moo.json` |
 | 从仓库 releases 生成索引 | `python3 tools/gen-repo-moo-json.py --repo <url> --app <appname> --out moo.json` |
 | 校验 JSON 合法 | `python3 -c "import json;json.load(open('moo.json'))"` |
@@ -156,7 +164,7 @@ Moo 比较版本：去前导 `v` → 拆「数字前缀 + 后缀」→ 数字逐
 
 ## 八、引用与致谢
 
-- **Moo 应用源协议**（本仓库 `docs/MOO-PROTOCOL.md`，已随技能收录为 `docs/MOO-PROTOCOL.md`）
+- **Moo 应用源协议**：本仓库 `docs/MOO-PROTOCOL.md`
 - 生成器：`tools/gen-moo-json`（Go）、`tools/gen-repo-moo-json.py`（Python）
 - 姊妹技能：`fn-fpk-builder`（构建/打包/安装）、`fpk-build-to-fndepot`（发布到 FnDepot）
 - 实战来源：Moo 仓库自身被添加为应用源的全过程（252+ 版本多版本索引、真实下载数、预览图与 README 拉取）
