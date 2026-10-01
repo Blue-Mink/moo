@@ -1,0 +1,22 @@
+#!/bin/bash
+# Moo 配置回调（0.6.154：设置向导端口闭环）：校验→应用→重启→DB 重同步。
+# 键名与安装向导同款双收（wizard_access_port / access_port）。
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+echo "moo config_callback" >> "${LOG_FILE:-/var/log/apps/moo.log}" 2>/dev/null
+cport="${wizard_access_port:-${access_port:-}}"
+if [ -n "${cport}" ]; then
+    echo "config wizard port=${cport} (wizard_access_port=${wizard_access_port:-} access_port=${access_port:-})" >> "${LOG_FILE}" 2>/dev/null
+    if ! validate_port "${cport}"; then
+        echo "端口无效：${cport}（必须是 1024-65535 的数字）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+    fi
+    apply_port "${cport}"
+    restart_service "${cport}"
+    sync_appcenter_db "${cport}" "running"
+    ( for _d in 3 8 15; do sleep "${_d}"; sync_appcenter_db "${cport}" "running"; done ) >/dev/null 2>&1 &
+    echo "Config updated: Web port=${cport}"
+    echo "Moo 服务已自动重启并同步应用中心服务端口（面板入口 /app/moo/ 不受影响）。"
+fi
+exit 0

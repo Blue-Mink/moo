@@ -1,0 +1,152 @@
+<p align="center">
+  <img src="docs/readme-logo.png" width="92" alt="Moo logo" /><br/>
+</p>
+
+<h1 align="center">For fnOS<br/>Moo is more</h1>
+
+<p align="center">
+  在飞牛 NAS 上装一个第三方应用中心，2000+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
+</p>
+
+<p align="center">
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.206-1f6feb?style=flat-square"></a>
+  <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64-6f42c1?style=flat-square">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="releases/latest">下载 FPK</a> ·
+  <a href="releases">更新日志</a> ·
+  <a href="https://github.com/conversun/fnos-apps">fnos-apps（上游）</a> ·
+  <a href="https://github.com/Blue-Mink/moo/issues">反馈问题</a>
+</p>
+
+本仓库包含 Moo 的全部源码：Go 后端（单二进制，web embed）+ React / TypeScript 前端（Vite 构建后内嵌），发布产物为仅 x86_64 的单 FPK。应用目录数据来自三大平台——飞牛官方应用中心、FnDepot、fnos-apps（conversun），Moo 只负责聚合、归类与推送，不修改上游数据。
+
+<p align="center">
+  <img src="docs/readme-mobile-1.png" width="100%" alt="移动端：主页 / 收藏 / 发现（暗黑模式真机）"/><br/>
+  <b>移动端 · 主页 / 收藏 / 发现（暗黑模式）</b><br/>
+  App Store 风格列表 · 搜索可直接贴源链接 · 收藏与关注源
+</p>
+
+<p align="center">
+  <img src="docs/readme-mobile-2.png" width="86%" alt="移动端设置（系统 / 加速源 / 应用源 / 备份 / 通知 / 关于）"/><br/>
+  <b>移动端 · 设置全 tab</b><br/>
+  加速源健康自动监测 · 应用源 155 个一键恢复 · 通知内容三档
+</p>
+
+<p align="center">
+  <img src="docs/readme-pc-home.png" width="100%" alt="桌面端主页"/><br/>
+  <b>桌面端 · 主页</b><br/>
+  14 个领域分类 chip · 应用网格 · 批量操作与拖拽排序
+</p>
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/readme-pc-detail.png" width="98%" alt="应用详情" /></td>
+    <td width="50%" align="center"><img src="docs/readme-pc-settings.png" width="98%" alt="设置" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>应用详情</b></td>
+    <td align="center"><b>设置</b></td>
+  </tr>
+</table>
+
+## 安装
+
+| # | 做什么 | 说明 |
+| --- | --- | --- |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.198` · SHA256 `8b3af382c7d108219fb03d54a20e6e540749481259adb5b289a7e290e30d43c8` |
+| 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
+| 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
+| 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
+
+运行要求：fnOS x86_64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 7.4 MB。
+
+> [!TIP]
+> 装完可应用内自更新：版本号红点 + 确认框，走平台升级通道就地更新，`@appdata` 数据保留。
+
+## 为什么这样设计
+
+| 能力 | 说明 |
+| --- | --- |
+| 三源同步 | 飞牛官方应用中心 · FnDepot（V1/V2）· fnos-apps；内置 155 个社区源，一键恢复 / 去重 / 重命名 / 拖拽排序 |
+| 智能归类 | 14 个领域分类：精选表优先 → 标签映射 → 关键词兜底，官方口径对齐 |
+| 通知体系 | 30+ 事件 × 7 外部渠道，内容三档 × 形式按渠道可选；应用内通知恒开、永不漏记 |
+| GitHub 加速 | 多镜像测速自动优选，自更新 / FPK 下载 / 源同步全链路走加速；全挂告警 + 恢复通知 |
+| 应用内自更新 | 平台升级通道就地更新，`@appdata` 数据保留；版本号红点 + 确认框 |
+| 收藏与关注 | 应用收藏、关注源（新增应用推送 + 关注源报表）、忽略更新（列表可找回） |
+| 搜索贴源 | 搜索框直接粘贴 GitHub / FnDepot 源地址，自动识别源并搜索其应用 |
+| 备份与缓存 | 配置快照一键备份 / 周期自动备份；已下载 FPK 缓存自动清理 |
+| 下载中心 | aria2 高速下载 + 断点续传，任务状态全透明、可暂停 / 删除 |
+
+## 工作原理
+
+```mermaid
+flowchart LR
+    A["应用中心安装 FPK"] --> B["wizard 选 Web 端口<br/>默认 38100"]
+    B --> C["moo-server 仅监听回环<br/>唯一入口：面板网关 /app/moo/"]
+    C --> D["三源同步 + 155 社区源<br/>14 类智能归类"]
+    D --> E["更新监测 + GitHub 加速<br/>镜像测速自动优选"]
+    E --> F["30+ 事件 × 7 渠道<br/>内容三档推送"]
+```
+
+**一句话总结**：后端只监听回环地址，面板网关是唯一入口——继承面板登录态、仅管理员可见，不额外暴露任何公网端口。
+
+## 通知体系
+
+- **事件**：应用生命周期（安装 / 更新 / 卸载 / 下载 × 成功失败）、应用更新摘要、关注源变化、加速源切换 / 全挂、自身健康与资源告警、备份完成……共 30+ 类，逐条开关 + 手动触发
+- **渠道**：企业微信（卡片 / 富文本表格 / 经典 markdown）· 钉钉 · 飞书 · Server酱 · PushPlus · Bark · 通用 Webhook
+- **内容**：简洁（关键信息）/ 友好（关键摘要 + 折叠）/ 完整（全部信息），渠道测试即发欢迎语
+
+## 端口与入口
+
+| 项 | 值 | 说明 |
+| --- | --- | --- |
+| Web 端口 | `38100`（向导可改） | 后端仅监听回环，不直接对外 |
+| 面板入口 | `/app/moo/` | 唯一入口，走面板统一网关 |
+
+> [!NOTE]
+> 入口继承面板登录 + 仅管理员，因此跨设备访问需先有面板的远程访问（如 FN Connect）。
+
+## 仓库结构
+
+```
+cmd/          daemon 入口
+internal/     后端：目录构建 / 源管理 / 通知 / 加速 / 自更新 / API
+frontend/     前端：React + TypeScript（Vite）
+fnos/         FPK manifest 与生命周期脚本
+docs/         文档与 README 配图
+```
+
+## 从源码构建
+
+```bash
+./build.sh x86    # 产出 moo_<version>_x86.fpk（首次自动下载 fnpack）
+go test ./...     # 单元测试
+```
+
+## 📄 许可证
+
+[MIT License](LICENSE) · © 2026 Blue-Mink
+
+---
+
+## 🙏 致谢
+
+- [conversun/fnos-apps](https://github.com/conversun/fnos-apps) —— 第三方应用目录数据源，Moo 由其发展而来
+- [FnDepot](https://github.com/EWEDLCM/FnDepot) 及其源开发者们 —— 第三方应用源生态
+- [fn-knock](https://github.com/Blue-Mink/fn-knock-turborepo) —— 通知事件中心模型与 UI 参考
+- [飞牛 fnOS](https://www.fnnas.com/) —— 友好的 NAS 操作系统
+- AI 模型 —— 开发全程协作伙伴
+
+---
+
+<div align="center">
+
+**如果觉得好用，顺手点个 ⭐ Star 支持一下！**
+
+Made with  and by [Blue-Mink](https://github.com/Blue-Mink)
+
+</div>

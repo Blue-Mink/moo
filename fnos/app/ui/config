@@ -1,0 +1,14 @@
+{
+    ".url": {
+        "moo.Application": {
+            "title": "Moo",
+            "desc": "飞牛第三方应用中心",
+            "icon": "images/ICON.PNG",
+            "type": "iframe",
+            "gatewaySocket": "app.sock",
+            "gatewayPrefix": "/app/moo",
+            "url": "/app/moo/",
+            "allUsers": false
+        }
+    }
+}

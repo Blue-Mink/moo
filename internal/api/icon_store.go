@@ -1,0 +1,504 @@
+package api
+
+import (
+	"context"
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"moo/internal/source"
+)
+
+// 图标两级缓存 + 负缓存 + 后台预热——对齐 New Store 的加载架构：
+//
+//	① 内存层 10min（热应用秒回）；
+//	② 磁盘层 7 天（<DataDir>/cache/icons/，进程重启/重新部署不冷瀑布，
+//	   此前 Moo 只有 24h 内存缓存，每次部署后整面图标墙重抓）；
+//	③ 负缓存 30min（所有候选都失败的结论，坏图标不再每次点击重赛 15s）；
+//	④ 后台预热（目录就绪后 6 并发拉取，首轮 10min 预算，之后每 30min
+//	   一轮 3min，把用户没点过的应用图标也提前灌进磁盘层）。
+const (
+	// 内存层 1h（目录 24h 才变一次；NAS 上单图标磁盘读 ~100ms，
+	// 1h 内反复浏览列表全走内存毫秒级；10min 实测不够——warm 流量
+	// 会先把整层冲掉）
+	iconMemTTL  = time.Hour
+	iconDiskTTL = 7 * 24 * time.Hour
+	iconNegTTL  = 30 * time.Minute
+	iconMemMax  = 1024
+	iconDiskMax = 2000
+	// 预热并发：3（而非 NS 的 6）——每应用最多 9 个候选并发，6 路预热
+	// = 54 路出站，实测会把 gh-proxy 镜像打进限流、反噬用户点击的图标
+	iconWarmSem = 3
+)
+
+type iconMemEntry struct {
+	data    []byte
+	ctype   string
+	expires time.Time
+}
+
+type iconDiskRef struct {
+	File string `json:"f"`
+	CT   string `json:"ct"`
+	TS   int64  `json:"ts"`
+}
+
+// iconStore 图标两级缓存（dir 为空 = 仅内存层，单元测试用）。
+type iconStore struct {
+	dir string
+
+	mu    sync.Mutex
+	mem   map[string]iconMemEntry
+	index map[string]iconDiskRef
+	neg   map[string]time.Time // 负缓存：key → 过期时刻
+
+	loaded bool
+	savMu  sync.Mutex // 落盘串行（唯一 tmp + rename，防并发写损坏）
+	dirty  bool
+
+	saverOnce sync.Once
+	saverStop chan struct{}
+}
+
+func newIconStore(dir string) *iconStore {
+	st := &iconStore{
+		dir:   dir,
+		mem:   map[string]iconMemEntry{},
+		index: map[string]iconDiskRef{},
+		neg:   map[string]time.Time{},
+	}
+	return st
+}
+
+// Server 上的懒初始化（Server 以字面量构造，避免动所有构造点）。
+func (s *Server) iconStore() *iconStore {
+	s.iconStoreOnce.Do(func() {
+		dir := ""
+		if s.Cfg != nil {
+			dir = filepath.Join(dataDirOf(s), "cache", "icons")
+		}
+		s.iconStoreV = newIconStore(dir)
+	})
+	return s.iconStoreV
+}
+
+// load 首次读前加载磁盘索引（容错：索引损坏回空索引）。
+// 不做逐文件 stat（1283 个条目在 NAS 上约 2s，会把首请求拖到 2.3s+）：
+// 时间过期按 ts 直接删；文件是否存在由 Get 按键校验 + 后台孤儿清理兜底。
+func (st *iconStore) load() {
+	if st.dir == "" || st.loaded {
+		st.loaded = true
+		return
+	}
+	st.loaded = true
+	b, err := os.ReadFile(filepath.Join(st.dir, "index.json"))
+	if err != nil {
+		return
+	}
+	var idx map[string]iconDiskRef
+	if err := json.Unmarshal(b, &idx); err != nil {
+		log.Printf("[icon-store] 索引损坏，重置: %v", err)
+		return
+	}
+	now := time.Now()
+	dropped := 0
+	for k, r := range idx {
+		if now.Sub(time.Unix(r.TS, 0)) > iconDiskTTL {
+			_ = os.Remove(filepath.Join(st.dir, r.File))
+			dropped++
+			continue
+		}
+		st.index[k] = r
+	}
+	log.Printf("[icon-store] 磁盘层加载: %d 个图标（%s，过期 %d）", len(st.index), st.dir, dropped)
+	go st.cleanupOrphans()
+}
+
+// cleanupOrphans 后台清掉索引里文件已丢失的条目（避开启动峰值，5s 后跑）。
+func (st *iconStore) cleanupOrphans() {
+	time.Sleep(5 * time.Second)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	orphans := 0
+	for k, r := range st.index {
+		if _, err := os.Stat(filepath.Join(st.dir, r.File)); err != nil {
+			delete(st.index, k)
+			orphans++
+		}
+	}
+	if orphans > 0 {
+		st.dirty = true
+		st.scheduleSave()
+	}
+}
+
+// Get 两级读：内存 → 磁盘（磁盘字节回灌内存）。
+// 0.6.201：超尺寸存量条目（降采样上线前缓存的全尺寸原图）读时自动
+// 缩样自愈——每个条目只触发一次（缩完变小，后续读走小图路径）。
+func (st *iconStore) Get(key string) ([]byte, string, bool) {
+	st.mu.Lock()
+	if st.dir != "" {
+		st.load()
+	}
+	var data []byte
+	var ctype string
+	var hit bool
+	if e, ok := st.mem[key]; ok && time.Now().Before(e.expires) {
+		data, ctype, hit = e.data, e.ctype, true
+	} else if r, ok := st.index[key]; ok {
+		p := filepath.Join(st.dir, r.File)
+		b, err := os.ReadFile(p)
+		if err == nil && len(b) >= 64 && looksLikeImage(b) {
+			st.mem[key] = iconMemEntry{data: b, ctype: r.CT, expires: time.Now().Add(iconMemTTL)}
+			data, ctype, hit = b, r.CT, true
+		} else {
+			// 损坏/缺失：丢弃该磁盘条目
+			_ = os.Remove(p)
+			delete(st.index, key)
+			st.dirty = true
+			st.scheduleSave()
+		}
+	}
+	st.mu.Unlock()
+	if !hit {
+		return nil, "", false
+	}
+	// 自愈在锁外做（解码不阻塞其他图标读写）
+	if len(data) >= iconDownsampleMin {
+		if small, ct, changed := downsampleIcon(data, ctype); changed {
+			st.healEntry(key, small, ct)
+			return small, ct, true
+		}
+	}
+	return data, ctype, true
+}
+
+// healEntry 用降采样后的字节替换条目（内存 + 磁盘索引；幂等）。
+// 磁盘文件由 saver 按新索引落盘；ctype 变化导致文件名变化时删旧文件
+// （孤儿清理兜底）。
+func (st *iconStore) healEntry(key string, data []byte, ctype string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.mem[key] = iconMemEntry{data: data, ctype: ctype, expires: time.Now().Add(iconMemTTL)}
+	if st.dir != "" {
+		if r, ok := st.index[key]; ok {
+			old := r.File
+			nr := iconDiskRef{File: diskIconFile(key, ctype), CT: ctype, TS: r.TS}
+			st.index[key] = nr
+			if old != nr.File {
+				_ = os.Remove(filepath.Join(st.dir, old))
+			}
+		}
+		st.dirty = true
+		st.scheduleSave()
+	}
+}
+
+// Put 两级写（磁盘失败静默——缓存永不拖垮请求）。
+func (st *iconStore) Put(key string, data []byte, ctype string) {
+	if len(data) == 0 {
+		return
+	}
+	st.mu.Lock()
+	if len(st.mem) >= iconMemMax {
+		st.evictMemLocked()
+	}
+	st.mem[key] = iconMemEntry{data: data, ctype: ctype, expires: time.Now().Add(iconMemTTL)}
+	if st.dir != "" {
+		st.load()
+		st.index[key] = iconDiskRef{File: diskIconFile(key, ctype), CT: ctype, TS: time.Now().Unix()}
+		// 超量淘汰：按 ts 保留最新的 iconDiskMax 个
+		if len(st.index) > iconDiskMax {
+			refs := make([]iconDiskRef, 0, len(st.index))
+			keys := make([]string, 0, len(st.index))
+			for k, r := range st.index {
+				refs = append(refs, r)
+				keys = append(keys, k)
+			}
+			for i := len(refs) - 1; i > 0; i-- {
+				for j := i; j > 0 && refs[j].TS < refs[j-1].TS; j-- {
+					refs[j], refs[j-1] = refs[j-1], refs[j]
+					keys[j], keys[j-1] = keys[j-1], keys[j]
+				}
+			}
+			for i := iconDiskMax; i < len(keys); i++ {
+				_ = os.Remove(filepath.Join(st.dir, refs[i].File))
+				delete(st.index, keys[i])
+			}
+		}
+		st.dirty = true
+		st.scheduleSave()
+	}
+	st.mu.Unlock()
+}
+
+// evictMemLocked 内存层到顶时的两段淘汰（调用方已持 st.mu）：
+// 先清过期；仍超则按 expires 保留最近的 iconMemMax/2。
+// 不用 NS 的「整体清空」——warm 一轮 ~1300 Put 会把用户正在浏览的
+// 热图标连锅端，实测二次浏览 60 图标仍 103ms/个（全落回 NAS 磁盘）。
+func (st *iconStore) evictMemLocked() {
+	now := time.Now()
+	type kv struct {
+		k string
+		e iconMemEntry
+	}
+	var live []kv
+	for k, e := range st.mem {
+		if now.Before(e.expires) {
+			live = append(live, kv{k, e})
+		}
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].e.expires.After(live[j].e.expires) })
+	keep := iconMemMax / 2
+	if keep > len(live) {
+		keep = len(live)
+	}
+	kept := make(map[string]iconMemEntry, keep)
+	for i := 0; i < keep; i++ {
+		kept[live[i].k] = live[i].e
+	}
+	st.mem = kept
+}
+
+// scheduleSave 标记脏并触发防抖 saver（2s 批量落盘，避免每 Put 一次
+// 索引重写；异步竞态不会与请求路径互相阻塞）。
+func (st *iconStore) scheduleSave() {
+	if st.dir == "" {
+		return
+	}
+	st.ensureSaver()
+}
+
+// ensureSaver 启动唯一的后台 saver（2s ticker 批量 flush）。
+func (st *iconStore) ensureSaver() {
+	st.saverOnce.Do(func() {
+		st.saverStop = make(chan struct{})
+		go func() {
+			t := time.NewTicker(2 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-st.saverStop:
+					return
+				case <-t.C:
+					st.Flush()
+				}
+			}
+		}()
+	})
+}
+
+// Flush 同步落盘（dirty 时）；测试与优雅退出用。
+func (st *iconStore) Flush() {
+	st.mu.Lock()
+	d := st.dirty
+	st.dirty = false
+	st.mu.Unlock()
+	if d && st.dir != "" {
+		st.saveIndex()
+	}
+}
+
+// Stop 停止后台 saver（优雅退出前 Flush 收尾）。
+func (st *iconStore) Stop() {
+	st.Flush()
+	if st.saverStop != nil {
+		close(st.saverStop)
+		st.saverStop = nil
+	}
+}
+
+func (st *iconStore) saveIndex() {
+	if st.dir == "" {
+		return
+	}
+	st.savMu.Lock()
+	defer st.savMu.Unlock()
+	if err := os.MkdirAll(st.dir, 0o755); err != nil {
+		return
+	}
+	st.mu.Lock()
+	idx := make(map[string]iconDiskRef, len(st.index))
+	for k, r := range st.index {
+		idx[k] = r
+	}
+	// mem 快照必须在锁内取（与 Put 的并发写竞态）；过期条目不落盘
+	memSnap := make(map[string][]byte, len(st.mem))
+	for k, e := range st.mem {
+		if len(e.data) > 0 && time.Now().Before(e.expires) {
+			memSnap[k] = e.data
+		}
+	}
+	st.mu.Unlock()
+	b, err := json.Marshal(idx)
+	if err != nil {
+		return
+	}
+	// 图标文件本身
+	for k, r := range idx {
+		if data, ok := memSnap[k]; ok {
+			if err := os.WriteFile(filepath.Join(st.dir, r.File), data, 0o644); err != nil {
+				log.Printf("[icon-store] 图标落盘失败 %s: %v", r.File, err)
+			}
+		}
+	}
+	tmp := filepath.Join(st.dir, "index.json."+time.Now().Format("20060102150405.000000000"))
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, filepath.Join(st.dir, "index.json"))
+}
+
+// MarkNegative 记录「所有候选失败」30 分钟。
+func (st *iconStore) MarkNegative(key string) {
+	st.mu.Lock()
+	if len(st.neg) > 512 {
+		st.neg = map[string]time.Time{}
+	}
+	st.neg[key] = time.Now().Add(iconNegTTL)
+	st.mu.Unlock()
+}
+
+func (st *iconStore) IsNegative(key string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	t, ok := st.neg[key]
+	return ok && time.Now().Before(t)
+}
+
+// Has 判断两级是否已有该应用图标（预热跳过用）。
+func (st *iconStore) Has(key string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if e, ok := st.mem[key]; ok && time.Now().Before(e.expires) {
+		return true
+	}
+	if st.dir != "" {
+		st.load()
+		_, ok := st.index[key]
+		return ok
+	}
+	return false
+}
+
+// diskIconFile 磁盘文件名：<sha1(key)[:16]><扩展名>。
+func diskIconFile(key, ctype string) string {
+	sum := sha1.Sum([]byte(key))
+	ext := ".bin"
+	switch {
+	case strings.Contains(ctype, "png"):
+		ext = ".png"
+	case strings.Contains(ctype, "jpeg"):
+		ext = ".jpg"
+	case strings.Contains(ctype, "gif"):
+		ext = ".gif"
+	case strings.Contains(ctype, "webp"):
+		ext = ".webp"
+	case strings.Contains(ctype, "svg"):
+		ext = ".svg"
+	}
+	return hex.EncodeToString(sum[:8]) + ext
+}
+
+// StopIcons 优雅退出时收尾：同步落盘未写脏数据并停止 saver。
+func (s *Server) StopIcons() {
+	s.iconStore().Stop()
+}
+
+// Preflight 提前加载磁盘索引（避免首个图标请求承担 1283 个文件的
+// 索引 stat 扫描，实测首请求 2.6s → 其余 60ms）。
+func (st *iconStore) Preflight() {
+	st.mu.Lock()
+	st.load()
+	st.mu.Unlock()
+}
+
+// StartIconWarm 图标预热循环：目录就绪后首轮 10min 预算（3 并发），
+// 之后每 30min 一轮 5min，把缺失图标陆续灌进两级缓存。
+func (s *Server) StartIconWarm(ctx context.Context) {
+	go s.iconStore().Preflight() // 进程启动即后台加载磁盘索引
+	go s.readmeStore().Preflight()
+	// 等目录就绪（源管理器出现应用）再开跑
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		if len(s.Src.Apps("", "")) > 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	s.warmIconsPass(ctx, 10*time.Minute)
+	s.warmReadmesPass(ctx, 10*time.Minute)
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.warmIconsPass(ctx, 5*time.Minute)
+			s.warmReadmesPass(ctx, 5*time.Minute)
+		}
+	}
+}
+
+// warmIconsPass 预热一轮缺失图标（预算内、6 并发）。
+func (s *Server) warmIconsPass(ctx context.Context, budget time.Duration) {
+	st := s.iconStore()
+	apps := s.Src.Apps("", "")
+	var pending []*appRef
+	for _, a := range apps {
+		key := a.Source + "@" + a.Name
+		if st.Has(key) || st.IsNegative(key) {
+			continue
+		}
+		pending = append(pending, &appRef{a: a, key: key})
+	}
+	if len(pending) == 0 {
+		return
+	}
+	log.Printf("[icon-warm] %d 个应用图标待预热（预算 %s）", len(pending), budget)
+	pctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	sem := make(chan struct{}, iconWarmSem)
+	var wg sync.WaitGroup
+	hit := 0
+	var hitMu sync.Mutex
+	for _, ref := range pending {
+		if pctx.Err() != nil {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(ref *appRef) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if data, _, err := s.resolveIcon(pctx, ref.a); err == nil && len(data) > 0 {
+				hitMu.Lock()
+				hit++
+				hitMu.Unlock()
+			}
+		}(ref)
+	}
+	wg.Wait()
+	log.Printf("[icon-warm] 预热完成: %d/%d 命中", hit, len(pending))
+}
+
+// appRef 预热用的（应用, 缓存键）对。
+type appRef struct {
+	a   *source.App
+	key string
+}

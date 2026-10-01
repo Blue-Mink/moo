@@ -1,0 +1,10 @@
+{
+    "port-config": {
+        "protocol-file": "moo.sc"
+    },
+    "data-share": {
+        "shares": []
+    },
+    "systemd-unit": {
+    }
+}

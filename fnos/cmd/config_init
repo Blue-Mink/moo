@@ -1,0 +1,11 @@
+#!/bin/bash
+# Moo 配置 init（0.6.154：应用设置向导回显）：输出当前真实端口，
+# 覆盖 wizard 里的静态 initValue——端口改了之后打开设置向导看到的
+# 必须是当前真实值，而不是写死的 38100。
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+echo "moo config_init (skeleton)" >> "${LOG_FILE:-/var/log/apps/moo.log}" 2>/dev/null
+_p="$(read_web_port 2>/dev/null)"
+echo "wizard_access_port=${_p}"
+exit 0

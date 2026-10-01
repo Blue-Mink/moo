@@ -1,0 +1,24 @@
+[
+  {
+    "stepTitle": "端口设置",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_access_port",
+        "label": "Web 端口",
+        "initValue": "38100",
+        "rules": [
+          {
+            "required": true,
+            "message": "请填写端口"
+          },
+          {
+            "pattern": "^[0-9]+$",
+            "message": "端口必须为数字（1024-65535）"
+          }
+        ],
+        "helpText": "Web 直连访问端口（1024-65535，默认 38100）。面板入口 /app/moo/ 不受影响；保存后服务自动重启并同步应用中心服务端口。"
+      }
+    ]
+  }
+]

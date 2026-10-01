@@ -1,0 +1,13 @@
+{
+  "display_name": "Moo",
+  "version": "0.6.84",
+  "platform": "x86",
+  "desc": "Moo — 飞牛 fnOS 第三方应用中心：浏览、下载、安装、更新第三方应用，同步 FnDepot / fnos-apps / 飞牛官方应用中心三大平台。",
+  "labels": "工具",
+  "author": "Blue-Mink",
+  "author_url": "https://github.com/Blue-Mink",
+  "distributor": "Blue-Mink",
+  "distributor_url": "https://github.com/Blue-Mink",
+  "homepage": "https://github.com/Blue-Mink/moo",
+  "service_port": "38100"
+}

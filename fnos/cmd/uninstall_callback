@@ -1,0 +1,53 @@
+#!/bin/sh
+# 卸载防御：移除 Moo 管理的 kspeeder 引擎进程 + docker 加速钩子
+# （正常路径 moo-server 退出时已自清理；此处兜底异常退出场景）
+
+set -e
+
+# 1) 停掉 kspeeder 引擎（按 cachePath 特征匹配，避免误杀独立安装的 kspeeder 应用）
+for pid in $(pgrep -f "iStoreEnhance .*--cachePath /vol1/@appdata/moo/kspeeder" 2>/dev/null || true); do
+    kill "$pid" 2>/dev/null || true
+done
+sleep 1
+for pid in $(pgrep -f "iStoreEnhance .*--cachePath /vol1/@appdata/moo/kspeeder" 2>/dev/null || true); do
+    kill -9 "$pid" 2>/dev/null || true
+done
+
+# 2) /etc/hosts 标记行
+grep -vF "# moo-kspeeder" /etc/hosts > /etc/hosts.moo-uninst 2>/dev/null \
+    && cat /etc/hosts.moo-uninst > /etc/hosts 2>/dev/null || true
+rm -f /etc/hosts.moo-uninst 2>/dev/null || true
+
+# 3) daemon.json 中 Moo 添加的镜像条目（保留用户自配条目；fnOS 无 uci）
+python3 - <<'PYEOF' 2>/dev/null || true
+import json, os, time
+
+path = "/etc/docker/daemon.json"
+try:
+    with open(path) as f:
+        cfg = json.load(f)
+    mirrors = cfg.get("registry-mirrors") or []
+    ours = [m for m in mirrors if m.startswith("https://registry.linkease.net:")]
+    if ours:
+        kept = [m for m in mirrors if m not in ours]
+        bak = path + ".moo-uninst-" + time.strftime("%Y%m%d_%H%M%S")
+        try:
+            with open(path) as f:
+                orig = f.read()
+            with open(bak, "w") as f:
+                f.write(orig)
+        except OSError:
+            pass
+        if kept:
+            cfg["registry-mirrors"] = kept
+        else:
+            cfg.pop("registry-mirrors", None)
+        with open(path, "w") as f:
+            json.dump(cfg, f, indent=2)
+        os.system("systemctl reload docker >/dev/null 2>&1")
+except Exception:
+    pass
+PYEOF
+
+echo "moo uninstall cleanup done"
+exit 0
