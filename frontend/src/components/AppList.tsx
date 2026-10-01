@@ -113,13 +113,13 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, o
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start">
+    /* 0.6.228（用户定稿）：改为「小红书式」瀑布流 —— 多列布局 + 卡片避免跨列断裂，
+       卡片高度错落但列内紧凑，不再出现等高行留下的空洞。
+       注：这里不再用 content-visibility:auto（多列布局需真实高度才能均衡分列），
+       列表本身已有递增渲染（IntersectionObserver + visible）控制 DOM 规模。 */
+    <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4">
       {shown.map((app) => (
-        // content-visibility:auto：视口外的卡跳过排版/绘制，滚动更顺
-        <div
-          key={app.key || app.appname}
-          style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 300px' }}
-        >
+        <div key={app.key || app.appname} className="mb-4 break-inside-avoid">
           <AppCard
             app={app}
             operation={appOperations?.get(app.appname)}
@@ -141,7 +141,7 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, o
           />
         </div>
       ))}
-      {visible < apps.length && <div ref={sentinelRef} className="col-span-full h-px" />}
+      {visible < apps.length && <div ref={sentinelRef} className="h-px break-inside-avoid" />}
     </div>
   );
 };

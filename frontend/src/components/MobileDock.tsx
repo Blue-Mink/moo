@@ -66,6 +66,9 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
             onClick={() => onSelect(t.key)}
             className={cn(
               "flex flex-col items-center justify-center gap-[3px] pt-1.5 pb-1.5",
+              // 0.6.232（用户反馈「点击响应有点慢」）：加**按下缩放反馈** ——
+              // 手指落下即刻有视觉回应，不必等内容切换完才"看起来有反应"
+              "transition-[color,transform] duration-100 active:scale-90",
               isActive ? "text-primary" : "text-muted-foreground"
             )}
             aria-current={isActive ? 'page' : undefined}

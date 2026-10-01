@@ -85,6 +85,12 @@ const App: React.FC = () => {
   const [loadMessages, setLoadMessages] = useState<{text: string; status: 'info' | 'success' | 'error'}[]>([]);
   const [checking, setChecking] = useState<boolean>(false);
   const [lastCheck, setLastCheck] = useState<string>('');
+  // 0.6.228：侧边栏头部实时时钟（用户要求「下面的时间换成实时时间，格式同原来一样」）
+  const [nowText, setNowText] = useState<string>(() => new Date().toLocaleString());
+  useEffect(() => {
+    const t = window.setInterval(() => setNowText(new Date().toLocaleString()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
   const [reportTarget, setReportTarget] = useState<{ app: string; step: string; error: string } | null>(null);
 
   const [appOperations, setAppOperations] = useState<Map<string, AppOperation>>(new Map());
@@ -1084,8 +1090,11 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-dvh bg-background text-foreground flex flex-col md:flex-row">
+      {/* 0.6.230（用户定稿）：「苹果风」PC 布局 —— 左侧栏隐去，菜单模块搬到
+          底部毛玻璃 Dock（见页面末尾的 Desktop Dock），品牌与实时时钟移到顶栏左侧。
+          这里保留原侧栏结构（已置为 hidden）便于随时回退 / 后续复用。 */}
       <aside className={cn(
-        "hidden md:flex flex-col bg-card/70 backdrop-blur-xl border-r border-border/50 h-dvh sticky top-0 transition-all duration-300 overflow-hidden shrink-0",
+        "hidden flex-col bg-card/70 backdrop-blur-xl border-r border-border/50 h-dvh sticky top-0 transition-all duration-300 overflow-hidden shrink-0",
         sidebarCollapsed ? "w-[68px]" : "w-64"
       )}>
         <TooltipProvider delayDuration={0}>
@@ -1097,9 +1106,15 @@ const App: React.FC = () => {
            ) : (
              <div className="flex items-start justify-between gap-2">
                <div className="min-w-0">
-                 <h1 className="text-xl font-semibold tracking-tight whitespace-nowrap">Moo</h1>
-                 <p className="text-sm text-muted-foreground mt-1.5 whitespace-nowrap">
-                    上次检查: {lastCheck ? new Date(lastCheck).toLocaleString() : '从未'}
+                 {/* 0.6.228（用户定稿）：侧边栏标题 Moo → Moo is more；
+                     下方由「上次检查」改为**实时时钟**（格式沿用 toLocaleString()），
+                     上次检查时间移到 title 提示里，不丢信息 */}
+                 <h1 className="text-xl font-semibold tracking-tight whitespace-nowrap">Moo is more</h1>
+                 <p
+                   className="text-sm text-muted-foreground mt-1.5 whitespace-nowrap tabular-nums"
+                   title={`上次检查: ${lastCheck ? new Date(lastCheck).toLocaleString() : '从未'}`}
+                 >
+                   {nowText}
                  </p>
                </div>
                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 -mr-2 -mt-1" onClick={toggleSidebar}>
@@ -1199,17 +1214,16 @@ const App: React.FC = () => {
                 <TooltipContent side="right">有更新 ({counts.update_available})</TooltipContent>
               )}
             </Tooltip>
-          </nav>
-          
-         </div>
-
-         <div className={cn("mt-auto border-t border-border space-y-1", sidebarCollapsed ? "p-2" : "p-4")}>
+            {/* 0.6.228（用户定稿）：设置从「侧栏底部固定」改到「有更新」之后，同一组菜单里 */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   className={cn(
-                    "w-full h-10 shadow-none text-muted-foreground hover:text-foreground",
+                    // 0.6.229（用户定稿）：与上面「发现/全部/已安装/有更新」**统一字体与配色**
+                    // （原来这里是底部固定项，用的是 font-normal + text-muted-foreground，
+                    //  移进同一组菜单后显得不一致）
+                    "w-full h-10 shadow-none rounded-lg font-medium",
                     sidebarCollapsed ? "justify-center px-0" : "justify-start px-3"
                   )}
                   onClick={() => setSettingsVisible(true)}
@@ -1225,6 +1239,8 @@ const App: React.FC = () => {
               </TooltipTrigger>
               {sidebarCollapsed && <TooltipContent side="right">设置{storeHasUpdate ? ' (有更新)' : ''}</TooltipContent>}
             </Tooltip>
+          </nav>
+          
          </div>
         </TooltipProvider>
        </aside>
@@ -1372,6 +1388,17 @@ const App: React.FC = () => {
             mainScrolled ? "bg-card/70 backdrop-blur-xl border-b border-border/50 py-2" : "bg-transparent border-b border-transparent py-4"
           )}>
            <div className="flex items-center gap-2 shrink-0">
+           {/* 0.6.230：侧栏隐去后，品牌「Moo is more」+ 实时时钟移到顶栏左侧
+               （用户要求内容与格式保持不变：日期+时间、秒级刷新；上次检查在悬停提示里） */}
+           <div className="mr-4 min-w-0">
+             <div className="text-lg font-semibold tracking-tight whitespace-nowrap leading-tight">Moo is more</div>
+             <div
+               className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap"
+               title={`上次检查: ${lastCheck ? new Date(lastCheck).toLocaleString() : '从未'}`}
+             >
+               {nowText}
+             </div>
+           </div>
            <h2 className={cn("font-bold tracking-tight shrink-0 transition-all duration-300", mainScrolled ? "text-lg" : "text-[32px] leading-[1.2]")}>
               {activeFilter === 'recommended' && '发现'}
               {activeFilter === 'all' && '应用'}
@@ -1424,19 +1451,19 @@ const App: React.FC = () => {
                  {checking ? (
                    <>
                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                     检查中...
+                     刷新中...
                    </>
                  ) : (
                    <>
                      <RefreshCw className="mr-2 h-4 w-4" />
-                     立即检查
+                     刷新页面
                    </>
                  )}
                </Button>
            </div>
         </header>
 
-        <main className="flex-grow p-4 pb-24 md:p-8 md:pb-8 overflow-y-auto">
+        <main className="flex-grow p-4 pb-24 md:p-8 md:pb-36 overflow-y-auto">
           {activeFilter === 'recommended' ? (
             <div className="space-y-10">
               {apps.length > 0 && (
@@ -1465,8 +1492,10 @@ const App: React.FC = () => {
                 </div>
                 {favExpanded && (
                   favoriteApps.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start">
+                    /* 0.6.228：与列表页统一为瀑布流（多列 + 卡片避免跨列断裂） */
+                    <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-4">
                       {favoriteApps.map(app => (
+                        <div key={app.key || app.appname} className="mb-4 break-inside-avoid">
                         <AppCard
                           key={app.key || app.appname}
                           app={app}
@@ -1481,6 +1510,7 @@ const App: React.FC = () => {
                           isFavorite={favoriteSet.has(app.key || app.appname)}
                           onToggleFavorite={handleToggleFavorite}
                         />
+                        </div>
                       ))}
                     </div>
                   ) : (
@@ -1694,6 +1724,54 @@ const App: React.FC = () => {
           bottomOffset={dockOffsetPx}
         />
       )}
+
+      {/* 0.6.230（用户定稿）：「苹果风」底部毛玻璃 Dock（桌面端）——
+          原左侧菜单模块（发现 / 全部 / 已安装 / 有更新 / 设置）搬到这里；
+          悬浮居中、圆角、毛玻璃（backdrop-blur），有更新时右上角小红点，
+          计数放 title 提示里（保持 Dock 干净，贴近 macOS 观感）。 */}
+      <nav className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-30 items-end gap-2 rounded-[24px] border border-white/10 bg-card/55 px-3 py-2.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
+        {([
+          { key: 'recommended', label: '发现', icon: Compass, count: counts.recommended },
+          { key: 'all', label: '全部', icon: LayoutGrid, count: counts.all },
+          { key: 'installed', label: '已安装', icon: CheckCircle2, count: counts.installed },
+          { key: 'update_available', label: '有更新', icon: RefreshCw, count: counts.update_available },
+        ] as const).map(({ key, label, icon: Icon, count }) => {
+          const active = activeFilter === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => switchFilter(key)}
+              title={`${label}（${count}）`}
+              className={cn(
+                'relative flex w-[70px] flex-col items-center gap-1 rounded-2xl px-2 py-1.5 transition-[background-color,color,transform] duration-100 active:scale-90',
+                active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+              )}
+            >
+              <Icon className="h-6 w-6" strokeWidth={active ? 2.2 : 1.8} />
+              <span className={cn('text-[10px] leading-none', active && 'font-semibold')}>{label}</span>
+              {key === 'update_available' && count > 0 && (
+                <span className="absolute right-2.5 top-0.5 h-2 w-2 rounded-full bg-destructive" />
+              )}
+            </button>
+          );
+        })}
+        <span className="mx-1 h-8 w-px self-center bg-border/60" />
+        <button
+          type="button"
+          onClick={() => setSettingsVisible(true)}
+          title="设置"
+          className="relative flex w-[70px] flex-col items-center gap-1 rounded-2xl px-2 py-1.5 text-muted-foreground transition-[background-color,color,transform] duration-100 hover:bg-white/5 hover:text-foreground active:scale-90"
+        >
+          <div className="relative">
+            <Settings className="h-6 w-6" strokeWidth={1.8} />
+            {storeHasUpdate && (
+              <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-destructive" />
+            )}
+          </div>
+          <span className="text-[10px] leading-none">设置</span>
+        </button>
+      </nav>
 
       {selfUpdateActive && selfUpdateState && (
         <ProgressOverlay
