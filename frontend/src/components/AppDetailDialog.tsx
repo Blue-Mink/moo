@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { categoryLabel } from '@/lib/categories';
 import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../api/client';
 import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc } from '../api/client';
 import { toast } from 'sonner';
@@ -40,9 +41,12 @@ import {
   FileText,
   X,
   ChevronLeft,
+  ChevronDown,
   ChevronRight,
   Check,
   Star,
+  ShieldCheck,
+  CalendarClock,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -146,8 +150,9 @@ const ChangelogList: React.FC<{
   entries: { version?: string; text: string }[];
   /** 有可更新版本时高亮首条（即将装上的新版说明）。 */
   highlightLatest: boolean;
-}> = ({ entries, highlightLatest }) => {
-  const [expanded, setExpanded] = useState(false);
+  /** 0.6.238：展开态由父级标题行右侧的统一按钮控制（按钮不再跟在列表下方）。 */
+  expanded: boolean;
+}> = ({ entries, highlightLatest, expanded }) => {
   const visible = expanded ? entries : entries.slice(0, 3);
   return (
     <div className="space-y-1.5">
@@ -169,15 +174,6 @@ const ChangelogList: React.FC<{
           <span className="min-w-0 whitespace-pre-wrap break-words text-foreground/90">{e.text}</span>
         </div>
       ))}
-      {entries.length > 3 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="text-xs text-primary hover:underline"
-        >
-          {expanded ? '收起' : `展开全部 ${entries.length} 条`}
-        </button>
-      )}
     </div>
   );
 };
@@ -265,6 +261,10 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     return () => { alive = false; };
   }, [operation, open, propApp?.key, propApp?.source, propApp?.installed, propApp?.appname]);
   const [readme, setReadme] = useState<string | null>(null);
+  // 0.6.238（用户定稿）：展开/折叠按钮统一放**标题行右侧**（README 与更新日志同一款式）
+  const [changelogExpanded, setChangelogExpanded] = useState(false);
+  // 0.6.237（用户定稿）：README 默认收起，标题下方给统一的展开/折叠胶囊按钮
+  const [readmeExpanded, setReadmeExpanded] = useState(false);
   const [readmeError, setReadmeError] = useState('');
   const isOfficial = app?.source === 'fnos-official';
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -789,6 +789,15 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               </button>
               );
             })()}
+              {/* 0.6.235：应用分类标签（源提供 labels/categories/tags 时映射成分类；
+                  没有分类的旧源不显示，保持原观感） */}
+              {app.category && (
+                <span className={cn(META_PILL, "pointer-events-none")} title={`分类：${categoryLabel(app.category)}`}>
+                  <Tag className="h-3 w-3 mt-px shrink-0" />
+                  <span className="min-w-0 break-words">{categoryLabel(app.category)}</span>
+                </span>
+              )}
+
               {canUpdate && (
                 <Badge variant="secondary" className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-[11px] rounded-full">
                   有更新
@@ -958,6 +967,12 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             </DetailRow>
           ) : null}
 
+          {(app.size_bytes || (hasPanelInfo && panelInfo?.app.appDetail?.installSize)) ? (
+            <DetailRow icon={HardDrive} label="安装包大小">
+              {formatSize(app.size_bytes || panelInfo?.app.appDetail?.installSize)}
+            </DetailRow>
+          ) : null}
+
           {app.download_count ? (
             <DetailRow icon={Download} label="下载次数">
               {formatDownloads(app.download_count)}
@@ -969,11 +984,26 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             </DetailRow>
           ) : null}
 
-          {(app.size_bytes || (hasPanelInfo && panelInfo?.app.appDetail?.installSize)) ? (
-            <DetailRow icon={HardDrive} label="安装包大小">
-              {formatSize(app.size_bytes || panelInfo?.app.appDetail?.installSize)}
+          {/* moo.json 扩展（0.6.235）：运行方式（root / 用户空间等）与最早发布时间。
+              源未提供时不显示该行，保持与旧源一致的观感。 */}
+          {app.install_type && (
+            <DetailRow icon={ShieldCheck} label="运行方式">
+              {app.install_type}
             </DetailRow>
-          ) : null}
+          )}
+
+          {/* 官方目录不提供更新时间（面板契约无此字段），空值行不显示 */}
+          {!isOfficial && app.updated_at && (
+            <DetailRow icon={Clock} label="最近更新">
+              {formatDate(app.updated_at)}
+            </DetailRow>
+          )}
+
+          {app.first_release_at && (
+            <DetailRow icon={CalendarClock} label="最早发布">
+              {formatDate(app.first_release_at)}
+            </DetailRow>
+          )}
 
           {hasPanelInfo && panelInfo?.app.appDetail?.osMinVersion && (
             <DetailRow icon={Network} label="系统最低版本">
@@ -984,13 +1014,6 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
           {app.sha256 && (
             <DetailRow icon={Hash} label="SHA256">
               <code className="text-xs font-mono break-all text-muted-foreground">{app.sha256}</code>
-            </DetailRow>
-          )}
-
-          {/* 官方目录不提供更新时间（面板契约无此字段），空值行不显示 */}
-          {!isOfficial && app.updated_at && (
-            <DetailRow icon={Clock} label="最近更新">
-              {formatDate(app.updated_at)}
             </DetailRow>
           )}
 
@@ -1023,39 +1046,30 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
           )}
         </div>
 
-        {/* 更新内容（版本化列表，对标 FnDepot 自更新屏） */}
-        {(() => {
-          const entries = app.changelog_entries?.length
-            ? app.changelog_entries
-            : app.changelog
-              ? [{ version: app.latest_version, text: app.changelog }]
-              : [];
-          if (entries.length === 0) return null;
-          return (
-            <>
-              <Separator />
-              <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <FileText className="h-3.5 w-3.5" />
-                更新内容
-                {app.has_update && (
-                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal">
-                    可更新至 v{app.latest_version}
-                  </Badge>
-                )}
-              </div>
-              <ChangelogList entries={entries} highlightLatest={app.has_update} />
-            </>
-          );
-        })()}
-
         {/* README */}
         {app.has_readme && (
           <>
             <Separator />
-            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <FileText className="h-3.5 w-3.5" />
-              README
+            {/* 0.6.238（用户定稿）：展开/收起按钮放标题行**右侧**（与更新日志同款），
+                README 默认收起（长文档不再把详情页撑得很长） */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">README</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReadmeExpanded(v => !v)}
+                aria-expanded={readmeExpanded}
+                className="inline-flex shrink-0 items-center gap-1 h-7 px-3 rounded-full bg-muted/60 hover:bg-muted text-xs font-medium text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                {readmeExpanded ? '收起' : '展开'}
+                <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', readmeExpanded && 'rotate-180')} />
+              </button>
             </div>
+            {/* 0.6.239（用户定稿）：README 默认只露出**约 10 行**（≈15rem：
+                text-sm + leading-relaxed 约 22.75px/行），其余由标题行右侧
+                「展开/收起」按钮控制；加载中/出错状态不受裁剪影响。 */}
             {readme === null && !readmeError ? (
               <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1064,6 +1078,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             ) : readmeError ? (
               <p className="py-2 text-xs text-muted-foreground">{readmeError}</p>
             ) : (
+              <div className={cn(!readmeExpanded && 'max-h-[15rem] overflow-hidden')}>
               <div onErrorCapture={handleReadmeImgError} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
                 [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
                 [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
@@ -1102,11 +1117,50 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                   </ReactMarkdown>
                 )}
               </div>
+              </div>
             )}
           </>
         )}
         </>
         )}
+        {/* 更新内容（版本化列表，对标 FnDepot 自更新屏） */}
+        {(() => {
+          const entries = app.changelog_entries?.length
+            ? app.changelog_entries
+            : app.changelog
+              ? [{ version: app.latest_version, text: app.changelog }]
+              : [];
+          if (entries.length === 0) return null;
+          return (
+            <>
+              <Separator />
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">更新日志</span>
+                  {app.has_update && (
+                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal shrink-0">
+                      可更新至 v{app.latest_version}
+                    </Badge>
+                  )}
+                </div>
+                {entries.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setChangelogExpanded(v => !v)}
+                    aria-expanded={changelogExpanded}
+                    className="inline-flex shrink-0 items-center gap-1 h-7 px-3 rounded-full bg-muted/60 hover:bg-muted text-xs font-medium text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    {changelogExpanded ? '收起' : `展开全部 ${entries.length} 条`}
+                    <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', changelogExpanded && 'rotate-180')} />
+                  </button>
+                )}
+              </div>
+              <ChangelogList entries={entries} highlightLatest={app.has_update} expanded={changelogExpanded} />
+            </>
+          );
+        })()}
+
         </div>
 
         {/* 底部动作区：冻结在对话框最底部（与应用介绍多少无关、不随内容滚动；

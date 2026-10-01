@@ -29,44 +29,48 @@ type AppInfo struct {
 	// UpdateIgnoredPending（0.6.197）：已忽略应用确实存在被压住的更新
 	//（源版本 > 已装版本）。dock「有更新」列表/角标计数含这类应用
 	//（行上带「已忽略」标记）；已忽略且已最新的 app 不计入。
-	UpdateIgnoredPending bool `json:"update_ignored_pending,omitempty"`
-	Platform         string `json:"platform,omitempty"`
-	ReleaseURL       string `json:"release_url,omitempty"`
-	ReleaseNotes     string `json:"release_notes,omitempty"`
-	Status           string `json:"status,omitempty"`
-	StartStop        *bool  `json:"start_stop,omitempty"`
-	Uninstallable    *bool  `json:"uninstallable,omitempty"`
-	WebProtocol      string `json:"web_protocol,omitempty"`
-	WebURL           string `json:"web_url,omitempty"`
-	WebPort          int    `json:"web_port,omitempty"`
-	WebPath          string `json:"web_path,omitempty"`
-	WebOnWebUI       bool   `json:"web_on_webui,omitempty"`
-	WebServiceName   string `json:"web_service_name,omitempty"`
-	ServicePort      int    `json:"service_port,omitempty"`
-	Homepage         string `json:"homepage,omitempty"`
-	IconURL          string `json:"icon_url,omitempty"`
-	UpdatedAt        string `json:"updated_at,omitempty"`
-	DownloadCount    *int   `json:"download_count,omitempty"`
-	LocalInstalls    int    `json:"local_installs,omitempty"`
-	AppType          string `json:"app_type,omitempty"`
-	Category         string `json:"category,omitempty"`
-	PostInstallNote  string `json:"post_install_note,omitempty"`
-	Source           string `json:"source,omitempty"`
-	Maintainer       string `json:"maintainer,omitempty"`
-	MaintainerURL    string `json:"maintainer_url,omitempty"`
-	Distributor      string `json:"distributor,omitempty"`
-	DistributorURL   string `json:"distributor_url,omitempty"`
-	Changelog        string `json:"changelog,omitempty"`
+	UpdateIgnoredPending bool   `json:"update_ignored_pending,omitempty"`
+	Platform             string `json:"platform,omitempty"`
+	ReleaseURL           string `json:"release_url,omitempty"`
+	ReleaseNotes         string `json:"release_notes,omitempty"`
+	Status               string `json:"status,omitempty"`
+	StartStop            *bool  `json:"start_stop,omitempty"`
+	Uninstallable        *bool  `json:"uninstallable,omitempty"`
+	WebProtocol          string `json:"web_protocol,omitempty"`
+	WebURL               string `json:"web_url,omitempty"`
+	WebPort              int    `json:"web_port,omitempty"`
+	WebPath              string `json:"web_path,omitempty"`
+	WebOnWebUI           bool   `json:"web_on_webui,omitempty"`
+	WebServiceName       string `json:"web_service_name,omitempty"`
+	ServicePort          int    `json:"service_port,omitempty"`
+	Homepage             string `json:"homepage,omitempty"`
+	IconURL              string `json:"icon_url,omitempty"`
+	UpdatedAt            string `json:"updated_at,omitempty"`
+	DownloadCount        *int   `json:"download_count,omitempty"`
+	LocalInstalls        int    `json:"local_installs,omitempty"`
+	AppType              string `json:"app_type,omitempty"`
+	Category             string `json:"category,omitempty"`
+	PostInstallNote      string `json:"post_install_note,omitempty"`
+	Source               string `json:"source,omitempty"`
+	Maintainer           string `json:"maintainer,omitempty"`
+	MaintainerURL        string `json:"maintainer_url,omitempty"`
+	Distributor          string `json:"distributor,omitempty"`
+	DistributorURL       string `json:"distributor_url,omitempty"`
+	Changelog            string `json:"changelog,omitempty"`
 	// ChangelogEntries：changelog 解析后的版本化条目（最新在前），
 	// 供详情页「更新内容」列表渲染；无 changelog 时为空。
 	ChangelogEntries []ChangelogEntry `json:"changelog_entries,omitempty"`
 	SizeBytes        int64            `json:"size_bytes,omitempty"`
-	Sha256           string           `json:"sha256,omitempty"`
-	PreviewCount     int              `json:"preview_count,omitempty"`
+	// InstallType 应用运行方式/安装位置（如 root / 用户空间 / 系统空间）。
+	InstallType string `json:"install_type,omitempty"`
+	// FirstReleaseAt 该应用最早发布时间（源提供时展示）。
+	FirstReleaseAt string `json:"first_release_at,omitempty"`
+	Sha256         string `json:"sha256,omitempty"`
+	PreviewCount   int    `json:"preview_count,omitempty"`
 	// PreviewURLs 预览图直链（详情页灯箱按 index 取 /asset?type=preview）；
 	// 与 PreviewCount 配套，仅详情用（列表瘦身时若剔除不影响计数展示）。
-	PreviewURLs      []string         `json:"preview_urls,omitempty"`
-	HasReadme        bool             `json:"has_readme,omitempty"`
+	PreviewURLs []string `json:"preview_urls,omitempty"`
+	HasReadme   bool     `json:"has_readme,omitempty"`
 }
 
 // AppsResponse 是 GET /api/apps 的响应。
@@ -92,8 +96,8 @@ type SourceEntry struct {
 
 // BackgroundTask 是后台任务视图（GET /api/tasks 的元素）。
 type BackgroundTask struct {
-	ID       string  `json:"id,omitempty"` // 任务唯一 ID（下载任务）；前端据此区分「新任务」与「旧终态残留」
-	AppName  string  `json:"appname"`
+	ID         string  `json:"id,omitempty"` // 任务唯一 ID（下载任务）；前端据此区分「新任务」与「旧终态残留」
+	AppName    string  `json:"appname"`
 	Op         string  `json:"op"` // install / update / download
 	Status     string  `json:"status"`
 	Step       string  `json:"step,omitempty"`
@@ -146,11 +150,11 @@ type Settings struct {
 	// 0.6.220：库里有凭据但解不开（换机/密钥文件丢失）→ 前端提示重填
 	PanelDecryptFailed bool `json:"panel_decrypt_failed,omitempty"`
 	// 备份设置（备份设置 tab）
-	BackupDir         string `json:"backup_dir,omitempty"`
-	BackupAuto        bool   `json:"backup_auto"`
-	BackupIntervalDays  int  `json:"backup_interval_days"`
-	CacheCleanDays      int  `json:"cache_clean_days"`
-	CacheCleanEveryDays int  `json:"cache_clean_every_days"`
+	BackupDir           string `json:"backup_dir,omitempty"`
+	BackupAuto          bool   `json:"backup_auto"`
+	BackupIntervalDays  int    `json:"backup_interval_days"`
+	CacheCleanDays      int    `json:"cache_clean_days"`
+	CacheCleanEveryDays int    `json:"cache_clean_every_days"`
 	// 加速源自动测速间隔（0.6.148，设置页双齿轮选择框）：每组小时/分钟。
 	// 0h0m = 未设置（后端按默认 5 分钟执行）。
 	GhProbeHours   int `json:"gh_probe_hours"`
@@ -167,10 +171,10 @@ type Settings struct {
 
 // FpkDownloadFile 是已下载 FPK 缓存条目。
 type FpkDownloadFile struct {
-	Name      string `json:"name"`
-	Size      int64  `json:"size"`
-	ModAt     string `json:"mod_at"`
-	AppName   string `json:"appname,omitempty"`
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	ModAt   string `json:"mod_at"`
+	AppName string `json:"appname,omitempty"`
 	// DisplayName 包 manifest 的 display_name（中文名/正式名；索引未就绪时为空）。
 	DisplayName string `json:"display_name,omitempty"`
 	Installed   bool   `json:"installed"`

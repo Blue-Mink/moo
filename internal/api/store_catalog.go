@@ -1,12 +1,12 @@
 package api
 
 import (
-	"time"
 	"context"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"moo/internal/platform"
 	"moo/internal/source"
@@ -443,29 +443,31 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 	}
 	dlCount := a.DownloadCount
 	ai := AppInfo{
-		Key:           source.KeyOfCounted(a, sameNameCount),
-		AppName:       a.Name,
-		DisplayName:   a.DisplayName,
-		Description:   a.Desc,
-		LatestVersion: a.Version,
-		ReleaseURL:    a.DownloadURL,
-		ReleaseNotes:  a.Changelog,
-		Homepage:      a.HomePage,
-		IconURL:       a.IconURL,
-		UpdatedAt:     a.UpdatedAt,
-		AppType:       appType,
-		Category:      mapCategory(a.Labels),
-		Source:        a.Source,
-		Maintainer:    a.Author,
-		MaintainerURL: a.AuthorURL,
-		Distributor:   a.Distributor,
-		Changelog:     a.Changelog,
-		SizeBytes:     sizeBytes,
-		Sha256:        a.Sha256,
-		PreviewCount:  len(a.PreviewURLs),
-		PreviewURLs:   a.PreviewURLs,
-		HasReadme:     a.ReadmeURL != "",
-		Platform:      "fnos",
+		Key:            source.KeyOfCounted(a, sameNameCount),
+		AppName:        a.Name,
+		DisplayName:    a.DisplayName,
+		Description:    a.Desc,
+		LatestVersion:  a.Version,
+		ReleaseURL:     a.DownloadURL,
+		ReleaseNotes:   a.Changelog,
+		Homepage:       a.HomePage,
+		IconURL:        a.IconURL,
+		UpdatedAt:      a.UpdatedAt,
+		AppType:        appType,
+		Category:       mapCategory(a.Labels),
+		Source:         a.Source,
+		Maintainer:     a.Author,
+		MaintainerURL:  a.AuthorURL,
+		Distributor:    a.Distributor,
+		Changelog:      a.Changelog,
+		SizeBytes:      sizeBytes,
+		InstallType:    a.InstallType,
+		FirstReleaseAt: a.FirstReleaseAt,
+		Sha256:         a.Sha256,
+		PreviewCount:   len(a.PreviewURLs),
+		PreviewURLs:    a.PreviewURLs,
+		HasReadme:      a.ReadmeURL != "",
+		Platform:       "fnos",
 	}
 	if dlCount > 0 {
 		ai.DownloadCount = &dlCount

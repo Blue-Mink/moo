@@ -34,6 +34,9 @@ type App struct {
 	// ReleaseChangelogs 来自 fnpack.json 的 releases 字段（版本 → 该版本说明），
 	// 比顶层 changelog 拼接串更干净；仅详情用，不进列表载荷。
 	ReleaseChangelogs map[string]string `json:"-"`
+	// FirstReleaseAt 该应用在源里的**最早发布时间**（moo.json 扩展字段
+	// first_release_at；详情页「最早发布」行用它）。
+	FirstReleaseAt string `json:"first_release_at,omitempty"`
 	// PreviewURLs 来自 fnpack.json 的 preview_urls 字段（详情页预览图灯箱）。
 	// 社区源多数不声明（对齐 New Store 行为：有则显示，无则隐藏该区）。
 	PreviewURLs []string `json:"-"`

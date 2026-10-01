@@ -85,6 +85,10 @@ export interface AppInfo {
   /** changelog 解析后的版本化条目（最新在前）；无 changelog 时缺省。 */
   changelog_entries?: { version?: string; text: string }[];
   size_bytes?: number;
+  /** moo.json 扩展：应用运行方式/安装位置（root / 用户空间 / 系统空间） */
+  install_type?: string;
+  /** moo.json 扩展：该应用最早发布时间 */
+  first_release_at?: string;
   sha256?: string;
   preview_count?: number;
   has_readme?: boolean;

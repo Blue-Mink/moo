@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"moo/internal/config"
 	"moo/internal/netx"
 )
 
@@ -44,40 +43,10 @@ func (f *FnDepot) Name() string { return f.name }
 var fetchClient = netx.NewClient(30 * time.Second)
 
 // candidateURLs 把用户给的地址展开成一组候选 JSON 地址，按优先级排列。
+// 0.6.233：实际展开逻辑移到 mooindex.go 的 buildCandidates（moo.json 优先、
+// fnpack.json 回退），本处保留为薄封装以免改动调用点。
 func (f *FnDepot) candidateURLs() []string {
-	u := f.url
-	var out []string
-	switch {
-	case strings.HasSuffix(u, ".json"):
-		out = append(out, u)
-	case strings.Contains(u, "github.com/"):
-		// github.com/user/repo → raw / gh-proxy 镜像 / jsDelivr
-		// 镜像与 raw 同属一级竞速：GitHub 直连在国内 NAS 上间歇性超时
-		// （2026-09-25 实测源同步 12s 全挂），而 FPK 下载走镜像一直正常——
-		// JSON 拉取没有镜像导致目录刷新比包下载脆弱得多。
-		trimmed := strings.TrimPrefix(u, "https://")
-		trimmed = strings.TrimPrefix(trimmed, "http://")
-		parts := strings.SplitN(trimmed, "/", 3)
-		if len(parts) == 3 {
-			owner, repo := parts[1], strings.TrimSuffix(parts[2], ".git")
-			out = append(out,
-				fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/main/fnpack.json", owner, repo),
-				fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/fnpack.json", owner, repo),
-			)
-			for _, opt := range config.GitHubMirrorOptions() {
-				if opt.URL == "" { // auto = 非直连项
-					continue
-				}
-				m := strings.TrimRight(opt.URL, "/") + "/https://raw.githubusercontent.com/" + owner + "/" + repo + "/"
-				out = append(out, m+"main/fnpack.json", m+"master/fnpack.json")
-			}
-			out = append(out, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s/fnpack.json", owner, repo))
-		}
-		out = append(out, u+"/fnpack.json", u+"/raw/main/fnpack.json")
-	default:
-		out = append(out, u+"/fnpack.json", u+"/raw/main/fnpack.json")
-	}
-	return out
+	return buildCandidates(f.url)
 }
 
 // fetchJSON 分两级拉取（整体 12s 上限）：
@@ -388,89 +357,104 @@ func (f *FnDepot) Fetch() (map[string]*App, error) {
 // （download_url/图标/预览）一律按它补全，base 为空时回退仓库 URL 猜测。
 func translateEntry(name string, m map[string]any, srcName, repoURL, base string) *App {
 	a := &App{
-		Name:          name,
-		Source:        srcName,
-		DisplayName:   str(m, "display_name"),
-		Desc:          str(m, "desc"),
-		Version:       str(m, "version"),
-		Platform:      pickStrList(m, "platform"),
-		Labels:        pickStrList(m, "labels", "categories"),
-		IconURL:       str(m, "icon_url"),
-		HomePage:      str(m, "homepage"),
-		ReadmeURL:     str(m, "readme_url"),
-		BugReportURL:  str(m, "bug_report_url"),
-		Author:        pickStr(m, "author", "maintainer"),
-		AuthorURL:     pickStr(m, "author_url", "maintainer_url"),
-		Distributor:   str(m, "distributor"),
-		InstallType:   str(m, "install_type"),
-		SizeMB:        anyScalarStr(m, "size"),
-		IsDocker:      isDockerFlag(m),
-		ServicePort:   anyScalarStr(m, "service_port"),
-		DownloadURL:   str(m, "download_url"),
-		Changelog:     str(m, "changelog"),
-		UpdatedAt:     str(m, "updated_at"),
-		DownloadCount: anyInt(m, "download_count"),
-		PreviewURLs:   strListField(m, "preview_urls"),
+		Name:           name,
+		Source:         srcName,
+		DisplayName:    str(m, "display_name"),
+		Desc:           str(m, "desc"),
+		Version:        str(m, "version"),
+		Platform:       pickStrList(m, "platform"),
+		Labels:         pickStrList(m, "labels", "categories", "tags"),
+		IconURL:        str(m, "icon_url"),
+		HomePage:       str(m, "homepage"),
+		ReadmeURL:      str(m, "readme_url"),
+		BugReportURL:   str(m, "bug_report_url"),
+		Author:         pickStr(m, "author", "maintainer"),
+		AuthorURL:      pickStr(m, "author_url", "maintainer_url"),
+		Distributor:    str(m, "distributor"),
+		InstallType:    str(m, "install_type"),
+		SizeMB:         anyScalarStr(m, "size"),
+		IsDocker:       appTypeOf(m),
+		ServicePort:    anyScalarStr(m, "service_port"),
+		DownloadURL:    str(m, "download_url"),
+		Changelog:      str(m, "changelog"),
+		UpdatedAt:      str(m, "updated_at"),
+		DownloadCount:  anyInt(m, "download_count"),
+		PreviewURLs:    strListField(m, "preview_urls"),
+		FirstReleaseAt: str(m, "first_release_at"),
 	}
-		if a.DisplayName == "" {
-			a.DisplayName = name
+	if a.DisplayName == "" {
+		a.DisplayName = name
+	}
+	// 0.6.233（moo.json 扩展）：条目级 sha256 / size_bytes —— FnDepot 只在
+	// releases.packages 里带校验和，Moo 原生协议允许直接写在条目上。
+	if a.Sha256 == "" {
+		a.Sha256 = pickStr(m, "sha256")
+	}
+	if a.SizeBytes == 0 {
+		a.SizeBytes = int64(anyInt(m, "size_bytes"))
+	}
+	// releases: 版本 → {changelog, updated_at, packages: {arch: {download_url, sha256, size}}}
+	// V2 多版本源（如 RROrg）顶层没有 version/download_url：按版本降序取
+	// 当前架构（x86→all 回退）第一个可安装包，补齐版本/下载链接/校验和/体积。
+	if rel, ok := m["releases"].(map[string]any); ok && len(rel) > 0 {
+		a.ReleaseChangelogs = make(map[string]string, len(rel))
+		for ver, rv := range rel {
+			if rm, ok := rv.(map[string]any); ok {
+				if t := str(rm, "changelog"); t != "" {
+					a.ReleaseChangelogs[ver] = t
+				}
+			}
 		}
-		// releases: 版本 → {changelog, updated_at, packages: {arch: {download_url, sha256, size}}}
-		// V2 多版本源（如 RROrg）顶层没有 version/download_url：按版本降序取
-		// 当前架构（x86→all 回退）第一个可安装包，补齐版本/下载链接/校验和/体积。
-		if rel, ok := m["releases"].(map[string]any); ok && len(rel) > 0 {
-			a.ReleaseChangelogs = make(map[string]string, len(rel))
-			for ver, rv := range rel {
-				if rm, ok := rv.(map[string]any); ok {
-					if t := str(rm, "changelog"); t != "" {
-						a.ReleaseChangelogs[ver] = t
+		if a.Version == "" || a.DownloadURL == "" {
+			if ver, pkg := bestRelease(rel, currentArch()); ver != "" {
+				if a.Version == "" {
+					a.Version = ver
+				}
+				if a.DownloadURL == "" {
+					a.DownloadURL = str(pkg, "download_url")
+				}
+				if s := str(pkg, "sha256"); s != "" {
+					a.Sha256 = s
+				}
+				// 体积：优先 size_bytes（显式字节），其次 size（协议约定同为字节；
+				// 0.6.234 起对「写成 MB 小数」的源亦不误读——MB 值一律 <1024，
+				// 与真实包体（数 MB 起）差三个数量级，这里按字节解读并交给上层
+				// 格式化即可，不做猜测性换算以免把 700B 的小包误放大。）
+				if n := anyInt(pkg, "size_bytes"); n > 0 {
+					a.SizeBytes = int64(n)
+				} else if n := anyInt(pkg, "size"); n > 0 {
+					a.SizeBytes = int64(n)
+				}
+				// 注意：不把 release 说明回填到顶层 Changelog——
+				// parseChangelogEntries 已优先用 ReleaseChangelogs 生成
+				// 版本化条目，回填会产生一条版本为空的重复条目。
+				if a.UpdatedAt == "" {
+					if rm, ok := rel[ver].(map[string]any); ok {
+						a.UpdatedAt = str(rm, "updated_at")
 					}
 				}
 			}
-			if a.Version == "" || a.DownloadURL == "" {
-				if ver, pkg := bestRelease(rel, currentArch()); ver != "" {
-					if a.Version == "" {
-						a.Version = ver
-					}
-					if a.DownloadURL == "" {
-						a.DownloadURL = str(pkg, "download_url")
-					}
-					if s := str(pkg, "sha256"); s != "" {
-						a.Sha256 = s
-					}
-					if n := anyInt(pkg, "size"); n > 0 {
-						a.SizeBytes = int64(n)
-					}
-					// 注意：不把 release 说明回填到顶层 Changelog——
-					// parseChangelogEntries 已优先用 ReleaseChangelogs 生成
-					// 版本化条目，回填会产生一条版本为空的重复条目。
-					if a.UpdatedAt == "" {
-						if rm, ok := rel[ver].(map[string]any); ok {
-							a.UpdatedAt = str(rm, "updated_at")
+		}
+	}
+	// arch_diff: 旧格式变体源把 download_url 按 x86/arm/all 分列（无顶层链接）。
+	if a.DownloadURL == "" {
+		if ad, ok := m["arch_diff"].(map[string]any); ok {
+			for _, k := range []string{currentArch(), "all"} {
+				if p, ok2 := ad[k].(map[string]any); ok2 {
+					if u := str(p, "download_url"); u != "" {
+						a.DownloadURL = u
+						if s := str(p, "sha256"); s != "" {
+							a.Sha256 = s
 						}
-					}
-				}
-			}
-		}
-		// arch_diff: 旧格式变体源把 download_url 按 x86/arm/all 分列（无顶层链接）。
-		if a.DownloadURL == "" {
-			if ad, ok := m["arch_diff"].(map[string]any); ok {
-				for _, k := range []string{currentArch(), "all"} {
-					if p, ok2 := ad[k].(map[string]any); ok2 {
-						if u := str(p, "download_url"); u != "" {
-							a.DownloadURL = u
-							if s := str(p, "sha256"); s != "" {
-								a.Sha256 = s
-							}
-							if n := anyInt(p, "size"); n > 0 {
-								a.SizeBytes = int64(n)
-							}
-							break
+						if n := anyInt(p, "size"); n > 0 {
+							a.SizeBytes = int64(n)
 						}
+						break
 					}
 				}
 			}
 		}
+	}
 	// 无任何下载字段（releases/平铺/arch_diff 全缺）但有版本：按 FnDepot 社区约定
 	// 从仓库内 <appname>/<appname>.fpk 构造直链（Docker 应用不走此约定）。
 	// 有实测 base 时按它拼（自动适配 master/main），否则回退 raw main 猜测。
