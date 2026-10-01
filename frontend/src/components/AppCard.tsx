@@ -6,13 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import AppIcon from "./AppIcon";
+import { DockerIcon } from "./DockerIcon";
 import { cn, formatSpeed, formatProgress } from "@/lib/utils";
 import { 
   Download, 
   RefreshCw, 
   Package,
   ArrowRight,
-  Container,
   X,
   BellOff,
   Globe,
@@ -113,8 +113,9 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                 <h3 className="font-semibold text-[15px] leading-tight text-foreground truncate" title={app.display_name}>
                   {app.display_name}
                 </h3>
+                {/* 0.6.219：Docker 应用标记改为 Docker 官方鲸鱼（配色跟随主题色） */}
                 {app.app_type === 'docker' && (
-                  <Container className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <DockerIcon className="h-4 w-4 text-primary" />
                 )}
               </div>
               {canUpdate && (

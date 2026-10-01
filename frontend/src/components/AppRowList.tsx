@@ -5,10 +5,11 @@ import { cn, formatSpeed, formatProgress } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
-  Download, Package, Container, X, BellOff, Globe, User, Check, Star,
+  Download, Package, X, BellOff, Globe, User, Check, Star,
 } from 'lucide-react';
 import { CheckCircle2, RefreshCw as UpdateIcon, Search } from 'lucide-react';
 import AppIcon from './AppIcon';
+import { DockerIcon } from './DockerIcon';
 
 interface AppRowListProps {
   apps: AppInfo[];
@@ -133,8 +134,10 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 <span className="font-semibold text-[16px] leading-tight truncate" title={app.display_name}>
                   {app.display_name}
                 </span>
+                {/* 0.6.219：Docker 应用标记由通用盒子改为 Docker 官方鲸鱼
+                    （配色跟随主题色，方案 B）；16px 比原 14px 更易辨认 */}
                 {app.app_type === 'docker' && (
-                  <Container className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <DockerIcon className="h-4 w-4 text-primary" />
                 )}
                 {canUpdate && (
                   <Badge variant="secondary" className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-[11px] shrink-0 rounded-full">
