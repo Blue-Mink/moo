@@ -87,7 +87,7 @@
 | 自建 Gitea | **建议直接填 raw 直链**：`http://<host>/<owner>/<repo>/raw/branch/main/moo.json` |
 
 - **主机支持域名或 IPv4**（内网 `192.0.2.10:3000` 一样可用）。
-- 想同时兼容别的索引格式：同目录再放一份 `fnpack.json` 即可 —— **Moo 优先读 `moo.json`**，读不到才回退。
+- 同目录若还有其它索引文件，**Moo 优先读 `moo.json`**，读不到才回退（见 §3 说明）。
 
 ### 2.3 搜索框「贴链接直搜」
 
@@ -95,7 +95,7 @@
 
 - 仓库根：`https://github.com/<owner>/<repo>`、`http://192.0.2.10:3000/<owner>/<repo>`
 - raw / 镜像：`raw.githubusercontent.com/...`、`cdn.jsdelivr.net/gh/...`、gh-proxy 等镜像前缀
-- 索引直链：`moo.json`、`fnpack.json`、`fndepot.json`、`fndepot_v2.json`、`apps.json`
+- 索引直链：`moo.json`（以及 Moo 兼容读取的其它索引文件名）
 - Gitea raw：`http://<host>/<owner>/<repo>/raw/branch/<branch>/moo.json`
 
 **归一化规则**：转小写 → 去协议与 `?`/`#` → 剥 `/raw/<分支>/` 段 → 剥索引文件名 →
@@ -295,7 +295,7 @@ Moo 的比较算法（`versionLess`）：
   "source_info": {
     "name": "示例应用仓",                       // 源显示名
     "author": "Example Org",                            // 源维护者
-    "homepage": "https://github.com/Example Org/FnDepot",
+    "homepage": "https://github.com/example-org/apps",
     "description": "社区维护的 fnOS 应用源",
     "updated_at": "2026-10-01T21:00:00+08:00"
   },
@@ -591,7 +591,7 @@ cd moo && go run ./tools/gen-moo-json \
 ```bash
 python3 tools/gen-repo-moo-json.py \
   --repo https://gitea.example.com/owner/repo --user <user> --password <token> \
-  --app moo --name "示例应用仓" --distributor "Example Org" \
+  --app demo-app --name "示例应用仓" --distributor "Example Org" \
   --labels "系统工具" --install-type root \
   --preview "docs/shot-1.png,docs/shot-2.png" \
   --readme-file "README.md" --icon-file "icons/demo.png" \
