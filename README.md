@@ -25,13 +25,13 @@
 本仓库包含 Moo 的全部源码：Go 后端（单二进制，web embed）+ React / TypeScript 前端（Vite 构建后内嵌），发布产物为仅 x86_64 的单 FPK。应用目录数据来自三大平台——飞牛官方应用中心、FnDepot、fnos-apps（conversun），Moo 只负责聚合、归类与推送，不修改上游数据。
 
 <p align="center">
-  <img src="docs/readme-mobile-1.png" width="100%" alt="移动端：主页 / 收藏 / 发现（暗黑模式真机）"/><br/>
+  <img src="docs/readme-mobile-1.png" width="100%" alt="移动端（暗黑模式）：主页 / 系统设置 / 加速源 / 发现"/><br/>
   <b>移动端 · 主页 / 收藏 / 发现（暗黑模式）</b><br/>
   App Store 风格列表 · 搜索可直接贴源链接 · 收藏与关注源
 </p>
 
 <p align="center">
-  <img src="docs/readme-mobile-2.png" width="86%" alt="移动端设置（系统 / 加速源 / 应用源 / 备份 / 通知 / 关于）"/><br/>
+  <img src="docs/readme-mobile-2.png" width="86%" alt="移动端设置：备份 / 通知 / 关于"/><br/>
   <b>移动端 · 设置全 tab</b><br/>
   加速源健康自动监测 · 应用源 155 个一键恢复 · 通知内容三档
 </p>
