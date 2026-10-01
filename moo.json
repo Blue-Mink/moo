@@ -1,5 +1,5 @@
 {
-  "schema_version": "moo/v1",
+  "schema_version": "moo/m1",
   "source_info": {
     "name": "Moo 应用商店",
     "homepage": "http://192.168.3.15:3033/bluemink/moo",
@@ -19,6 +19,138 @@
       "homepage": "http://192.168.3.15:3033/bluemink/moo",
       "license": "MIT",
       "releases": {
+        "0.6.243-panel": {
+          "changelog": "🐛 **运行方式/安装位置分离**——按值自适应标签；认不出的脏值整行不显示。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.243-panel/moo_0.6.243-panel_x86.fpk",
+              "size": 7789610,
+              "size_mb": 7.43,
+              "sha256": "2cb581b6345a3b338b6aac1542ac022b189fb78e29251026b8cd460e37b0fb94"
+            }
+          },
+          "updated_at": "2026-10-01T23:56:04+08:00"
+        },
+        "0.6.242-panel": {
+          "changelog": "🐛 **运行方式归一**——root/package 大小写统一，并补前端单测。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.242-panel/moo_0.6.242-panel_x86.fpk",
+              "size": 7789921,
+              "size_mb": 7.43,
+              "sha256": "24ea687b60581cee9d7864479f3d473e4331d6a05c05c2be07e3842f384a977c"
+            }
+          },
+          "updated_at": "2026-10-01T23:55:57+08:00"
+        },
+        "0.6.241-panel": {
+          "changelog": "🐛 **贴链接直搜支持 Moo 仓**——moo.json 纳入索引识别，主机校验放宽到 IPv4（内网 Gitea 源也能匹配）。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.241-panel/moo_0.6.241-panel_x86.fpk",
+              "size": 7789683,
+              "size_mb": 7.43,
+              "sha256": "34f24190404aa671c4d3a018b1199c9f599d71087fc94c0afec06576eca50314"
+            }
+          },
+          "updated_at": "2026-10-01T23:55:50+08:00"
+        },
+        "0.6.240-panel": {
+          "changelog": "🎨 **详情页与提示文案**——运行方式 package 显示为「用户空间」；添加源说明补上 Moo 协议。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.240-panel/moo_0.6.240-panel_x86.fpk",
+              "size": 7789686,
+              "size_mb": 7.43,
+              "sha256": "101da6a0f250ae6dd08b9cfb10f261cd2714cc11c1d6f9bb1c7df4db15244e6f"
+            }
+          },
+          "updated_at": "2026-10-01T23:55:43+08:00"
+        },
+        "0.6.239-panel": {
+          "changelog": "🎨 **README 默认 10 行**——默认只露出约 10 行，点展开看全文。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.239-panel/moo_0.6.239-panel_x86.fpk",
+              "size": 7789181,
+              "size_mb": 7.43,
+              "sha256": "7c36958b2b9fd04f4bd9e095a25f7e57e6a97f2f7b31c18df3595ddc5d4f2c4d"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:53+08:00"
+        },
+        "0.6.238-panel": {
+          "changelog": "🎨 **按钮位置调整**——README 与更新日志的展开/折叠按钮统一放到标题行右侧。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.238-panel/moo_0.6.238-panel_x86.fpk",
+              "size": 7789193,
+              "size_mb": 7.43,
+              "sha256": "16ff78f0d1a8f4fed396c57b7b53d570866dd8ed07b04f7359fa8800958590e5"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:49+08:00"
+        },
+        "0.6.237-panel": {
+          "changelog": "🎨 **README 可折叠**——README 支持收起/展开（按钮与更新日志同款）。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.237-panel/moo_0.6.237-panel_x86.fpk",
+              "size": 7789113,
+              "size_mb": 7.43,
+              "sha256": "80e79a6b4246d7ed51e6246c6f59fa93255696468cd99d5c9072687f1bace493"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:45+08:00"
+        },
+        "0.6.236-panel": {
+          "changelog": "🎨 **详情页整理**——信息行重排、README 与更新日志换位、更新日志默认只显示最近 3 条。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.236-panel/moo_0.6.236-panel_x86.fpk",
+              "size": 7789105,
+              "size_mb": 7.43,
+              "sha256": "6313df4ff2ee242495f0fb0d1a077ab5e0909f55e3f20d00e14839962e5cb693"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:41+08:00"
+        },
+        "0.6.235-panel": {
+          "changelog": "🎨 **详情页补全**——新增运行方式、最早发布、真实下载数、预览图与 README；分类标签显示中文。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.235-panel/moo_0.6.235-panel_x86.fpk",
+              "size": 7788831,
+              "size_mb": 7.43,
+              "sha256": "b1327b5e951ce30064b7005658b7579a30734f4c8eca421a749a2e88321214ba"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:38+08:00"
+        },
+        "0.6.234-panel": {
+          "changelog": "🐛 **源字段修正**——releases 里 packages.size 按字节解析、更新日志条目补上发布时间。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.234-panel/moo_0.6.234-panel_x86.fpk",
+              "size": 7786681,
+              "size_mb": 7.43,
+              "sha256": "ea99750b7869242e89c12e38addd7a985a3a20f7bd7114f7e55a48b3bae3b3ee"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:33+08:00"
+        },
+        "0.6.233-panel": {
+          "changelog": "🧩 **moo.json 协议**——新增 Moo 原生应用源协议（FnDepot 超集）：任何仓库挂一份 moo.json 即可被添加为源并同步应用。",
+          "packages": {
+            "x86": {
+              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.233-panel/moo_0.6.233-panel_x86.fpk",
+              "size": 7787424,
+              "size_mb": 7.43,
+              "sha256": "4ffb7b3ef26ac4390508d75bde6e67084a9d507ce5a9abbe1c4c1fcb62eda981"
+            }
+          },
+          "updated_at": "2026-10-01T23:19:30+08:00"
+        },
         "0.6.232-panel": {
           "changelog": "🎨 **推荐排列与点击反馈**——发现页三张推荐改等宽一排；Dock 与移动 tab 加按下缩放反馈。",
           "packages": {
@@ -3034,7 +3166,7 @@
           "updated_at": "2026-10-01T08:49:56+08:00"
         }
       },
-      "sha256": "eedd1462daaf2817aa05709440b710ce91d4a812d6c24a878318820507ae1e07",
+      "sha256": "2cb581b6345a3b338b6aac1542ac022b189fb78e29251026b8cd460e37b0fb94",
       "icon_url": "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/fnos/ICON.PNG",
       "readme_url": "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/README.md",
       "labels": "系统工具",
@@ -3044,9 +3176,9 @@
         "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/docs/readme-pc-detail.png",
         "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/docs/readme-mobile-1.png"
       ],
-      "download_count": 288,
+      "download_count": 291,
       "first_release_at": "2026-10-01T08:49:56+08:00",
-      "updated_at": "2026-10-01T21:19:25+08:00"
+      "updated_at": "2026-10-01T23:56:04+08:00"
     }
   }
 }
