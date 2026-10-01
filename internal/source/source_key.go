@@ -11,12 +11,15 @@ import (
 // 用例钉死一致性）。
 
 var (
-	searchKeyDomainRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$`)
+	// 0.6.241：主机形态放宽到「域名 **或 IPv4**」——内网 Gitea（如 192.168.3.15:3033）
+	// 同样是合法源主机，原实现只认域名会把内网源整个排除在「贴链接直搜」之外。
+	searchKeyDomainRe = regexp.MustCompile(`^([a-z0-9][a-z0-9.-]*\.[a-z]{2,}|(\d{1,3}\.){3}\d{1,3})$`)
 	// 尾部 /raw/<分支>/ 段（非 GitHub 主机用）
 	searchKeyRawSegRe = regexp.MustCompile(`/raw/[^/]+/`)
 )
 
-var searchKeyIndexFiles = []string{"fnpack.json", "fndepot_v2.json", "fndepot.json", "apps.json"}
+// 0.6.240：加入 moo.json（Moo 原生源协议），与前端 sourceKey.ts 保持一致
+var searchKeyIndexFiles = []string{"moo.json", "fnpack.json", "fndepot_v2.json", "fndepot.json", "apps.json"}
 
 var searchKeyGHHosts = []string{
 	"github.com/",

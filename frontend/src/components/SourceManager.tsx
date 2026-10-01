@@ -1009,7 +1009,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         />
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            支持 FnDepot V1/V2（JSON 直链或 GitHub 仓库）与 conversun/fnos-apps。源名自动取仓库作者名。
+            支持 FnDepot V1/V2、 Moo协议（JSON 直链或 GitHub 仓库）与 conversun/fnos-apps。源名自动取仓库作者名。
           </p>
           <Button size="sm" onClick={handleAdd} disabled={adding || lines.length === 0} className="h-8 shrink-0">
             {adding ? (

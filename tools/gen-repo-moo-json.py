@@ -7,10 +7,10 @@
 
 用法：
   python3 tools/gen-repo-moo-json.py \
-      --repo http://192.168.3.15:3033/bluemink/moo \
+      --repo https://gitea.example.com/owner/repo \
       --user bluemink --password '***' \
       --app moo --name "Moo 应用商店" \
-      --homepage http://192.168.3.15:3033/bluemink/moo \
+      --homepage https://gitea.example.com/owner/repo \
       --icon-file fnos/ICON.PNG \
       --out /tmp/moo.json
 """

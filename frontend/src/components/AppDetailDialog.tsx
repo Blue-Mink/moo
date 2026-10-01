@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { categoryLabel } from '@/lib/categories';
+import { installTypeRow } from '@/lib/appMeta';
 import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../api/client';
 import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc } from '../api/client';
 import { toast } from 'sonner';
@@ -986,9 +987,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
 
           {/* moo.json 扩展（0.6.235）：运行方式（root / 用户空间等）与最早发布时间。
               源未提供时不显示该行，保持与旧源一致的观感。 */}
-          {app.install_type && (
-            <DetailRow icon={ShieldCheck} label="运行方式">
-              {app.install_type}
+          {installTypeRow(app.install_type) && (
+            <DetailRow icon={ShieldCheck} label={installTypeRow(app.install_type)!.label}>
+              {installTypeRow(app.install_type)!.value}
             </DetailRow>
           )}
 

@@ -3,14 +3,14 @@
  *
  * 用户粘贴的"源链接"不止源列表里配置的仓库根链接，还有一堆浏览器可见
  * 形态：raw 前缀（raw.githubusercontent.com）、路径内 raw
- * （github.com/u/r/raw/...）、JSON 索引链接（fnpack.json / fndepot.json /
- * fndepot_v2.json / apps.json）、jsDelivr / gh-proxy 镜像链接。全部归一化
+ * （github.com/u/r/raw/...）、JSON 索引链接（**moo.json** / fnpack.json /
+ * fndepot.json / fndepot_v2.json / apps.json）、jsDelivr / gh-proxy 镜像链接。全部归一化
  * 成同一规范 key（GitHub → `github.com/owner/repo`，小写、去 .git/分支/
  * 文件名）后才能对源列表做匹配。
  */
 
 /** 源链接尾部可能挂的索引文件名（归一化时剥掉） */
-const INDEX_FILES = ['fnpack.json', 'fndepot_v2.json', 'fndepot.json', 'apps.json'];
+const INDEX_FILES = ['moo.json', 'fnpack.json', 'fndepot_v2.json', 'fndepot.json', 'apps.json'];
 
 /** GitHub 系主机（镜像前缀剥离 + 规范 key 派生用） */
 const GH_HOSTS = [
@@ -28,7 +28,11 @@ export function isLinkLike(term: string): boolean {
   const t = term.trim().toLowerCase();
   if (!t) return false;
   if (/^https?:\/\//.test(t)) return true;
-  return /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(:\d+)?\/\S*$/.test(t);
+  // 域名形态，或 IPv4 主机（内网 Gitea 等：192.168.3.15:3033/owner/repo）
+  return (
+    /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(:\d+)?\/\S*$/.test(t) ||
+    /^(\d{1,3}\.){3}\d{1,3}(:\d+)?\/\S*$/.test(t)
+  );
 }
 
 /**
@@ -46,7 +50,8 @@ export function sourceKey(raw: string): string | null {
   u = u.replace(/\/+$/, '');
   if (!u.includes('/')) return null; // 裸词/裸文件名/无路径主机 → 非链接
   const hostNoPort = (u.split('/')[0] || '').replace(/:\d+$/, '');
-  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(hostNoPort)) return null; // host 必须域名形态
+  // host 必须是域名或 IPv4（0.6.241：内网 Gitea 也是合法源主机）
+  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(hostNoPort) && !/^(\d{1,3}\.){3}\d{1,3}$/.test(hostNoPort)) return null;
   // 镜像前缀（gh-proxy 等）：剥掉首个已知 GitHub 主机之前的部分
   for (const h of GH_HOSTS) {
     const i = u.indexOf('/' + h);
