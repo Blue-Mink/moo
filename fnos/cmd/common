@@ -1,0 +1,165 @@
+#!/bin/bash
+# Moo — 生命周期公共函数（0.6.154：端口闭环，移植 New Store native-web-port-flow）
+#
+# 访问模型：面板网关 /app/moo/（主入口，永不随端口变化；ui/config 与
+# app_service.url 保持网关路径不动）+ TCP 调试端口（127.0.0.1 绑定，
+# 默认 38100，manifest service_port 登记基准）。
+#
+# 端口单一事实源：${TRIM_PKGETC}/ports.conf。install/config 向导改动端口后
+# 同步：ports.conf → manifest service_port → .sc（若有 ports 行）→ AppCenter
+# DB（app.service_url，「打开」入口 app_service.url 不动）。
+
+DNAME="moo"
+
+DEFAULT_PORT=38100
+PKG_ETC="${TRIM_PKGETC:-/var/apps/${TRIM_APPNAME}/etc}"
+PORTS_CONF="${PKG_ETC}/ports.conf"
+
+PKGVAR="${TRIM_PKGVAR:-/var/apps/${TRIM_APPNAME}/var}"
+LOG_FILE="${PKGVAR}/${TRIM_APPNAME:-moo}.log"
+PID_FILE="${PKGVAR}/${TRIM_APPNAME:-moo}.pid"
+APP_DEST="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME}}"
+BIN="${APP_DEST}/moo-server"
+
+# 读当前端口：ports.conf（单一事实源，用户意图恒优先）→ TRIM_SERVICE_PORT
+# （应用中心注入，可能滞后于刚改的向导端口）→ 已安装 manifest → 默认。
+read_web_port() {
+    local p="" mf
+    if [ -r "${PORTS_CONF}" ]; then
+        p=$(grep -E "^WEB_PORT=" "${PORTS_CONF}" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -d '[:space:]')
+    fi
+    case "${p}" in ''|*[!0-9]*) p="" ;; esac
+    if [ -z "${p}" ]; then
+        case "${TRIM_SERVICE_PORT:-}" in
+            ''|*[!0-9]*) p="" ;;
+            *) p="${TRIM_SERVICE_PORT}" ;;
+        esac
+    fi
+    if [ -z "${p}" ]; then
+        for mf in "${APP_DEST}/manifest" "/var/apps/${TRIM_APPNAME}/manifest"; do
+            [ -r "${mf}" ] || continue
+            p=$(grep -E "^service_port[[:space:]]*=" "${mf}" 2>/dev/null | head -n1 | grep -oE '[0-9]+' | head -n1)
+            case "${p}" in ''|*[!0-9]*) p="" ;; esac
+            [ -n "${p}" ] && break
+        done
+    fi
+    case "${p}" in ''|*[!0-9]*) p="${DEFAULT_PORT}" ;; esac
+    echo "${p}"
+}
+
+# 校验端口：纯数字且 1024-65535
+validate_port() {
+    local p="$1"
+    case "${p}" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "${p}" -ge 1024 ] 2>/dev/null && [ "${p}" -le 65535 ] 2>/dev/null || return 1
+    return 0
+}
+
+# 同步 AppCenter DB（服务端口登记指向新端口）——与 KSpeeder/New Store 同款写法。
+# $1=端口  $2=status（running=同时置状态；空=不动状态字段）
+# URL 里的 ${host} 用 SQL 侧 chr(36) 拼，保持字面量交给面板解析。
+# ⚠ 只更新 app.service_url；app_service.url 是 /app/moo/ 网关入口，永不动。
+sync_appcenter_db() {
+    local port="$1" status_sql=""
+    [ "${2:-}" = "running" ] && status_sql="status='running',"
+    if ! command -v psql >/dev/null 2>&1; then
+        return 0
+    fi
+    psql -h /var/run/postgresql -d appcenter -U postgres -v ON_ERROR_STOP=0 >/dev/null 2>&1 <<SQL || \
+        echo "sync_appcenter_db: psql 失败 (port=${port})" >> "${LOG_FILE}" 2>/dev/null
+UPDATE app
+   SET ${status_sql}
+       service_url='http://' || chr(36) || '{host}:${port}/',
+       updated_at=now()
+ WHERE app_name='${TRIM_APPNAME}';
+INSERT INTO system_config(type,k,v)
+SELECT 'appAutoUpdate','${TRIM_APPNAME}','false'
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE type='appAutoUpdate' AND k='${TRIM_APPNAME}');
+SQL
+    return 0
+}
+
+# 以应用中心同一权限上下文重启服务（config_callback 用；显式传 TRIM_SERVICE_PORT）
+restart_service() {
+    local main_script=""
+    for main_script in "/var/apps/${TRIM_APPNAME}/cmd/main" "${APP_DEST}/cmd/main" "${APP_DEST}/target/cmd/main"; do
+        [ -x "${main_script}" ] && break
+    done
+    [ -n "${main_script}" ] && [ -x "${main_script}" ] || return 0
+    TRIM_APPNAME="${TRIM_APPNAME}" TRIM_APPDEST="${APP_DEST}" \
+    TRIM_PKGETC="${PKG_ETC}" TRIM_PKGVAR="${PKGVAR}" \
+    TRIM_SERVICE_PORT="${1:-}" "${main_script}" stop >/dev/null 2>&1 || true
+    sleep 1
+    TRIM_APPNAME="${TRIM_APPNAME}" TRIM_APPDEST="${APP_DEST}" \
+    TRIM_PKGETC="${PKG_ETC}" TRIM_PKGVAR="${PKGVAR}" \
+    TRIM_SERVICE_PORT="${1:-}" "${main_script}" start >/dev/null 2>&1 || true
+    return 0
+}
+
+# 应用端口：写 ports.conf + 同步 .sc / manifest / AppCenter DB
+apply_port() {
+    local port="$1" status="${2:-}"
+    if ! validate_port "${port}"; then
+        echo "端口无效：${port}（必须是 1024-65535 的数字）" > "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
+        return 1
+    fi
+
+    # 1) ports.conf（单一事实源）
+    if [ -d "${PKG_ETC}" ] || mkdir -p "${PKG_ETC}" 2>/dev/null; then
+        printf 'WEB_PORT=%s\n' "${port}" > "${PORTS_CONF}"
+    fi
+
+    # 2) .sc 端口转发（Moo 默认 port_forward=no 无 ports 行，sed 无匹配即跳过；
+    #    若未来 .sc 带 ports 行则保持同步）
+    local sc
+    for sc in "${APP_DEST}/${TRIM_APPNAME}.sc" "${PKG_ETC}/${TRIM_APPNAME}.sc"; do
+        if [ -f "${sc}" ]; then
+            sed -i "s|^src\.ports=.*|src.ports=\"${port}/tcp\"|" "${sc}"
+            sed -i "s|^dst\.ports=.*|dst.ports=\"${port}/tcp\"|" "${sc}"
+        fi
+    done
+
+    # 3) manifest service_port（应用中心端口登记基准；系统在 /var/apps 下保留一份）
+    local mf
+    for mf in "${APP_DEST}/manifest" "/var/apps/${TRIM_APPNAME}/manifest"; do
+        if [ -f "${mf}" ]; then
+            sed -i -E "s|^(service_port[[:space:]]*=).*|\1 ${port}|" "${mf}"
+        fi
+    done
+
+    # 4) AppCenter DB（只动 app.service_url；/app/moo/ 网关入口不动）
+    sync_appcenter_db "${port}" "${status}"
+    return 0
+}
+
+start_daemon() {
+    local port
+    port=$(read_web_port)
+    mkdir -p "${PKGVAR}"
+    # 访问模型：统一网关 unix socket 为主入口；TCP 仅 127.0.0.1 调试（二进制内绑定）
+    nohup env MOO_WEB_PORT="${port}" \
+        MOO_SOCKET="${APP_DEST}/app.sock" \
+        MOO_DATA="${PKGVAR}" \
+        "${BIN}" >> "${LOG_FILE}" 2>&1 &
+    echo $! > "${PID_FILE}"
+    echo "${DNAME} started: gateway socket=${APP_DEST}/app.sock debug=127.0.0.1:${port} (pid $(cat ${PID_FILE}))" >> "${LOG_FILE}"
+}
+
+stop_daemon() {
+    local pid
+    pid=$(cat "${PID_FILE}" 2>/dev/null)
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        kill "${pid}" 2>/dev/null
+        sleep 1
+        kill -0 "${pid}" 2>/dev/null && kill -9 "${pid}" 2>/dev/null
+    fi
+    rm -f "${PID_FILE}"
+}
+
+daemon_status() {
+    local pid
+    pid=$(cat "${PID_FILE}" 2>/dev/null)
+    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null
+}

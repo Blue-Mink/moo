@@ -1,0 +1,9 @@
+#!/bin/bash
+# Moo 安装 init（骨架版）：安装向导前的准备工作。
+# M2 阶段移植 New Store 的 installer 框架 + initialize_variables（端口闭环初始化）。
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+mkdir -p "${TRIM_PKGVAR}" /var/log/apps 2>/dev/null
+echo "moo install_init (skeleton)" >> "${LOG_FILE:-/var/log/apps/moo.log}" 2>/dev/null
+exit 0

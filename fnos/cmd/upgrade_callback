@@ -1,0 +1,8 @@
+#!/bin/bash
+# Moo 升级回调（骨架版）：重启 daemon 加载新二进制。
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+stop_daemon
+start_daemon
+exit 0

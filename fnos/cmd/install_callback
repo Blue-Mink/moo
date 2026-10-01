@@ -1,0 +1,22 @@
+#!/bin/bash
+# Moo 安装回调（0.6.154：向导端口闭环）：创建数据目录 + 应用安装向导端口。
+# 端口传递：install-fpk -e / 面板安装传键名不统一，两种都接（wizard_access_port / access_port）
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+mkdir -p "${TRIM_PKGVAR}" /var/log/apps
+echo "Moo installed, version ${TRIM_PKGVERSION:-0.1.0}" >> "${LOG_FILE}"
+
+wport_in="${wizard_access_port:-${access_port:-}}"
+if [ -n "${wport_in}" ]; then
+    echo "install wizard port=${wport_in} (wizard_access_port=${wizard_access_port:-} access_port=${access_port:-})" >> "${LOG_FILE}" 2>/dev/null
+fi
+wport="${wport_in:-$(read_web_port)}"
+if ! validate_port "${wport}"; then
+    echo "端口无效：${wport}（必须是 1024-65535 的数字）" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+apply_port "${wport}"
+# 应用 DB 行可能在回调之后才由应用中心创建：延迟多次重同步，防被默认值覆盖
+( for _d in 3 8 15; do sleep "${_d}"; sync_appcenter_db "${wport}" ""; done ) >/dev/null 2>&1 &
+exit 0

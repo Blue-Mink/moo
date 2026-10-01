@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build Frontend
+        run: |
+          if [ -f frontend/package.json ]; then
+            cd frontend
+            npm ci
+            npm run build
+          fi
+
+      # 仅 x86_64（Moo 按用户偏好不出 arm 版）
+      - name: Build Linux amd64
+        run: GOOS=linux GOARCH=amd64 go build -o moo-server-linux-amd64 ./cmd/server/
+
+      - name: Create Release
+        run: |
+          TAG="${{ github.ref_name }}"
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG exists, uploading assets..."
+            gh release upload "$TAG" moo-server-linux-amd64 --clobber
+          else
+            gh release create "$TAG" \
+              --title "Moo $TAG" \
+              --generate-notes \
+              moo-server-linux-amd64
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

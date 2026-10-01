@@ -1,0 +1,22 @@
+# 构建产物
+build/
+dist/
+*.fpk
+
+# 前端
+node_modules/
+
+# 杂项
+*.log
+*.pid
+.DS_Store
+FAVORITES_TODO.md
+NOTIFY_ABOUT_TODO.md
+internal/api/moo-data/
+SEC_REVIEW_TODO.md
+OPEN_FIX_TODO.md
+MOO_06187_MIRROR_PUSH_TODO.md
+
+# 本地构建缓存/基线产物
+.gocache/
+*.orig-baseline

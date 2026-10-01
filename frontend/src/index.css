@@ -1,0 +1,250 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  /* App Store 风格：卡片 18px 大圆角 */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 6px);
+  --radius-sm: calc(var(--radius) - 10px);
+
+  /* Apple 系统字体栈（中文回退 PingFang / 微软雅黑） */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Segoe UI", Roboto, sans-serif;
+
+  /* App Store 卡片阴影（亮色极轻，暗色靠层次） */
+  --shadow-appstore: 0 1px 2px rgb(0 0 0 / 0.03), 0 4px 16px rgb(0 0 0 / 0.05);
+  --shadow-appstore-hover: 0 2px 4px rgb(0 0 0 / 0.04), 0 10px 28px rgb(0 0 0 / 0.10);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from { height: 0 }
+    to { height: var(--radix-accordion-content-height) }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height) }
+    to { height: 0 }
+  }
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+  @media (width >= --theme(--breakpoint-sm)) {
+    max-width: none;
+  }
+  @media (width >= 1400px) {
+    max-width: 1400px;
+  }
+}
+
+/* iOS 超椭圆（squircle）圆角，近似 n=5 超椭圆 */
+@utility squircle {
+  border-radius: 22.37%;
+}
+
+/* 药丸形 */
+@utility pill {
+  border-radius: 9999px;
+}
+
+/* 横向滚动区隐藏滚动条 */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+:root {
+  /* ---- Apple App Store 亮色 ---- */
+  --background: 240 5% 97%;        /* #f5f5f7 */
+  --foreground: 240 3% 11%;        /* #1d1d1f */
+  --card: 0 0% 100%;               /* #ffffff */
+  --card-foreground: 240 3% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 3% 11%;
+  --primary: 212 100% 45%;         /* iOS 蓝 #0071e3 */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 16% 92%;        /* #e8e8ed */
+  --secondary-foreground: 240 3% 11%;
+  --muted: 240 16% 92%;
+  --muted-foreground: 240 2% 53%;  /* #86868b */
+  --accent: 240 16% 92%;
+  --accent-foreground: 240 3% 11%;
+  --destructive: 4 100% 59%;       /* iOS 红 #ff3b30 */
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 4% 83%;            /* #d2d2d7 */
+  --input: 240 4% 83%;
+  --ring: 212 100% 45%;
+  --chart-1: 212 100% 45%;
+  --chart-2: 160 60% 35%;
+  --chart-3: 43 90% 50%;
+  --chart-4: 275 70% 55%;
+  --chart-5: 330 85% 55%;
+  --radius: 1.125rem;              /* 18px 卡片圆角 */
+}
+
+.dark {
+  /* ---- Apple App Store 暗色（iOS dark） ---- */
+  --background: 0 0% 0%;           /* #000000 */
+  --foreground: 240 5% 97%;        /* #f5f5f7 */
+  --card: 240 5% 11%;              /* #1c1c1e */
+  --card-foreground: 240 5% 97%;
+  --popover: 240 5% 11%;
+  --popover-foreground: 240 5% 97%;
+  --primary: 211 100% 52%;         /* iOS 暗色蓝 #0a84ff */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 17%;         /* #2c2c2e */
+  --secondary-foreground: 240 5% 97%;
+  --muted: 240 5% 17%;
+  --muted-foreground: 240 3% 60%;  /* #98989e */
+  --accent: 240 5% 20%;
+  --accent-foreground: 240 5% 97%;
+  --destructive: 3 100% 61%;       /* #ff453a */
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 3% 23%;            /* #3a3a3c */
+  --input: 240 3% 23%;
+  --ring: 211 100% 52%;
+  --chart-1: 211 100% 52%;
+  --chart-2: 160 60% 45%;
+  --chart-3: 43 90% 55%;
+  --chart-4: 275 70% 60%;
+  --chart-5: 330 85% 60%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ---- 「今日」横幅渐变（App Store Today 风格） ---- */
+.hero-gradient-1 {
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 55%, #db2777 100%);
+}
+.hero-gradient-2 {
+  background: linear-gradient(135deg, #0d9488 0%, #0ea5e9 50%, #3b82f6 100%);
+}
+.hero-gradient-3 {
+  background: linear-gradient(135deg, #f59e0b 0%, #f97316 45%, #ef4444 100%);
+}
+
+/* 顶部搜索展开动画：点击"搜索"药丸后，全宽搜索框从右侧（药丸位置）悬浮展开 */
+@keyframes search-expand {
+  from { opacity: 0; transform: translateY(-10px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.search-expand-anim {
+  animation: search-expand 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: 75% 0%;
+}
+
+/* 灯箱换图：方向感知滑入（消除生硬跳切）。无 fill —— 动画结束后回到
+   元素自身的 opacity/transform（loading 态的 opacity-0 依然有效） */
+@keyframes lightbox-in-next { from { opacity: 0; transform: translateX(28px); } }
+@keyframes lightbox-in-prev  { from { opacity: 0; transform: translateX(-28px); } }
+@keyframes lightbox-in-open  { from { opacity: 0; transform: scale(0.96); } }
+.lightbox-anim-next { animation: lightbox-in-next 180ms cubic-bezier(0.22, 1, 0.36, 1); }
+.lightbox-anim-prev  { animation: lightbox-in-prev  180ms cubic-bezier(0.22, 1, 0.36, 1); }
+.lightbox-anim-open  { animation: lightbox-in-open  200ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ── 主题切换过渡：已改用 View Transitions 圆形展开（src/lib/themeTransition.ts，
+      参考开源 fn-knock），旧的 .theme-transition 250ms 颜色渐变方案已移除 ──── */
+
+/* ── 移动端 WebView（飞牛 app 内嵌）渲染适配 ──────────────────────────────
+   touch-action: manipulation 去掉双击缩放手势等待，首击立即生效（部分
+   WebView 首击被吞/延迟即此原因）；tap-highlight 统一为透明，跟 App Store 观感。
+   overscroll-behavior: none 断开滚动链——app WebView 的下拉手势（Android
+   下拉刷新 / iOS 橡皮筋）不再穿透页面，列表回弹不干扰 app 原生手势。 */
+html, body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* ── 通知栏折叠模式（对齐 fn-knock 观感）────────────────────────────────
+   同一时刻只显示最新 1 条通知：sonner 默认把较旧的通知以"卡片边缘"
+   叠在最新一条后面（视觉上=多条通知栏上下排列）。这里强制隐藏所有
+   非最前通知（含 hover 展开态），旧的排队在前一条消失后自动顶上。 */
+[data-sonner-toaster] [data-sonner-toast]:not([data-front="true"]) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── 应用源长按抖动排序（对齐 fn-knock 子域排序观感）──────────────────
+   抖动动画只作用于行内层（rotate ±1.2°，逐行延迟形成波浪），
+   拖动位移（translateY）由外层 div 承担，两层 transform 互不覆盖。
+   被拖拽的行自身不加抖动（保持静止 + 阴影突出）。 */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-1.2deg); }
+  50%      { transform: rotate(1.2deg); }
+}
+.animate-wiggle {
+  animation: wiggle 0.3s ease-in-out infinite;
+}
+
+/* 0.6.133/0.6.136 用户反馈关联修复：sonner 顶部通知栏必须高于全屏弹层（设置/应用详情 = z-50 全屏页）。
+   sonner v2：Toaster className 加在 toast(li) 上、外层 <section> 无 class 且 static——
+   toast 是 absolute+z-1，全屏页打开时被盖在下面不可见（点版本号「已是最新版本」看不到提示）。
+   直接提升 section（aria-label 为 sonner 固定值）为 z-9999 层叠上下文 + section 不拦截点击。 */
+section[aria-label="Notifications alt+T"] {
+  position: relative;
+  z-index: 9999;
+  pointer-events: none;
+}
+section[aria-label="Notifications alt+T"] [data-sonner-toast] {
+  pointer-events: auto;
+}
