@@ -45,4 +45,4 @@ Keep `skills/moo/references/api-full.md` in sync with `docs/API.md` when the API
 | 技能 | 用途 |
 |---|---|
 | `skills/moo/` | **使用 / 诊断 Moo**：四平面核心模型、完整 HTTP API、功能→接口映射、安装与热替换、安全规则、排障 |
-| `skills/fpk-build-to-moo/` | **发布到 Moo**：写 `moo.json`（协议见 `docs/MOO-PROTOCOL.md`）、用生成器产出索引、搜索框自测、添加为源与详情页验收、版本比较与更新判定、发布卫生（脱敏自检 `tests/test_docs.py`） |
+| `skills/fpk-build-to-moo/` | **从构建 FPK 到发布 Moo**：构建与本地验证（`references/fpk-build.md`）、操作流程与每步判据（`references/publish-workflow.md`）、`moo.json` 协议（`docs/MOO-PROTOCOL.md`）、生成器产出索引、搜索框自测、添加为源与详情页验收、版本比较与发布卫生（脱敏自检 `tests/test_docs.py`） |
