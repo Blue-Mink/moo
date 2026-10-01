@@ -28,7 +28,7 @@ export function isLinkLike(term: string): boolean {
   const t = term.trim().toLowerCase();
   if (!t) return false;
   if (/^https?:\/\//.test(t)) return true;
-  // 域名形态，或 IPv4 主机（内网 Gitea 等：192.168.3.15:3033/owner/repo）
+  // 域名形态，或 IPv4 主机（内网 Gitea 等：192.0.2.10:3000/owner/repo）
   return (
     /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(:\d+)?\/\S*$/.test(t) ||
     /^(\d{1,3}\.){3}\d{1,3}(:\d+)?\/\S*$/.test(t)

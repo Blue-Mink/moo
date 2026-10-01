@@ -8,7 +8,7 @@
 用法：
   python3 tools/gen-repo-moo-json.py \
       --repo https://gitea.example.com/owner/repo \
-      --user bluemink --password '***' \
+      --user owner --password '***' \
       --app moo --name "Moo 应用商店" \
       --homepage https://gitea.example.com/owner/repo \
       --icon-file fnos/ICON.PNG \

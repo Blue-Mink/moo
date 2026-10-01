@@ -13,7 +13,7 @@ func TestBuildCandidatesPrefersMooJson(t *testing.T) {
 	}{
 		{"github 仓库", "https://github.com/Blue-Mink/FnDepot"},
 		{"普通目录", "https://example.com/apps"},
-		{"带协议无 .json", "http://192.168.1.10:8080/store"},
+		{"带协议无 .json", "http://192.0.2.10:3000/store"},
 	}
 	for _, c := range cases {
 		got := buildCandidates(c.url)
