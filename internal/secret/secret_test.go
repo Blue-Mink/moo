@@ -11,7 +11,7 @@ import (
 
 func TestSealOpenRoundTrip(t *testing.T) {
 	s := New([]byte("0123456789abcdef0123456789abcdef"))
-	cases := []string{"REDACTED-NAS-PANEL-PW", "短", strings.Repeat("x", 4096), "含 空格 与 🐳 emoji"}
+	cases := []string{"fixture-pw-1x9", "短", strings.Repeat("x", 4096), "含 空格 与 🐳 emoji"}
 	for _, plain := range cases {
 		sealed, err := s.Seal(plain)
 		if err != nil {
@@ -56,7 +56,7 @@ func TestOpenPlaintextPassthrough(t *testing.T) {
 
 func TestTamperDetected(t *testing.T) {
 	s := New([]byte("0123456789abcdef0123456789abcdef"))
-	sealed, _ := s.Seal("REDACTED-NAS-PANEL-PW")
+	sealed, _ := s.Seal("fixture-pw-1x9")
 	raw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(sealed, Prefix))
 	raw[len(raw)-1] ^= 0x01
 	bad := Prefix + base64.StdEncoding.EncodeToString(raw)
@@ -72,7 +72,7 @@ func TestTamperDetected(t *testing.T) {
 func TestWrongKeyFails(t *testing.T) {
 	a := New([]byte("0123456789abcdef0123456789abcdef"))
 	b := New([]byte("fedcba9876543210fedcba9876543210"))
-	sealed, _ := a.Seal("REDACTED-NAS-PANEL-PW")
+	sealed, _ := a.Seal("fixture-pw-1x9")
 	if _, err := b.Open(sealed); !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("换密钥应解密失败，得到 %v", err)
 	}

@@ -32,7 +32,7 @@ func TestSaveSealsLoadOpens(t *testing.T) {
 	SetCodec(testSealer(t, 7))
 
 	cfg := Default()
-	cfg.PanelPassword = "REDACTED-NAS-PANEL-PW"
+	cfg.PanelPassword = "fixture-pw-1x9"
 	if err := cfg.Save(dir); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -43,11 +43,11 @@ func TestSaveSealsLoadOpens(t *testing.T) {
 	if !strings.Contains(string(raw), "enc:v1:") {
 		t.Fatalf("落盘应为密文，实际: %s", raw[:200])
 	}
-	if strings.Contains(string(raw), "REDACTED-NAS-PANEL-PW") {
+	if strings.Contains(string(raw), "fixture-pw-1x9") {
 		t.Fatalf("落盘内容含明文口令")
 	}
 	// 内存实例不被改写
-	if cfg.PanelPassword != "REDACTED-NAS-PANEL-PW" {
+	if cfg.PanelPassword != "fixture-pw-1x9" {
 		t.Fatalf("Save 不应改写内存明文: %q", cfg.PanelPassword)
 	}
 	// 密钥文件权限
@@ -60,7 +60,7 @@ func TestSaveSealsLoadOpens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if reloaded.PanelPassword != "REDACTED-NAS-PANEL-PW" {
+	if reloaded.PanelPassword != "fixture-pw-1x9" {
 		t.Fatalf("Load 应解回明文: %q", reloaded.PanelPassword)
 	}
 	if MigrationNeeded() {
