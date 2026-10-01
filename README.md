@@ -117,7 +117,8 @@ cmd/          daemon 入口
 internal/     后端：目录构建 / 源管理 / 通知 / 加速 / 自更新 / API
 frontend/     前端：React + TypeScript（Vite）
 fnos/         FPK manifest 与生命周期脚本
-docs/         文档与 README 配图
+docs/         文档（API / 应用源协议 / 设计记录）与 README 配图
+skills/       Agent Skills：使用与诊断（moo/）、发布到 Moo（fpk-build-to-moo/）
 ```
 
 ## 从源码构建
@@ -126,6 +127,20 @@ docs/         文档与 README 配图
 ./build.sh x86    # 产出 moo_<version>_x86.fpk（首次自动下载 fnpack）
 go test ./...     # 单元测试
 ```
+
+## 文档与技能
+
+| 资源 | 说明 |
+|---|---|
+| [API 文档](docs/API.md) | 全部 HTTP 端点、请求/响应字段、SSE 事件、鉴权与错误码 |
+| [应用源协议](docs/MOO-PROTOCOL.md) | `moo.json` 完整规范：字段全表、14 项固定分类、多版本与 `packages`、版本比较规则、7 份带注释示例、FAQ |
+| [使用与诊断技能](skills/moo/) | Agent Skill：四平面核心模型、完整 API 镜像、安装与热替换、安全规则、排障 |
+| [发布到 Moo 技能](skills/fpk-build-to-moo/) | Agent Skill：写 `moo.json` → 生成索引 → 搜索框自测 → 添加为源 → 详情页验收 → 发布脱敏 |
+| [发布到 FnDepot 技能](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill) | Agent Skill：FnDepot V2 协议与上架流程 |
+| [FPK 构建技能](https://github.com/Blue-Mink/fn-fpk-builder-skill) | Agent Skill：FPK 打包 / 校验 / 发布 / SSH 部署与排障 |
+
+> 后两个为独立仓库的技能，克隆到工作区的 `skills/` 目录即可被 Agent 识别；
+> 前两个已随本仓库分发（见 [`skills/`](skills/)）。
 
 ## 📄 许可证
 
