@@ -46,16 +46,16 @@ func TestTabOrderRoundTrip(t *testing.T) {
 	if len(got.DockOrder) != 4 || got.DockOrder[0] != "recommended" {
 		t.Errorf("dock 缺省应为默认 4 项: %v", got.DockOrder)
 	}
-	if len(got.SettingsTabOrder) != 6 || got.SettingsTabOrder[0] != "system" {
-		t.Errorf("设置 tab 缺省应为默认 6 项: %v", got.SettingsTabOrder)
+	if len(got.SettingsTabOrder) != 7 || got.SettingsTabOrder[0] != "system" {
+		t.Errorf("设置 tab 缺省应为默认 7 项: %v", got.SettingsTabOrder)
 	}
 
 	// 保存自定义顺序
-	rec = doSettingsPut(t, s, `{"dock_order":["installed","recommended","update_available","all"],"settings_tab_order":["about","notify","backup","source","accel","system"]}`)
+	rec = doSettingsPut(t, s, `{"dock_order":["installed","recommended","update_available","all"],"settings_tab_order":["about","notify","backup","log","source","accel","system"]}`)
 	if rec.Code != 200 {
 		t.Fatalf("PUT 应 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if s.Cfg.DockOrder[0] != "installed" || s.Cfg.SettingsTabOrder[5] != "system" {
+	if s.Cfg.DockOrder[0] != "installed" || s.Cfg.SettingsTabOrder[6] != "system" {
 		t.Errorf("顺序未保存: %v / %v", s.Cfg.DockOrder, s.Cfg.SettingsTabOrder)
 	}
 
@@ -120,7 +120,7 @@ func TestResolveOrder(t *testing.T) {
 	if got.DockOrder[0] != "recommended" || len(got.DockOrder) != 4 {
 		t.Errorf("脏 dock 数据应回退默认: %v", got.DockOrder)
 	}
-	if got.SettingsTabOrder[0] != "system" || len(got.SettingsTabOrder) != 6 {
+	if got.SettingsTabOrder[0] != "system" || len(got.SettingsTabOrder) != 7 {
 		t.Errorf("脏设置 tab 数据应回退默认: %v", got.SettingsTabOrder)
 	}
 }

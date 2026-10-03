@@ -43,6 +43,9 @@ type Server struct {
 	GHStats *source.GHStats
 	// Official 官方应用中心 OAuth 管理器（合并自主线：token 持久化 + 自动刷新）
 	Official *official.Manager
+	// OfficialStore 官方 OAuth 目录缓存（10min TTL）。0.6.253 起由
+	// WireOfficialOAuth / panelApp / officialRoutes 共享同一实例。
+	OfficialStore *officialStore
 
 	iconStoreOnce sync.Once
 	iconStoreV    *iconStore // 图标两级缓存（内存 10min + 磁盘 7 天 + 负缓存 30min）
@@ -163,6 +166,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("PUT /api/settings", s.requireAdmin(s.putSettings))
 	mux.HandleFunc("POST /api/settings/proxy-test", s.requireAdmin(s.proxyTestHandler))
 	mux.HandleFunc("GET /api/backups", s.requireAdmin(s.getBackups))
+	mux.HandleFunc("GET /api/logs", s.requireAdmin(s.getLogs)) // 0.6.249 设置页「日志」在线查看
 	mux.HandleFunc("POST /api/backups", s.requireAdmin(s.createBackup))
 	mux.HandleFunc("DELETE /api/backups/{name}", s.requireAdmin(s.deleteBackup))
 	mux.HandleFunc("POST /api/backups/clean", s.requireAdmin(s.cleanCacheHandler))
@@ -174,11 +178,12 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/mirrors/docker/health", s.dockerMirrorHealth)
 	mux.HandleFunc("POST /api/mirrors/check", s.requireAdmin(s.mirrorsCheck))
 
-	mux.HandleFunc("POST /api/panel/test", s.requireAdmin(s.panelTest))
+	// 0.6.255：/api/panel/test 已移除（面板账号随设置卡片一并下线；
+	// 授权时的临时账号校验由 /api/official/authorize-headless 承担）。
 
 	// ---- 官方应用中心（OAuth 连接 + 商店列表/搜索/详情；合并自主线 moo-w）----
 	if s.Official != nil {
-		s.officialRoutes(mux, newOfficialStore(s.Official))
+		s.officialRoutes(mux, s.officialStoreV())
 	}
 
 	// ---- FPK 下载缓存 ----

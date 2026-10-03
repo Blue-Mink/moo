@@ -230,6 +230,24 @@ func ensureSourceScheme(u string) string {
 	return u
 }
 
+// HealLegacyURLs 0.6.246：0.6.141 之前的存量数据一次性自愈——无协议的
+// 源地址（如 github.com/Blue-Mink/FnDepot）统一补 https:// 写回 cfg。
+// 0.6.141 只修了写入路径（AddSource/AddSourcePassive）；老安装里已存在的
+// 无协议源（"恢复默认源"按"已存在"去重时会原样保留旧值）一直裸奔，
+// 应用源列表显示/复制出来就是不带 http 的地址。启动时在建 Manager
+// 之前调用一次；返回修复的源数（0 = 无变化，调用方据此决定是否落盘）。
+func HealLegacyURLs(cfg *config.Config) int {
+	fixed := 0
+	for i := range cfg.Sources {
+		u := cfg.Sources[i].URL
+		if u != "" && !strings.Contains(u, "://") {
+			cfg.Sources[i].URL = ensureSourceScheme(u)
+			fixed++
+		}
+	}
+	return fixed
+}
+
 // AddSource 校验并添加源（立即拉取验证可达性）。
 func (m *Manager) AddSource(name, url string) error {
 	name = strings.TrimSpace(name)

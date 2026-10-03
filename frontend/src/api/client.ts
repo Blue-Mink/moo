@@ -532,22 +532,8 @@ export const fetchInstalledDetail = async (appname: string): Promise<PanelDetail
   }
 };
 
-/** 用当前配置实测面板登录（返回官方目录应用数）。 */
-/** 实测面板登录；可传未保存的表单值（覆盖服务端配置）。 */
-export const testPanelLogin = async (creds?: {
-  username?: string;
-  password?: string;
-  base_url?: string;
-}): Promise<{ ok: boolean; app_count: number }> => {
-  const r = await apiFetch(apiUrl('/api/panel/test'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: creds ? JSON.stringify(creds) : undefined,
-  });
-  const body = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(body?.error || `登录测试失败: ${r.statusText}`);
-  return body;
-};
+// 0.6.255：testPanelLogin（POST /api/panel/test）已随面板账号一并移除。
+// 官方源连接见 officialAuthorize / officialAuthorizeHeadless（OAuth）。
 
 export const updateApp = (appname: string, onEvent: SSECallback): SSEHandle => {
   return streamSSE(apiUrl(`/api/apps/${appname}/update`), onEvent);
@@ -601,13 +587,9 @@ export interface Settings {
   source_auto_care_disabled?: boolean;
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   auto_update?: boolean;
-  // 官方应用中心直连（面板账号）
-  panel_enabled?: boolean;
-  panel_username?: string;
-  panel_base_url?: string;
-  panel_has_password?: boolean;
-  /** 0.6.220：库里有凭据但解不开（换机/密钥文件丢失）→ 前端提示重填 */
-  panel_decrypt_failed?: boolean;
+  // 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
+  // panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
+  // 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
   // 备份设置（备份设置 tab）
   backup_dir?: string;
   backup_auto?: boolean;
@@ -1137,7 +1119,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; panel_enabled?: boolean; panel_username?: string; panel_password?: string; panel_base_url?: string; panel_clear_password?: boolean; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1585,5 +1567,90 @@ export async function fetchDiagnostic(app: string, step: string, errorMsg: strin
   const params = new URLSearchParams({ step, error: errorMsg });
   const res = await apiFetch(apiUrl(`/api/apps/${encodeURIComponent(app)}/diagnostic?${params}`));
   if (!res.ok) throw new Error(`获取诊断信息失败: ${res.status}`);
+  return res.json();
+}
+
+// ── 官方应用中心 OAuth 免登录通道（0.6.253） ─────────────────────────────
+// 授权页（面板 /signin + PKCE）在 iframe 内打开；code 换 token 后目录走
+// /ogh/ac/h 代理，不再触发面板登录限流。
+
+export interface OfficialStatus {
+  authorized: boolean;
+  expired?: boolean;
+  expires_at?: number;
+  scopes?: string[];
+  pending?: boolean;
+  last_error?: string;
+  /** 0.6.254：面板前端是否支持 PKCE 授权页（fnOS 1.2.0800+；旧版只渲染普通登录页） */
+  ui_supported?: boolean;
+  /** ui_supported 是否已探测完成（false = 检测中） */
+  ui_known?: boolean;
+}
+
+export async function fetchOfficialStatus(): Promise<OfficialStatus> {
+  const res = await apiFetch(apiUrl('/api/official/status'));
+  if (!res.ok) throw new Error(`获取官方连接状态失败: ${res.status}`);
+  return res.json();
+}
+
+/** 开始授权。base = 用户浏览器可达的面板地址（如 http://192.0.2.22:5666）。 */
+export async function officialAuthorize(base?: string): Promise<{ url: string }> {
+  const q = base ? `?base=${encodeURIComponent(base)}` : '';
+  const res = await apiFetch(apiUrl(`/api/official/authorize${q}`));
+  if (!res.ok) throw new Error(`发起授权失败: ${res.status}`);
+  return res.json();
+}
+
+export async function officialCallback(code: string): Promise<void> {
+  const res = await apiFetch(apiUrl('/api/official/callback'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    let msg = `验证码提交失败: ${res.status}`;
+    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* keep */ }
+    throw new Error(msg);
+  }
+}
+
+export async function officialCancel(): Promise<void> {
+  await apiFetch(apiUrl('/api/official/cancel'), { method: 'POST' });
+}
+
+export async function officialLogout(): Promise<void> {
+  await apiFetch(apiUrl('/api/official/logout'), { method: 'POST' });
+}
+
+/** 无头授权（0.6.255）：无需浏览器，临时面板账号登录取码换 token。
+ *  username/password 仅本次请求使用，服务端不落盘/不缓存。 */
+export async function officialAuthorizeHeadless(username: string, password: string): Promise<void> {
+  const res = await apiFetch(apiUrl('/api/official/authorize-headless'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    let msg = `无头授权失败: ${res.status}`;
+    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* keep */ }
+    throw new Error(msg);
+  }
+}
+
+export interface OfficialStoreApp {
+  appName: string;
+  name: string;
+  version: string;
+  icon?: string;
+  source?: string;
+  sourceID?: string;
+  status?: string;
+  tags?: string[];
+}
+
+/** 授权后验证：拉官方全量目录（10 分钟缓存）。 */
+export async function fetchOfficialApps(): Promise<{ total: number; list: OfficialStoreApp[] }> {
+  const res = await apiFetch(apiUrl('/api/official/apps'));
+  if (!res.ok) throw new Error(`拉取官方目录失败: ${res.status}`);
   return res.json();
 }

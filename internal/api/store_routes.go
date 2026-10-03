@@ -10,7 +10,6 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	"moo/internal/config"
-	"moo/internal/netguard"
 	"moo/internal/netx"
 	"moo/internal/notify"
 	"moo/internal/operation"
@@ -510,7 +508,8 @@ func (s *Server) favoriteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 源必须存在（官方源 id=fnos-official，普通源 id=源名）
-	exists := id == OfficialSourceID && s.Panel.Enabled()
+	// 0.6.255：官方源恒存在（不再以面板账号开关为条件）。
+	exists := id == OfficialSourceID
 	if !exists {
 		for _, sr := range s.Cfg.Sources {
 			if sr.Name == id {
@@ -552,7 +551,7 @@ func (s *Server) enabledSourceNames() []string {
 
 func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
 	out := make([]SourceEntry, 0)
-	if s.Panel.Enabled() {
+	if s.Panel != nil { // 0.6.255：官方源恒存在（纯 OAuth；未授权时条目带引导文案）
 		_, _ = s.Panel.Apps(r.Context()) // 触发目录缓存（拿 app_count/last_fetched）
 		out = append(out, s.Panel.sourceEntry())
 	}
@@ -651,31 +650,9 @@ func (s *Server) batchSources(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"added": added, "deduped": deduped, "results": results})
 }
 
-// sourceNameFromURL 从源地址推导源名：conversun/fnos-apps 固定取商店项目名
-// fnos-store（用户认知里它是「fnos-store 商店」，GitHub owner conversun 不直观）；
-// 其余 GitHub 仓库取 owner（github.com/<owner>/<repo>），其它地址取最后一段路径，
-// 去 .git 与 /fnpack.json。
-func sourceNameFromURL(u string) string {
-	if source.IsConversunURL(u) {
-		return "fnos-store"
-	}
-	p := strings.TrimSpace(u)
-	p = strings.TrimSuffix(p, "/")
-	if i := strings.Index(p, "://"); i >= 0 {
-		p = p[i+3:]
-	}
-	p = strings.TrimSuffix(p, "/fnpack.json")
-	p = strings.TrimSuffix(p, "/")
-	seg := strings.Split(p, "/")
-	if len(seg) >= 3 && (seg[0] == "github.com" || seg[0] == "www.github.com") {
-		if owner := strings.TrimSpace(seg[1]); owner != "" {
-			return owner
-		}
-	}
-	last := seg[len(seg)-1]
-	last = strings.TrimSuffix(last, ".git")
-	return strings.TrimSpace(last)
-}
+// sourceNameFromURL 从源地址推导源名（0.6.247 起规则统一在
+// source.SourceNameFromURL：首装填充与添加源共用同一命名）。
+func sourceNameFromURL(u string) string { return source.SourceNameFromURL(u) }
 
 func (s *Server) reorderSources(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -840,6 +817,33 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 			} else {
 				var ee *source.ErrExists
 				if errors.As(err, &ee) {
+					// 0.6.248：区分两种 ErrExists——
+					//  ① 同地址（别的名字已指向同一 URL）→ 真重复，计 already；
+					//  ② 同名不同地址（典型：同 owner 的第二个仓库，命名取
+					//     owner 撞名）→ 以唯一名（owner-repo 归一）重试一次，
+					//     基准集里 7 组同 owner 双仓库由此全部补齐。
+					urlTaken := false
+					for _, st := range s.Src.Sources() {
+						if source.NormalizeSourceURL(st.URL) == source.NormalizeSourceURL(u) {
+							urlTaken = true
+							break
+						}
+					}
+					if !urlTaken {
+						taken := make(map[string]bool)
+						for _, st := range s.Src.Sources() {
+							taken[st.Name] = true
+						}
+						if uname := source.UniqueSourceName(u, taken); uname != "" && uname != name {
+							if err2 := s.Src.AddSource(uname, u); err2 == nil {
+								mu.Lock()
+								added++
+								addedNames = append(addedNames, uname)
+								mu.Unlock()
+								return
+							}
+						}
+					}
 					mu.Lock()
 					already++
 					mu.Unlock()
@@ -889,13 +893,12 @@ type sourceRestoreResult struct {
 //  1. 去重——全部源按归一化地址（协议/尾斜杠无关）分组，相同地址只保留一个
 //     （组内有官方源保官方，否则保列表顺序第一个）；
 //  2. 重抓内置社区源列表补齐被删/缺失的默认源（只增不删用户自加源）。
-func (s *Server) restoreDefaults(w http.ResponseWriter, r *http.Request) {
-	body, err := s.fetchSourceList(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
-	}
-	urls := parseSourceList(body)
+func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
+	// 0.6.247：以内置默认源集为基准（156 源、全带协议、= 验收过的
+	// 备用测试机全量源，与首装默认同一集合）——误删的源可一键找回，
+	// 离线可用。此前依赖外部 repo_list.txt（118 条），基准小于在用
+	// 全量集，列表外的源恢复不回来。
+	urls := source.BundledDefaultSources()
 	res := sourceRestoreResult{Fetched: len(urls)}
 
 	// 1) 去重：相同源地址只保留一个（官方源永不被删）
@@ -947,6 +950,23 @@ func (s *Server) restoreDefaults(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) syncSource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// 官方源：面板通道不走源管理器。手动同步走 force 路径（绕过失败退避
+	// 窗口并重置计数）。0.6.252 起修复：此前该端点对官方源返回 404
+	// 「源不存在」，UI 官方源卡片的手动刷新按钮空转。
+	if id == OfficialSourceID {
+		// 0.6.255：官方源恒存在；未授权时 AppsForce 返回「未连接」错误
+		// 透传给 UI（此前以面板账号开关判定存在性）。
+		if s.Panel == nil {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("源不存在: %s", id))
+			return
+		}
+		_, perr := s.Panel.AppsForce(r.Context())
+		s.invalidateCatalog()
+		entry := s.Panel.sourceEntry()
+		entry.Error = perr
+		writeJSON(w, map[string]any{"source": entry})
+		return
+	}
 	if err := s.Src.Refresh(id); err != nil {
 		var eNoSuch *source.ErrNoSuchSource
 		if errors.As(err, &eNoSuch) {
@@ -970,7 +990,7 @@ func (s *Server) syncSource(w http.ResponseWriter, r *http.Request) {
 // 「应用源自动监测」卡的圆形刷新按钮）。复用周期轮次的并发刷新
 // RefreshAllConcurrent（8 并发、只刷已启用源、单源失败不影响其他）；
 // 手动同步不计入自动监测连续轮次。
-func (s *Server) syncAllSources(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) syncAllSources(w http.ResponseWriter, r *http.Request) {
 	sts := s.Src.RefreshAllConcurrent(8)
 	failed := []map[string]any{}
 	synced := 0
@@ -981,8 +1001,19 @@ func (s *Server) syncAllSources(w http.ResponseWriter, _ *http.Request) {
 			synced++
 		}
 	}
+	// 0.6.252：一键刷新同时刷新官方目录（手动路径，绕过失败退避窗口）。
+	// 0.6.255：官方源恒参与（纯 OAuth；未授权时记入 failed 并提示未连接）。
+	total := len(sts)
+	if s.Panel != nil {
+		total++
+		if _, perr := s.Panel.AppsForce(r.Context()); perr != "" {
+			failed = append(failed, map[string]any{"name": "飞牛应用中心", "error": perr})
+		} else {
+			synced++
+		}
+	}
 	s.invalidateCatalog()
-	writeJSON(w, map[string]any{"ok": true, "total": len(sts), "synced": synced, "failed": failed})
+	writeJSON(w, map[string]any{"ok": true, "total": total, "synced": synced, "failed": failed})
 }
 
 func (s *Server) toggleSource(w http.ResponseWriter, r *http.Request) {
@@ -1078,11 +1109,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		DockerMirror:        s.Cfg.DockerMirror,
 		InstallVolume:       s.Cfg.InstallVolume,
 		DownloadDir:         s.Cfg.DownloadDir,
-		PanelEnabled:        s.Cfg.PanelEnabled,
-		PanelUsername:       s.Cfg.PanelUsername,
-		PanelBaseURL:        s.Cfg.PanelBaseURL,
-		PanelHasPassword:    s.Cfg.PanelPassword != "",
-		PanelDecryptFailed:  s.Cfg.SecretDecryptFailed,
+		// 0.6.255：面板账号已从设置中彻底移除（官方源 = 纯 OAuth，
+		// 授权时临时输入账号不落地）。以下字段不再下发：
+		// PanelEnabled / PanelUsername / PanelBaseURL / PanelHasPassword / PanelDecryptFailed
 		SourceListOff:       s.Cfg.SourceListOff,
 		SourceAutoCareOff:   s.Cfg.SourceAutoCareOff,
 		AutoUpdate:          s.Cfg.AutoUpdate,
@@ -1164,11 +1193,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 在列表地址为空时无法把自动同步切回开启（false 被忽略）。
 		SourceListDisabled *bool   `json:"source_list_disabled"`
 		SourceAutoCareOff  *bool   `json:"source_auto_care_disabled"`
-		PanelEnabled       *bool   `json:"panel_enabled"`
-		PanelUsername      *string `json:"panel_username"`
-		PanelPassword      string  `json:"panel_password"`
-		PanelBaseURL       *string `json:"panel_base_url"`
-		PanelClearPassword bool    `json:"panel_clear_password"`
+		// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_password/
+		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
 		AutoUpdate *bool `json:"auto_update"`
 		// FPK 下载目录（选择器给出的绝对路径；空 = 不改动）。
@@ -1230,33 +1256,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.SourceAutoCareOff != nil {
 		s.Cfg.SourceAutoCareOff = *in.SourceAutoCareOff
 	}
-	if in.PanelEnabled != nil || in.PanelUsername != nil || in.PanelPassword != "" || in.PanelBaseURL != nil || in.PanelClearPassword {
-		if in.PanelEnabled != nil {
-			s.Cfg.PanelEnabled = *in.PanelEnabled
-		}
-		if in.PanelUsername != nil {
-			s.Cfg.PanelUsername = *in.PanelUsername
-		}
-		if in.PanelPassword != "" {
-			s.Cfg.PanelPassword = in.PanelPassword
-		} else if in.PanelClearPassword {
-			s.Cfg.PanelPassword = ""
-		}
-		if in.PanelBaseURL != nil {
-			// 安全（2026-09-27 审核）：面板客户端会把面板口令放进 WS
-			// 登录帧，目标限定本机回环——防 base URL 被配置成外网地址
-			// 导致口令外泄。空串 = 回默认 127.0.0.1:5666。
-			b := strings.TrimSpace(*in.PanelBaseURL)
-			if b != "" {
-				ub, perr := url.Parse(b)
-				if perr != nil || (ub.Scheme != "http" && ub.Scheme != "https") || !netguard.IsLoopback(ub.Hostname()) {
-					writeErr(w, http.StatusBadRequest, errors.New("面板地址须为本地回环（127.0.0.1/localhost，端口可自定义；空 = 默认 127.0.0.1:5666）"))
-					return
-				}
-			}
-			s.Cfg.PanelBaseURL = b
-		}
-	}
+	// 0.6.255：面板账号已彻底移除——不再接受/落盘 panel_* 字段。
 	if in.AutoUpdate != nil {
 		s.Cfg.AutoUpdate = *in.AutoUpdate
 	}

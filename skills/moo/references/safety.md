@@ -34,7 +34,7 @@ R3 recommendations:
 
 | Data | Where | Rule |
 |---|---|---|
-| fnOS panel password | `config.json` (`panel_password`), file mode 700 | **Never print, log, or transmit.** API only returns `panel_has_password: bool`. If the user wants to change it, use `PUT /api/settings {"panel_password":"<NEW>"}` and confirm via `POST /api/panel/test`. |
+| fnOS panel account (0.6.255) | **Removed from settings** (was `config.json` `panel_password`) | The official app-center is now pure OAuth. Transient panel creds for older fnOS are accepted only in the `authorize-headless` request body and are **never stored, logged, or transmitted** beyond the one-time loopback login. |
 | Notify channel params | `config.json` (webhook URLs / keys) | Read endpoints return **masked** values. Re-POSTing a masked value back is a no-op-or-error — always send the real value or omit the field. |
 | Proxy URL | `config.json` (`proxy_url`) | Local-only; never exfiltrate. It is not a credential, but it reveals the user's proxy topology. |
 | Backup files | `backups/` (config snapshots **with** the panel password) | Download links are admin-gated; treat downloaded backup files as secrets. Do not upload them anywhere. |

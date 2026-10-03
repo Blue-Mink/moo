@@ -6,5 +6,8 @@
         "shares": []
     },
     "systemd-unit": {
-    }
+    },
+    "api-scope": [
+        "trim.app.center"
+    ]
 }

@@ -425,6 +425,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | `GET /api/backups/{name}/download` | admin | 下载备份文件（二进制） |
 | `POST /api/backups/{name}/restore` | admin | 从备份恢复（先自动兜底再覆盖，失败保留现场） |
 | `POST /api/backups/clean` | admin | 清理应用缓存（图标/README 等）中过期文件 |
+| `GET /api/logs` | admin | 在线查看应用日志（moo.log 末尾 N 行，`?lines=` 默认 200、上限 2000；含文件大小与轮转归档清单） |
 
 `POST /api/backups/clean` 请求体：
 ```json
@@ -474,15 +475,12 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 
 ---
 
-## 16. 面板账号
+## 16. 官方应用中心连接（OAuth）
 
-### 16.1 `POST /api/panel/test`（admin）
-测试 fnOS 面板账号连通性（可传临时凭据不保存，缺省用已保存值）：
-```json
-请求：{"username": "<PANEL_USER>", "password": "<PANEL_PASSWORD>", "base_url": "http://127.0.0.1:5666"}
-响应：{"ok": true, "message": "面板账号可用（管理员）"}
-```
-面板账号仅用于本机回环调用 appcenter（6 个端点：列表/详情/安装/升级/启停等），权限最小化。
+> 0.6.255 起**面板账号已从设置中彻底移除**，官方应用中心改为纯 OAuth 免登录连接。
+> 原面板账号连通性测试端点已下线。官方源授权入口见
+> `POST /api/official/authorize-headless`（请求体临时携带面板账号，不落盘）
+> 与前端「应用源 → 飞牛应用中心 → 🔑」对话框（fnOS 1.2.0800+ 走 iframe 内嵌授权页）。
 
 ---
 
@@ -710,9 +708,11 @@ curl -s http://127.0.0.1:38101/api/version    # 验证版本
 
 | 端点 | 权限 | 说明 |
 |---|---|---|
-| `GET /api/official/status` | 公开 | 连接状态（是否已授权、token 过期时间等） |
-| `GET /api/official/authorize` | admin | 开始授权：返回 `{url}`，前端打开该 URL 完成登录后带 `code` 回调 |
+| `GET /api/official/status` | 公开 | 连接状态（是否已授权、token 过期时间等）。0.6.254 起含 `ui_supported`/`ui_known`：本机面板前端是否支持 /signin PKCE 授权页（仅 fnOS 1.2.0800+ 前端支持，旧版只渲染普通登录页）；`ui_known=false` = 检测中 |
+| `GET /api/official/authorize` | admin | 开始授权：返回 `{url}`，前端打开该 URL 完成登录后带 `code` 回调。0.6.253 起支持 `?base=http(s)://<主机:端口>` 指定用户浏览器可达的面板地址（仅 http/https、无 URL 凭据；缺省用本机回环） |
 | `POST /api/official/callback` | admin | 完成授权：body `{code}`，成功 `{ok:true}` |
+| `POST /api/official/cancel` | admin | 取消本次授权（丢弃待交换的 PKCE 对），成功 `{ok:true}` |
+| `POST /api/official/authorize-headless` | admin | 0.6.254 无头授权（无浏览器，旧版 fnOS 前端无授权页时的替代路径）：复用面板账号 WS 登录 → `GET /oauthapi/authorize` 取一次性 code → 换 token。成功 `{ok:true}`；面板未配置 400；登录失败/限流 502（附原因）；响应无 code 502（附原始响应片段） |
 | `POST /api/official/logout` | admin | 断开授权：清 token，成功 `{ok:true}` |
 | `GET /api/official/apps` | admin | 商店全量列表 `{total, list}`（10 分钟缓存） |
 | `GET /api/official/search?keyword=…` | admin | 关键词搜索 `{total, list}`；`keyword` 为空返回 **400** |
@@ -722,5 +722,7 @@ curl -s http://127.0.0.1:38101/api/version    # 验证版本
 
 - 上游不可达/未授权统一 **502**（`writeErr`），`status` 除外（它只回报本地状态）。
 - 列表缓存命中时不打上游；`POST /api/official/callback`/`logout` 会改变授权态，之后首次 `apps` 重新拉取。
+- **0.6.253 通道接线**：OAuth 会话有效时，官方目录（`Panel.Apps`）、详情回填、安装前 sourceID 查询（`panelApp`）优先走本 OAuth 通道（免面板登录、不受面板限流影响）；会话缺失或通道故障时自动回退面板 WS 通道（含 0.6.252 失败退避）。接线实现见 `internal/api/official_oauth_wiring.go`。
+- **0.6.254 版本门控**：/signin 的 PKCE 授权页仅 fnOS 1.2.0800+ 面板前端有（懒加载 oauth chunk；旧版前端零 OAuth 逻辑，浏览器打开授权链接只见普通登录页）。启动时探测本机面板前端（`internal/official/support_probe.go`，进程内缓存），前端按 `ui_supported` 分流：支持 → iframe 授权页流程；不支持 → 无头授权（`authorize-headless`，面板账号一次性登录取码，授权后目录仍免面板登录）。
 - 该域原为**主线（moo-w）独有**；2026-10-01 两条线合并后（面板线为基线 + 摘入官方模块），
   发布线同样具备这 7 个端点。

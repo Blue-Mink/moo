@@ -279,8 +279,10 @@ func Default() *Config {
 	return &Config{
 		WebPort:     "38100",
 		DownloadDir: "downloads",
+		// 0.6.247：首装实际填充内置默认源全集（见 main.go，156 源）；
+		// 这两个种子仅作内置列表缺失时的兜底，地址必须带协议。
 		Sources: []SourceRef{
-			{Name: "Blue-Mink", URL: "github.com/Blue-Mink/FnDepot"},
+			{Name: "Blue-Mink", URL: "https://github.com/Blue-Mink/FnDepot"},
 			{Name: "ew", URL: "https://github.com/EWEDLCM/FnDepot"},
 		},
 	}

@@ -657,6 +657,185 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 	return nil
 }
 
+// DownloadCloud 仅下载官方 cloud 包（不安装），等价应用中心「下载」动作，
+// 走 daemon unix socket 通道（无需面板登录）。返回下载完成后安装包的路径
+// （FPK 应用 = .fpk 文件；原生应用 = TPK 解压目录）。onProgress 报告 0~100。
+func DownloadCloud(ctx context.Context, appName, sourceID, version string, volume int, onProgress func(float64)) (string, error) {
+	if sourceID == "" {
+		return "", fmt.Errorf("%s 缺少应用中心 sourceID，无法走官方通道", appName)
+	}
+	report := func(pct float64) {
+		if onProgress == nil || pct < 0 {
+			return
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		onProgress(pct)
+	}
+	var dl struct {
+		DownloadTaskID string `json:"downloadTaskId"`
+	}
+	if err := daemonCall(ctx, routeDownloadTask, map[string]any{
+		"packageSourceType": "cloud",
+		"appName":           appName,
+		"sourceID":          sourceID,
+		"version":           version,
+		"volumeID":          volume,
+		"language":          "zh-CN",
+	}, &dl); err != nil {
+		return "", fmt.Errorf("启动官方下载失败: %w", err)
+	}
+	deadline := time.Now().Add(10 * time.Minute)
+	transient := 0
+	for time.Now().Before(deadline) {
+		var st stageStatus
+		err := daemonCall(ctx, routeDownloadStatus, map[string]any{"downloadTaskId": dl.DownloadTaskID, "language": "zh-CN"}, &st)
+		if err != nil {
+			if !isTransientPollError(err) {
+				return "", fmt.Errorf("查询下载状态失败: %w", err)
+			}
+			if transient >= 5 {
+				return "", fmt.Errorf("查询下载状态失败: 连续瞬时错误 %w", err)
+			}
+			transient++
+		} else {
+			transient = 0
+			if st.Status == daemonStatusSuccess {
+				return st.Path, nil
+			}
+			if st.Status != daemonStatusRunning {
+				return "", fmt.Errorf("官方下载失败: 状态 %d %s", st.Status, st.Message)
+			}
+			report(st.Progress * 100)
+		}
+		if err := sleepCtx(ctx, 2*time.Second); err != nil {
+			return "", err
+		}
+	}
+	return "", errors.New("官方下载超时")
+}
+
+// InstallCloud 新装官方 cloud 应用（与应用中心 UI「安装」按钮同一路径，
+// daemon unix socket 通道，全程无需面板登录）：
+//
+//  1. download/task (cloud) → 轮询 download/status
+//  2. install/task (packageType=cloud, immediateStart=true) → 轮询 common/status
+//
+// volume 为目标存储卷（调用方已解析默认卷/用户选择）。onProgress 报告 0~100。
+func InstallCloud(ctx context.Context, appName, sourceID, version string, volume int, customParams []WizardParam, onProgress func(float64)) error {
+	if sourceID == "" {
+		return fmt.Errorf("%s 缺少应用中心 sourceID，无法走官方通道", appName)
+	}
+	if volume <= 0 {
+		v, err := DefaultVolume()
+		if err != nil {
+			return err
+		}
+		volume = v
+	}
+	if customParams == nil {
+		customParams = []WizardParam{}
+	}
+	report := func(pct float64) {
+		if onProgress == nil || pct < 0 {
+			return
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		onProgress(pct)
+	}
+	// 1) 下载（占总进度 0~50）
+	var dl struct {
+		DownloadTaskID string `json:"downloadTaskId"`
+	}
+	if err := daemonCall(ctx, routeDownloadTask, map[string]any{
+		"packageSourceType": "cloud",
+		"appName":           appName,
+		"sourceID":          sourceID,
+		"version":           version,
+		"volumeID":          volume,
+		"language":          "zh-CN",
+	}, &dl); err != nil {
+		return fmt.Errorf("启动官方下载失败: %w", err)
+	}
+	dlDone := false
+	deadline := time.Now().Add(10 * time.Minute)
+	transient := 0
+	for time.Now().Before(deadline) {
+		var st stageStatus
+		err := daemonCall(ctx, routeDownloadStatus, map[string]any{"downloadTaskId": dl.DownloadTaskID, "language": "zh-CN"}, &st)
+		if err != nil {
+			if !isTransientPollError(err) {
+				return fmt.Errorf("查询下载状态失败: %w", err)
+			}
+			if transient >= 5 {
+				return fmt.Errorf("查询下载状态失败: 连续瞬时错误 %w", err)
+			}
+			transient++
+		} else {
+			transient = 0
+			if st.Status == daemonStatusSuccess {
+				dlDone = true
+				break
+			}
+			if st.Status != daemonStatusRunning {
+				return fmt.Errorf("官方下载失败: 状态 %d %s", st.Status, st.Message)
+			}
+			report(st.Progress * 50)
+		}
+		if err := sleepCtx(ctx, 2*time.Second); err != nil {
+			return err
+		}
+	}
+	if !dlDone {
+		return errors.New("官方下载超时")
+	}
+	// 2) 安装（占总进度 50~100）
+	var task struct {
+		TaskID string `json:"taskId"`
+	}
+	if err := daemonCall(ctx, routeInstallTask, map[string]any{
+		"appName":     appName,
+		"version":     version,
+		"packageType": "cloud",
+		"systemParameters": map[string]any{
+			"agreedToProtocol": true,
+			"installVolumeID":  volume,
+			"dataVolumeId":     volume,
+			"immediateStart":   true,
+			"apiScope":         map[string]any{},
+		},
+		"customParameters": customParams,
+		"language":         "zh-CN",
+	}, &task); err != nil {
+		return fmt.Errorf("提交安装失败: %w", err)
+	}
+	return WaitTask(ctx, task.TaskID, "安装", 15*time.Minute, func(p float64) {
+		report(50 + p/2)
+	})
+}
+
+// FetchCloudWizard 取官方 cloud 应用的安装向导定义（包须已下载）。
+func FetchCloudWizard(ctx context.Context, appName, version string) (*AppWizard, error) {
+	var info infoResponse
+	if err := daemonCall(ctx, routeInstallInfo, map[string]any{
+		"appName": appName,
+		"version": version,
+		"language": "zh-CN",
+	}, &info); err != nil {
+		return nil, fmt.Errorf("获取安装向导失败: %w", err)
+	}
+	return &AppWizard{
+		AppName:         appName,
+		Version:         version,
+		HasWizard:       info.WizardInfo.HasWizard,
+		Content:         info.WizardInfo.WizardContent,
+		InstallVolumeID: info.WizardInfo.InstalledVolumeID,
+	}, nil
+}
+
 // SingleInstalled 返回 daemon 记录中的单个已装应用；未安装返回 (nil, nil)。
 func SingleInstalled(ctx context.Context, appName string) (*InstalledApp, error) {
 	apps, err := ListInstalled(ctx)

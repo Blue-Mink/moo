@@ -69,7 +69,7 @@ Upstream unreachable or not authorized → **502**; `status` only reports local 
 | Download dir options / browse | `GET /api/settings/download-dirs`, `GET /api/settings/download-dirs/browse?path=…` |
 | Mirror / Docker mirror selection + custom | via `PUT /api/settings` (`mirror`, `docker_mirror`, `custom_*`) |
 | Auto speed-probe intervals | via `PUT /api/settings` (`gh_probe_*`, `dk_probe_*`) |
-| Panel account | via `PUT /api/settings` (`panel_*`) + `POST /api/panel/test` |
+| Official app-center connection (pure OAuth, 0.6.255 removed panel account) | via `POST /api/official/authorize-headless` (transient creds) + `GET /api/official/status` |
 | Auto-update apps | via `PUT /api/settings` (`auto_update`) |
 | Dock / settings tab order (full permutation) | via `PUT /api/settings` (`dock_order`, `settings_tab_order`) |
 

@@ -143,12 +143,9 @@ type Settings struct {
 	SourceAutoCareOff   bool                  `json:"source_auto_care_disabled"`
 	SourceListURL       string                `json:"source_list_url,omitempty"`
 	SourceListOff       bool                  `json:"source_list_disabled"`
-	PanelEnabled        bool                  `json:"panel_enabled"`
-	PanelUsername       string                `json:"panel_username,omitempty"`
-	PanelBaseURL        string                `json:"panel_base_url,omitempty"`
-	PanelHasPassword    bool                  `json:"panel_has_password"`
-	// 0.6.220：库里有凭据但解不开（换机/密钥文件丢失）→ 前端提示重填
-	PanelDecryptFailed bool `json:"panel_decrypt_failed,omitempty"`
+	// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
+	// panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
+	// 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
 	// 备份设置（备份设置 tab）
 	BackupDir           string `json:"backup_dir,omitempty"`
 	BackupAuto          bool   `json:"backup_auto"`

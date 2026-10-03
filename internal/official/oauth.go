@@ -83,11 +83,22 @@ type Manager struct {
 	pending  *PendingAuthorization
 	lastErr  string
 	refreshMu sync.Mutex
+
+	// 0.6.254：面板前端授权 UI 支持探测缓存（仅 fnOS 8.0.0+ 前端支持）。
+	uiSupportMu      sync.Mutex
+	uiSupportKnown   bool
+	uiSupport        bool
+	uiSupportProbing bool
 }
 
 func NewManager(dataDir string) *Manager {
+	return NewManagerWithBase(dataDir, "http://127.0.0.1:5666")
+}
+
+// NewManagerWithBase 指定面板基址（测试/多实例用；生产默认 127.0.0.1:5666）。
+func NewManagerWithBase(dataDir, baseURL string) *Manager {
 	return &Manager{
-		baseURL: "http://127.0.0.1:5666",
+		baseURL: baseURL,
 		client:  &http.Client{Timeout: 30 * time.Second},
 		dataDir: dataDir,
 	}
@@ -166,8 +177,23 @@ func newDeviceID() string {
 	return fmt.Sprintf("moo-%x%04x", time.Now().UnixMilli()&0xffffffff, b)
 }
 
-// BeginAuthorization 生成 PKCE 对并构造 /signin 授权 URL。
+// BeginAuthorization 生成 PKCE 对并构造 /signin 授权 URL（本机基址）。
 func (m *Manager) BeginAuthorization() (string, error) {
+	return m.beginAuthorizationAt(m.baseURL)
+}
+
+// BeginAuthorizationAt 生成 PKCE 对并构造用户浏览器可达的授权 URL。
+// browserBase 例：http://192.0.2.22:5666 —— 面板 API 调用仍走 m.baseURL
+// （本机回环），仅授权页 URL 换成本机不可达时的对外地址。
+func (m *Manager) BeginAuthorizationAt(browserBase string) (string, error) {
+	base := strings.TrimRight(strings.TrimSpace(browserBase), "/")
+	if base == "" {
+		base = m.baseURL
+	}
+	return m.beginAuthorizationAt(base)
+}
+
+func (m *Manager) beginAuthorizationAt(base string) (string, error) {
 	verifier, err := newVerifier()
 	if err != nil {
 		return "", err
@@ -191,7 +217,38 @@ func (m *Manager) BeginAuthorization() (string, error) {
 	m.pending = p
 	m.lastErr = ""
 	m.mu.Unlock()
-	return m.baseURL + "/signin?" + q.Encode(), nil
+	return base + "/signin?" + q.Encode(), nil
+}
+
+// BeginHeadlessAuthorization 生成 PKCE 对并返回原始参数（无头授权用：
+// 调用方拿 challenge/deviceID 直接调 /oauthapi/authorize 取码，再走
+// CompleteAuthorization 换 token）。与 BeginAuthorization 同语义，
+// 只返回参数不构造 URL。
+func (m *Manager) BeginHeadlessAuthorization() (challenge, deviceID, scope string, err error) {
+	verifier, err := newVerifier()
+	if err != nil {
+		return "", "", "", err
+	}
+	p := &PendingAuthorization{
+		Verifier:  verifier,
+		Challenge: challengeOf(verifier),
+		DeviceID:  newDeviceID(),
+		Scope:     DefaultScope,
+		CreatedAt: time.Now().UnixMilli(),
+	}
+	m.mu.Lock()
+	m.pending = p
+	m.lastErr = ""
+	m.mu.Unlock()
+	return p.Challenge, p.DeviceID, p.Scope, nil
+}
+
+// Cancel 丢弃待完成的授权（用户放弃本次登录）。
+func (m *Manager) Cancel() {
+	m.mu.Lock()
+	m.pending = nil
+	m.lastErr = ""
+	m.mu.Unlock()
 }
 
 func (m *Manager) postJSON(ctx context.Context, path string, body any) (map[string]any, error) {

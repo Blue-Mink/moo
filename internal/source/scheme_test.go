@@ -31,3 +31,25 @@ func TestAddSourceSchemeNormalization(t *testing.T) {
 		t.Fatal("同 URL 不同名应报重复")
 	}
 }
+
+// TestHealLegacyURLs 0.6.246：存量无协议源地址一次性自愈（补 https://），
+// 已带协议/空地址不动，重复调用幂等（第二次返回 0）。
+func TestHealLegacyURLs(t *testing.T) {
+	cfg := &config.Config{Sources: []config.SourceRef{
+		{Name: "bm", URL: "github.com/Blue-Mink/FnDepot"}, // 存量无协议
+		{Name: "ok", URL: "https://github.com/x/y"},       // 已带协议
+		{Name: "emp", URL: ""},                             // 空
+	}}
+	if n := HealLegacyURLs(cfg); n != 1 {
+		t.Fatalf("应自愈 1 个，实际 %d: %+v", n, cfg.Sources)
+	}
+	if cfg.Sources[0].URL != "https://github.com/Blue-Mink/FnDepot" {
+		t.Fatalf("无协议源应补 https://: %q", cfg.Sources[0].URL)
+	}
+	if cfg.Sources[1].URL != "https://github.com/x/y" || cfg.Sources[2].URL != "" {
+		t.Fatalf("已带协议/空地址不应被改动: %+v", cfg.Sources)
+	}
+	if n := HealLegacyURLs(cfg); n != 0 {
+		t.Fatalf("二次调用应幂等返回 0，实际 %d", n)
+	}
+}

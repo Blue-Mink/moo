@@ -9,12 +9,14 @@ package main
 import (
 	"context"
 	"errors"
+	"encoding/json"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,6 +71,63 @@ func main() {
 	if removed := api.CleanResidualCredentials(dataDir); len(removed) > 0 {
 		log.Printf("[security] 启动清理历史凭据残留 %d 个: %v", len(removed), removed)
 	}
+	// 0.6.247：首装自动填充内置默认源全集（156 源，基准=验收过的
+	// 备用测试机全量源）。全新安装即带全部默认源，离线可用；
+	// 「恢复默认源」按钮以同一集合为基准（误删可一键找回）。
+	if _, serr := os.Stat(config.Path(dataDir)); os.IsNotExist(serr) {
+		if urls := source.BundledDefaultSources(); len(urls) > 0 {
+			var seeded []config.SourceRef
+			// 0.6.248：按名去重——基准集含 7 组同 owner 双仓库（owner 命名
+			// 会重名），旧逻辑生成重名 SourceRef，落盘后按名折叠丢 7 条。
+			// 冲突方改用 UniqueSourceName（owner-repo 归一名，如
+			// tzi-shue-fndepot），156 条全部唯一入库。
+			taken := make(map[string]bool, len(urls))
+			for _, u := range urls {
+				name := source.UniqueSourceName(u, taken)
+				if name == "" {
+					continue
+				}
+				taken[name] = true
+				seeded = append(seeded, config.SourceRef{Name: name, URL: u})
+			}
+			if len(seeded) > 0 {
+				cfg.Sources = seeded
+				if err := cfg.Save(dataDir); err != nil {
+					log.Printf("[sources] 首装填充 %d 个内置默认源，落盘失败（下次保存重试）: %v", len(seeded), err)
+				} else {
+					log.Printf("[sources] 首装：已填充 %d 个内置默认源", len(seeded))
+				}
+			}
+		}
+		// 0.6.249：应用安装向导（install_callback 落盘的 wizard-install.json）
+		// 里选择的下载目录——仅首装生效（存量配置不覆盖用户既有设置）。
+		if wi, werr := os.ReadFile(filepath.Join(dataDir, "wizard-install.json")); werr == nil {
+			var wz struct {
+				DownloadDir string `json:"download_dir"`
+			}
+			if json.Unmarshal(wi, &wz) == nil && wz.DownloadDir != "" {
+				if wz.DownloadDir == "downloads" {
+					// 默认值，与内置一致，无需动作
+				} else if filepath.IsAbs(wz.DownloadDir) {
+					cfg.DownloadDir = wz.DownloadDir
+					log.Printf("[wizard] 首装：下载目录按向导选择 = %s", wz.DownloadDir)
+				} else if !strings.Contains(wz.DownloadDir, "..") {
+					cfg.DownloadDir = wz.DownloadDir
+					log.Printf("[wizard] 首装：下载目录按向导选择 = %s（相对数据目录）", wz.DownloadDir)
+				}
+			}
+		}
+	}
+	// 0.6.246：存量数据自愈——0.6.141 之前入库的无协议源地址统一补
+	// https://（写入路径修复不覆盖存量；不修则应用源列表首源显示/
+	// 复制出来是不带 http 的地址，如 github.com/Blue-Mink/FnDepot）。
+	if n := source.HealLegacyURLs(cfg); n > 0 {
+		if err := cfg.Save(dataDir); err != nil {
+			log.Printf("[sources] 无协议源地址自愈 %d 个，落盘失败（下次保存重试）: %v", n, err)
+		} else {
+			log.Printf("[sources] 存量无协议源地址已自愈: %d 个补 https://", n)
+		}
+	}
 	if p := os.Getenv("MOO_WEB_PORT"); p != "" {
 		cfg.WebPort = p
 	}
@@ -121,6 +180,9 @@ func main() {
 
 	// 官方应用中心：加载持久化 OAuth 会话（token 未过期则免重新授权）
 	srv.Official.LoadSession()
+
+	// 0.6.253：OAuth 免登录通道接线（有效会话优先，失败回退面板通道）
+	api.WireOfficialOAuth(srv)
 
 	// 出站抓取安全策略（2026-09-27 代码审核）：源数据驱动的 URL
 	// （readme/preview/icon/download）只放行公共地址，防 SSRF。

@@ -11,7 +11,7 @@ import (
 var DockTabKeys = []string{"recommended", "all", "installed", "update_available"}
 
 // SettingsTabKeys 设置页 tab（默认顺序）。
-var SettingsTabKeys = []string{"system", "accel", "source", "backup", "notify", "about"}
+var SettingsTabKeys = []string{"system", "accel", "source", "backup", "notify", "log", "about"}
 
 // resolveOrder 解析自定义顺序：空 = 默认；非默认键的全排列 = 默认（不信任脏数据）。
 func resolveOrder(saved, defaults []string) []string {

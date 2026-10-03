@@ -62,7 +62,7 @@ or manually: `GET /api/version`, `GET /api/daemon/status`, `GET /api/operations`
 - "Not trusted" / 403 on writes: you're calling the raw port from a non-trusted context. Use the panel gateway URL (`http://<NAS_IP>:5666/app/moo/api/…`) with an admin session.
 - UI shows stale data after a hot swap: hard-refresh the SPA (asset hashes changed); the backend is authoritative.
 - Settings save "did nothing": pointer semantics — a field you think you set was actually **absent** from the body (unsubmitted = no change). Check the request body; explicit empty string = clear, absent = keep.
-- Panel password can't be read back: by design (`panel_has_password` only). To rotate: send the new value in `PUT /api/settings` + `POST /api/panel/test`.
+- (0.6.255) The panel account was **removed from settings** — the official app-center is pure OAuth. If the official source shows "未连接", open 应用源 → 飞牛应用中心 → 🔑 to authorize (transient panel creds for older fnOS, not stored).
 
 ## 8. Notifications
 

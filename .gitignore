@@ -26,3 +26,10 @@ attach_gitea_assets.py
 create_gap_releases.py
 fix_panel_tags.py
 sync_gitea_releases*.py
+release_251_252.py
+OAUTH_253_TODO.md
+OAUTH_254_TODO.md
+OAUTH_255_TODO.md
+UPDATE_MISMATCH_TODO.md
+LOGS_UI_TODO.md
+GITEA_PUSH_259_TODO.md

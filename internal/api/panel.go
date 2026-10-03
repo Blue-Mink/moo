@@ -22,12 +22,28 @@ import (
 const OfficialSourceID = "fnos-official"
 
 // Panel 是官方应用中心直连组件（面板未配置时为 nil）。
+// failBackoffBase 官方同步失败退避基值：30min→1h→2h（封顶），指数递增。
+const failBackoffBase = 30 * time.Minute
+
 type Panel struct {
 	mu     sync.Mutex
 	client *panel.Client
-	apps   []AppInfo // 缓存
-	appsAt time.Time
-	err    string
+	// listApps = 官方目录抓取函数（client.AppList），抽成字段便于测试注入。
+	// 0.6.253：WireOfficialOAuth 会包一层 —— OAuth 会话有效时走免登录通道。
+	listApps func(ctx context.Context) ([]panel.PanelApp, error)
+	// detailFn = 官方应用详情抓取函数（client.AppDetail），ensureBackfill 用。
+	// 0.6.253：同样被 WireOfficialOAuth 包一层（OAuth 优先，回退面板）。
+	detailFn func(ctx context.Context, appName string) (*panel.PanelDetail, error)
+	apps     []AppInfo // 缓存
+	appsAt   time.Time
+	err      string
+
+	// 0.6.252 失败退避：官方同步失败后，退避窗口内不再自动重试面板登录。
+	// 背景：面板登录有限流（errno 131072），限流期每次 /api/apps 目录请求
+	// 都触发一次登录尝试 = 给限流续命；手动同步（源页「立即检查」/
+	// 「一键刷新」）走 AppsForce 绕过退避并重置计数。
+	lastFailAt time.Time
+	failCount  int
 
 	iconCacheMu sync.Mutex
 	iconCache   map[string]iconEntry
@@ -53,14 +69,15 @@ type iconEntry struct {
 
 const iconCacheTTL = 24 * time.Hour
 
-// NewPanel 从配置构造；未配置或账号不全返回 nil。
+// NewPanel 从配置构造。
+//
+// 0.6.255：面板账号已从设置中彻底移除——Panel 始终构造（client 不带账号），
+// 官方目录/详情只走 OAuth 令牌通道（WireOfficialOAuth 包装 listApps/detailFn）；
+// 面板 WS 登录通道停用（client 无凭据时登录必然失败，仅作为旧部署的
+// 死代码路径保留，便于回滚）。存量配置里的 panel_* 字段不再读取。
 func NewPanel(cfg *config.Config) *Panel {
-	if !cfg.PanelEnabled || strings.TrimSpace(cfg.PanelUsername) == "" || strings.TrimSpace(cfg.PanelPassword) == "" {
-		return nil
-	}
 	// 安全兜底（2026-09-27 审核）：存量配置里 panel_base_url 若非本地
-	// 回环（旧版未校验时可写入外网地址），口令会被发往该地址——直接
-	// 回退默认本地面板并记日志（设置页新写入已被限制为回环）。
+	// 回环（旧版未校验时可写入外网地址）——直接回退默认本地面板并记日志。
 	base := cfg.PanelBaseURL
 	if tb := strings.TrimSpace(base); tb != "" {
 		if ub, err := url.Parse(tb); err != nil || !netguard.IsLoopback(ub.Hostname()) {
@@ -68,16 +85,36 @@ func NewPanel(cfg *config.Config) *Panel {
 			base = ""
 		}
 	}
-	client := panel.NewClient(base, cfg.PanelUsername, cfg.PanelPassword)
+	client := panel.NewClient(base, "", "")
 	return &Panel{
 		client:      client,
+		listApps:    client.AppList,
+		detailFn:    client.AppDetail,
 		iconCache:   map[string]iconEntry{},
 		detailCache: map[string]detailEntry{},
 	}
 }
 
-// Enabled 面板通道是否可用。
+// Enabled 面板 WS 通道是否可用（0.6.255 起恒 false：账号已移除）。
 func (s *Panel) Enabled() bool { return s != nil && s.client != nil && s.client.Configured() }
+
+// Alive 官方应用中心通道是否装配（0.6.255：官方源恒存在，连接状态由
+// OAuth 会话决定；未授权时目录返回「未连接」错误并引导授权）。
+func (s *Panel) Alive() bool { return s != nil }
+
+// resetFailState 授权成功后调用：清除失败退避计数与错误提示，
+// 使目录立即按新会话重试（避免 0.6.252 退避窗口压住授权后的首次拉取）。
+func (p *Panel) resetFailState() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.lastFailAt = time.Time{}
+	p.failCount = 0
+	p.err = ""
+	p.appsAt = time.Time{} // 强制下次请求重新拉取
+	p.mu.Unlock()
+}
 
 // Client 返回底层面板客户端。
 func (s *Panel) Client() *panel.Client {
@@ -88,7 +125,30 @@ func (s *Panel) Client() *panel.Client {
 }
 
 // Apps 官方目录（30 分钟缓存；拉取失败保留旧缓存并记录错误）。
+// 0.6.252：失败后退避窗口内不再自动重试（见 failBackoff）。
 func (p *Panel) Apps(ctx context.Context) ([]AppInfo, string) {
+	return p.doApps(ctx, false)
+}
+
+// AppsForce 手动同步路径（源页「立即检查」/「一键刷新所有源」）：绕过
+// 失败退避窗口，成功后重置退避计数。
+func (p *Panel) AppsForce(ctx context.Context) ([]AppInfo, string) {
+	return p.doApps(ctx, true)
+}
+
+// failBackoff 当前失败退避时长：30min→1h→2h→2h…（调用方须持有 mu）。
+func (p *Panel) failBackoff() time.Duration {
+	if p.failCount <= 0 {
+		return 0
+	}
+	n := p.failCount - 1
+	if n > 2 {
+		n = 2
+	}
+	return failBackoffBase << n
+}
+
+func (p *Panel) doApps(ctx context.Context, force bool) ([]AppInfo, string) {
 	if p == nil {
 		return nil, ""
 	}
@@ -100,11 +160,18 @@ func (p *Panel) Apps(ctx context.Context) ([]AppInfo, string) {
 		p.ensureBackfill()
 		return p.appsSnapshot(), cachedErr
 	}
+	// 0.6.252：退避窗口内（非手动）→ 不触发面板登录，返回 stale 错误，
+	// 避免限流期目录请求反复重试登录续命。
+	if !force && !p.lastFailAt.IsZero() && time.Since(p.lastFailAt) < p.failBackoff() {
+		staleErr := p.err
+		p.mu.Unlock()
+		return p.appsSnapshot(), staleErr
+	}
 	p.mu.Unlock()
 
 	cctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	list, err := p.client.AppList(cctx)
+	list, err := p.listApps(cctx)
 	apps := make([]AppInfo, 0, len(list))
 	if err == nil {
 		for _, a := range list {
@@ -137,12 +204,16 @@ func (p *Panel) Apps(ctx context.Context) ([]AppInfo, string) {
 		p.apps = apps
 		p.appsAt = time.Now()
 		p.err = ""
+		p.failCount = 0 // 成功 → 退避清零
+		p.lastFailAt = time.Time{}
+	} else {
+		p.err = err.Error()
+		p.lastFailAt = time.Now()
+		if p.failCount < 4 {
+			p.failCount++ // 30min→1h→2h→2h（封顶）
+		}
 	}
 	perr := p.err
-	if err != nil {
-		p.err = err.Error()
-		perr = p.err
-	}
 	p.mu.Unlock()
 	p.ensureBackfill()
 	return p.appsSnapshot(), perr
@@ -236,6 +307,11 @@ func (p *Panel) ensureBackfill() {
 	if len(names) == 0 {
 		return
 	}
+	// detailFn 测试构造的 Panel 可能未注入 —— 兜底到面板客户端。
+	dfn := p.detailFn
+	if dfn == nil {
+		dfn = p.client.AppDetail
+	}
 
 	p.detailMu.Lock()
 	if p.backfilling {
@@ -281,7 +357,7 @@ func (p *Panel) ensureBackfill() {
 				defer func() { <-sem }()
 				cctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
-				d, err := p.client.AppDetail(cctx, name)
+				d, err := dfn(cctx, name)
 				p.detailMu.Lock()
 				if err == nil && d != nil {
 					p.detailCache[name] = detailEntry{detail: *d, ok: true}
@@ -297,51 +373,30 @@ func (p *Panel) ensureBackfill() {
 }
 
 // sourceEntry 官方源在 /api/sources 的条目（置顶，不可删）。
+// 0.6.255：官方源恒存在（Alive），未授权时 AppCount=0 + 错误提示引导连接。
 func (p *Panel) sourceEntry() SourceEntry {
-	if p == nil || !p.Enabled() {
+	if p == nil {
 		return SourceEntry{}
 	}
 	n := len(p.apps)
 	e := SourceEntry{
 		ID:       OfficialSourceID,
 		Name:     "飞牛应用中心",
-		URL:      p.client.BaseURL,
+		URL:      "本机官方应用中心（OAuth 免登录连接）",
 		AppCount: n,
 		Enabled:  true,
 	}
 	if !p.appsAt.IsZero() {
 		e.LastFetched = p.appsAt.Format(time.RFC3339)
 	}
+	// 未连接（OAuth 未授权且无缓存）→ 行内错误提示引导授权。
+	p.mu.Lock()
+	e.Error = p.err
+	p.mu.Unlock()
+	if e.Error == "" && n == 0 {
+		e.Error = "未连接：点右侧 🔑 授权官方应用中心"
+	}
 	return e
-}
-
-// panelTest POST /api/panel/test：面板登录实测（可带表单覆盖值）。
-func (s *Server) panelTest(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		BaseURL  string `json:"base_url"`
-	}
-	_ = jsonDecode(r, &body)
-
-	var client *panel.Client
-	if strings.TrimSpace(body.Username) != "" || body.Password != "" || strings.TrimSpace(body.BaseURL) != "" {
-		client = panel.NewClient(body.BaseURL, body.Username, body.Password)
-	} else if s.Panel.Enabled() {
-		client = s.Panel.Client()
-	}
-	if client == nil || !client.Configured() {
-		writeErr(w, http.StatusBadRequest, errors.New("面板账号未配置：请在设置里填写面板账号（可先测试再保存）"))
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
-	defer cancel()
-	count, err := client.TestLogin(ctx)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true, "app_count": count})
 }
 
 // panelInstallParams 官方安装的附加参数（?panel=<json>）。
@@ -360,12 +415,15 @@ func parsePanelParams(r *http.Request) panelInstallParams {
 
 // isPanelApp 目录条目是否走面板 cloud 通道。
 func (s *Server) isPanelApp(ai AppInfo) bool {
-	return ai.Source == OfficialSourceID && s.Panel.Enabled()
+	// 0.6.255：官方源恒存在；是否可安装取决于 OAuth 会话（listApps 报错
+	// 会透传「未连接」提示）。
+	return ai.Source == OfficialSourceID
 }
 
 // panelApp 查官方目录里的应用（sourceID 等安装所需字段）。
+// 0.6.253：走包装后的 listApps —— OAuth 有效会话免面板登录，失效回退面板。
 func (s *Server) panelApp(appName string) (*panel.PanelApp, error) {
-	list, err := s.Panel.Client().AppList(context.Background())
+	list, err := s.Panel.listApps(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +445,6 @@ func (s *Server) panelDefaultVolume() int {
 
 // runPanelInstall 官方 cloud 安装：依赖（自动填充）→ 主应用 → 验证。
 func (s *Server) runPanelInstall(ctx context.Context, appName string, pparams panelInstallParams, wizardParams []panel.WizardParam, progress func(string, float64)) error {
-	client := s.Panel.Client()
 	volume := pparams.VolumeID
 	if volume <= 0 {
 		volume = s.panelDefaultVolume()
@@ -398,30 +455,38 @@ func (s *Server) runPanelInstall(ctx context.Context, appName string, pparams pa
 		return s.runOfficialUpgrade(ctx, appName, wizardParams, progress)
 	}
 
-	detail, err := client.AppDetail(ctx, appName)
-	if err != nil {
-		return fmt.Errorf("获取应用详情失败: %w", err)
+	// 1) 依赖：详情来自 OAuth 缓存/实时查询（0.6.251 起安装本体已不依赖
+	// 面板，依赖清单由官方目录提供）——未连接时跳过预装，缺依赖由
+	// app-center 在安装时报错（诚实失败，不静默装错东西）。
+	var depApps []panel.PanelDepApp
+	if s.Panel != nil {
+		// 0.6.253：detailFn 已包 OAuth 免登录通道（WireOfficialOAuth），
+		// 0.6.255：纯 OAuth（未连接时返回「未连接」错误，走 progress 提示）。
+		detail, err := s.Panel.detailFn(ctx, appName)
+		if err != nil {
+			progress(fmt.Sprintf("获取依赖信息失败（%s），继续尝试安装…", err.Error()), 3)
+		} else {
+			depApps = detail.InstallDepApps
+		}
 	}
-
-	// 1) 依赖：未安装的按向导自动填充后顺序安装
-	for _, dep := range detail.InstallDepApps {
+	for _, dep := range depApps {
 		if dep.Status != "noinstall" {
-			progress(fmt.Sprintf("依赖 %s 已安装（%s），跳过", dep.Name, dep.Status), 2)
+			progress(fmt.Sprintf("依赖 %s 已安装（%s），跳过", dep.Name, dep.Status), 4)
 			continue
 		}
-		progress(fmt.Sprintf("安装依赖 %s v%s…", dep.Name, dep.Version), 4)
-		if err := s.panelInstallOne(ctx, client, dep.AppName, dep.SourceID, dep.Version, volume, nil, progress); err != nil {
+		progress(fmt.Sprintf("安装依赖 %s v%s…", dep.Name, dep.Version), 6)
+		if err := s.daemonInstallOne(ctx, dep.AppName, dep.SourceID, dep.Version, volume, nil, progress); err != nil {
 			return fmt.Errorf("依赖 %s 安装失败: %w", dep.Name, err)
 		}
 	}
 
-	// 2) 主应用
+	// 2) 主应用（daemon cloud 通道，无需面板登录）
 	pa, err := s.panelApp(appName)
 	if err != nil {
 		return err
 	}
 	progress(fmt.Sprintf("安装 %s v%s…", appName, pa.Version), 10)
-	if err := s.panelInstallOne(ctx, client, appName, pa.SourceID, pa.Version, volume, wizardParams, progress); err != nil {
+	if err := s.daemonInstallOne(ctx, appName, pa.SourceID, pa.Version, volume, wizardParams, progress); err != nil {
 		return err
 	}
 
@@ -469,86 +534,20 @@ func (s *Server) runOfficialUpgrade(ctx context.Context, appName string, wizardP
 	return nil
 }
 
-// panelInstallOne 单个官方应用：cloud 下载 → install/task → 轮询。
-func (s *Server) panelInstallOne(ctx context.Context, client *panel.Client, appName, sourceID, version string, volume int, customParams []panel.WizardParam, progress func(string, float64)) error {
+// daemonInstallOne 单个官方应用：daemon cloud 下载 → install/task → 轮询。
+// 走 /var/run/com.trim.app.center.sock（daemon 通道），全程无需面板登录；
+// 与应用中心 UI「安装」按钮同路径（0.6.251 起替换面板 HTTP 通道）。
+func (s *Server) daemonInstallOne(ctx context.Context, appName, sourceID, version string, volume int, customParams []panel.WizardParam, progress func(string, float64)) error {
 	if sourceID == "" {
-		return errors.New("缺少面板 sourceID（目录数据可能过期，请点「立即检查」后重试）")
+		return errors.New("缺少应用中心 sourceID（目录数据可能过期，请点「立即检查」后重试）")
 	}
-	dlID, err := client.DownloadTask(ctx, appName, sourceID, version, volume)
-	if err != nil {
-		return fmt.Errorf("启动官方下载失败: %w", err)
+	params := make([]platform.WizardParam, 0, len(customParams))
+	for _, p := range customParams {
+		params = append(params, platform.WizardParam{Key: p.Key, Value: p.Value})
 	}
-	deadline := time.Now().Add(10 * time.Minute)
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if time.Now().After(deadline) {
-			return errors.New("官方下载超时")
-		}
-		st, err := client.DownloadStatus(ctx, dlID)
-		if err != nil {
-			return err
-		}
-		if st.Status == panel.TaskSuccess {
-			break
-		}
-		if st.Status == panel.TaskFailed {
-			return fmt.Errorf("官方下载失败: %s", st.Message)
-		}
-		pct := int(st.Progress * 100)
-		if pct < 0 {
-			pct = 0
-		}
-		if pct > 95 {
-			pct = 95
-		}
-		progress(fmt.Sprintf("从官方应用中心下载 %s… %d%%", appName, pct), float64(pct))
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-
-	taskID, err := client.InstallTask(ctx, appName, version, volume, customParams)
-	if err != nil {
-		return fmt.Errorf("提交安装失败: %w", err)
-	}
-	deadline = time.Now().Add(15 * time.Minute)
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if time.Now().After(deadline) {
-			return errors.New("安装超时")
-		}
-		st, err := client.InstallStatus(ctx, taskID)
-		if err != nil {
-			return err
-		}
-		switch st.Status {
-		case panel.TaskSuccess:
-			return nil
-		case panel.TaskFailed:
-			msg := st.OutputText
-			if msg == "" {
-				msg = "未知错误"
-			}
-			return fmt.Errorf("安装失败: %s", msg)
-		default:
-			pct := int(st.Progress * 100)
-			if pct > 99 {
-				pct = 99
-			}
-			progress(fmt.Sprintf("安装 %s… %d%%", appName, pct), float64(pct))
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
+	return platform.InstallCloud(ctx, appName, sourceID, version, volume, params, func(pct float64) {
+		progress(fmt.Sprintf("从官方应用中心下载并安装 %s… %d%%", appName, int(pct)), pct)
+	})
 }
 
 // verifyPanelInstalled 等待官方应用出现在 daemon 已安装列表。
@@ -573,9 +572,9 @@ func (s *Server) verifyPanelInstalled(ctx context.Context, appName string) error
 	}
 }
 
-// panelWizard GET /api/apps/{key}/wizard（官方应用）：先触发官方下载，再取 install/info。
+// panelWizard GET /api/apps/{key}/wizard（官方应用）：先触发官方下载
+// （daemon 通道），再取 install/info 向导定义（daemon 通道）。
 func (s *Server) panelWizard(w http.ResponseWriter, r *http.Request, appName string) {
-	client := s.Panel.Client()
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Minute)
 	defer cancel()
 	pa, err := s.panelApp(appName)
@@ -583,11 +582,11 @@ func (s *Server) panelWizard(w http.ResponseWriter, r *http.Request, appName str
 		writeJSON(w, map[string]any{"appname": appName, "has_wizard": false, "error": err.Error()})
 		return
 	}
-	if _, err := s.panelDownloadOnly(ctx, client, appName, pa.SourceID, pa.Version, s.panelDefaultVolume()); err != nil {
+	if _, err := s.panelDownloadOnly(ctx, appName, pa.SourceID, pa.Version, s.panelDefaultVolume()); err != nil {
 		writeJSON(w, map[string]any{"appname": appName, "has_wizard": false, "error": err.Error()})
 		return
 	}
-	info, err := client.InstallInfo(ctx, appName, pa.Version)
+	info, err := platform.FetchCloudWizard(ctx, appName, pa.Version)
 	if err != nil {
 		writeJSON(w, map[string]any{"appname": appName, "has_wizard": false, "error": err.Error()})
 		return
@@ -595,44 +594,18 @@ func (s *Server) panelWizard(w http.ResponseWriter, r *http.Request, appName str
 	writeJSON(w, map[string]any{
 		"appname":           appName,
 		"version":           pa.Version,
-		"has_wizard":        info.WizardInfo.HasWizard,
-		"content":           info.WizardInfo.WizardContent,
+		"has_wizard":        info.HasWizard,
+		"content":           info.Content,
 		"install_volume_id": s.panelDefaultVolume(),
 	})
 }
 
-// panelDownloadOnly 仅触发官方下载并等待完成（向导前置）。
-// 返回下载完成后安装包在面板下载目录（/vol1/appcenter-downloads/）的路径：
-// FPK 应用 = .fpk 文件；原生应用 = TPK 解压目录（无 FPK 安装包）。
-func (s *Server) panelDownloadOnly(ctx context.Context, client *panel.Client, appName, sourceID, version string, volume int) (string, error) {
-	dlID, err := client.DownloadTask(ctx, appName, sourceID, version, volume)
-	if err != nil {
-		return "", fmt.Errorf("启动官方下载失败: %w", err)
-	}
-	deadline := time.Now().Add(10 * time.Minute)
-	for {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		if time.Now().After(deadline) {
-			return "", errors.New("官方下载超时")
-		}
-		st, err := client.DownloadStatus(ctx, dlID)
-		if err != nil {
-			return "", err
-		}
-		if st.Status == panel.TaskSuccess {
-			return st.Path, nil
-		}
-		if st.Status == panel.TaskFailed {
-			return "", fmt.Errorf("官方下载失败: %s", st.Message)
-		}
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
+// panelDownloadOnly 仅触发官方下载并等待完成（向导前置），走 daemon 通道
+// （无需面板登录）。返回下载完成后安装包在应用中心下载目录
+// （/vol1/appcenter-downloads/）的路径：FPK 应用 = .fpk 文件；
+// 原生应用 = TPK 解压目录（无 FPK 安装包）。
+func (s *Server) panelDownloadOnly(ctx context.Context, appName, sourceID, version string, volume int) (string, error) {
+	return platform.DownloadCloud(ctx, appName, sourceID, version, volume, nil)
 }
 
 // panelDetail GET /api/apps/{key}/panel-detail：官方应用详情 + 依赖 + 建议卷。
@@ -643,8 +616,9 @@ func (s *Server) panelDetail(w http.ResponseWriter, r *http.Request, appName str
 	if d, ok := s.Panel.detailGet(appName); ok {
 		detail = d
 	} else {
-		d, err := s.Panel.Client().AppDetail(r.Context(), appName)
-		if err != nil {
+		// 0.6.255：走 OAuth 包装的 detailFn（未连接时透传「未连接」错误）
+		d, err := s.Panel.detailFn(r.Context(), appName)
+		if err != nil || d == nil {
 			writeErr(w, http.StatusBadGateway, err)
 			return
 		}

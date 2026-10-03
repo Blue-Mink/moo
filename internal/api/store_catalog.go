@@ -189,10 +189,11 @@ func (s *Server) buildCatalog() []AppInfo {
 		}
 	}
 
-	// 官方应用中心目录（面板通道启用时并入）：
+	// 官方应用中心目录（0.6.255 起恒并入，纯 OAuth 通道；未授权时
+	// Apps 返回空列表 + 错误，下方 len>0 守卫自然跳过）：
 	// - 已装但无源 → 补官方源信息（可更新判断/官方徽章）
 	// - 社区源也有 → 跨源取最高版本（官方版本更高时更新 has_update）
-	if s.Panel.Enabled() {
+	if s.Panel != nil {
 		if official, _ := s.Panel.Apps(context.Background()); len(official) > 0 {
 			for _, oa := range official {
 				idx := -1
@@ -345,6 +346,13 @@ func (s *Server) buildCatalog() []AppInfo {
 	// 平台权威更新信号（daemon upgradeInfo，与应用中心 UI 同源），
 	// 补齐目录版本滞后漏掉的「有更新」。
 	applyPlatformUpgrades(out, byName)
+
+	// 平台更新权威收敛（0.6.257）：appcenter 跟踪的应用（sourceID 非空 或
+	// source=official）更新判定完全交给 daemon 权威——官方目录断连时社区同名
+	// 条目的更高版本不得冒充平台应用的更新目标。手动 FPK（无 sourceID）保留
+	// 社区源更新。必须放在 applyPlatformUpgrades 之后（尊重 daemon 真升级目标）、
+	// applyIgnoredUpdates 之前（被忽略应用仍由后者统一抑制）。
+	applyPlatformUpdateAuthority(out, byName)
 
 	// 忽略更新（0.6.181）：必须放在 applyPlatformUpgrades 之后，
 	// 否则平台信号会把被忽略应用的 HasUpdate 再 OR 回来。
@@ -693,6 +701,67 @@ func applyPlatformUpgrades(out []AppInfo, byName map[string]platform.InstalledAp
 			}
 			if a.ReleaseNotes == "" {
 				a.ReleaseNotes = cl
+			}
+		}
+	}
+}
+
+// applyPlatformUpdateAuthority 平台（appcenter daemon）更新权威收敛
+// （0.6.257，扩展 0.6.256 的 applyOfficialAuthority）。
+//
+// 背景：Moo 的社区源（Moo 级源管理器：shuangji66/LI1223081906/Blue-Mink 等
+// FnDepot 源）与 appcenter 的源是**两套系统**。官方/平台应用（nodejs_v22、
+// 1Panel、python312、git、java-21-openjdk…）即使从第三方源安装，其「有更新」
+// 也应以 appcenter daemon 的权威信号（upgradeInfo，与应用中心 UI 同源）为准——
+// 社区同名条目（shuangji66 nodejs_v22 22.23.2 等）不得冒充平台应用的更新目标。
+// 0.6.256 只覆盖了 daemon source=official；但实测这些官方应用多从第三方源
+// 安装（daemon source=thirdparty），故 0.6.257 扩展到所有 **appcenter 跟踪**
+// 的应用。
+//
+// 判别「appcenter 跟踪」：sourceID 非空（从 appcenter 登记源安装，daemon 会
+// 据它判升级）或 source=official。手动 FPK 安装（sourceID 空且 source 非
+// official，如 wb2api/global-radio/trek）appcenter 不跟踪 → 保留 Moo 社区源
+// 的同作者更新（真社区应用的合法更新，零回归）。
+//
+// 收敛规则（对 appcenter 跟踪的应用）：
+//   - 官方目录可达（条目已被标 OfficialSourceID）→ applyOfficialUpdateForInstalled
+//     已按官方版本收敛，本函数跳过；
+//   - 断连（非官方卡）→ 更新判定完全交给 daemon 权威：有 upgradeInfo 才是真
+//     平台更新（目标强制为 daemon 版本，社区版本不得顶替）；无则清除社区版本
+//     驱动的假更新，bogus 高的 LatestVersion 回落已装版本。
+func applyPlatformUpdateAuthority(out []AppInfo, byName map[string]platform.InstalledApp) {
+	for i := range out {
+		a := &out[i]
+		if !a.Installed {
+			continue
+		}
+		ia, ok := byName[a.AppName]
+		if !ok {
+			continue
+		}
+		tracked := ia.SourceID != "" || strings.EqualFold(ia.Source, "official")
+		if !tracked {
+			// 手动 FPK：appcenter 不跟踪，保留 Moo 社区源更新
+			continue
+		}
+		if a.Source == OfficialSourceID {
+			// 官方目录可达，applyOfficialUpdateForInstalled 已收敛
+			continue
+		}
+		if ia.UpgradeInfo != nil && ia.UpgradeInfo.Version != "" {
+			// 真平台更新：目标强制为 daemon 权威版本（社区同名更高版本顶替）
+			uv := ia.UpgradeInfo.Version
+			a.HasUpdate = true
+			a.AvailableVersion = uv
+			if a.LatestVersion == "" || compareVersions(uv, a.LatestVersion) > 0 {
+				a.LatestVersion = uv
+			}
+		} else {
+			// 无 daemon 升级目标：社区同名版本不构成更新，清除假更新
+			a.HasUpdate = false
+			a.AvailableVersion = ""
+			if a.InstalledVersion != "" && compareVersions(a.LatestVersion, a.InstalledVersion) > 0 {
+				a.LatestVersion = a.InstalledVersion
 			}
 		}
 	}

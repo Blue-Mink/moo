@@ -16,10 +16,11 @@ import {
   AlertDialogDescription,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog"
-import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert } from 'lucide-react'
+import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert, KeyRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { shouldWarnPlainHttp } from '@/lib/sourceWarnings'
 import { toast } from 'sonner'
+import OfficialOAuthDialog from './OfficialOAuthDialog'
 
 interface SourceManagerProps {
   /** 源列表变化后通知父组件刷新应用目录 */
@@ -67,6 +68,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [renameSrc, setRenameSrc] = useState<SourceEntry | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [removalSrc, setRemovalSrc] = useState<SourceEntry | null>(null);
+  // 0.6.253：官方应用中心 OAuth 免登录连接对话框
+  const [oauthOpen, setOauthOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   // ── 长按抖动排序（参考 knock 子域排序）─────────────────────────────────
   // 非排序态：长按源行 500ms（手指不移）进入抖动模式；
@@ -220,12 +223,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       // 全量回传：FPK 下载目录 / 自动监测不能被本组件的保存抹掉
       download_dir: cur.download_dir,
       source_auto_care_disabled: !(care ?? autoCare),
-      // 官方应用中心（panel）账号必须全量回传：后端 handlePutSettings 全量重建
-      // Config，漏传 = panel 配置被抹零 → 官方应用中心源停抓、355 应用消失。
-      // 密码不回传（后端空值时保留原值）。
-      panel_enabled: !!cur.panel_enabled,
-      panel_username: cur.panel_username,
-      panel_base_url: cur.panel_base_url,
+      // 0.6.255：官方源 = 纯 OAuth，无 panel_* 字段可回传
     });
   }, [listAuto, autoCare]);
 
@@ -817,6 +815,19 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   危险操作（移除）与日常操作（同步）视觉分离；抖动模式下控件隐藏（保留占位）。
                   .src-controls 供长按排序的守卫识别（长按控件不进入排序） */}
               <div className={`src-controls flex shrink-0 items-center gap-1.5 ${wiggle && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
+                {/* 0.6.253：官方源 OAuth 免登录连接（iframe 内嵌授权页 + 验证码输入） */}
+                {isOfficialSrc && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    onClick={() => setOauthOpen(true)}
+                    title="官方应用中心免登录连接（OAuth）：连接后官方目录通过 OAuth 令牌直取"
+                    aria-label="官方应用中心免登录连接"
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                  </Button>
+                )}
                 {/* 关注星标（0.6.143）：⋯ 前；关注源新增应用时推通知 */}
                 <Button
                   variant="ghost"
@@ -983,6 +994,13 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 0.6.253：官方应用中心 OAuth 免登录连接（iframe 内嵌授权页 + 返回钮 + 验证码输入） */}
+      <OfficialOAuthDialog
+        open={oauthOpen}
+        onOpenChange={setOauthOpen}
+        onCatalogChanged={onCatalogChanged}
+      />
 
       <div className="space-y-2 rounded-lg border border-border/20 bg-card p-3">
         <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">

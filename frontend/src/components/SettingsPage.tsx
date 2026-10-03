@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, testPanelLogin, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 import { useKeyboardDock } from '../lib/hooks';
 import {
@@ -23,15 +23,16 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
 import NotifySettingsTab from './NotifySettingsTab'
+import LogSettingsTab from './LogSettingsTab'
 import ReorderList from './ReorderList'
 import GearTimePicker from './GearTimePicker'
 
-type SettingsTab = 'system' | 'accel' | 'source' | 'backup' | 'notify' | 'about';
+type SettingsTab = 'system' | 'accel' | 'source' | 'backup' | 'notify' | 'log' | 'about';
 
 const TABS: { key: SettingsTab; label: string; icon: React.ElementType }[] = [
   { key: 'system', label: '系统设置', icon: SlidersHorizontal },
@@ -39,6 +40,7 @@ const TABS: { key: SettingsTab; label: string; icon: React.ElementType }[] = [
   { key: 'source', label: '应用源设置', icon: Database },
   { key: 'backup', label: '备份设置', icon: Archive },
   { key: 'notify', label: '通知设置', icon: Bell },
+  { key: 'log', label: '日志', icon: FileText },
   { key: 'about', label: '关于', icon: Info },
 ];
 
@@ -607,18 +609,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     } catch { return true; }
   });
 
-  // 官方应用中心直连（面板账号）
-  const [panelEnabled, setPanelEnabled] = useState(false);
-  // 默认预填 fnos：绝大多数机器面板账号即 fnos，加载设置后若有已存值会覆盖
-  const [panelUsername, setPanelUsername] = useState('fnos');
-  const [panelPassword, setPanelPassword] = useState('');
-  const [panelBaseURL, setPanelBaseURL] = useState('');
-  const [panelHasPassword, setPanelHasPassword] = useState(false);
-  /** 0.6.220：库里有凭据但解不开（密钥文件丢失/换机）→ 提示重填 */
-  const [panelDecryptFailed, setPanelDecryptFailed] = useState(false);
-  const [panelTesting, setPanelTesting] = useState(false);
-  // 0.6.208：测试登录冷却秒数（面板限流防护，见 handlePanelTest）
-  const [panelCooldown, setPanelCooldown] = useState(0);
+  // 0.6.255：官方应用中心面板账号已彻底移除（纯 OAuth，授权入口在
+  // 「应用源 → 飞牛应用中心 → 🔑」）。以下 panel* 状态一并删除。
   // 0.6.209/210：底部保存 dock 键盘处理——与首页 MobileDock 同一套
   // 信号/状态机（resize/clip/pan 三型分流）：
   //   resize（飞牛 app 布局压扁）→ dock translateY(+offsetPx) 钉物理底边；
@@ -688,26 +680,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }, 140);
     return () => window.clearTimeout(t);
   }, [kbOpen]);
-  useEffect(() => {
-    if (panelCooldown <= 0) return;
-    const t = setTimeout(() => setPanelCooldown((v) => v - 1), 1000);
-    return () => clearTimeout(t);
-  }, [panelCooldown]);
-  // 高级折叠（面板地址）：默认收起，只有面板不在本机/改端口才需要
-  const [panelAdvancedOpen, setPanelAdvancedOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('panel-advanced-open') === 'true';
-    } catch { return false; }
-  });
-  const togglePanelAdvanced = () => {
-    setPanelAdvancedOpen(prev => {
-      const next = !prev;
-      try { localStorage.setItem('panel-advanced-open', String(next)); } catch { /* ignore */ }
-      return next;
-    });
-  };
-  // 密码框是否被用户动过（API 不回传密码，未动过=保持原值，不能发 clear）
-  const panelPasswordDirtyRef = useRef(false);
 
   // FPK 下载列表（打开设置/保存目录后同步刷新）
   const loadFpkFiles = useCallback(async () => {
@@ -1172,13 +1144,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setInstallVolume(settings.install_volume || 0);
         setVolumeOptions(settings.volume_options || []);
         setAutoUpdate(!!settings.auto_update);
-        setPanelEnabled(!!settings.panel_enabled);
-        setPanelUsername(settings.panel_username || 'fnos');
-        setPanelBaseURL(settings.panel_base_url || '');
-        setPanelHasPassword(!!settings.panel_has_password);
-        setPanelDecryptFailed(!!settings.panel_decrypt_failed);
-        setPanelPassword('');
-        panelPasswordDirtyRef.current = false;
+        // 0.6.255：面板账号加载行已移除（设置不再下发 panel_* 字段）
         setBackupDir(settings.backup_dir || '');
         setBackupAuto(!!settings.backup_auto);
         setBackupIntervalDays(String(settings.backup_interval_days || 7));
@@ -1259,27 +1225,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handlePanelTest = async () => {
-    setPanelTesting(true);
-    try {
-      // 表单里填了账号（含密码）→ 用表单值实测；否则用已保存的账号
-      const hasFormCreds = panelUsername.trim() !== '' && panelPassword !== '';
-      const r = hasFormCreds
-        ? await testPanelLogin({ username: panelUsername, password: panelPassword, base_url: panelBaseURL })
-        : await testPanelLogin();
-      toast.success(`登录成功：官方目录 ${r.app_count} 个应用`);
-    } catch (error) {
-      console.error('Panel login test failed:', error);
-      toast.error(error instanceof Error ? error.message : '登录测试失败');
-    } finally {
-      setPanelTesting(false);
-      // 0.6.208：面板登录有短时限流（实测连续点击约 10+ 次后，正确口令也
-      // 被拒「面板未签发 ticket」，冷却约 1 小时）。每次测试后强制 30s
-      // 冷却，防用户排障时连点把自己锁进限流窗口。
-      setPanelCooldown(30);
-    }
-  };
-
   const handleSave = async () => {
     // 科学加速：开启时地址必填（后端同样整单拒绝，前端先拦给提示）
     if (proxyEnabled && !proxyUrl.trim()) {
@@ -1298,13 +1243,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         custom_docker_mirror: customDockerMirror,
         install_volume: installVolume,
         auto_update: autoUpdate,
-        panel_enabled: panelEnabled,
-        panel_username: panelUsername,
-        panel_password: panelPassword || undefined,
-        panel_base_url: panelBaseURL,
-        // 只有用户清空过密码框才显式清除；未动过=保持服务端原值
-        // （API 不回传密码，只能靠脏标记区分「没填」与「清空」）。
-        panel_clear_password: panelPasswordDirtyRef.current && panelPassword === '',
+        // 0.6.255：面板账号字段已彻底移除（官方源 = 纯 OAuth）
         // 备份设置（备份目录空串 = 回本机默认数据目录，需显式提交）
         backup_dir: backupDir,
         backup_auto: backupAuto,
@@ -1946,6 +1885,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             ) : tab === 'notify' ? (
               <NotifySettingsTab />
+            ) : tab === 'log' ? (
+              <LogSettingsTab />
             ) : tab === 'about' ? (
               <AboutTab />
             ) : (
@@ -2301,88 +2242,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 </div>
 
-                {/* 官方应用中心 */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium leading-none">官方应用中心</span>
-                    <Switch checked={panelEnabled} onCheckedChange={setPanelEnabled} />
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    开启后直连本机系统官方应用中心，可浏览并安装全部官方应用。
-                  </p>
-                  {panelEnabled && (
-                    <>
-                      <Separator />
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none">
-                          面板账号
-                        </label>
-                        <Input
-                          placeholder="Web 面板登录账号，如 fnos"
-                          value={panelUsername}
-                          onChange={(e) => setPanelUsername(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none">
-                          面板密码
-                        </label>
-                        <Input
-                          type="password"
-                          placeholder={panelHasPassword ? '已设置，留空保持不变' : '面板登录密码'}
-                          value={panelPassword}
-                          onChange={(e) => {
-                            setPanelPassword(e.target.value);
-                            panelPasswordDirtyRef.current = true;
-                          }}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        仅浏览/安装官方应用时需要，填写一次自动记住
-                      </p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400/90">
-                        ⚠ 面板密码加密存于应用数据目录（密钥同机，仅防外带）：请勿复用其他系统口令，只装可信来源应用
-                      </p>
-                      {panelDecryptFailed && (
-                        <p className="text-xs text-red-500">
-                          检测到已保存的面板密码无法解密（可能是数据目录迁移或密钥文件丢失），为避免误用已按「未设置」处理：请重新填写面板密码。
-                        </p>
-                      )}
-                      <div className="rounded-lg border border-border/30">
-                        <button
-                          onClick={togglePanelAdvanced}
-                          className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          <span>高级（面板地址，一般不用填）</span>
-                          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", panelAdvancedOpen && "rotate-180")} />
-                        </button>
-                        {panelAdvancedOpen && (
-                          <div className="px-3 pb-3 space-y-2">
-                            <Input
-                              placeholder="留空 = 本机面板（http://127.0.0.1:5666）"
-                              value={panelBaseURL}
-                              onChange={(e) => setPanelBaseURL(e.target.value)}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handlePanelTest}
-                        disabled={panelTesting || panelCooldown > 0}
-                        className="rounded-full px-3.5 h-7 text-xs font-medium"
-                      >
-                        {panelTesting ? (
-                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Zap className="mr-1 h-3.5 w-3.5" />
-                        )}
-                        {panelCooldown > 0 ? `冷却 ${panelCooldown}s` : '测试登录'}
-                      </Button>
-                    </>
-                  )}
-                </div>
 
                 {/* 商店版本卡片已移除：版本号并入顶部 tab 行最右侧（2026-09-26 用户定稿） */}
 

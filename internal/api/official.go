@@ -10,6 +10,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,18 +33,67 @@ func newOfficialStore(mgr *official.Manager) *officialStore {
 	return &officialStore{mgr: mgr, ttl: 10 * time.Minute}
 }
 
+// invalidate 授权/登出后调用：清空 OAuth 目录缓存，下次请求立即重拉。
+func (s *officialStore) invalidate() {
+	s.mu.Lock()
+	s.data = nil
+	s.at = time.Time{}
+	s.fetchErr = ""
+	s.mu.Unlock()
+}
+
+// officialStoreV 返回共享的官方目录缓存（懒创建；测试可直接赋值）。
+func (s *Server) officialStoreV() *officialStore {
+	if s.OfficialStore == nil {
+		s.OfficialStore = newOfficialStore(s.Official)
+	}
+	return s.OfficialStore
+}
+
+// officialBrowserBase 解析 authorize 请求的 ?base= 参数（用户浏览器可达的
+// 面板地址）。安全约束：仅 http/https、host 非空、URL 不得携带用户凭据。
+func (s *Server) officialBrowserBase(r *http.Request) string {
+	base := strings.TrimSpace(r.URL.Query().Get("base"))
+	if base == "" {
+		return ""
+	}
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 // officialRoutes 注册 /api/official/* 路由。
 func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 	mux.HandleFunc("GET /api/official/status", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, store.mgr.Status(time.Now()))
+		st := store.mgr.Status(time.Now())
+		// 0.6.254：面板前端授权 UI 支持状态（仅 fnOS 1.2.0800+ 前端有 PKCE 授权页；
+		// 旧版只渲染普通登录页，iframe 流程走不完）。known=false = 检测中。
+		sup, known := store.mgr.UISupportStatus()
+		st["ui_supported"] = sup
+		st["ui_known"] = known
+		writeJSON(w, st)
 	})
 	mux.HandleFunc("GET /api/official/authorize", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
-		urlStr, err := store.mgr.BeginAuthorization()
+		// 0.6.253：?base= 指定用户浏览器可达的面板地址（如
+		// http://192.0.2.22:5666）；缺省用本机回环（浏览器不可达，
+		// 仅供本机调试）。授权 URL 不含密钥，覆盖仅改 host:port。
+		urlStr, err := store.mgr.BeginAuthorizationAt(s.officialBrowserBase(r))
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, map[string]any{"url": urlStr})
+	}))
+	mux.HandleFunc("POST /api/official/cancel", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		store.mgr.Cancel()
+		writeJSON(w, map[string]any{"ok": true})
+	}))
+	// 0.6.254：无头授权（旧版 fnOS 前端无授权 UI 时的替代路径；
+	// 复用面板账号登录取码换 token，授权后目录免面板登录）。
+	mux.HandleFunc("POST /api/official/authorize-headless", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		s.headlessAuthorize(w, r)
 	}))
 	mux.HandleFunc("POST /api/official/callback", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -56,6 +107,10 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 			writeErr(w, http.StatusBadGateway, err)
 			return
 		}
+		// 0.6.255：授权成功 → 清失败退避 + 失效目录缓存，官方目录立即
+		// 按新会话拉取（否则退避窗口会压住授权后的首次刷新）。
+		s.Panel.resetFailState()
+		store.invalidate()
 		writeJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("POST /api/official/logout", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {

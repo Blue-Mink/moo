@@ -1,0 +1,55 @@
+[
+  {
+    "stepTitle": "数据目录",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "应用数据（配置、下载缓存、目录缓存、日志）将写入上一步所选存储空间的 <strong>@appdata/moo</strong> 目录。<br>飞牛卸载应用时该目录默认<strong>保留</strong>（重装沿用原有数据）；如需彻底清除，请在文件管理中删除该目录。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_download_dir",
+        "label": "下载目录（FPK 缓存位置）",
+        "initValue": "downloads",
+        "rules": [
+          {
+            "required": true,
+            "message": "请填写下载目录"
+          }
+        ],
+        "helpText": "相对应用数据目录（@appdata/moo）或绝对路径；默认 downloads。留空等同默认。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "许可协议",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "Moo 以 <strong>MIT License</strong> 开源（© 2026 Blue-Mink）：可免费使用、复制、修改与再发布，不附带任何担保；权利与责任以 <a href=\"https://github.com/Blue-Mink/moo/blob/main/LICENSE\">许可文本</a> 为准。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_license_agree",
+        "label": "输入「同意」以接受 MIT 许可协议",
+        "initValue": "",
+        "rules": [
+          {
+            "required": true,
+            "message": "须接受许可协议后才能继续安装"
+          }
+        ],
+        "helpText": "安装即视为已阅读并接受 MIT 许可条款；您的输入内容将随安装时间一并记录于应用数据目录。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "日志",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "安装过程日志：在飞牛「日志」应用中按应用名 <strong>moo</strong> 检索。<br>运行日志：应用数据目录下的 <strong>moo.log</strong>（超过 5MB 自动轮转归档）。<br>在线查看：Moo 设置页「日志」标签。"
+      }
+    ]
+  }
+]

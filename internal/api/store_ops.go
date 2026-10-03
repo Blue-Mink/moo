@@ -114,9 +114,10 @@ func catalogByKeyIn(catalog []AppInfo, key string) (AppInfo, bool) {
 }
 
 // isOfficialKey 目录条目是否走面板 cloud 通道。
+// 0.6.255：官方源恒存在（不再以面板账号开关判定）。
 func (s *Server) isOfficialKey(key string) bool {
 	ai, ok := s.catalogByKey(key)
-	return ok && ai.Source == OfficialSourceID && s.Panel.Enabled()
+	return ok && ai.Source == OfficialSourceID
 }
 
 // appWizard GET /api/apps/{key}/wizard：官方应用走面板（先下载再取 install/info），
@@ -245,7 +246,6 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 			if ai.AppType != "" && ai.AppType != "fpk" {
 				return fmt.Errorf("官方 %s 应用没有 FPK 安装包（只能直接安装）", ai.AppType)
 			}
-			client := s.Panel.Client()
 			pa, err := s.panelApp(ai.AppName)
 			if err != nil {
 				return err
@@ -258,7 +258,7 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 				compareVersions(ia.UpgradeInfo.Version, ver) > 0 {
 				ver = ia.UpgradeInfo.Version
 			}
-			pth, err := s.panelDownloadOnly(ctx, client, ai.AppName, pa.SourceID, ver, s.panelDefaultVolume())
+			pth, err := s.panelDownloadOnly(ctx, ai.AppName, pa.SourceID, ver, s.panelDefaultVolume())
 			if err != nil {
 				return err
 			}
@@ -564,8 +564,9 @@ func (s *Server) appPanelDetail(w http.ResponseWriter, r *http.Request) {
 	// 构建会把本请求拖到 ~300ms——详情页「卡一下」的主因之一）。
 	catalog := s.cachedCatalog()
 	ai, ok := catalogByKeyIn(catalog, key)
-	if !ok || ai.Source != OfficialSourceID || !s.Panel.Enabled() {
-		writeErr(w, http.StatusNotFound, errors.New("官方应用中心通道尚未启用，或该应用不走官方通道"))
+	// 0.6.255：官方源恒存在（纯 OAuth；未连接时 panelDetail 内部透传「未连接」）
+	if !ok || ai.Source != OfficialSourceID {
+		writeErr(w, http.StatusNotFound, errors.New("官方应用中心尚未连接，或该应用不走官方通道"))
 		return
 	}
 	s.panelDetail(w, r, ai.AppName, catalog)
@@ -581,8 +582,9 @@ func (s *Server) installedDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("appname 不能为空"))
 		return
 	}
-	if s.Panel == nil || !s.Panel.Enabled() {
-		writeErr(w, http.StatusNotFound, errors.New("面板通道未启用，无法补全应用详情"))
+	// 0.6.255：走 OAuth 包装的 detailFn（未连接时返回「未连接」错误）
+	if s.Panel == nil {
+		writeErr(w, http.StatusNotFound, errors.New("官方应用中心通道不可用，无法补全应用详情"))
 		return
 	}
 	if d, ok := s.Panel.detailGet(appName); ok &&
@@ -590,8 +592,8 @@ func (s *Server) installedDetail(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"app": d})
 		return
 	}
-	detail, err := s.Panel.Client().AppDetail(r.Context(), appName)
-	if err != nil {
+	detail, err := s.Panel.detailFn(r.Context(), appName)
+	if err != nil || detail == nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
@@ -605,7 +607,8 @@ func (s *Server) appAsset(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("type")
 	key := r.PathValue("key")
 	ai, inCatalog := s.catalogByKey(key)
-	officialCard := inCatalog && ai.Source == OfficialSourceID && s.Panel != nil && s.Panel.Enabled()
+	// 0.6.255：官方源恒存在（纯 OAuth；图标抓取失败时下方回退社区通道/占位图）
+	officialCard := inCatalog && ai.Source == OfficialSourceID && s.Panel != nil
 
 	switch kind {
 	case "icon":

@@ -17,6 +17,45 @@ if ! validate_port "${wport}"; then
     exit 1
 fi
 apply_port "${wport}"
+
+# 0.6.249：安装向导（数据目录/许可协议/日志）——校验并留痕。
+# UI 校验不是安全边界（官方契约），脚本必须再次校验：下载目录仅接受
+# 相对路径或本机绝对路径（防路径穿越/越界写入，无条件强制）。
+# 许可仅在「向导确实运行」时强制（平台会把全部 wizard 字段作为同名
+# 环境变量传入；appcenter-cli / 非交互安装不传）——避免误伤 CLI/升级。
+wizard_ran=0
+[ -n "${wizard_download_dir+x}" ] && wizard_ran=1
+[ -n "${wizard_license_agree+x}" ] && wizard_ran=1
+wdir="${wizard_download_dir:-downloads}"
+case "${wdir}" in
+    ..|../*|*/..|*/../*)
+        echo "下载目录不合法：${wdir}（不允许包含 ..）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+        ;;
+esac
+wagree="${wizard_license_agree:-}"
+if [ "${wizard_ran}" -eq 1 ] && [ -z "${wagree}" ]; then
+    echo "未接受许可协议：请在许可协议步骤输入「同意」" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+[ "${wizard_ran}" -eq 0 ] && echo "install: 非交互安装（无向导），许可留痕跳过" >> "${LOG_FILE}" 2>/dev/null
+wdir_esc=$(printf '%s' "${wdir}" | sed 's/\\/\\\\/g; s/"/\\"/g')
+wagree_esc=$(printf '%s' "${wagree}" | sed 's/\\/\\\\/g; s/"/\\"/g')
+cat > "${TRIM_PKGVAR}/wizard-install.json" <<EOF
+{
+  "installed_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
+  "version": "${TRIM_PKGVERSION:-unknown}",
+  "download_dir": "${wdir_esc}",
+  "license": "MIT",
+  "license_agree_input": "${wagree_esc}"
+}
+EOF
+chmod 600 "${TRIM_PKGVAR}/wizard-install.json" 2>/dev/null
+if [ -n "${wagree}" ]; then
+    echo "install wizard: download_dir=${wdir} license_agree=<已填写，${#wagree} 字符>" >> "${LOG_FILE}" 2>/dev/null
+else
+    echo "install wizard: download_dir=${wdir} license_agree=<非交互安装，未输入>" >> "${LOG_FILE}" 2>/dev/null
+fi
 # 应用 DB 行可能在回调之后才由应用中心创建：延迟多次重同步，防被默认值覆盖
 ( for _d in 3 8 15; do sleep "${_d}"; sync_appcenter_db "${wport}" ""; done ) >/dev/null 2>&1 &
 exit 0
