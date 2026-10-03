@@ -26,6 +26,8 @@ apply_port "${wport}"
 wizard_ran=0
 [ -n "${wizard_download_dir+x}" ] && wizard_ran=1
 [ -n "${wizard_license_agree+x}" ] && wizard_ran=1
+[ -n "${wizard_access_port+x}" ] && wizard_ran=1
+[ -n "${wizard_log_path+x}" ] && wizard_ran=1
 wdir="${wizard_download_dir:-downloads}"
 case "${wdir}" in
     ..|../*|*/..|*/../*)
@@ -39,22 +41,57 @@ if [ "${wizard_ran}" -eq 1 ] && [ -z "${wagree}" ]; then
     exit 1
 fi
 [ "${wizard_ran}" -eq 0 ] && echo "install: 非交互安装（无向导），许可留痕跳过" >> "${LOG_FILE}" 2>/dev/null
+
+# 0.6.267：日志路径——与应用路径同款校验（禁 ..、须含文件名、目录可创建）。
+# 单一事实源 = ${TRIM_PKGVAR}/.logpath（start_daemon 启动重定向与 Go 侧
+# 日志查看/轮转都读它；缺失/空 = 默认 ${TRIM_PKGVAR}/moo.log）。
+wlog="${wizard_log_path:-moo.log}"
+case "${wlog}" in
+    ..|../*|*/..|*/../*)
+        echo "日志路径不合法：${wlog}（不允许包含 ..）" > "${TRIM_TEMP_LOGFILE}"
+        exit 1
+        ;;
+esac
+if [ -z "${wlog##*/}" ]; then
+    echo "日志路径不合法：${wlog}（必须以文件名结尾，不能是目录）" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+wlog_abs="${wlog}"
+case "${wlog_abs}" in
+    /*) : ;;
+    *) wlog_abs="${TRIM_PKGVAR}/${wlog_abs}" ;;
+esac
+if [ -d "${wlog_abs}" ]; then
+    echo "日志路径必须是文件：${wlog} 是目录" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+wlog_dirn=$(dirname "${wlog_abs}")
+if [ -z "${wlog_dirn}" ] || ! mkdir -p "${wlog_dirn}" 2>/dev/null || [ ! -w "${wlog_dirn}" ]; then
+    echo "日志路径不可用：无法创建或写入目录 ${wlog_dirn}" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+fi
+chmod 700 "${wlog_dirn}" 2>/dev/null
+printf '%s\n' "${wlog}" > "${TRIM_PKGVAR}/.logpath"
+chmod 600 "${TRIM_PKGVAR}/.logpath" 2>/dev/null
+
 wdir_esc=$(printf '%s' "${wdir}" | sed 's/\\/\\\\/g; s/"/\\"/g')
 wagree_esc=$(printf '%s' "${wagree}" | sed 's/\\/\\\\/g; s/"/\\"/g')
+wlog_esc=$(printf '%s' "${wlog}" | sed 's/\\/\\\\/g; s/"/\\"/g')
 cat > "${TRIM_PKGVAR}/wizard-install.json" <<EOF
 {
   "installed_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
   "version": "${TRIM_PKGVERSION:-unknown}",
   "download_dir": "${wdir_esc}",
+  "log_path": "${wlog_esc}",
   "license": "MIT",
   "license_agree_input": "${wagree_esc}"
 }
 EOF
 chmod 600 "${TRIM_PKGVAR}/wizard-install.json" 2>/dev/null
 if [ -n "${wagree}" ]; then
-    echo "install wizard: download_dir=${wdir} license_agree=<已填写，${#wagree} 字符>" >> "${LOG_FILE}" 2>/dev/null
+    echo "install wizard: download_dir=${wdir} log_path=${wlog} license_agree=<已填写，${#wagree} 字符>" >> "${LOG_FILE}" 2>/dev/null
 else
-    echo "install wizard: download_dir=${wdir} license_agree=<非交互安装，未输入>" >> "${LOG_FILE}" 2>/dev/null
+    echo "install wizard: download_dir=${wdir} log_path=${wlog} license_agree=<非交互安装，未输入>" >> "${LOG_FILE}" 2>/dev/null
 fi
 # 应用 DB 行可能在回调之后才由应用中心创建：延迟多次重同步，防被默认值覆盖
 ( for _d in 3 8 15; do sleep "${_d}"; sync_appcenter_db "${wport}" ""; done ) >/dev/null 2>&1 &

@@ -445,6 +445,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | `GET /api/fpk-downloads` | admin | 已下载 FPK 列表 `[FpkDownloadFile]` |
 | `DELETE /api/fpk-downloads/{name}` | admin | 删除缓存包 |
 | `POST /api/fpk-downloads/{name}/install` | admin + SSE | 用缓存包安装/升级（跳过下载阶段） |
+| `GET /api/fpk-downloads/{name}/wizard` | admin | 探测缓存包安装向导定义（直读 FPK 内 wizard/install，无需 staging） |
 
 ---
 

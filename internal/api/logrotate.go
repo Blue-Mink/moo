@@ -6,8 +6,26 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
+
+// 0.6.267：安装向导可改日志文件位置（install_callback 落盘 .logpath）。
+// 文件缺失/空白 = 默认 <dataDir>/moo.log；绝对路径原样使用；
+// 相对路径相对数据目录。start_daemon 的 shell 侧按同一规则解析，
+// 两处必须保持一致（日志查看/轮转跟着进程实际写入位置走）。
+func resolveMooLogPath(dataDir string) string {
+	if b, err := os.ReadFile(filepath.Join(dataDir, ".logpath")); err == nil {
+		s := strings.TrimSpace(string(b))
+		if s != "" {
+			if filepath.IsAbs(s) {
+				return s
+			}
+			return filepath.Join(dataDir, s)
+		}
+	}
+	return filepath.Join(dataDir, "moo.log")
+}
 
 // 0.6.216 P2（N3）：moo.log 大小轮转。
 // 平台把进程 stdout/stderr 捕获到 <dataDir>/moo.log（O_APPEND——已实测：
@@ -38,7 +56,7 @@ func (s *Server) StartLogRotator(ctx context.Context) {
 // rotateMooLog 归档 moo.log 到 moo.log.1（旧 .1 → .2）并截断原文件。
 // 任何一步失败都静默放弃本次轮转（10 分钟后重试），绝不影响主流程。
 func rotateMooLog(dataDir string) {
-	p := filepath.Join(dataDir, "moo.log")
+	p := resolveMooLogPath(dataDir)
 	fi, err := os.Stat(p)
 	if err != nil || fi.Size() <= logRotateMaxSize {
 		return

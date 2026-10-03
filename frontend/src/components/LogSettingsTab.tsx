@@ -40,13 +40,20 @@ const DEBUG_ZH = /调试|跟踪/;
 // 高频/低价值模块 → 归 DEBUG（避免刷屏行被误判成 info/error，如 [race] 的 404 候选）
 const VERBOSE_MODS = new Set(['race', 'probe', 'prober', 'http', 'httpdb', 'mirror', 'mirrors', 'fetch', 'download', 'warm', 'cache', 'sync', 'netguard', 'netx', 'apiscope', 'readme-warm', 'readme']);
 
-interface Parsed { time: string; level: Level; mod: string; detail: string; raw: string; }
+interface Parsed { time: string; timeShort: string; level: Level; mod: string; detail: string; raw: string; }
 
 function parseLine(line: string): Parsed {
   let time = '';
+  let timeShort = '';
   let rest = line;
-  const tm = line.match(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})(?:\.\d+)?\s*(.*)$/);
-  if (tm) { time = tm[1].replace(/\//g, '-'); rest = tm[2]; }
+  const tm = line.match(/^(\d{4})\/(\d{2})\/(\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.\d+)?\s*(.*)$/);
+  if (tm) {
+    time = tm[1] + '-' + tm[2] + '-' + tm[3] + ' ' + tm[4];
+    // 0.6.268：列表内用短格式 MM-DD HH:MM:SS（省出 ~30% 宽度给详情），
+    // 完整时间戳放 hover title。
+    timeShort = tm[2] + '-' + tm[3] + ' ' + tm[4];
+    rest = tm[5];
+  }
   let mod = '';
   const mm = rest.match(/^\[([^\]]+)\]\s*/);
   if (mm) { mod = mm[1]; rest = rest.slice(mm[0].length); }
@@ -61,11 +68,14 @@ function parseLine(line: string): Parsed {
   else if (ERROR_RE.test(probe) || ERROR_ZH.test(probe)) level = 'error';
   else if (WARN_RE.test(probe) || WARN_ZH.test(probe)) level = 'warn';
   else if (DEBUG_RE.test(probe) || DEBUG_ZH.test(probe) || VERBOSE_MODS.has(ml)) level = 'debug';
-  return { time, level, mod, detail, raw: line };
+  return { time, timeShort, level, mod, detail, raw: line };
 }
 
-const TIME_W = 'w-[128px]';
-const LEVEL_W = 'w-[64px]';
+// 0.6.268：缩短时间格式（MM-DD HH:MM:SS，13 字符）后收窄两列，
+// 间距 gap-3→gap-2——把宽度让给日志详情（移动端尤其需要）。
+// 104px = 13 字符 @12px mono + 余量（96px 在部分字体下会折行）。
+const TIME_W = 'w-[104px]';
+const LEVEL_W = 'w-[44px]';
 
 export default function LogSettingsTab() {
   const [data, setData] = useState<LogData | null>(null);
@@ -230,23 +240,34 @@ export default function LogSettingsTab() {
         )}
         {data?.note && !err && <p className="text-xs text-muted-foreground">{data.note}</p>}
       </div>
-      {/* 日志列表：三列 时间｜级别｜详情（gap-3 = 中间空一格），最新在上 */}
+      {/* 日志列表（0.6.268 移动端友好排版）：
+          桌面端(sm+) = 紧凑三行 时间｜级别｜详情（窄列 + gap-2）；
+          移动端 = 两行式——首行小字「时间 级别」，次行详情占满整宽，
+          长日志不再被三列挤成窄条。 */}
       <div className="overflow-hidden bg-card rounded-[18px] border border-border/20 shadow-appstore">
-        <div className="flex items-center gap-3 border-b bg-muted/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <div className="sm:hidden border-b bg-muted/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+          日志详情（最新在上）
+        </div>
+        <div className="hidden sm:flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
           <span className={TIME_W + ' shrink-0'}>时间</span>
           <span className={LEVEL_W + ' shrink-0'}>级别</span>
           <span className="min-w-0">日志详情</span>
         </div>
-        <div className="max-h-[60vh] overflow-auto font-mono text-xs leading-relaxed">
+        <div className="max-h-[60vh] overflow-auto font-mono text-[11px] leading-relaxed sm:text-xs sm:leading-snug">
           {loading && !data ? (
             <div className="p-4 text-muted-foreground">加载中…</div>
           ) : shown.length === 0 ? (
             <div className="p-4 text-muted-foreground">（暂无日志）</div>
           ) : (
             shown.map((p, i) => (
-              <div key={i} className={`flex items-start gap-3 px-3 py-0.5 ${LEVELS[p.level].row || ''}`}>
-                <span className={TIME_W + ' shrink-0 tabular-nums text-muted-foreground'}>{p.time || '—'}</span>
-                <span className={LEVEL_W + ' shrink-0 ' + LEVELS[p.level].text}>{LEVELS[p.level].label}</span>
+              <div key={i} className={`px-3 py-1 sm:flex sm:items-start sm:gap-2 sm:py-0.5 ${LEVELS[p.level].row || ''}`}>
+                {/* 移动端：时间+级别成首行小字；桌面端：contents 展开为三列 */}
+                <div className="flex items-center gap-2 sm:contents">
+                  <span className={TIME_W + ' shrink-0 tabular-nums text-muted-foreground'} title={p.time || undefined}>
+                    {p.timeShort || p.time || '—'}
+                  </span>
+                  <span className={LEVEL_W + ' shrink-0 ' + LEVELS[p.level].text}>{LEVELS[p.level].label}</span>
+                </div>
                 <span className="min-w-0 break-words">
                   {p.mod ? <span className="text-muted-foreground">[{p.mod}] </span> : null}
                   <span>{p.detail || '（无内容）'}</span>

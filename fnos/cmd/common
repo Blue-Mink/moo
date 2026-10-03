@@ -17,6 +17,16 @@ PORTS_CONF="${PKG_ETC}/ports.conf"
 
 PKGVAR="${TRIM_PKGVAR:-/var/apps/${TRIM_APPNAME}/var}"
 LOG_FILE="${PKGVAR}/${TRIM_APPNAME:-moo}.log"
+# 0.6.267：安装向导日志路径——单一事实源 .logpath（install_callback 落盘）。
+# 全局解析：所有生命周期脚本（main/stop/start/回调）的日志行与 daemon
+# 进程输出走同一文件；缺失/空 = 默认 ${PKGVAR}/moo.log。
+_mlp="$(cat "${PKGVAR}/.logpath" 2>/dev/null | tr -d '[:space:]')"
+if [ -n "${_mlp}" ]; then
+    case "${_mlp}" in
+        /*) LOG_FILE="${_mlp}" ;;
+        *)  LOG_FILE="${PKGVAR}/${_mlp}" ;;
+    esac
+fi
 PID_FILE="${PKGVAR}/${TRIM_APPNAME:-moo}.pid"
 APP_DEST="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME}}"
 BIN="${APP_DEST}/moo-server"
@@ -138,13 +148,20 @@ start_daemon() {
     local port
     port=$(read_web_port)
     mkdir -p "${PKGVAR}"
+    # 0.6.267：LOG_FILE 已在 source 时按 .logpath 全局解析（缺失=默认 moo.log）
+    # fnOS 下 umask 过严会让 mkdir/>> 产出 000 权限（root 可写但轮转/审计不友好）
+    if [ ! -d "$(dirname "${LOG_FILE}")" ]; then
+        mkdir -p "$(dirname "${LOG_FILE}")" 2>/dev/null && chmod 700 "$(dirname "${LOG_FILE}")" 2>/dev/null
+    fi
+    touch "${LOG_FILE}" 2>/dev/null
+    chmod 600 "${LOG_FILE}" 2>/dev/null
     # 访问模型：统一网关 unix socket 为主入口；TCP 仅 127.0.0.1 调试（二进制内绑定）
     nohup env MOO_WEB_PORT="${port}" \
         MOO_SOCKET="${APP_DEST}/app.sock" \
         MOO_DATA="${PKGVAR}" \
         "${BIN}" >> "${LOG_FILE}" 2>&1 &
     echo $! > "${PID_FILE}"
-    echo "${DNAME} started: gateway socket=${APP_DEST}/app.sock debug=127.0.0.1:${port} (pid $(cat ${PID_FILE}))" >> "${LOG_FILE}"
+    echo "${DNAME} started: gateway socket=${APP_DEST}/app.sock debug=127.0.0.1:${port} log=${LOG_FILE} (pid $(cat ${PID_FILE}))" >> "${LOG_FILE}"
 }
 
 stop_daemon() {

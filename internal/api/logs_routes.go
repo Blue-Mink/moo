@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 // getLogs 0.6.249：设置页「日志」在线查看——返回 moo.log 末尾 N 行
@@ -23,7 +24,7 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 		n = 2000
 	}
 	dir := dataDirOf(s)
-	logPath := filepath.Join(dir, "moo.log")
+	logPath := resolveMooLogPath(dir) // 0.6.267：安装向导可改日志路径（.logpath）
 	fi, err := os.Stat(logPath)
 	if err != nil {
 		writeJSON(w, map[string]any{
@@ -56,11 +57,13 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
 	}
+	// 归档清单 = 日志文件同目录下的 <文件名>.N（轮转产物）
 	archives := []string{}
-	if ents, err := os.ReadDir(dir); err == nil {
+	base := filepath.Base(logPath)
+	if ents, err := os.ReadDir(filepath.Dir(logPath)); err == nil {
 		for _, e := range ents {
 			name := e.Name()
-			if len(name) > len("moo.log") && name[:len("moo.log")] == "moo.log" {
+			if strings.HasPrefix(name, base) && len(name) > len(base) && name[len(base)] == '.' {
 				archives = append(archives, name)
 			}
 		}
