@@ -1701,6 +1701,11 @@ func (s *Server) removeDownload(w http.ResponseWriter, r *http.Request) {
 // fpkDownloadWizard GET /api/fpk-downloads/{name}/wizard 返回已下载 FPK 的
 // 安装向导定义（与商店 GET /api/apps/{key}/wizard 同一形状，前端直接复用
 // WizardDialog）。安装带必填向导字段的 FPK 前用它探测，弹出向导收集参数。
+//
+// 0.6.264：改为直接从 FPK tar 里读 wizard/install + manifest，不再做平台
+// 暂存——旧路径 StageFpk 要把整包解进暂存区（大包秒级），用户实测「获取
+// 安装向导太慢」；向导定义只是包内一个几百字节的小文件，直读毫秒级。
+// 安装本身仍走 StageFpk，暂存产物不受影响。
 func (s *Server) fpkDownloadWizard(w http.ResponseWriter, r *http.Request) {
 	name := filepath.Base(r.PathValue("name"))
 	if !isFpk(name) {
@@ -1712,22 +1717,25 @@ func (s *Server) fpkDownloadWizard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("缓存文件不存在"))
 		return
 	}
-	staged, err := platform.StageFpk(r.Context(), p, nil)
+	members, err := readFpkMembers(p, []string{"wizard/install", "manifest"})
 	if err != nil {
 		writeJSON(w, map[string]any{"has_wizard": false, "error": err.Error()})
 		return
 	}
-	wz, err := platform.FetchWizard(r.Context(), staged)
-	if err != nil {
-		writeJSON(w, map[string]any{"appname": staged.AppName, "version": staged.Version, "has_wizard": false, "error": err.Error()})
-		return
+	var content []any
+	hasWizard := false
+	if wz := members["wizard/install"]; len(wz) > 0 {
+		var steps []any
+		if jsonUnmarshal(wz, &steps) == nil && len(steps) > 0 {
+			content = steps
+			hasWizard = true
+		}
 	}
 	writeJSON(w, map[string]any{
-		"appname":           staged.AppName,
-		"version":           staged.Version,
-		"has_wizard":        wz.HasWizard,
-		"content":           wz.Content,
-		"install_volume_id": wz.InstallVolumeID,
+		"appname":    nameFromFpk(name),
+		"version":    fpkManifestVersion(members["manifest"]),
+		"has_wizard": hasWizard,
+		"content":    content,
 	})
 }
 

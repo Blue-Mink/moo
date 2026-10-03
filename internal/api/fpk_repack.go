@@ -12,12 +12,68 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// readFpkMembers 从 FPK（tar.gz）直接读取指定的顶层小文件（如
+// wizard/install、manifest），不全量解包、不做平台暂存——向导探测
+// 走这条路径（暂存要解整包，大包秒级；向导定义只是包内一个几百字节
+// 的小 JSON）。返回 map[请求名]内容；不存在的成员缺省（nil 值不返回）。
+func readFpkMembers(path string, members []string) (map[string][]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, fmt.Errorf("FPK 不是有效的 tar.gz: %w", err)
+	}
+	defer gz.Close()
+	want := make(map[string]string, len(members))
+	for _, m := range members {
+		want[strings.TrimPrefix(m, "./")] = m
+	}
+	out := make(map[string][]byte, len(members))
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, err
+		}
+		key, ok := want[strings.TrimPrefix(hdr.Name, "./")]
+		if !ok || hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		buf := new(strings.Builder)
+		if _, err := io.Copy(buf, tr); err != nil {
+			return nil, err
+		}
+		out[key] = []byte(buf.String())
+	}
+	return out, nil
+}
+
+// fpkManifestVersion 从 manifest（key = value 文本）取 version 行。
+func fpkManifestVersion(manifest []byte) string {
+	for _, line := range strings.Split(string(manifest), "\n") {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "version"); ok {
+			if v, ok2 := strings.CutPrefix(strings.TrimSpace(v), "="); ok2 {
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	return ""
+}
 
 // repackTpkDirToFpk 把 TPK 目录重打包为标准 FPK（tar.gz），写入 dstPath。
 // 校验：顶层必须含 manifest 与 app.tgz（appcenter 安装解包的硬依赖），

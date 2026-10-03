@@ -130,3 +130,45 @@ func keysOf(m map[string]string) []string {
 	}
 	return out
 }
+
+// TestReadFpkMembers 向导探测直读路径：从 FPK tar 里只取 wizard/install +
+// manifest，不全量解包；不存在的成员不返回。
+func TestReadFpkMembers(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "out.fpk")
+	writeTpkDir(t, src)
+	wz := `[{"stepTitle":"配置","items":[{"type":"text","field":"wizard_path","label":"备份目录","helpText":"提示文案"}]}]`
+	if err := os.MkdirAll(filepath.Join(src, "wizard"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "wizard", "install"), []byte(wz), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repackTpkDirToFpk(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	members, err := readFpkMembers(dst, []string{"wizard/install", "manifest", "wizard/nope"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(members["wizard/install"]); got != wz {
+		t.Errorf("wizard/install = %q, want 原文一致", got)
+	}
+	if v := fpkManifestVersion(members["manifest"]); v != "1.0.0" {
+		t.Errorf("manifest version = %q, want 1.0.0", v)
+	}
+	if _, ok := members["wizard/nope"]; ok {
+		t.Error("不存在的成员不得返回")
+	}
+
+	// 非 tar.gz 文件必须报错（坏包不得静默吞成「无向导」）
+	bad := filepath.Join(dir, "bad.fpk")
+	if err := os.WriteFile(bad, []byte("not a tar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readFpkMembers(bad, []string{"wizard/install"}); err == nil {
+		t.Error("非 tar.gz 必须报错")
+	}
+}
