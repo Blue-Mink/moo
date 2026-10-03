@@ -4,8 +4,9 @@ import { CheckCircle2, XCircle } from 'lucide-react'
 
 // BackgroundTasksIndicator：全局后台任务完成通知（顶部，单条轮播）。
 //
-// 用户定稿（0.6.118）：顶部通知栏**只提示结果**（安装成功/失败），不显示
-// 实时进度——实时进度只在列表行内展示（AppRowList 行内进度条）。
+// 用户定稿（0.6.118 → 0.6.263 修订）：顶部通知栏**只提示成功结果**（失败不进
+// 顶部：行内错误 toast / 下载红色失败行已有反馈），不显示实时进度——
+// 实时进度只在列表行内展示（AppRowList：实时百分比 + 阶段文字快闪）。
 //
 // 轮询 GET /api/tasks（每 3s），只收「状态翻转到终态（done/failed）」的
 // 任务，逐条闪现约 4 秒后收起，下一条再顶上——同一时刻最多 1 条
@@ -75,7 +76,10 @@ const BackgroundTasksIndicator: React.FC = () => {
               // 0.6.126：应用内顶部通知栏始终开启，不受任何开关控制
               //（总开关 / 事件开关只管理外部渠道推送；基线照常更新）。
               const ok = t.status === 'done';
-              if (!st.queue.includes(k)) st.queue.push(k);
+              // 0.6.263 用户定稿：顶部通知栏只在成功时显示；失败不再进顶部
+              //（前台有行内错误 toast+「上报」，下载失败有红色失败行）。
+              // 通知记录（notify-log）两种结果都照常落盘。
+              if (ok && !st.queue.includes(k)) st.queue.push(k);
               // 上报通知记录（fire-and-forget；后端必落盘，外部 fan-out 按开关）
               const msg = `${t.appname} ${opLabel(t.op)}${ok ? '成功' : '失败'}`;
               void recordNotifyEvent(eventKey(t.op, ok), msg, ok);

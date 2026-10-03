@@ -250,26 +250,39 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 );
               })()}
 
-              {/* 进行中的操作：紧凑进度条 */}
+              {/* 进行中的操作：实时百分比 + 阶段文字快闪在进度条上（0.6.263 用户定稿：
+                  阶段提示只在进度条上以快闪方式出现，不做常驻行；顶部通知栏只在
+                  安装成功时显示。下载阶段 message 自带 MB 进度且高频刷新 →
+                  快闪持续可见；安装阶段每换一次阶段文字闪一次，百分比实时走。 */}
               {operation && (
-                <div className="mt-2 space-y-1.5">
-                  <Progress value={operation.progress} className="h-1" />
-                  <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
-                    <span className="min-w-0 truncate">
+                <div className="mt-2">
+                  <div className="relative mb-1 h-4">
+                    <span
+                      key={operation.message}
+                      className="stage-flash absolute left-0 top-0 max-w-[70%] truncate text-[11px] leading-4 text-primary"
+                    >
                       {operation.message}
-                      {operation.step === 'downloading' && operation.speed != null && operation.speed > 0 && ` · ${formatSpeed(operation.speed)}`}
-                      {operation.downloaded != null && operation.total != null && operation.total > 0 && ` · ${formatProgress(operation.downloaded, operation.total)}`}
+                    </span>
+                    <span className="absolute right-6 top-0 text-[11px] leading-4 tabular-nums text-muted-foreground">
+                      {Math.round(operation.progress)}%
                     </span>
                     {(operation.step === 'downloading' || operation.step === 'pulling') && operation.cancel && (
                       <button
                         onClick={(e) => { e.stopPropagation(); onCancelOp?.(app); }}
-                        className="shrink-0 p-1 -m-1 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        className="absolute right-0 top-0 p-1 -m-1 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         aria-label="取消"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
                     )}
                   </div>
+                  <Progress value={operation.progress} className="h-1" />
+                  {operation.step === 'downloading' && (
+                    <div className="mt-1 flex justify-end gap-2 text-[10px] tabular-nums text-muted-foreground">
+                      {operation.speed != null && operation.speed > 0 && <span>{formatSpeed(operation.speed)}</span>}
+                      {operation.downloaded != null && operation.total != null && operation.total > 0 && <span>{formatProgress(operation.downloaded, operation.total)}</span>}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

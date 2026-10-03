@@ -192,6 +192,18 @@
   transform-origin: 75% 0%;
 }
 
+/* 0.6.263：应用列表安装/更新的阶段文字快闪（进度条上方，换阶段闪一次后淡出；
+   下载阶段 message 高频刷新 → 持续可见）。key=文案变化时重触发。 */
+@keyframes stage-flash {
+  0%   { opacity: 0; transform: translateY(3px); }
+  10%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.stage-flash {
+  animation: stage-flash 2.6s ease-out forwards;
+}
+
 /* 灯箱换图：方向感知滑入（消除生硬跳切）。无 fill —— 动画结束后回到
    元素自身的 opacity/transform（loading 态的 opacity-0 依然有效） */
 @keyframes lightbox-in-next { from { opacity: 0; transform: translateX(28px); } }
