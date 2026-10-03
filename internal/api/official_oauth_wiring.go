@@ -61,7 +61,27 @@ func WireOfficialOAuth(s *Server) {
 		}
 		return origDetail(ctx, appName)
 	}
-	log.Printf("官方应用中心：OAuth 免登录通道已接线（0.6.255 纯 OAuth：未授权时明确报错引导连接）")
+	// 0.6.259：官方目录专用端点（GET /api/official/apps，OAuth 对话框用）此前只走
+	// OAuth Manager，老面板无会话时 502。同样接上面板账号兜底（转换 PanelApp→StoreApp）。
+	store.fallback = func(ctx context.Context) ([]official.StoreApp, error) {
+		if !p.Enabled() {
+			return nil, errOfficialNotConnected
+		}
+		list, err := origList(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]official.StoreApp, 0, len(list))
+		for _, a := range list {
+			out = append(out, official.StoreApp{
+				AppName: a.AppName, Name: a.Name, Version: a.Version, Icon: a.Icon,
+				Download: a.Download, Source: a.Source, SourceID: a.SourceID,
+				Status: a.Status, Docker: a.Docker, Beta: a.Beta, Tags: a.Tags,
+			})
+		}
+		return out, nil
+	}
+	log.Printf("官方应用中心：OAuth 免登录通道已接线（0.6.259：无 OAuth 时面板账号兜底）")
 }
 
 // hasOAuthSession 会话存在且 access token 未过期（快速路径判断；

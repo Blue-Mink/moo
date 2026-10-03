@@ -72,9 +72,26 @@ func (s *Server) headlessAuthorize(w http.ResponseWriter, r *http.Request) {
 	// 3) 取一次性 code。
 	b, err := client.RawJSON(ctx, http.MethodGet, "/oauthapi/authorize", q, nil)
 	if err != nil {
-		if err == panel.ErrEndpointNotFound {
+		// 0.6.259：RawJSON 返回的是 %w 包装错误（"面板端点不存在: 404…"），
+		// 必须用 errors.Is 判定，== 永远匹配不上（此前 404 分支从未命中）。
+		if errors.Is(err, panel.ErrEndpointNotFound) {
 			mgr.Cancel()
-			writeErr(w, http.StatusBadGateway, errors.New("当前 fnOS 面板不支持 /oauthapi/authorize（需 fnOS 8.0.0+），无法无头授权"))
+			// 0.6.259：老面板无 /oauthapi/authorize（OAuth 不可用）→ 面板账号兜底。
+			// 第 1 步面板登录已验证通过；把凭据只写进内存里的 s.Panel.Client()
+			//（不落盘、不 Save），此后 listApps/detailFn 的 OAuth 失败会回退到面板
+			// WS 通道（client.AppList/AppDetail），官方目录即可加载。会话用到失效
+			// 或 Moo 重启后需重填（方案 A，不存密码）。
+			if pc := s.Panel.Client(); pc != nil {
+				pc.Username = body.Username
+				pc.Password = body.Password
+			}
+			s.Panel.resetFailState()
+			s.officialStoreV().invalidate()
+			writeJSON(w, map[string]any{
+				"ok":      true,
+				"mode":    "panel",
+				"message": "此面板不支持 OAuth 授权，已改用面板账号兜底连接官方源（会话失效后需重新填写）",
+			})
 			return
 		}
 		mgr.Cancel()

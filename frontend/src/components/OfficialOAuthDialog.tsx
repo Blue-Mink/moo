@@ -201,8 +201,8 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
                   <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     当前 fnOS 面板版本不支持页面内授权（需 fnOS 1.2.0800 及以上）。
-                    用下方「一键免登录授权」：临时填写面板账号一次性登录取码，
-                    授权完成后官方目录走 OAuth 令牌，不再触发面板登录。
+                    可用下方「临时登录面板」：临时填写面板账号一次性登录，
+                    经面板会话获取官方目录；账号仅本次使用，不保存。
                   </span>
                 </div>
                 {/* 0.6.255：临时面板账号（仅本次授权使用，服务端不落盘） */}
@@ -255,14 +255,18 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
                   </Button>
                 ) : status?.ui_supported === false ? (
                   // 0.6.254：旧版 fnOS 前端无授权页 → 走无头授权
+                  // 0.6.260：按钮名「临时登录面板」——登录对象是 Web 面板（非整个 NAS），
+                  // 与新版面板的「OAuth授权登录」两种登录方式分开、互不混用
                   <Button size="sm" className="h-8" onClick={headlessAuth} disabled={busy}>
                     {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1 h-3.5 w-3.5" />}
-                    一键免登录授权
+                    临时登录面板
                   </Button>
                 ) : (
+                  // 0.6.260：按钮名「OAuth授权登录」——页面内 OAuth 授权码流程
+                  // （授权页内登录 + 点授权 + 验证码），与旧面板「临时登录面板」分开
                   <Button size="sm" className="h-8" onClick={startAuthorize} disabled={busy}>
                     {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1 h-3.5 w-3.5" />}
-                    连接官方应用中心
+                    OAuth授权登录
                   </Button>
                 )}
               </div>

@@ -822,8 +822,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                     size="icon"
                     className="h-7 w-7 rounded-full"
                     onClick={() => setOauthOpen(true)}
-                    title="官方应用中心免登录连接（OAuth）：连接后官方目录通过 OAuth 令牌直取"
-                    aria-label="官方应用中心免登录连接"
+                    title="连接官方应用中心：新面板走「OAuth授权登录」，旧面板走「临时登录面板」"
+                    aria-label="连接官方应用中心"
                   >
                     <KeyRound className="h-3.5 w-3.5" />
                   </Button>

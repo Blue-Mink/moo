@@ -27,6 +27,8 @@ type officialStore struct {
 	at    time.Time
 	ttl   time.Duration
 	fetchErr string
+	// 0.6.259：OAuth 不可用（无会话/拉空/失败）时的面板账号兜底（WireOfficialOAuth 注入）。
+	fallback func(ctx context.Context) ([]official.StoreApp, error)
 }
 
 func newOfficialStore(mgr *official.Manager) *officialStore {
@@ -73,6 +75,8 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 		sup, known := store.mgr.UISupportStatus()
 		st["ui_supported"] = sup
 		st["ui_known"] = known
+		// 0.6.259：面板账号兜底是否已启用（老面板无 OAuth 时 headless 授权会置位）。
+		st["panel_fallback"] = s.Panel.Enabled()
 		writeJSON(w, st)
 	})
 	mux.HandleFunc("GET /api/official/authorize", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +161,19 @@ func (s *officialStore) list(ctx context.Context) ([]official.StoreApp, error) {
 		return d, nil
 	}
 	s.mu.Unlock()
-	apps, err := s.mgr.StoreList(ctx)
+	var apps []official.StoreApp
+	var err error
+	if s.hasOAuthSession() {
+		apps, err = s.mgr.StoreList(ctx)
+	}
+	// 0.6.259：OAuth 不可用（无会话/拉空/失败）→ 面板账号兜底（老面板无 OAuth 时）。
+	if (err != nil || len(apps) == 0) && s.fallback != nil {
+		if fb, fbErr := s.fallback(ctx); fbErr == nil && len(fb) > 0 {
+			apps, err = fb, nil
+		} else if err == nil {
+			err = fbErr // 面板兜底也失败 → 报告面板侧错误（区别于 OAuth 未连接）
+		}
+	}
 	s.mu.Lock()
 	s.at = time.Now()
 	if err != nil {
