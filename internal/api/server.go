@@ -190,6 +190,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/fpk-downloads", s.requireAdmin(s.listDownloads))
 	mux.HandleFunc("DELETE /api/fpk-downloads/{name}", s.requireAdmin(s.removeDownload))
 	mux.HandleFunc("POST /api/fpk-downloads/{name}/install", s.requireAdmin(s.installDownloadSSE))
+	mux.HandleFunc("GET /api/fpk-downloads/{name}/wizard", s.requireAdmin(s.fpkDownloadWizard))
 
 	// ---- 任务与操作 ----
 	mux.HandleFunc("GET /api/tasks", s.listTasks)

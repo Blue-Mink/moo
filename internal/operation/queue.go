@@ -157,6 +157,28 @@ func (q *Queue) History() []View {
 	return out
 }
 
+// Remove 删除一条终态历史操作（0.6.261：设置页「已下载 FPK」失败行删除入口——
+// 官方 cloud 下载走本队列而非下载管理器，失败行此前无删除入口）。
+// 语义：只删 history 条目，不中断任何后台执行（终态操作已无副作用）；
+// current 操作或 running 条目拒绝删除（返回 error）；未找到返回 (false, nil)。
+func (q *Queue) Remove(id string) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.current != nil && q.current.id == id {
+		return false, fmt.Errorf("操作正在进行，无法删除: %s", id)
+	}
+	for i := range q.history {
+		if q.history[i].ID == id {
+			if q.history[i].State == StateRunning {
+				return false, fmt.Errorf("操作正在进行，无法删除: %s", id)
+			}
+			q.history = append(q.history[:i], q.history[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Find 按 ID 查历史操作视图（最近 20 条内；未找到返回 nil）。
 // SSE 轮询必须用它取终态：操作结束时「清空 current + 入 history」是同一
 // 把锁内的原子动作，慢轮询可能恰好错过 running→error 的窗口——只看

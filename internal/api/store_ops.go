@@ -243,9 +243,9 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 		ai, _ := s.catalogByKey(r.PathValue("key"))
 		f := sseStart(w)
 		sseRunOpDownload := func(ctx context.Context, progress func(string, float64)) error {
-			if ai.AppType != "" && ai.AppType != "fpk" {
-				return fmt.Errorf("官方 %s 应用没有 FPK 安装包（只能直接安装）", ai.AppType)
-			}
+			// 0.6.261：不再按 app_type 拦截——TPK 型官方应用（原生/docker）
+			// 下载产物是目录，由 copyOfficialFpk 重打包为标准 FPK；真正无法
+			// 产包的应用由 daemon 下载环节给出诚实报错。
 			pa, err := s.panelApp(ai.AppName)
 			if err != nil {
 				return err
@@ -258,7 +258,14 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 				compareVersions(ia.UpgradeInfo.Version, ver) > 0 {
 				ver = ia.UpgradeInfo.Version
 			}
-			pth, err := s.panelDownloadOnly(ctx, ai.AppName, pa.SourceID, ver, s.panelDefaultVolume())
+			// 0.6.261：daemon unix socket 免登录通道（与应用中心 UI「下载」
+			// 同一路径，不触发任何面板登录、不受面板限流影响）；下载过程
+			// 回报进度。sourceID 由统一目录入口提供，OAuth/面板账号两通道
+			// 均可用（底层同一 app/list API）。
+			pth, err := platform.DownloadCloud(ctx, ai.AppName, pa.SourceID, ver, s.panelDefaultVolume(),
+				func(pct float64) {
+					progress(fmt.Sprintf("官方云下载中 %d%%", int(pct)), pct)
+				})
 			if err != nil {
 				return err
 			}
@@ -298,19 +305,28 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 	s.streamDownloadTask(r, w, f, t)
 }
 
-// copyOfficialFpk 把面板 cloud 下载完成的 FPK 复制进 moo 下载缓存目录
+// copyOfficialFpk 把官方 cloud 下载完成的产物存入 moo 下载缓存目录
 // （与社区源同一目录：设置页「FPK 下载目录」可列表/删除/直接安装）。
-// 面板返回的是目录（原生 TPK 包）= 该应用没有 FPK 安装包。
+// 产物两种形态：.fpk 文件直接复制；TPK 目录（原生/docker 型官方应用，
+// 布局 = manifest + app.tgz + cmd/ + config/ + wizard/ + ICON*）重打包为
+// 标准 FPK（0.6.261：生命周期脚本/向导全保留，保真度高于旧的
+// 「没有 FPK 安装包」拦截）。
 func (s *Server) copyOfficialFpk(appName, version, srcPath string, progress func(string, float64)) error {
 	if srcPath == "" {
-		return errors.New("面板下载完成但未返回安装包路径")
+		return errors.New("官方下载完成但未返回安装包路径")
 	}
 	fi, err := os.Stat(srcPath)
 	if err != nil {
-		return fmt.Errorf("面板下载完成后安装包不存在: %w", err)
+		return fmt.Errorf("官方下载完成后安装包不存在: %w", err)
 	}
 	if fi.IsDir() {
-		return fmt.Errorf("该官方应用是原生 TPK 包，没有 FPK 安装包（只能直接安装）")
+		name := appName + "-" + version + ".fpk"
+		dst := filepath.Join(s.Tasks.DownloadDir(), name)
+		if err := repackTpkDirToFpk(srcPath, dst); err != nil {
+			return fmt.Errorf("官方 TPK 包重打包失败: %w", err)
+		}
+		progress(fmt.Sprintf("已存入 FPK 下载目录: %s", name), 100)
+		return nil
 	}
 	name := filepath.Base(srcPath)
 	if !strings.HasSuffix(strings.ToLower(name), ".fpk") {

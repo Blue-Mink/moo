@@ -152,6 +152,8 @@ type Settings struct {
 	BackupIntervalDays  int    `json:"backup_interval_days"`
 	CacheCleanDays      int    `json:"cache_clean_days"`
 	CacheCleanEveryDays int    `json:"cache_clean_every_days"`
+	// 日志页显示行数（0.6.261）：0 = 未设置（前端默认 200）。
+	LogLines int `json:"log_lines"`
 	// 加速源自动测速间隔（0.6.148，设置页双齿轮选择框）：每组小时/分钟。
 	// 0h0m = 未设置（后端按默认 5 分钟执行）。
 	GhProbeHours   int `json:"gh_probe_hours"`

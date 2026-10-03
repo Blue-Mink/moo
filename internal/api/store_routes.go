@@ -1120,6 +1120,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		BackupIntervalDays:  s.backupIntervalDaysOf(),
 		CacheCleanDays:      s.Cfg.CacheCleanDays,
 		CacheCleanEveryDays: s.cacheCleanEveryDaysOf(),
+		LogLines:            s.Cfg.LogLines,
 		GhProbeHours:        s.Cfg.GhProbeHours,
 		GhProbeMinutes:      s.Cfg.GhProbeMinutes,
 		DkProbeHours:        s.Cfg.DkProbeHours,
@@ -1207,6 +1208,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		BackupIntervalDays  *int    `json:"backup_interval_days"`
 		CacheCleanDays      *int    `json:"cache_clean_days"`
 		CacheCleanEveryDays *int    `json:"cache_clean_every_days"`
+		// 日志页显示行数（0.6.261）：nil = 未提交不改动；越界整单拒绝。
+		LogLines *int `json:"log_lines"`
 		// 加速源自动测速间隔（0.6.148 齿轮选择框）：指针语义 nil=未提交不改动；
 		// 前端成对提交（小时+分钟），越界整单拒绝。
 		GhProbeHours   *int `json:"gh_probe_hours"`
@@ -1364,6 +1367,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			d = 30
 		}
 		s.Cfg.CacheCleanEveryDays = d
+	}
+	// 日志页显示行数（0.6.261）：越界整单拒绝（下拉只产出 50/100/200/500/1000，
+	// 拒绝脏值入 config）。
+	if in.LogLines != nil {
+		if *in.LogLines < 1 || *in.LogLines > 10000 {
+			writeErr(w, http.StatusBadRequest, errors.New("日志行数须为 1-10000"))
+			return
+		}
+		s.Cfg.LogLines = *in.LogLines
 	}
 	// Dock / 设置 tab 排序（0.6.122）：全量排列校验，非法整体拒绝
 	if err := validateOrderField("dock_order", in.DockOrder, DockTabKeys); err != nil {
@@ -1686,6 +1698,39 @@ func (s *Server) removeDownload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
+// fpkDownloadWizard GET /api/fpk-downloads/{name}/wizard 返回已下载 FPK 的
+// 安装向导定义（与商店 GET /api/apps/{key}/wizard 同一形状，前端直接复用
+// WizardDialog）。安装带必填向导字段的 FPK 前用它探测，弹出向导收集参数。
+func (s *Server) fpkDownloadWizard(w http.ResponseWriter, r *http.Request) {
+	name := filepath.Base(r.PathValue("name"))
+	if !isFpk(name) {
+		writeErr(w, http.StatusBadRequest, errors.New("非法文件名"))
+		return
+	}
+	p := filepath.Join(s.Pipe.Downloads, name)
+	if _, err := os.Stat(p); err != nil {
+		writeErr(w, http.StatusNotFound, errors.New("缓存文件不存在"))
+		return
+	}
+	staged, err := platform.StageFpk(r.Context(), p, nil)
+	if err != nil {
+		writeJSON(w, map[string]any{"has_wizard": false, "error": err.Error()})
+		return
+	}
+	wz, err := platform.FetchWizard(r.Context(), staged)
+	if err != nil {
+		writeJSON(w, map[string]any{"appname": staged.AppName, "version": staged.Version, "has_wizard": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{
+		"appname":           staged.AppName,
+		"version":           staged.Version,
+		"has_wizard":        wz.HasWizard,
+		"content":           wz.Content,
+		"install_volume_id": wz.InstallVolumeID,
+	})
+}
+
 // installDownloadSSE 安装已下载缓存里的 FPK（daemon 本地安装）。
 func (s *Server) installDownloadSSE(w http.ResponseWriter, r *http.Request) {
 	f := sseStart(w)
@@ -1709,7 +1754,15 @@ func (s *Server) installDownloadSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	what := "安装"
+	// 前端可经 ?wizard=[{key,value}] 传向导参数（fpkDownloadWizard 探测后
+	// 用 WizardDialog 收集）；未传时走 AutoFillParams 自动填充。
 	var params []platform.WizardParam
+	if qz := r.URL.Query().Get("wizard"); qz != "" {
+		if jerr := jsonUnmarshal([]byte(qz), &params); jerr != nil {
+			sseSend(w, f, map[string]any{"step": "error", "error": "wizard 参数格式错误"})
+			return
+		}
+	}
 	if staged.Installed {
 		what = "升级"
 		// 防旧包假升级：包版本不比已装版本新时，平台会「成功」地把旧
@@ -1719,7 +1772,7 @@ func (s *Server) installDownloadSSE(w http.ResponseWriter, r *http.Request) {
 			sseSend(w, f, map[string]any{"step": "error", "error": fmt.Sprintf("该包版本为 %s，不比已安装的 %s 新，未执行更新", staged.Version, inst.Version)})
 			return
 		}
-	} else {
+	} else if params == nil {
 		// 向导参数自动填充（与应用源安装管线同一逻辑）：必填无默认 →
 		// 明确报错，而不是 daemon 侧 19000 裸错误。
 		var missing []string
@@ -1857,11 +1910,18 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // removeTask 移除已完成/失败/暂停的下载任务（0.6.146）；运行中拒绝。
+// 0.6.261：下载管理器未命中时回退长操作队列——官方 cloud 下载走 Ops
+// （store_ops.go sseRunOp kind="download"）而非下载管理器，失败行此前
+// 点删除恒 404。
 func (s *Server) removeTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.Tasks.Remove(id); err != nil {
 		var notFound *task.ErrNotFound
 		if errors.As(err, &notFound) {
+			if removed, _ := s.Ops.Remove(id); removed {
+				writeJSON(w, map[string]any{"ok": true})
+				return
+			}
 			writeErr(w, http.StatusNotFound, err)
 			return
 		}

@@ -97,7 +97,10 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
             </p>
           </div>
         ) : (
-          <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
+          // 0.6.144 补丁2 同款（渠道弹窗先例）：表单区左右各收 6px——
+          // 微信 webview 下超宽输入框的 1px 边框/聚焦环两侧渲染不完整
+          // （「两边竖线折叠」），收窄后输入框与弹窗内容区不再贴边
+          <div className="space-y-4 py-2 px-1.5 overflow-y-auto flex-1 min-h-0">
             {items.map((item, idx) => {
               if (item.type === 'tips') {
                 return (

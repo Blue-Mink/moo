@@ -501,11 +501,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 拉取本身并入上方 bodyReady 统一 effect（与详情并行、一次提交）。
   const noSource = !!app && !app.source;
   // 「下载 fpk」条显示条件：有可下载 FPK 安装包的应用——
-  // 社区源（镜像链下载）+ 官方 FPK 型应用（面板 cloud 通道，下载后存入
-  // FPK 下载目录）。无源已装应用没有下载链接；官方 docker/native(TPK)
-  // 型没有 FPK 安装包（后端也会拦截并给出明确提示）。
-  const downloadFpkVisible = !!app && !noSource &&
-    (!isOfficial || app.app_type === 'fpk');
+  // 社区源（镜像链下载）+ 官方应用（daemon cloud 通道免登录下载：FPK 型
+  // 直接落盘，TPK 型目录重打包为标准 FPK——0.6.261 起官方全类型可用）。
+  const downloadFpkVisible = !!app && !noSource;
 
   // 切换应用时重新拉 README
   useEffect(() => {

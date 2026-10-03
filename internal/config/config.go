@@ -131,6 +131,9 @@ type Config struct {
 	// 只动 @appdata/moo/cache，绝不触碰已下载 FPK 与已安装应用。
 	CacheCleanDays      int `json:"cache_clean_days,omitempty"`
 	CacheCleanEveryDays int `json:"cache_clean_every_days,omitempty"`
+	// 日志页显示行数（0.6.261：此前纯前端本地态，切 tab 即复位 200）。
+	// 0/缺省 = 未设置（前端按默认 200 处理）。
+	LogLines int `json:"log_lines,omitempty"`
 	// 科学加速（0.6.206，加速源设置末卡片）：GitHub 上游流量的本机代理
 	// （http/https/socks4/socks5，如 socks5://127.0.0.1:1080）。
 	// 仅 GitHub 域名改道，镜像/其余流量直连；地址只存本机配置不外发。

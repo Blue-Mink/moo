@@ -343,11 +343,19 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
     const decoder = new TextDecoder();
     let buffer = '';
     let pendingData = '';
+    // 0.6.261：终态事件（done/error）= 操作结束，promise 立即结算——
+    // 面板网关（nginx→unix socket）在上游关闭后可能继续持有下游连接，
+    // 只等流 EOF 会让 UI 永远卡在「安装中…」蓝条（已安装状态永不翻转）。
+    // error 事件同时让 promise 拒绝（此前 error 后 EOF 仍走 resolve，
+    // 消费方会误报「安装成功」）。
+    // ref 对象承载：闭包内赋值不会触发外层控制流收窄成 never。
+    const terminalRef: { current: { kind: 'done' } | { kind: 'error'; err: Error } | null } = { current: null };
 
     const dispatchPending = () => {
       if (!pendingData) return;
+      let parsed: unknown = null;
       try {
-        onEvent(JSON.parse(pendingData));
+        parsed = JSON.parse(pendingData);
       } catch (e) {
         // Don't silently drop terminal events ('done' / 'error') -- log so
         // we can debug a UI stuck in a spinner. Truncate the raw payload to
@@ -358,10 +366,19 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
         console.warn('streamSSE: failed to parse event payload', e, 'preview:', preview);
       }
       pendingData = '';
+      if (parsed == null) return;
+      onEvent(parsed as UpdateProgress);
+      const ev = parsed as { step?: string; error?: string };
+      if (ev.step === 'done') {
+        terminalRef.current = { kind: 'done' };
+      } else if (ev.step === 'error' || ev.error) {
+        terminalRef.current = { kind: 'error', err: new Error(typeof ev.error === 'string' && ev.error ? ev.error : '操作失败') };
+      }
     };
 
     try {
       while (true) {
+        if (terminalRef.current) break;
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -377,6 +394,7 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
             pendingData += (pendingData ? '\n' : '') + line.slice(6);
           } else if (line === '' && pendingData) {
             dispatchPending();
+            if (terminalRef.current) break;
           }
         }
       }
@@ -394,6 +412,12 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
       dispatchPending();
     } finally {
       reader.releaseLock();
+    }
+    const terminal = terminalRef.current;
+    if (terminal) {
+      // 终态已送达：主动断开连接（网关可能继续持有），再按语义结算。
+      controller.abort();
+      if (terminal.kind === 'error') throw terminal.err;
     }
   })();
 
@@ -596,6 +620,8 @@ export interface Settings {
   backup_interval_days?: number;
   cache_clean_days?: number;
   cache_clean_every_days?: number;
+  // 日志页显示行数（0.6.261；缺省 = 默认 200）
+  log_lines?: number;
   // 加速源自动测速间隔（0.6.148 齿轮选择框）：0h0m = 未设置（后端按 5 分钟）
   gh_probe_hours?: number;
   gh_probe_minutes?: number;
@@ -989,8 +1015,16 @@ export const deleteFpkDownload = async (name: string): Promise<void> => {
 };
 
 /** 直接安装已下载的 FPK 缓存（SSE 进度流；不重新下载，文件保留在缓存中）。 */
-export const installFpkDownload = (name: string, onEvent: SSECallback): SSEHandle => {
-  return streamSSE(apiUrl(`/api/fpk-downloads/${encodeURIComponent(name)}/install`), onEvent);
+export const installFpkDownload = (name: string, onEvent: SSECallback, wizard?: WizardParam[]): SSEHandle => {
+  const qs = wizard?.length ? `?wizard=${encodeURIComponent(JSON.stringify(wizard))}` : '';
+  return streamSSE(apiUrl(`/api/fpk-downloads/${encodeURIComponent(name)}/install${qs}`), onEvent);
+};
+
+/** Install wizard definition for a downloaded FPK (same shape as app source wizards). */
+export const fetchFpkDownloadWizard = async (name: string): Promise<AppWizard> => {
+  const response = await apiFetch(apiUrl(`/api/fpk-downloads/${encodeURIComponent(name)}/wizard`));
+  if (!response.ok) throw new Error('获取安装向导失败');
+  return response.json() as Promise<AppWizard>;
 };
 
 /** 手动排序应用源（传全部自定义源 ID 的新顺序；官方源固定置顶不受影响）。 */
@@ -1119,7 +1153,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {

@@ -84,3 +84,59 @@ func TestQueue_FindErrorState(t *testing.T) {
 		t.Error("不存在的 ID 应返回 nil")
 	}
 }
+
+// 回归（0.6.261 设置页「已下载 FPK」失败行无删除按钮）：官方 cloud 下载
+// 走长操作队列，失败行删除入口必须能按 ID 清掉 history 终态条目；
+// 运行中操作与未知 ID 必须拒绝/空操作。
+func TestQueue_RemoveTerminalOp(t *testing.T) {
+	q := NewQueue()
+	// 先起一个慢操作占住 current，再等它结束
+	v, err := q.Start("download", "1Panel", func(ctx context.Context, progress func(string, float64)) error {
+		return fmt.Errorf("下载失败: 面板登录被限流 (errno 131072)")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for q.Current() != nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if q.Current() != nil {
+		t.Fatal("结束操作后 Current() 应为 nil")
+	}
+
+	// 运行中删除必须拒绝
+	v2, err := q.Start("install", "global-radio", func(ctx context.Context, progress func(string, float64)) error {
+		time.Sleep(150 * time.Millisecond)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed, rerr := q.Remove(v2.ID); removed || rerr == nil {
+		t.Fatalf("运行中操作应拒绝删除，实际 removed=%v err=%v", removed, rerr)
+	}
+	for q.Current() != nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// 终态条目可删
+	removed, rerr := q.Remove(v.ID)
+	if rerr != nil {
+		t.Fatalf("终态条目应可删除: %v", rerr)
+	}
+	if !removed {
+		t.Fatal("终态条目删除应返回 removed=true")
+	}
+	if h := q.Find(v.ID); h != nil {
+		t.Error("删除后 Find 应返回 nil")
+	}
+	// 不影响其他 history 条目
+	if h := q.Find(v2.ID); h == nil {
+		t.Error("其他历史条目不应受影响")
+	}
+	// 未知 ID 空操作
+	if removed, _ = q.Remove("no-such-id"); removed {
+		t.Error("未知 ID 应返回 removed=false")
+	}
+}

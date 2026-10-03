@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 import { useKeyboardDock } from '../lib/hooks';
 import {
@@ -31,6 +31,7 @@ import NotifySettingsTab from './NotifySettingsTab'
 import LogSettingsTab from './LogSettingsTab'
 import ReorderList from './ReorderList'
 import GearTimePicker from './GearTimePicker'
+import WizardDialog from './WizardDialog'
 
 type SettingsTab = 'system' | 'accel' | 'source' | 'backup' | 'notify' | 'log' | 'about';
 
@@ -557,6 +558,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 直接安装某个已下载 FPK（SSE 进度）
   const [fpkInstalling, setFpkInstalling] = useState<string | null>(null);
   const [fpkInstallMsg, setFpkInstallMsg] = useState<string>('');
+  // 已下载 FPK 的安装向导（必填字段无默认值时弹 WizardDialog 收集参数）
+  const [fpkWizardName, setFpkWizardName] = useState<string | null>(null);
+  const [fpkWizardDef, setFpkWizardDef] = useState<AppWizard | null>(null);
   const [storeInfo, setStoreInfo] = useState<StoreUpdateInfo | null>(null);
   // 自更新确认弹窗（0.6.130 用户定稿：版本号有更新时点击先弹窗确认再更新）
   const [storeUpdateConfirm, setStoreUpdateConfirm] = useState(false);
@@ -911,14 +915,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
   // 直接安装已下载的 FPK（走 SSE 进度；文件保留在缓存中）
-  const handleFpkInstall = (name: string) => {
+  const runFpkInstall = (name: string, wizard?: WizardParam[]) => {
     if (fpkInstalling) return;
     setFpkInstalling(name);
     setFpkInstallMsg('准备安装...');
     installFpkDownload(name, (ev) => {
       if (ev.step === 'error' || ev.error) return;
       if (ev.message) setFpkInstallMsg(ev.message);
-    }).promise
+    }, wizard).promise
       .then(() => {
         toast.success(`已安装 ${name}`);
         onCatalogChanged?.();
@@ -931,6 +935,29 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       .finally(() => {
         setFpkInstalling(null);
         setFpkInstallMsg('');
+      });
+  };
+
+  const handleFpkInstall = (name: string) => {
+    // 先探测安装向导（与商店同一模式）：必填无默认值的字段必须弹向导
+    // 收集用户输入，否则 daemon 侧会拒装。
+    if (fpkInstalling) return;
+    setFpkInstalling(name);
+    setFpkInstallMsg('加载安装向导...');
+    fetchFpkDownloadWizard(name)
+      .then((wz) => {
+        if (wz.has_wizard && (wz.content?.length ?? 0) > 0) {
+          setFpkWizardDef(wz);
+          setFpkWizardName(name);
+          setFpkInstalling(null);
+          setFpkInstallMsg('');
+          return;
+        }
+        runFpkInstall(name);
+      })
+      .catch(() => {
+        // 探测失败不阻塞安装 → 直接装，由服务端 AutoFill 报明确错误
+        runFpkInstall(name);
       });
   };
 
@@ -1304,6 +1331,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     dockerMirrorOptions.find((o) => o.key === key)?.label || (key === 'custom' ? '自定义' : key);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* 移动端 = 整页（与单应用详情同构）；桌面端 = 居中宽面板。
           右上角 X 仅桌面端保留（移动端用顶栏 ← 返回）。 */}
@@ -2102,7 +2130,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           const paused = t.status === 'paused';
                           const failed = t.status === 'error' || t.status === 'failed';
                           // 后台下载管理器任务带 downloaded/total 字段；官方 cloud 下载走
-                          // 长操作视图（无此二字段）——暂停/继续/删除仅对前者生效（0.6.147）
+                          // 长操作视图（无此二字段）——暂停/继续仅对前者生效（0.6.147）。
+                          // 删除对两者均生效（0.6.261）：cloud 失败行走长操作队列回退删除，
+                          // 后端 removeTask 下载管理器未命中时回退 Ops.Remove。
                           const isMgr = t.downloaded != null || t.total != null;
                           const pct = t.total && t.total > 0 && t.downloaded != null
                             ? Math.min(100, Math.round((t.downloaded / t.total) * 100))
@@ -2148,8 +2178,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                                     )}
                                   </Button>
                                 )}
-                                {/* 0.6.147：全部任务可删除（运行中先停止；断点文件随任务清除，成品 FPK 保留） */}
-                                {isMgr && (
+                                {/* 0.6.147：全部任务可删除（运行中先停止；断点文件随任务清除，成品 FPK 保留）；
+                                    0.6.261：cloud 长操作失败行（非下载管理器、无 downloaded/total）也可删除——
+                                    此前 isMgr 门槛把 red 失败行的删除按钮整个吞掉，且后端点删恒 404 */}
+                                {(isMgr || failed) && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -2465,6 +2497,26 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </DialogContent>
     </Dialog>
+    {/* 已下载 FPK 安装向导：必填字段（如备份目录）无默认值时弹出，
+        确认后带参数安装（与应用源 WizardDialog 同一组件） */}
+    {fpkWizardName && fpkWizardDef && (
+      <WizardDialog
+        appDisplayName={fpkWizardDef.appname || fpkWizardName}
+        wizard={fpkWizardDef}
+        loading={false}
+        onCancel={() => {
+          setFpkWizardName(null);
+          setFpkWizardDef(null);
+        }}
+        onConfirm={(params) => {
+          const name = fpkWizardName;
+          setFpkWizardName(null);
+          setFpkWizardDef(null);
+          runFpkInstall(name, params);
+        }}
+      />
+    )}
+    </>
   );
 };
 

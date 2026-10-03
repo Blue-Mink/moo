@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiUrl } from '../api/base';
-import { apiFetch } from '../api/client';
+import { apiFetch, fetchSettings, updateSettings } from '../api/client';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FileText, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { FileText, Loader2, RefreshCw, AlertTriangle, Copy, Check } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface LogData {
   file: string;
@@ -39,7 +40,7 @@ const DEBUG_ZH = /调试|跟踪/;
 // 高频/低价值模块 → 归 DEBUG（避免刷屏行被误判成 info/error，如 [race] 的 404 候选）
 const VERBOSE_MODS = new Set(['race', 'probe', 'prober', 'http', 'httpdb', 'mirror', 'mirrors', 'fetch', 'download', 'warm', 'cache', 'sync', 'netguard', 'netx', 'apiscope', 'readme-warm', 'readme']);
 
-interface Parsed { time: string; level: Level; mod: string; detail: string; }
+interface Parsed { time: string; level: Level; mod: string; detail: string; raw: string; }
 
 function parseLine(line: string): Parsed {
   let time = '';
@@ -60,7 +61,7 @@ function parseLine(line: string): Parsed {
   else if (ERROR_RE.test(probe) || ERROR_ZH.test(probe)) level = 'error';
   else if (WARN_RE.test(probe) || WARN_ZH.test(probe)) level = 'warn';
   else if (DEBUG_RE.test(probe) || DEBUG_ZH.test(probe) || VERBOSE_MODS.has(ml)) level = 'debug';
-  return { time, level, mod, detail };
+  return { time, level, mod, detail, raw: line };
 }
 
 const TIME_W = 'w-[128px]';
@@ -72,6 +73,54 @@ export default function LogSettingsTab() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [filter, setFilter] = useState<Level | 'all'>('all');
+  const [copied, setCopied] = useState(false);
+  // 0.6.261：行数持久化在后端设置（此前纯本地态，切 tab 即复位 200）。
+  // 挂载时先读已存值再发首次请求（countReady 门控，避免先用 200 打一轮）。
+  const [countReady, setCountReady] = useState(false);
+  useEffect(() => {
+    fetchSettings()
+      .then((s) => {
+        if (s.log_lines === 50 || s.log_lines === 100 || s.log_lines === 500 || s.log_lines === 1000) {
+          setCount(s.log_lines);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCountReady(true));
+  }, []);
+  // 行数变化即持久化（底部「保存」按钮负责系统类设置，行数不等它）
+  const handleCountChange = (v: string) => {
+    const n = Number(v);
+    setCount(n);
+    updateSettings({ log_lines: n }).catch(() => toast.error('日志行数未保存'));
+  };
+
+  // 复制当前显示（已按级别筛选）的日志原文到剪贴板
+  const handleCopy = async () => {
+    if (!data || shown.length === 0) {
+      toast.error('没有可复制的日志');
+      return;
+    }
+    const text = shown.map((p) => p.raw).join('\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+      toast.success(`已复制 ${shown.length} 条日志`);
+    } catch {
+      toast.error('复制失败（浏览器不允许访问剪贴板）');
+    }
+  };
 
   const load = useCallback(async (n: number) => {
     setLoading(true);
@@ -101,7 +150,7 @@ export default function LogSettingsTab() {
     }
   }, []);
 
-  useEffect(() => { void load(count); }, [count, load]);
+  useEffect(() => { if (countReady) void load(count); }, [count, load, countReady]);
 
   // 解析 + 倒序（文件内旧→新，倒序后最新在上）
   const parsed = useMemo(() => {
@@ -123,15 +172,15 @@ export default function LogSettingsTab() {
     n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-lg border bg-card p-4 space-y-3">
+    <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
+      <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <FileText className="h-4 w-4" />
             <span>应用日志（moo.log）</span>
           </div>
           <div className="flex items-center gap-2">
-            <Select value={String(count)} onValueChange={(v) => setCount(Number(v))}>
+            <Select value={String(count)} onValueChange={handleCountChange}>
               <SelectTrigger className="h-9 w-[104px] text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="50">50 行</SelectItem>
@@ -141,6 +190,10 @@ export default function LogSettingsTab() {
                 <SelectItem value="1000">1000 行</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" size="sm" onClick={() => void handleCopy()} disabled={!data || shown.length === 0}
+              title={filter === 'all' ? '复制当前显示的日志' : '复制当前筛选出的日志'}>
+              {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => void load(count)} disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>
@@ -178,7 +231,7 @@ export default function LogSettingsTab() {
         {data?.note && !err && <p className="text-xs text-muted-foreground">{data.note}</p>}
       </div>
       {/* 日志列表：三列 时间｜级别｜详情（gap-3 = 中间空一格），最新在上 */}
-      <div className="overflow-hidden rounded-lg border bg-card">
+      <div className="overflow-hidden bg-card rounded-[18px] border border-border/20 shadow-appstore">
         <div className="flex items-center gap-3 border-b bg-muted/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
           <span className={TIME_W + ' shrink-0'}>时间</span>
           <span className={LEVEL_W + ' shrink-0'}>级别</span>
