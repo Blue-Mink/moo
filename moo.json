@@ -2,9 +2,9 @@
   "schema_version": "moo",
   "source_info": {
     "name": "Moo 应用商店",
-    "homepage": "http://192.168.3.15:3033/bluemink/moo",
+    "homepage": "https://github.com/Blue-Mink/moo",
     "distributor": "Blue-Mink",
-    "generated_by": "gen-repo-moo-json"
+    "generated_by": "gen-repo-moo-json (github)"
   },
   "apps": {
     "moo": {
@@ -16,3169 +16,959 @@
       "desc": "Moo 应用商店 自托管的 FPK 发布仓库（releases 作为多版本索引）。",
       "author": "Blue-Mink",
       "distributor": "Blue-Mink",
-      "homepage": "http://192.168.3.15:3033/bluemink/moo",
+      "homepage": "https://github.com/Blue-Mink/moo",
       "license": "MIT",
       "releases": {
-        "0.6.243-panel": {
-          "changelog": "🐛 **运行方式/安装位置分离**——按值自适应标签；认不出的脏值整行不显示。",
+        "0.6.269": {
+          "changelog": "M4 余项全落地：协议 4 字段（desc_html/license/min_fnos/wizard）+ 目录语言跟随 + 应用诊断端点 + Docker 优选源应用。",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.243-panel/moo_0.6.243-panel_x86.fpk",
-              "size": 7789610,
-              "size_mb": 7.43,
-              "sha256": "2cb581b6345a3b338b6aac1542ac022b189fb78e29251026b8cd460e37b0fb94"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.269/moo_0.6.269_x86.fpk",
+              "size": 8149372,
+              "size_mb": 7.77,
+              "sha256": "b3609c0a4e62572e98479d4a57a91fb3f3b4d0a56377a15b9fcfbac31372906a"
             }
           },
-          "updated_at": "2026-10-01T23:56:04+08:00"
-        },
-        "0.6.242-panel": {
-          "changelog": "🐛 **运行方式归一**——root/package 大小写统一，并补前端单测。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.242-panel/moo_0.6.242-panel_x86.fpk",
-              "size": 7789921,
-              "size_mb": 7.43,
-              "sha256": "24ea687b60581cee9d7864479f3d473e4331d6a05c05c2be07e3842f384a977c"
-            }
-          },
-          "updated_at": "2026-10-01T23:55:57+08:00"
-        },
-        "0.6.241-panel": {
-          "changelog": "🐛 **贴链接直搜支持 Moo 仓**——moo.json 纳入索引识别，主机校验放宽到 IPv4（内网 Gitea 源也能匹配）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.241-panel/moo_0.6.241-panel_x86.fpk",
-              "size": 7789683,
-              "size_mb": 7.43,
-              "sha256": "34f24190404aa671c4d3a018b1199c9f599d71087fc94c0afec06576eca50314"
-            }
-          },
-          "updated_at": "2026-10-01T23:55:50+08:00"
-        },
-        "0.6.240-panel": {
-          "changelog": "🎨 **详情页与提示文案**——运行方式 package 显示为「用户空间」；添加源说明补上 Moo 协议。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.240-panel/moo_0.6.240-panel_x86.fpk",
-              "size": 7789686,
-              "size_mb": 7.43,
-              "sha256": "101da6a0f250ae6dd08b9cfb10f261cd2714cc11c1d6f9bb1c7df4db15244e6f"
-            }
-          },
-          "updated_at": "2026-10-01T23:55:43+08:00"
-        },
-        "0.6.239-panel": {
-          "changelog": "🎨 **README 默认 10 行**——默认只露出约 10 行，点展开看全文。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.239-panel/moo_0.6.239-panel_x86.fpk",
-              "size": 7789181,
-              "size_mb": 7.43,
-              "sha256": "7c36958b2b9fd04f4bd9e095a25f7e57e6a97f2f7b31c18df3595ddc5d4f2c4d"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:53+08:00"
-        },
-        "0.6.238-panel": {
-          "changelog": "🎨 **按钮位置调整**——README 与更新日志的展开/折叠按钮统一放到标题行右侧。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.238-panel/moo_0.6.238-panel_x86.fpk",
-              "size": 7789193,
-              "size_mb": 7.43,
-              "sha256": "16ff78f0d1a8f4fed396c57b7b53d570866dd8ed07b04f7359fa8800958590e5"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:49+08:00"
-        },
-        "0.6.237-panel": {
-          "changelog": "🎨 **README 可折叠**——README 支持收起/展开（按钮与更新日志同款）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.237-panel/moo_0.6.237-panel_x86.fpk",
-              "size": 7789113,
-              "size_mb": 7.43,
-              "sha256": "80e79a6b4246d7ed51e6246c6f59fa93255696468cd99d5c9072687f1bace493"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:45+08:00"
-        },
-        "0.6.236-panel": {
-          "changelog": "🎨 **详情页整理**——信息行重排、README 与更新日志换位、更新日志默认只显示最近 3 条。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.236-panel/moo_0.6.236-panel_x86.fpk",
-              "size": 7789105,
-              "size_mb": 7.43,
-              "sha256": "6313df4ff2ee242495f0fb0d1a077ab5e0909f55e3f20d00e14839962e5cb693"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:41+08:00"
-        },
-        "0.6.235-panel": {
-          "changelog": "🎨 **详情页补全**——新增运行方式、最早发布、真实下载数、预览图与 README；分类标签显示中文。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.235-panel/moo_0.6.235-panel_x86.fpk",
-              "size": 7788831,
-              "size_mb": 7.43,
-              "sha256": "b1327b5e951ce30064b7005658b7579a30734f4c8eca421a749a2e88321214ba"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:38+08:00"
-        },
-        "0.6.234-panel": {
-          "changelog": "🐛 **源字段修正**——releases 里 packages.size 按字节解析、更新日志条目补上发布时间。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.234-panel/moo_0.6.234-panel_x86.fpk",
-              "size": 7786681,
-              "size_mb": 7.43,
-              "sha256": "ea99750b7869242e89c12e38addd7a985a3a20f7bd7114f7e55a48b3bae3b3ee"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:33+08:00"
-        },
-        "0.6.233-panel": {
-          "changelog": "🧩 **moo.json 协议**——新增 Moo 原生应用源协议（FnDepot 超集）：任何仓库挂一份 moo.json 即可被添加为源并同步应用。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.233-panel/moo_0.6.233-panel_x86.fpk",
-              "size": 7787424,
-              "size_mb": 7.43,
-              "sha256": "4ffb7b3ef26ac4390508d75bde6e67084a9d507ce5a9abbe1c4c1fcb62eda981"
-            }
-          },
-          "updated_at": "2026-10-01T23:19:30+08:00"
-        },
-        "0.6.232-panel": {
-          "changelog": "🎨 **推荐排列与点击反馈**——发现页三张推荐改等宽一排；Dock 与移动 tab 加按下缩放反馈。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.232-panel/moo_0.6.232-panel_x86.fpk",
-              "size": 7784783,
-              "size_mb": 7.42,
-              "sha256": "eedd1462daaf2817aa05709440b710ce91d4a812d6c24a878318820507ae1e07"
-            }
-          },
-          "updated_at": "2026-10-01T21:19:25+08:00"
-        },
-        "0.6.231-panel": {
-          "changelog": "🎨 **Dock 留白修正**——桌面端内容底部留白加大，最后一行不被 Dock 遮住。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.231-panel/moo_0.6.231-panel_x86.fpk",
-              "size": 7784569,
-              "size_mb": 7.42,
-              "sha256": "ceb5893b51fbb437a0a2b308d4ec28cd3c39a304925a4f9c63c55228c0c3416d"
-            }
-          },
-          "updated_at": "2026-10-01T21:19:21+08:00"
-        },
-        "0.6.230-panel": {
-          "changelog": "🎨 **苹果风布局**——PC 端隐去左侧栏，菜单收进底部毛玻璃 Dock，品牌与实时时钟移到顶栏。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.230-panel/moo_0.6.230-panel_x86.fpk",
-              "size": 7784717,
-              "size_mb": 7.42,
-              "sha256": "87952a1ac64d759f56431ef71b62f5ada5320b43fd40f8d9173be29d0471647c"
-            }
-          },
-          "updated_at": "2026-10-01T21:19:17+08:00"
-        },
-        "0.6.229-panel": {
-          "changelog": "🎨 **侧栏字体统一**——「设置」的字重与配色与其余菜单项对齐。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.229-panel/moo_0.6.229-panel_x86.fpk",
-              "size": 7783395,
-              "size_mb": 7.42,
-              "sha256": "c629a9d9ebcde735aa0922f98938a8203d53c655be390d1ebaff3d3fd4fc7f02"
-            }
-          },
-          "updated_at": "2026-10-01T21:19:13+08:00"
-        },
-        "0.6.228-panel": {
-          "changelog": "🎨 **PC 布局调整**——侧栏「设置」移到「有更新」之后；顶栏加实时时钟、标题改「Moo is more」；应用卡片改瀑布流；顶部按钮改「刷新页面」。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.228-panel/moo_0.6.228-panel_x86.fpk",
-              "size": 7783475,
-              "size_mb": 7.42,
-              "sha256": "7727fad0549fc47b06cd7605d531d02cfad6e7209f96466e4b0ccf888e60cb66"
-            }
-          },
-          "updated_at": "2026-10-01T21:19:09+08:00"
-        },
-        "0.6.227-panel": {
-          "changelog": "🎨 **图片预览双指缩放**——应用详情页预览图支持双指捏合放大（1×–5×）、缩放后可单指拖动查看，缩回自动归位。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.227-panel/moo_0.6.227-panel_x86.fpk",
-              "size": 7783084,
-              "size_mb": 7.42,
-              "sha256": "aa3d2fe99beb06897d8742700fb297fbc1c3abe6ef80f27f6e64a6336692e0e5"
-            }
-          },
-          "updated_at": "2026-10-01T20:37:28+08:00"
-        },
-        "0.6.226-panel": {
-          "changelog": "🐛 **开关闪烁修复**——滑钮由 transform 改布局定位，消除键盘弹出时「滑钮丢一帧」闪烁。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.226-panel/moo_0.6.226-panel_x86.fpk",
-              "size": 7781653,
-              "size_mb": 7.42,
-              "sha256": "afe5365e96e5c59b5158106b95117fe1a016a4380d198bc9885b4a9feb7809a5"
-            }
-          },
-          "updated_at": "2026-10-01T20:16:04+08:00"
-        },
-        "0.6.225-panel": {
-          "changelog": "🐛 **保存按钮定稿**——按钮位置与键盘无关，恒贴屏幕底边（布局零重排）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.225-panel/moo_0.6.225-panel_x86.fpk",
-              "size": 7781548,
-              "size_mb": 7.42,
-              "sha256": "cd48127d985f27fde17faa6606fd251dd9395c8e3c32ebe0713f0d2a9f0476bd"
-            }
-          },
-          "updated_at": "2026-10-01T20:15:51+08:00"
-        },
-        "0.6.224-panel": {
-          "changelog": "🐛 **键盘收尾**——移除自动调试浮层，键盘弹出时保存按钮贴底。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.224-panel/moo_0.6.224-panel_x86.fpk",
-              "size": 7781605,
-              "size_mb": 7.42,
-              "sha256": "5fdb8ba4399bc8a2d11eb724ce8464dd85c17d77474d0c7efc1bf1f0a4ac8516"
-            }
-          },
-          "updated_at": "2026-10-01T20:15:45+08:00"
-        },
-        "0.6.223-panel": {
-          "changelog": "🐛 **键盘取证**——调试几何改为弹键盘时自动显示，便于真机排查。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.223-panel/moo_0.6.223-panel_x86.fpk",
-              "size": 7781789,
-              "size_mb": 7.42,
-              "sha256": "838621683a01c190702d7242dd7745c5fa612ff47b7c19373a4c13e83b22028b"
-            }
-          },
-          "updated_at": "2026-10-01T20:15:40+08:00"
-        },
-        "0.6.222-panel": {
-          "changelog": "🐛 **键盘调试与输入可见**——长按版本号可查看键盘几何；聚焦输入框自动滚入可视区。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.222-panel/moo_0.6.222-panel_x86.fpk",
-              "size": 7781632,
-              "size_mb": 7.42,
-              "sha256": "85801aa8d717082e11c739d1c78fc12e500857099247a4811ade6b538524b5d7"
-            }
-          },
-          "updated_at": "2026-10-01T20:15:35+08:00"
-        },
-        "0.6.221-panel": {
-          "changelog": "🐛 **保存按钮定位**——对话框几何改由可视视口驱动，不再依赖 100dvh 推算。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.221-panel/moo_0.6.221-panel_x86.fpk",
-              "size": 7780270,
-              "size_mb": 7.42,
-              "sha256": "ab2fe29231d362d3e5df576a9e7c6887c4aa2fe3d8f806758b6ffc70744b74ea"
-            }
-          },
-          "updated_at": "2026-10-01T20:15:29+08:00"
-        },
-        "0.6.220-panel": {
-          "changelog": "🔒 **凭据加密**——面板口令与通知渠道密钥改为密文落盘（AES-256-GCM，密钥随安装生成），存量明文启动时自动迁移。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.220-panel/moo_0.6.220-panel_x86.fpk",
-              "size": 7780452,
-              "size_mb": 7.42,
-              "sha256": "f2bcb1bfc1eb1364e6cd811eb18a2cc015c906a1c1140470a385df6c9e059e56"
-            }
-          },
-          "updated_at": "2026-10-01T20:15:24+08:00"
-        },
-        "0.6.219-panel": {
-          "changelog": "🖼️ **Docker 标记**——应用名旁的容器标记由通用盒子改为 Docker 官方鲸鱼，配色跟随主题色。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.219-panel/moo_0.6.219-panel_x86.fpk",
-              "size": 7766061,
-              "size_mb": 7.41,
-              "sha256": "3255ef10d7eabe93307a262dd084c522755cd1301db18d701e8d27993a65847a"
-            }
-          },
-          "updated_at": "2026-10-01T18:11:32+08:00"
-        },
-        "0.6.218-panel": {
-          "changelog": "🏪 **两线合并**——面板线并入官方应用中心、API 文档与 Agent skill。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.218-panel/moo_0.6.218-panel_x86.fpk",
-              "size": 7764761,
-              "size_mb": 7.41,
-              "sha256": "2a54967f6bf45259beac50249c5c26992f722531d69329c02a4341d54f7caf89"
-            }
-          },
-          "updated_at": "2026-10-01T17:39:06+08:00"
-        },
-        "0.6.217-panel": {
-          "changelog": "🎨 **Moo v0.6.217-panel**——详情页黑框修复：头部+动作区暗色主题纯黑改透明（bg-background→transparent）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.217-panel/moo_0.6.217-panel_x86.fpk",
-              "size": 7728558,
-              "size_mb": 7.37,
-              "sha256": "84941861422b9c02aad7efdbc8355764e672abea6e359726099fa0cc58151261"
-            }
-          },
-          "updated_at": "2026-10-01T12:45:56+08:00"
+          "updated_at": "2026-10-04T12:39:55+08:00"
         },
         "0.6.216-panel": {
           "changelog": "**P1/P2 加固**——http 源明文告警+日志轮转+fire body 上限",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.216-panel/moo_0.6.216-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.216-panel/moo_0.6.216-panel_x86.fpk",
               "size": 7732809,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "f59c8c6c8092bfca"
             }
           },
-          "updated_at": "2026-10-01T12:44:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.215-panel": {
           "changelog": "**P0 安全折中**——config 0600+恢复回填+UI 告警；掩码别名 bug 修复",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.215-panel/moo_0.6.215-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.215-panel/moo_0.6.215-panel_x86.fpk",
               "size": 7728108,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "38f85efe12a4d033"
             }
           },
-          "updated_at": "2026-10-01T12:43:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.214-panel": {
           "changelog": "**截断措辞修正**——4096 截断尾改「其余条目」；暴露面审计零回归",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.214-panel/moo_0.6.214-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.214-panel/moo_0.6.214-panel_x86.fpk",
               "size": 7726146,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "0b1135aec06c4260"
             }
           },
-          "updated_at": "2026-10-01T12:42:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.213-panel": {
           "changelog": "**通知去链接**——通知尾部去掉「完整明细+链接」",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.213-panel/moo_0.6.213-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.213-panel/moo_0.6.213-panel_x86.fpk",
               "size": 7726113,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "84a4cc3481d52f65"
             }
           },
-          "updated_at": "2026-10-01T12:41:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.212-panel": {
           "changelog": "**切源通知富排版**——mirror_switched 全变体（简洁/友好/卡片/表格）",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.212-panel/moo_0.6.212-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.212-panel/moo_0.6.212-panel_x86.fpk",
               "size": 7725824,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "3184c0e83b3708f2"
             }
           },
-          "updated_at": "2026-10-01T12:40:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.211-panel": {
           "changelog": "**安卓黑框后续修复**——mirror_switched 空原因「（）」修复",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.211-panel/moo_0.6.211-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.211-panel/moo_0.6.211-panel_x86.fpk",
               "size": 7724580,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "d97f2429ff38ea30"
             }
           },
-          "updated_at": "2026-10-01T12:39:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.210-panel": {
           "changelog": "**键盘黑框修复**——三形态分流（resize/clip/pan）+搜索收起判据",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.210-panel/moo_0.6.210-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.210-panel/moo_0.6.210-panel_x86.fpk",
               "size": 7724670,
-              "size_mb": 7.37
+              "size_mb": 7.37,
+              "sha256": "f2ab0d529ea733f3"
             }
           },
-          "updated_at": "2026-10-01T12:38:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.209-panel": {
           "changelog": "**保存按钮钉底边**——键盘状态机+渠道通知错配修复+上报链接",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.209-panel/moo_0.6.209-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.209-panel/moo_0.6.209-panel_x86.fpk",
               "size": 7721060,
-              "size_mb": 7.36
+              "size_mb": 7.36,
+              "sha256": "96696f7b927a6203"
             }
           },
-          "updated_at": "2026-10-01T12:37:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.208-panel": {
           "changelog": "**假更新红点修复**——404 大小写修复+daemon 名优先+诚实 409；官方源限流",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.208-panel/moo_0.6.208-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.208-panel/moo_0.6.208-panel_x86.fpk",
               "size": 7716404,
-              "size_mb": 7.36
+              "size_mb": 7.36,
+              "sha256": "8789218a1f011020"
             }
           },
-          "updated_at": "2026-10-01T12:36:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.207-panel": {
           "changelog": "**安全加固五件套**——自更新直连+SHA 校验、非 GET 管理头、DOMPurify、body 上限、残留自清理",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.207-panel/moo_0.6.207-panel_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.207-panel/moo_0.6.207-panel_x86.fpk",
               "size": 7711572,
-              "size_mb": 7.35
+              "size_mb": 7.35,
+              "sha256": "b3450951865b114a"
             }
           },
-          "updated_at": "2026-10-01T12:35:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.206": {
           "changelog": "🔬 **科学加速**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.206/moo_0.6.206_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.206/moo_0.6.206_x86.fpk",
               "size": 7607908,
               "size_mb": 7.26,
               "sha256": "902572da05bb1bef"
             }
           },
-          "updated_at": "2026-10-01T12:34:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.205": {
           "changelog": "🧹 **缓存强制清空**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.205/moo_0.6.205_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.205/moo_0.6.205_x86.fpk",
               "size": 7566930,
               "size_mb": 7.22,
               "sha256": "a8123cfe1892cc74"
             }
           },
-          "updated_at": "2026-10-01T12:33:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.204": {
           "changelog": "✍️ **致谢措辞定稿**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.204/moo_0.6.204_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.204/moo_0.6.204_x86.fpk",
               "size": 7567372,
               "size_mb": 7.22,
               "sha256": "2361f7c002f63886"
             }
           },
-          "updated_at": "2026-10-01T12:32:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.203": {
           "changelog": "🙏 **致谢段补全**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.203/moo_0.6.203_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.203/moo_0.6.203_x86.fpk",
               "size": 7567006,
               "size_mb": 7.22,
               "sha256": "1dc2db587d53ef94"
             }
           },
-          "updated_at": "2026-10-01T12:31:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.202": {
           "changelog": "🎨 **设置卡片颜色统一**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.202/moo_0.6.202_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.202/moo_0.6.202_x86.fpk",
               "size": 7567094,
               "size_mb": 7.22,
               "sha256": "e18e8284867cf613"
             }
           },
-          "updated_at": "2026-10-01T12:30:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.201": {
           "changelog": "🪶 **图标降采样**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.201/moo_0.6.201_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.201/moo_0.6.201_x86.fpk",
               "size": 7564986,
               "size_mb": 7.21,
               "sha256": "7f810558567f3373"
             }
           },
-          "updated_at": "2026-10-01T12:29:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.200": {
           "changelog": "🖼️ **图标缓存版本化**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.200/moo_0.6.200_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.200/moo_0.6.200_x86.fpk",
               "size": 7339453,
               "size_mb": 7.0,
               "sha256": "d1c627866b82ff27"
             }
           },
-          "updated_at": "2026-10-01T12:28:56+08:00"
+          "updated_at": "2026-10-01T11:50:56+08:00"
         },
         "0.6.199": {
           "changelog": "🚀 **app WebView 优化**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.199/moo_0.6.199_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.199/moo_0.6.199_x86.fpk",
               "size": 7339629,
               "size_mb": 7.0,
               "sha256": "4e873aec9f236baf"
             }
           },
-          "updated_at": "2026-10-01T12:27:56+08:00"
-        },
-        "0.6.198": {
-          "changelog": "🚀 **搜索贴源链接交付**——sourceKey 归一化（仓库根/raw前缀/路径raw/fndepot v1v2/JSON索引/jsDelivr/镜像→github.com/owner/repo）+公开端点 /api/search",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.198/moo_0.6.198_x86.fpk",
-              "size": 7333289,
-              "size_mb": 6.99,
-              "sha256": "3630c73105ca3f2010bbcafc23e81a5d5965419ab56f461acfe4668868e7a45f"
-            }
-          },
-          "updated_at": "2026-10-01T12:26:56+08:00"
-        },
-        "0.6.197": {
-          "changelog": "🗂️ **Moo v0.6.197**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.197/moo_0.6.197_x86.fpk",
-              "size": 7323281,
-              "size_mb": 6.98,
-              "sha256": "069968c7860284e5e8bed36ac56df32f2375e0cfc2f434ca92192d4773da95cd"
-            }
-          },
-          "updated_at": "2026-10-01T12:25:56+08:00"
-        },
-        "0.6.196": {
-          "changelog": "🗂️ **Moo v0.6.196**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.196/moo_0.6.196_x86.fpk",
-              "size": 7323090,
-              "size_mb": 6.98,
-              "sha256": "fb7e4a3851f6e0ae065258455477173ef449cc5f93ccd11849d8120ad9802a8e"
-            }
-          },
-          "updated_at": "2026-10-01T12:24:56+08:00"
-        },
-        "0.6.195": {
-          "changelog": "🗂️ **Moo v0.6.195**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.195/moo_0.6.195_x86.fpk",
-              "size": 7323113,
-              "size_mb": 6.98,
-              "sha256": "81a87f3d0de9974721db931a6bb18d5f71e3e8bfc71f11cc2e16e6ebb08aef7f"
-            }
-          },
-          "updated_at": "2026-10-01T12:23:56+08:00"
-        },
-        "0.6.194": {
-          "changelog": "🔔 **Moo v0.6.194**——收藏源通知每源分卡（重构完成，E2E 进行中）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.194/moo_0.6.194_x86.fpk",
-              "size": 7323008,
-              "size_mb": 6.98,
-              "sha256": "3fdf3b14d22cf7310d1544a02bbfec60a5966f9ecdbcbff4395f7548448bb08e"
-            }
-          },
-          "updated_at": "2026-10-01T12:22:56+08:00"
-        },
-        "0.6.193": {
-          "changelog": "🛠️ **Moo v0.6.193**——关注源报表事件 favorite_source_report（0.6.190 实现，E2E 实锤）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.193/moo_0.6.193_x86.fpk",
-              "size": 7327591,
-              "size_mb": 6.99,
-              "sha256": "7eb3516ccbeb27b32f63b73d6411964a80cf60338a5aada683074127827218f4"
-            }
-          },
-          "updated_at": "2026-10-01T12:21:56+08:00"
-        },
-        "0.6.192": {
-          "changelog": "🗂️ **Moo v0.6.192**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.192/moo_0.6.192_x86.fpk",
-              "size": 7327620,
-              "size_mb": 6.99,
-              "sha256": "aef01e37b78d4c55e1982a6b34ab52cfee00b0cd6d7c90d45ed9229ad4633697"
-            }
-          },
-          "updated_at": "2026-10-01T12:20:56+08:00"
-        },
-        "0.6.191": {
-          "changelog": "🗂️ **Moo v0.6.191**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.191/moo_0.6.191_x86.fpk",
-              "size": 7327616,
-              "size_mb": 6.99,
-              "sha256": "3b9dd8ae5b950d963b5feb095515cb611d059b880d93278bf63f6fc043e2b845"
-            }
-          },
-          "updated_at": "2026-10-01T12:19:56+08:00"
-        },
-        "0.6.190": {
-          "changelog": "🛠️ **Moo v0.6.190**——关注源报表事件 favorite_source_report 实现",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.190/moo_0.6.190_x86.fpk",
-              "size": 7327563,
-              "size_mb": 6.99,
-              "sha256": "4faf267f35dc1a738e2866c6a5752a1e86b2d0948642abb8e71cc540b832128a"
-            }
-          },
-          "updated_at": "2026-10-01T12:18:56+08:00"
-        },
-        "0.6.189": {
-          "changelog": "🐛 **Moo v0.6.189**——dk 全挂监测「kspeeder 常活」设计缺陷修复",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.189/moo_0.6.189_x86.fpk",
-              "size": 7310219,
-              "size_mb": 6.97,
-              "sha256": "7bc1f968801fca40c7de5b40886de023a15ae0866a5be9ff720e97b2424b5f0c"
-            }
-          },
-          "updated_at": "2026-10-01T12:17:56+08:00"
-        },
-        "0.6.188": {
-          "changelog": "🗂️ **Moo v0.6.188**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.188/moo_0.6.188_x86.fpk",
-              "size": 7309130,
-              "size_mb": 6.97,
-              "sha256": "d719a40996b2e2458810596e1b6309ab38c9080d91bf270c60dfa28911c119f1"
-            }
-          },
-          "updated_at": "2026-10-01T12:16:56+08:00"
-        },
-        "0.6.187": {
-          "changelog": "🔔 **mirror_switched 后台评估修复**——渠道通知 mirror_switched 补上后台评估（后台双组真实推送实锤）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.187/moo_0.6.187_x86.fpk",
-              "size": 7307126,
-              "size_mb": 6.97,
-              "sha256": "511d85e5dec6fe436c2cd456b684689f31cba06a1dfa618f8c3d9fe0fcb9534a"
-            }
-          },
-          "updated_at": "2026-10-01T12:15:56+08:00"
-        },
-        "0.6.186": {
-          "changelog": "🛠️ **Moo v0.6.186**——app 登录陷阱根治",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.186/moo_0.6.186_x86.fpk",
-              "size": 7306480,
-              "size_mb": 6.97,
-              "sha256": "c03a6c9c2cfe97406ba53ec91867e39b4c586f8a1243acdc52f72d5ef50e96ab"
-            }
-          },
-          "updated_at": "2026-10-01T12:14:56+08:00"
-        },
-        "0.6.185": {
-          "changelog": "🗂️ **Moo v0.6.185**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.185/moo_0.6.185_x86.fpk",
-              "size": 7306515,
-              "size_mb": 6.97,
-              "sha256": "380f67ed3f33c36d120c1d3179db768966699241c8eb85217d57187a0a0966b5"
-            }
-          },
-          "updated_at": "2026-10-01T12:13:56+08:00"
-        },
-        "0.6.184": {
-          "changelog": "🗂️ **Moo v0.6.184**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.184/moo_0.6.184_x86.fpk",
-              "size": 7305690,
-              "size_mb": 6.97,
-              "sha256": "f3a52cc77f1d892a740bc993dfc267692e17d66db1990029a443534dd9824413"
-            }
-          },
-          "updated_at": "2026-10-01T12:12:56+08:00"
-        },
-        "0.6.183": {
-          "changelog": "🗂️ **Moo v0.6.183**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.183/moo_0.6.183_x86.fpk",
-              "size": 7305473,
-              "size_mb": 6.97,
-              "sha256": "00c9bf38fe62750d53b29050ba92971060de9a9e101e85ecb30d72bd2c3f561e"
-            }
-          },
-          "updated_at": "2026-10-01T12:11:56+08:00"
-        },
-        "0.6.182": {
-          "changelog": "🗂️ **Moo v0.6.182**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.182/moo_0.6.182_x86.fpk",
-              "size": 7304586,
-              "size_mb": 6.97,
-              "sha256": "c1f9e154304e53900c39d524d87355b8e0913884921d5f951b2e33bd219b1751"
-            }
-          },
-          "updated_at": "2026-10-01T12:10:56+08:00"
-        },
-        "0.6.181": {
-          "changelog": "🗂️ **Moo v0.6.181**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.181/moo_0.6.181_x86.fpk",
-              "size": 7304366,
-              "size_mb": 6.97,
-              "sha256": "ac5712a835b088e192ab8935d953d6c4b50cf8a3ad5a51c3e5d1811ba420e978"
-            }
-          },
-          "updated_at": "2026-10-01T12:09:56+08:00"
-        },
-        "0.6.180": {
-          "changelog": "🗂️ **Moo v0.6.180**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.180/moo_0.6.180_x86.fpk",
-              "size": 7301570,
-              "size_mb": 6.96,
-              "sha256": "6443f199c41f7c6a497e66d837bdf6a811c296d4d8a9684dd38bd2ebe7577801"
-            }
-          },
-          "updated_at": "2026-10-01T12:08:56+08:00"
-        },
-        "0.6.179": {
-          "changelog": "🗂️ **Moo v0.6.179**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.179/moo_0.6.179_x86.fpk",
-              "size": 7301413,
-              "size_mb": 6.96,
-              "sha256": "d926d24fed0e9b4a4aa695eb553bb6be937b53e4e63e39de941049f0e7520749"
-            }
-          },
-          "updated_at": "2026-10-01T12:07:56+08:00"
-        },
-        "0.6.178": {
-          "changelog": "🗂️ **Moo v0.6.178**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.178/moo_0.6.178_x86.fpk",
-              "size": 7301188,
-              "size_mb": 6.96,
-              "sha256": "d4288c19d683bc09706c005c11b9f446b9bd85e82e24b15648fc15cf7f0e332a"
-            }
-          },
-          "updated_at": "2026-10-01T12:06:56+08:00"
-        },
-        "0.6.177": {
-          "changelog": "🔔 **全渠道通知形式+企微完整修复交付**——形式选择器扩全渠道（webhook 除外，选项按官方能力标注）+企微完整改 classic markdown 全量（根因=卡片 horizontal_content_list 官方上限 6 行）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.177/moo_0.6.177_x86.fpk",
-              "size": 7300592,
-              "size_mb": 6.96,
-              "sha256": "35527626aea7e06a6b3a66d6742d27f31a6f01d0dd751f1a78d94f27ba7ae50d"
-            }
-          },
-          "updated_at": "2026-10-01T12:05:56+08:00"
-        },
-        "0.6.176": {
-          "changelog": "🔔 **通知内容改名+三推交付**——字段改名「通知内容」+选项定稿 简洁（关键信息）/友好（关键摘要+折叠）/完整（全部信息），390px 弹窗截图验证 v0.6.176 在位",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.176/moo_0.6.176_x86.fpk",
-              "size": 7292353,
-              "size_mb": 6.95,
-              "sha256": "8442962c7f5635c6a3ef157f854699030aeb09d8ac7ee819f489ea43deb5930b"
-            }
-          },
-          "updated_at": "2026-10-01T12:04:56+08:00"
-        },
-        "0.6.175": {
-          "changelog": "🗂️ **Moo v0.6.175**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.175/moo_0.6.175_x86.fpk",
-              "size": 7292653,
-              "size_mb": 6.95,
-              "sha256": "c31ce921f4cc5c9a7f6d1fb3b0caad62c7d953f1ea86e4d7bd3f23d6a6dac759"
-            }
-          },
-          "updated_at": "2026-10-01T12:03:56+08:00"
-        },
-        "0.6.174": {
-          "changelog": "🔖 **同名应用跨作者假更新根修**——markInstalledCanonical 废弃组内最高版本规则，更新只认同一源作者（规范卡自身LatestVersion+平台upgradeInfo）+来源识别加平台升级版本命中优先",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.174/moo_0.6.174_x86.fpk",
-              "size": 7279497,
-              "size_mb": 6.94,
-              "sha256": "e8055b89ec0bee5916638d38736053479c3ae7a296b0d7dbf15e83bc0becd778"
-            }
-          },
-          "updated_at": "2026-10-01T12:02:56+08:00"
-        },
-        "0.6.173": {
-          "changelog": "🗂️ **Moo v0.6.173**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.173/moo_0.6.173_x86.fpk",
-              "size": 7277855,
-              "size_mb": 6.94,
-              "sha256": "e6bf3ccbed56f4b54f52ba77126cf14a1b1612306fb416ad252fffe990ffa311"
-            }
-          },
-          "updated_at": "2026-10-01T12:01:56+08:00"
-        },
-        "0.6.172": {
-          "changelog": "🗂️ **Moo v0.6.172**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.172/moo_0.6.172_x86.fpk",
-              "size": 7278098,
-              "size_mb": 6.94,
-              "sha256": "b5a7c824106d499ee6187da867d47df83ea4a9629d9083ddff03cc044c47ae85"
-            }
-          },
-          "updated_at": "2026-10-01T12:00:56+08:00"
-        },
-        "0.6.171": {
-          "changelog": "🎨 **自动监测卡一键刷新所有源**——圆形 RefreshCw 按钮（源行同款样式）+新顺序 复制→开关→刷新→折叠",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.171/moo_0.6.171_x86.fpk",
-              "size": 7272617,
-              "size_mb": 6.94,
-              "sha256": "a8ae12beaf7e9aebd5ac3d12af73764d4a227e167d862b287d8f6c65cec2dbc5"
-            }
-          },
-          "updated_at": "2026-10-01T11:59:56+08:00"
-        },
-        "0.6.170": {
-          "changelog": "🖼️ **通知规则门铃触发按钮**——每事件行加纯图标 BellRing 触发按钮（无文字，点=手动触发该事件落记录+渠道推送，welcome 走真实欢迎语，开关关时置灰）+排版 8px 间距不拥挤",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.170/moo_0.6.170_x86.fpk",
-              "size": 7270248,
-              "size_mb": 6.93,
-              "sha256": "8475849ee5582947fa47de2678acc2f107a263edc6f8dbdd765ce2394307e271"
-            }
-          },
-          "updated_at": "2026-10-01T11:58:56+08:00"
-        },
-        "0.6.169": {
-          "changelog": "🔔 **通知记录折叠卡样式统一**——全部记录统一欢迎语卡形式（渐变+rounded-xl+粗体头=事件名去前缀+chevron，默认折叠，长内容卡内滚动，无正文回退 msg）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.169/moo_0.6.169_x86.fpk",
-              "size": 7268311,
-              "size_mb": 6.93,
-              "sha256": "91f82691430c3acfe98354b5aa4c42bb8841c9222e288eb923abb08feb7f2eba"
-            }
-          },
-          "updated_at": "2026-10-01T11:57:56+08:00"
-        },
-        "0.6.168": {
-          "changelog": "🔔 **通知记录全条目折叠按钮**——无正文记录（安装成功/自动更新/备份等）补「详情（1 行）」卡（body=content||msg）+欢迎语卡折叠（0.6.167）+胶囊移除/新描述（0.6.166）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.168/moo_0.6.168_x86.fpk",
-              "size": 7268199,
-              "size_mb": 6.93,
-              "sha256": "cdf4cab65ba73539c7bb4734c7deed6a8c01f3d0d32bb227e0f06648a4569915"
-            }
-          },
-          "updated_at": "2026-10-01T11:56:56+08:00"
-        },
-        "0.6.167": {
-          "changelog": "🔔 **通知记录欢迎语折叠卡**——欢迎语卡改同款折叠/展开（默认折叠，0.6.130 约定）+含 0.6.166 胶囊移除+描述「默认测试渠道通知，测完请关闭」",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.167/moo_0.6.167_x86.fpk",
-              "size": 7268153,
-              "size_mb": 6.93,
-              "sha256": "008896009216be1c23bb1f39c28435ea92f606bac25db1d6280b4d724e92a2bd"
-            }
-          },
-          "updated_at": "2026-10-01T11:55:56+08:00"
-        },
-        "0.6.166": {
-          "changelog": "🔔 **Moo v0.6.166**——发送欢迎语」胶囊按钮整个移除 + 事件描述改测试渠道文案",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.166/moo_0.6.166_x86.fpk",
-              "size": 7267930,
-              "size_mb": 6.93,
-              "sha256": "858e31e0ec14c04c8dfc72308951e683f0f3fc38305a898830410980f01a6335"
-            }
-          },
-          "updated_at": "2026-10-01T11:54:56+08:00"
-        },
-        "0.6.165": {
-          "changelog": "🗂️ **Moo v0.6.165**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.165/moo_0.6.165_x86.fpk",
-              "size": 7268652,
-              "size_mb": 6.93,
-              "sha256": "0763dd57c8988fd7d300945f721e01b1b5164872e58ad9d12951a0f3b862938a"
-            }
-          },
-          "updated_at": "2026-10-01T11:53:56+08:00"
-        },
-        "0.6.164": {
-          "changelog": "🗂️ **Moo v0.6.164**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.164/moo_0.6.164_x86.fpk",
-              "size": 7268973,
-              "size_mb": 6.93,
-              "sha256": "34b66c8be6a572987153b8409bb613ededfb699a62c19b3b13584c7c92285691"
-            }
-          },
-          "updated_at": "2026-10-01T11:52:56+08:00"
-        },
-        "0.6.163": {
-          "changelog": "🔔 **Moo v0.6.163**——欢迎语渠道通知卡片样式定稿",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.163/moo_0.6.163_x86.fpk",
-              "size": 7269368,
-              "size_mb": 6.93,
-              "sha256": "e08569aa9fa464f15a5825034b02e207a87e0fc34412b4869bc84197705af09b"
-            }
-          },
-          "updated_at": "2026-10-01T11:51:56+08:00"
-        },
-        "0.6.162": {
-          "changelog": "🗂️ **Moo v0.6.162**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.162/moo_0.6.162_x86.fpk",
-              "size": 7269049,
-              "size_mb": 6.93,
-              "sha256": "86ee17f10bcc18334414d0acde7fac61226af8308cb515f72632c566519ec21b"
-            }
-          },
           "updated_at": "2026-10-01T11:50:56+08:00"
         },
-        "0.6.161": {
-          "changelog": "🎨 **md/mdv2补事件时间行**——根因=卡片有main_title.desc原生时间字段而markdown类无时间字段且正文未拼时间",
+        "0.6.198": {
+          "changelog": "🔍 **搜索贴源链接**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.161/moo_0.6.161_x86.fpk",
-              "size": 7269217,
-              "size_mb": 6.93,
-              "sha256": "b446ccfddf57b915d291019296067934a2e9f6d6a3f860652a555aa07ed26a20"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.198/moo_0.6.198_x86.fpk",
+              "size": 7422975,
+              "size_mb": 7.08,
+              "sha256": "8b3af382c7d10821"
             }
           },
-          "updated_at": "2026-10-01T11:49:56+08:00"
+          "updated_at": "2026-09-28T22:34:00+08:00"
+        },
+        "0.6.197": {
+          "changelog": "**🔕 已忽略应用进「有更新」**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.197/moo_0.6.197_x86.fpk",
+              "size": 7412110,
+              "size_mb": 7.07,
+              "sha256": "5ae2b61ffc89d736"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.196": {
+          "changelog": "**🧪 测试构建**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.196/moo_0.6.196_x86.fpk",
+              "size": 7411883,
+              "size_mb": 7.07,
+              "sha256": "750a3f04eb45fb1f"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.195": {
+          "changelog": "**🧪 测试构建**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.195/moo_0.6.195_x86.fpk",
+              "size": 7411959,
+              "size_mb": 7.07,
+              "sha256": "29b936507fc85504"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.194": {
+          "changelog": "**🔔 关注源通知分卡**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.194/moo_0.6.194_x86.fpk",
+              "size": 7411861,
+              "size_mb": 7.07,
+              "sha256": "214e24bf7315997d"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.193": {
+          "changelog": "**🔔 关注源报表**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.193/moo_0.6.193_x86.fpk",
+              "size": 7414427,
+              "size_mb": 7.07,
+              "sha256": "47e431dd0d78b052"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.192": {
+          "changelog": "**🧪 测试构建**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.192/moo_0.6.192_x86.fpk",
+              "size": 7414476,
+              "size_mb": 7.07,
+              "sha256": "b9b5c5a361f2a07d"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.191": {
+          "changelog": "**🧪 测试构建**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.191/moo_0.6.191_x86.fpk",
+              "size": 7414384,
+              "size_mb": 7.07,
+              "sha256": "b0372cf1f610304f"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.190": {
+          "changelog": "**🧪 测试构建**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.190/moo_0.6.190_x86.fpk",
+              "size": 7414474,
+              "size_mb": 7.07,
+              "sha256": "98fe66db5099e815"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.189": {
+          "changelog": "**⚡ Docker 全挂监测完善**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.189/moo_0.6.189_x86.fpk",
+              "size": 7399838,
+              "size_mb": 7.06,
+              "sha256": "bae2e97af4f92f5b"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.188": {
+          "changelog": "**⚡ Docker 加速源全挂监测**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.188/moo_0.6.188_x86.fpk",
+              "size": 7397648,
+              "size_mb": 7.05,
+              "sha256": "69629b918546f2e3"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.187": {
+          "changelog": "**⚡ 加速源切换后台推送**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.187/moo_0.6.187_x86.fpk",
+              "size": 7396086,
+              "size_mb": 7.05,
+              "sha256": "f64ab0aab444029d"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.186": {
+          "changelog": "**📱 app 内打开改指引**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.186/moo_0.6.186_x86.fpk",
+              "size": 7395604,
+              "size_mb": 7.05,
+              "sha256": "233236332fadfb7d"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.185": {
+          "changelog": "**📱 飞牛 app 内打开优化**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.185/moo_0.6.185_x86.fpk",
+              "size": 7395593,
+              "size_mb": 7.05,
+              "sha256": "552c96226602e8c6"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.184": {
+          "changelog": "**🌐 公网打开判定优化**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.184/moo_0.6.184_x86.fpk",
+              "size": 7395086,
+              "size_mb": 7.05,
+              "sha256": "0010be9b05a2421a"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.183": {
+          "changelog": "**🌐 FN Connect 打开修复**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.183/moo_0.6.183_x86.fpk",
+              "size": 7394973,
+              "size_mb": 7.05,
+              "sha256": "fb32eb7a4b77cd66"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.182": {
+          "changelog": "**⭐ 收藏列表星标**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.182/moo_0.6.182_x86.fpk",
+              "size": 7394477,
+              "size_mb": 7.05,
+              "sha256": "77c6b039021a4bcb"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.181": {
+          "changelog": "**🔕 忽略更新**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.181/moo_0.6.181_x86.fpk",
+              "size": 7394506,
+              "size_mb": 7.05,
+              "sha256": "7827bafc2d7eaabe"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.180": {
+          "changelog": "**✨ 应用源列表显示优化**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.180/moo_0.6.180_x86.fpk",
+              "size": 7392220,
+              "size_mb": 7.05,
+              "sha256": "21b550470cadf3d5"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.179": {
+          "changelog": "**✨ 渠道形式选项精简**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.179/moo_0.6.179_x86.fpk",
+              "size": 7391794,
+              "size_mb": 7.05,
+              "sha256": "1ce1e43162f36c39"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.178": {
+          "changelog": "**🔔 简洁卡信息去重**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.178/moo_0.6.178_x86.fpk",
+              "size": 7391940,
+              "size_mb": 7.05,
+              "sha256": "4b9d7242a5a0b54e"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.177": {
+          "changelog": "**🔔 通知形式按渠道选**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.177/moo_0.6.177_x86.fpk",
+              "size": 7391781,
+              "size_mb": 7.05,
+              "sha256": "883613ea782511b9"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.176": {
+          "changelog": "**🔔 通知内容选项定稿**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.176/moo_0.6.176_x86.fpk",
+              "size": 7387118,
+              "size_mb": 7.04,
+              "sha256": "3b9f870cea729840"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.175": {
+          "changelog": "**🔔 通知内容三态**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.175/moo_0.6.175_x86.fpk",
+              "size": 7387658,
+              "size_mb": 7.05,
+              "sha256": "8766e24b21a8c6a7"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.174": {
+          "changelog": "**🔔 跨作者同名应用更新判定**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.174/moo_0.6.174_x86.fpk",
+              "size": 7372318,
+              "size_mb": 7.03,
+              "sha256": "d2c7d1633a773c64"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.173": {
+          "changelog": "**📡 恢复默认源与重复添加**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.173/moo_0.6.173_x86.fpk",
+              "size": 7371809,
+              "size_mb": 7.03,
+              "sha256": "f462d64b2d34caa6"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.172": {
+          "changelog": "**🔄 一键恢复默认源**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.172/moo_0.6.172_x86.fpk",
+              "size": 7371723,
+              "size_mb": 7.03,
+              "sha256": "de84ac2949ba6c86"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.171": {
+          "changelog": "**🔄 一键刷新所有源**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.171/moo_0.6.171_x86.fpk",
+              "size": 7367628,
+              "size_mb": 7.03,
+              "sha256": "cd3a0e7ff5d01c7c"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.170": {
+          "changelog": "**🔔 事件手动触发**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.170/moo_0.6.170_x86.fpk",
+              "size": 7365363,
+              "size_mb": 7.02,
+              "sha256": "5eb1290526a2fbc9"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.169": {
+          "changelog": "**📋 通知卡片样式统一**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.169/moo_0.6.169_x86.fpk",
+              "size": 7360902,
+              "size_mb": 7.02,
+              "sha256": "1217bd4fda80077a"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.168": {
+          "changelog": "**📋 通知记录全折叠**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.168/moo_0.6.168_x86.fpk",
+              "size": 7360819,
+              "size_mb": 7.02,
+              "sha256": "f393a7942ea97358"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.167": {
+          "changelog": "**📋 欢迎卡折叠**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.167/moo_0.6.167_x86.fpk",
+              "size": 7360788,
+              "size_mb": 7.02,
+              "sha256": "e4a507c65b3a1175"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.166": {
+          "changelog": "**🔔 欢迎语成普通事件**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.166/moo_0.6.166_x86.fpk",
+              "size": 7360775,
+              "size_mb": 7.02,
+              "sha256": "d8ca9614115cc5f9"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.165": {
+          "changelog": "**🔔 欢迎语入口调整**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.165/moo_0.6.165_x86.fpk",
+              "size": 7361922,
+              "size_mb": 7.02,
+              "sha256": "7a0cb6a722fb3601"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.164": {
+          "changelog": "**🔔 渠道测试发欢迎卡**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.164/moo_0.6.164_x86.fpk",
+              "size": 7362476,
+              "size_mb": 7.02,
+              "sha256": "e405c5860d34989d"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.163": {
+          "changelog": "**📣 欢迎卡版式定稿**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.163/moo_0.6.163_x86.fpk",
+              "size": 7362722,
+              "size_mb": 7.02,
+              "sha256": "1eda344d722dd36d"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.162": {
+          "changelog": "**✨ 欢迎卡行距优化**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.162/moo_0.6.162_x86.fpk",
+              "size": 7362343,
+              "size_mb": 7.02,
+              "sha256": "66e236a8bc944743"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
+        },
+        "0.6.161": {
+          "changelog": "**🔔 全部通知带事件时间**",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.161/moo_0.6.161_x86.fpk",
+              "size": 7362639,
+              "size_mb": 7.02,
+              "sha256": "b5cccbbf197a50df"
+            }
+          },
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.160": {
-          "changelog": "📄 **卡片还原1:39版式**——hero居中+desc居中小字署名「蓝貂（Blue-Mink）」（去🦦）+sub_title_text三行致谢自然折行",
+          "changelog": "**📣 欢迎卡定稿版式**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.160/moo_0.6.160_x86.fpk",
-              "size": 7269127,
-              "size_mb": 6.93,
-              "sha256": "74df71dfcc47e1fe9838af03db372b7cf8a05da53499acdff8125f278adf7e3a"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.160/moo_0.6.160_x86.fpk",
+              "size": 7362075,
+              "size_mb": 7.02,
+              "sha256": "c2ef3e9e074a2c7b"
             }
           },
-          "updated_at": "2026-10-01T11:48:56+08:00"
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.159": {
-          "changelog": "🐛 **Moo v0.6.159**——md_v2 换行根因修复（单 \\n → \\n\\n）",
+          "changelog": "**✨ 企微富文本文案优化**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.159/moo_0.6.159_x86.fpk",
-              "size": 7269200,
-              "size_mb": 6.93,
-              "sha256": "b85fd8befb75747e91c2a8d62a2d6df83b527e46e766e17417d14c519805ad31"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.159/moo_0.6.159_x86.fpk",
+              "size": 7361794,
+              "size_mb": 7.02,
+              "sha256": "c3aa589f1ebca3ad"
             }
           },
-          "updated_at": "2026-10-01T11:47:56+08:00"
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.158": {
-          "changelog": "🛠️ **Moo v0.6.158**——五段式终版（用户真机截图二轮反馈：去 🦦",
+          "changelog": "**✨ 欢迎通知样式迭代**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.158/moo_0.6.158_x86.fpk",
-              "size": 7271659,
-              "size_mb": 6.93,
-              "sha256": "aae46ad9c6b5049b308c1e0cf2ca74ebb376f7d7bd73baaa9a1f6d21d4e1861f"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.158/moo_0.6.158_x86.fpk",
+              "size": 7365725,
+              "size_mb": 7.02,
+              "sha256": "b7922ee39393aba3"
             }
           },
-          "updated_at": "2026-10-01T11:46:56+08:00"
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.157": {
-          "changelog": "🔔 **五段式双形式已交付待确认**——待确认｜状态：卡片 01:39:52 + md_v2 01:42:02 双推送 ch_errs=None 已到用户企微群，渠道还原 card+enabled",
+          "changelog": "**📣 欢迎卡定稿**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.157/moo_0.6.157_x86.fpk",
-              "size": 7270986,
-              "size_mb": 6.93,
-              "sha256": "23f93fb3f8da477e2271df458533de0965ccf9d03086a1253766545454cf16ae"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.157/moo_0.6.157_x86.fpk",
+              "size": 7365703,
+              "size_mb": 7.02,
+              "sha256": "acc74ba1e90ca964"
             }
           },
-          "updated_at": "2026-10-01T11:45:56+08:00"
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.156": {
-          "changelog": "📄 **欢迎语卡片重排交付**——弃大字 hero（企微截断实锤）改两列 4 行（落款/致谢/缘由/心愿）+sub「Moo is more！」全文零重复",
+          "changelog": "**📣 欢迎卡排版优化**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.156/moo_0.6.156_x86.fpk",
-              "size": 7271213,
-              "size_mb": 6.93,
-              "sha256": "fe63c99d4692888a7f01f94a832856e57d9ee33590308d8214f627f81f47d4d2"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.156/moo_0.6.156_x86.fpk",
+              "size": 7366069,
+              "size_mb": 7.02,
+              "sha256": "e432f81914b7452d"
             }
           },
-          "updated_at": "2026-10-01T11:44:56+08:00"
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.155": {
-          "changelog": "🔔 **「欢迎使用 Moo」欢迎语渠道通知**——渠道通知支持发送欢迎语（go 全量测试绿 + 应用内实测截图核对）。",
+          "changelog": "**📣 渠道欢迎通知**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.155/moo_0.6.155_x86.fpk",
-              "size": 7271162,
-              "size_mb": 6.93,
-              "sha256": "95d3d8749438718308adba2bb14a62dd2c15758a7e17610ad022cfef8009dc64"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.155/moo_0.6.155_x86.fpk",
+              "size": 7365223,
+              "size_mb": 7.02,
+              "sha256": "5fcdea81a70d1825"
             }
           },
-          "updated_at": "2026-10-01T11:43:56+08:00"
+          "updated_at": "2026-09-28T22:33:45+08:00"
         },
         "0.6.154": {
-          "changelog": "🗂️ **Moo v0.6.154**——早期版本归档（未留存变更记录）。",
+          "changelog": "**🔧 安装向导端口设置**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.154/moo_0.6.154_x86.fpk",
-              "size": 7266986,
-              "size_mb": 6.93,
-              "sha256": "021e2b48704b0e2ee99edd516c5eec99dc2e689eb03d28e744f2817c4b28e3d3"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.154/moo_0.6.154_x86.fpk",
+              "size": 7354634,
+              "size_mb": 7.01,
+              "sha256": "a440586dcedf0f3d"
             }
           },
-          "updated_at": "2026-10-01T11:42:56+08:00"
+          "updated_at": "2026-09-28T00:25:30+08:00"
         },
         "0.6.153": {
-          "changelog": "🛠️ **交付+GitHub 收尾**——KSpeeder 统一 127.0.0.1:5443（host_lan_ip 撤销）+0h0m=5m 与时分行平齐（y差0.0px）+去飞牛面板",
+          "changelog": "**⚡ 加速源文案统一**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.153/moo_0.6.153_x86.fpk",
-              "size": 7264283,
-              "size_mb": 6.93,
-              "sha256": "c7ca1611dce670ae473c747e2d55707fd3d6c9be3578c3585a939e189ac2339d"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.153/moo_0.6.153_x86.fpk",
+              "size": 7351821,
+              "size_mb": 7.01,
+              "sha256": "b486ce10201c548e"
             }
           },
-          "updated_at": "2026-10-01T11:41:56+08:00"
+          "updated_at": "2026-09-28T00:02:19+08:00"
         },
         "0.6.152": {
-          "changelog": "🛠️ **小字居中 + 与标题同字号（09-27 22**——53–23:04）",
+          "changelog": "**✨ 自动监测间隔显示优化**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.152/moo_0.6.152_x86.fpk",
-              "size": 7264070,
-              "size_mb": 6.93,
-              "sha256": "2c5f439b2b62a50db05b81908e93777f31b423ada6596747273e37bd8a1157e9"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.152/moo_0.6.152_x86.fpk",
+              "size": 7351780,
+              "size_mb": 7.01,
+              "sha256": "3a279de3bfafb33d"
             }
           },
-          "updated_at": "2026-10-01T11:40:56+08:00"
+          "updated_at": "2026-09-28T04:19:09+08:00"
         },
         "0.6.151": {
-          "changelog": "🐛 **Moo v0.6.151**——齿轮 0 值吸附修复",
+          "changelog": "**⚙️ 测速齿轮支持 0 值**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.151/moo_0.6.151_x86.fpk",
-              "size": 7264107,
-              "size_mb": 6.93,
-              "sha256": "73d345ab3ce054fef8f48726f2ec52c71dbc1ca65778ef1f80688f8e21d063fa"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.151/moo_0.6.151_x86.fpk",
+              "size": 7351779,
+              "size_mb": 7.01,
+              "sha256": "1664b4cb66994c8e"
             }
           },
-          "updated_at": "2026-10-01T11:39:56+08:00"
+          "updated_at": "2026-09-28T04:07:03+08:00"
         },
         "0.6.150": {
-          "changelog": "🚀 **Moo v0.6.150**——加速源卡片头部改版",
+          "changelog": "**✨ 加速源卡片头部改版**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.150/moo_0.6.150_x86.fpk",
-              "size": 7264336,
-              "size_mb": 6.93,
-              "sha256": "e92d0a393cb35ddef944a175e443ddfbd96746a380193c1c82c226e0d2f0b787"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.150/moo_0.6.150_x86.fpk",
+              "size": 7351798,
+              "size_mb": 7.01,
+              "sha256": "7f18b95dc3df2f31"
             }
           },
-          "updated_at": "2026-10-01T11:38:56+08:00"
+          "updated_at": "2026-09-28T04:03:09+08:00"
         },
         "0.6.149": {
-          "changelog": "🚀 **加速源卡片齿轮行平齐修复（09-27 22**——19–22:30）",
+          "changelog": "**✨ 加速源卡片显示优化**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.149/moo_0.6.149_x86.fpk",
-              "size": 7264017,
-              "size_mb": 6.93,
-              "sha256": "4e58cd2269c2d649b8e81aa0766c08cc4b5f9821a9e22317656e5b3c2f2bb5bb"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.149/moo_0.6.149_x86.fpk",
+              "size": 7351560,
+              "size_mb": 7.01,
+              "sha256": "7812bfc08bbd9a02"
             }
           },
-          "updated_at": "2026-10-01T11:37:56+08:00"
+          "updated_at": "2026-09-28T03:45:28+08:00"
         },
         "0.6.148": {
-          "changelog": "🗂️ **Moo v0.6.148**——早期版本归档（未留存变更记录）。",
+          "changelog": "**⚡ 加速源测速间隔可配置**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.148/moo_0.6.148_x86.fpk",
-              "size": 7262929,
-              "size_mb": 6.93,
-              "sha256": "b8c926ad3e1bfa0cea2a67a696a2065642f6c817f84304e8509640dd3ffaac21"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.148/moo_0.6.148_x86.fpk",
+              "size": 7350933,
+              "size_mb": 7.01,
+              "sha256": "fffde151d71c46d7"
             }
           },
-          "updated_at": "2026-10-01T11:36:56+08:00"
+          "updated_at": "2026-09-28T02:54:47+08:00"
         },
         "0.6.147": {
-          "changelog": "🗂️ **Moo v0.6.147**——早期版本归档（未留存变更记录）。",
+          "changelog": "**📥 下载任务管理完善**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.147/moo_0.6.147_x86.fpk",
-              "size": 7258534,
-              "size_mb": 6.92,
-              "sha256": "68152fa7672ab5eb8ff96176eb0068a631356b65d7857ecc04fea819af4390a4"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.147/moo_0.6.147_x86.fpk",
+              "size": 7345641,
+              "size_mb": 7.01,
+              "sha256": "b0c8a0d0e8a53234"
             }
           },
-          "updated_at": "2026-10-01T11:35:56+08:00"
+          "updated_at": "2026-09-28T00:13:54+08:00"
         },
         "0.6.146": {
-          "changelog": "🗂️ **Moo v0.6.146**——早期版本归档（未留存变更记录）。",
+          "changelog": "**📥 下载任务失败态**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.146/moo_0.6.146_x86.fpk",
-              "size": 7257946,
-              "size_mb": 6.92,
-              "sha256": "ef283419e28bcd12f7126000061165efcfc8aff2a5ce9a1a217297b8e51f6edf"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.146/moo_0.6.146_x86.fpk",
+              "size": 7345202,
+              "size_mb": 7.0,
+              "sha256": "c0f2b805407c59fa"
             }
           },
-          "updated_at": "2026-10-01T11:34:56+08:00"
+          "updated_at": "2026-09-27T23:44:38+08:00"
         },
         "0.6.145": {
-          "changelog": "🛠️ **二轮代码审核**——6 项问题全修 + 测试机部署 + 8 攻击用例实测（09-27 15:30–15:56）",
+          "changelog": "**🔒 安全审核加固**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.145/moo_0.6.145_x86.fpk",
-              "size": 7255002,
-              "size_mb": 6.92,
-              "sha256": "63731a87a4aeb77d20ccee49c11582f3fd890902ad5b2e44730a772ae55aa827"
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.145/moo_0.6.145_x86.fpk",
+              "size": 7343016,
+              "size_mb": 7.0,
+              "sha256": "ef7ba484d4c56b89"
             }
           },
-          "updated_at": "2026-10-01T11:33:56+08:00"
-        },
-        "0.6.144": {
-          "changelog": "🎨 **收尾**——PUT Format 回归 + 卡片两列列表 + 换行清洗（09-27 11:18–11:47）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.144/moo_0.6.144_x86.fpk",
-              "size": 7254942,
-              "size_mb": 6.92,
-              "sha256": "51b735736a9d04ff9e6f6b19c8496ebe05acfb37a26156bc57c5bbb37799c8ed"
-            }
-          },
-          "updated_at": "2026-10-01T11:32:56+08:00"
+          "updated_at": "2026-09-27T21:17:06+08:00"
         },
         "0.6.143": {
-          "changelog": "🔔 **Moo v0.6.143**——源收藏星标 + 通知摘要紧凑/折叠卡（09-27 上午交付）",
+          "changelog": "**⭐ 关注源星标与通知**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.143/moo_0.6.143_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.143/moo_0.6.143_x86.fpk",
               "size": 7282918,
               "size_mb": 6.95,
               "sha256": "d08e99a0dcd3880e0b74aa3d7e70e02bb35963907a82b93af8994085c18ce401"
             }
           },
-          "updated_at": "2026-10-01T11:31:56+08:00"
+          "updated_at": "2026-09-27T09:21:35+08:00"
         },
         "0.6.142": {
-          "changelog": "🗂️ **Moo v0.6.142**——早期版本归档（未留存变更记录）。",
+          "changelog": "**🔔 通知记录徽章三态**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.142/moo_0.6.142_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.142/moo_0.6.142_x86.fpk",
               "size": 7265294,
               "size_mb": 6.93,
               "sha256": "8679c56a99d891827f56bc375d31a2e6204c2ffa7fa90a8ee2f37a5d7ce21bc8"
             }
           },
-          "updated_at": "2026-10-01T11:30:56+08:00"
+          "updated_at": "2026-09-27T08:22:55+08:00"
         },
         "0.6.141": {
-          "changelog": "🗂️ **Moo v0.6.141**——早期版本归档（未留存变更记录）。",
+          "changelog": "**🔔 通知体系完整落地**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.141/moo_0.6.141_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.141/moo_0.6.141_x86.fpk",
               "size": 7262761,
               "size_mb": 6.93,
               "sha256": "520df3c70cf15d1b19ea043b4fa48bd63a3dda03cf89af1b31ea7bb8fbfb8943"
             }
           },
-          "updated_at": "2026-10-01T11:29:56+08:00"
-        },
-        "0.6.140": {
-          "changelog": "📄 **Moo v0.6.140**——knock 致谢句简化",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.140/moo_0.6.140_x86.fpk",
-              "size": 7261616,
-              "size_mb": 6.93,
-              "sha256": "88cf1175794878f0c0e8d2b1427708e0f0aa5267c3803b8f8ca45356a807faa8"
-            }
-          },
-          "updated_at": "2026-10-01T11:28:56+08:00"
-        },
-        "0.6.139": {
-          "changelog": "🔔 **渠道弹窗测试提供商**——footer 保存/测试提供商/取消（对照 knock）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.139/moo_0.6.139_x86.fpk",
-              "size": 7261511,
-              "size_mb": 6.93,
-              "sha256": "f18f48d500bd5d3e87b0ebfd9bebb05ae6ed6a9e9b39d5108213bca14c6e8cb0"
-            }
-          },
-          "updated_at": "2026-10-01T11:27:56+08:00"
-        },
-        "0.6.138": {
-          "changelog": "📄 **Moo v0.6.138**——致谢定稿+MIT LICENSE",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.138/moo_0.6.138_x86.fpk",
-              "size": 7260615,
-              "size_mb": 6.92,
-              "sha256": "acf744482019f3fb191672cd572f1adc31db48a38ad41c8ae54aed9fc8d8b709"
-            }
-          },
-          "updated_at": "2026-10-01T11:26:56+08:00"
-        },
-        "0.6.137": {
-          "changelog": "📄 **Moo v0.6.137**——致谢卡标题互换",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.137/moo_0.6.137_x86.fpk",
-              "size": 7260450,
-              "size_mb": 6.92,
-              "sha256": "f202cc9fc1247845cd08e536a091170d80d4dcae9d22061ce945b3ff0bed1abc"
-            }
-          },
-          "updated_at": "2026-10-01T11:25:56+08:00"
-        },
-        "0.6.136": {
-          "changelog": "🔔 **通知扩展全套交付**——28 事件（updates_available/source_sync_summary 指纹去重 + auto_update_round + mirror_switched/mirrors_recovered",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.136/moo_0.6.136_x86.fpk",
-              "size": 7260469,
-              "size_mb": 6.92,
-              "sha256": "6ae2021492d1afc93eb8efa51e086389ef97d7897ff73ee39673e832dab73bdc"
-            }
-          },
-          "updated_at": "2026-10-01T11:24:56+08:00"
-        },
-        "0.6.135": {
-          "changelog": "🛠️ **Moo v0.6.135**——分组切换终修",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.135/moo_0.6.135_x86.fpk",
-              "size": 7260387,
-              "size_mb": 6.92,
-              "sha256": "c838b494e8e27a7b185e1a7b9424668160b74702022070d7552d1f4ae983e6d3"
-            }
-          },
-          "updated_at": "2026-10-01T11:23:56+08:00"
-        },
-        "0.6.134": {
-          "changelog": "🔔 **Moo v0.6.134**——通知分组折叠切换修复（第一版，未终修）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.134/moo_0.6.134_x86.fpk",
-              "size": 7260329,
-              "size_mb": 6.92,
-              "sha256": "9eb5803de6f4f9f104be3a33b10a4bb600c84505913ef4308b4d31711bf8bd94"
-            }
-          },
-          "updated_at": "2026-10-01T11:22:56+08:00"
-        },
-        "0.6.133": {
-          "changelog": "🔔 **Moo v0.6.133**——通知扩展设计定稿（事件目录 22→28）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.133/moo_0.6.133_x86.fpk",
-              "size": 7260384,
-              "size_mb": 6.92,
-              "sha256": "941401145088d7e788bf46070509f2b69ef895752d748ac4aaaf5a0dd8a979eb"
-            }
-          },
-          "updated_at": "2026-10-01T11:21:56+08:00"
-        },
-        "0.6.132": {
-          "changelog": "📄 **Moo v0.6.132**——致谢血缘修正+slogan",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.132/moo_0.6.132_x86.fpk",
-              "size": 7251582,
-              "size_mb": 6.92,
-              "sha256": "80caa8de90801a53d44a2d7d2da8d95d369ed9113fee60eeeec9236b6c20e06f"
-            }
-          },
-          "updated_at": "2026-10-01T11:20:56+08:00"
-        },
-        "0.6.131": {
-          "changelog": "📄 **Moo v0.6.131**——关于 tab 致谢卡",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.131/moo_0.6.131_x86.fpk",
-              "size": 7251589,
-              "size_mb": 6.92,
-              "sha256": "77c8ae2dbf72441ce2a396e5159ac1316fa9ef4ff16a2acf5b5318a1fefac23c"
-            }
-          },
-          "updated_at": "2026-10-01T11:19:56+08:00"
-        },
-        "0.6.130": {
-          "changelog": "🎨 **Moo v0.6.130**——折叠默认折叠+版本号弹窗",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.130/moo_0.6.130_x86.fpk",
-              "size": 7250664,
-              "size_mb": 6.91,
-              "sha256": "1e1853a0a2147444b55b8df9588fa3f64310413f379b850191c29f204db0406a"
-            }
-          },
-          "updated_at": "2026-10-01T11:18:56+08:00"
-        },
-        "0.6.129": {
-          "changelog": "🎨 **Moo v0.6.129**——关于 tab 去保存按钮",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.129/moo_0.6.129_x86.fpk",
-              "size": 7250400,
-              "size_mb": 6.91,
-              "sha256": "8951858bf152a8eba64140dbf496afc165ebda8595b5092f4337fa68e48c3541"
-            }
-          },
-          "updated_at": "2026-10-01T11:17:56+08:00"
-        },
-        "0.6.128": {
-          "changelog": "⭐ **Moo v0.6.128**——星标去圆圈底",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.128/moo_0.6.128_x86.fpk",
-              "size": 7250254,
-              "size_mb": 6.91,
-              "sha256": "d20d25c5338f4b635be1bc5a0b44f0e6ecc26b7500747e0875749fe90fec5e33"
-            }
-          },
-          "updated_at": "2026-10-01T11:16:56+08:00"
-        },
-        "0.6.127": {
-          "changelog": "⭐ **0.6.131**——保存 dock 真贴底 + 星标去圆圈 + 关于 tab 去保存 + 折叠全默认 + 版本号弹窗 + 致谢卡（09-26 23:04–23:50）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.127/moo_0.6.127_x86.fpk",
-              "size": 7250781,
-              "size_mb": 6.91,
-              "sha256": "54309de4a25c5aa2765e9409708f55604be2c42e78366aee783805849e8399fe"
-            }
-          },
-          "updated_at": "2026-10-01T11:15:56+08:00"
-        },
-        "0.6.126": {
-          "changelog": "🔔 **Moo v0.6.126**——应用内通知彻底解耦 + 分组标题大字（commit f218aa7，FPK sha256 `690e72a0…`）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.126/moo_0.6.126_x86.fpk",
-              "size": 7250876,
-              "size_mb": 6.91,
-              "sha256": "690e72a00a5f16153d96e718bfd0b019a4fa83f8b1cbedc09b72613858ff2027"
-            }
-          },
-          "updated_at": "2026-10-01T11:14:56+08:00"
-        },
-        "0.6.125": {
-          "changelog": "🎨 **Moo v0.6.125**——折叠按钮位置修正 + 分组各自折叠（commit d332410，FPK sha256 `36b0a43a…`）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.125/moo_0.6.125_x86.fpk",
-              "size": 7249514,
-              "size_mb": 6.91,
-              "sha256": "36b0a43a10571db62097255bad9ce45615af3f272bbe72f909c82bed663b9cca"
-            }
-          },
-          "updated_at": "2026-10-01T11:13:56+08:00"
-        },
-        "0.6.124": {
-          "changelog": "🔔 **Moo v0.6.124**——通知总开关移入「通知规则」+ 只控外部渠道（commit 6fb0789，FPK sha256 `bacbf21a…`）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.124/moo_0.6.124_x86.fpk",
-              "size": 7248894,
-              "size_mb": 6.91,
-              "sha256": "bacbf21a194e0abfcb2837a0c34c4012dc5c22f63caf97b69c099dccd3cf1413"
-            }
-          },
-          "updated_at": "2026-10-01T11:12:56+08:00"
-        },
-        "0.6.123": {
-          "changelog": "🎨 **Moo v0.6.123**——排序卡瘦身 + 备份目录同款按钮（commit 75cbaeb，FPK sha256 `5df04812…`，7.0M）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.123/moo_0.6.123_x86.fpk",
-              "size": 7249328,
-              "size_mb": 6.91,
-              "sha256": "5df04812d7f3421867ce98df25967a932dd9d6d0fae1acd3f92187ba97f44079"
-            }
-          },
-          "updated_at": "2026-10-01T11:11:56+08:00"
-        },
-        "0.6.122": {
-          "changelog": "🎨 **Moo v0.6.122**——排序卡折叠 + 头部「恢复默认」（commit ece2ec4，FPK sha256 `bcc96fef…`）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.122/moo_0.6.122_x86.fpk",
-              "size": 7250149,
-              "size_mb": 6.91,
-              "sha256": "bcc96fef0d31368ebab1b3450e31c79f07fb2fdae16a6606085c401950fe0e73"
-            }
-          },
-          "updated_at": "2026-10-01T11:10:56+08:00"
-        },
-        "0.6.121": {
-          "changelog": "🛠️ **Moo v0.6.121**——事件面扩展定稿讨论",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.121/moo_0.6.121_x86.fpk",
-              "size": 7236190,
-              "size_mb": 6.9,
-              "sha256": "d03d5d2861549c4bebb56794a16ee046c5e89927727f98a9b6c0d9c0077ddb9d"
-            }
-          },
-          "updated_at": "2026-10-01T11:09:56+08:00"
+          "updated_at": "2026-09-27T08:00:01+08:00"
         },
         "0.6.120": {
-          "changelog": "🔔 **通知设置+关于 tab**——FPK（sha256 b0295769）：通知设置三子 tab（渠道/规则10事件开关/记录200条）对齐 knock 事件中心形式，关于 tab 版本号+应用信息+占位",
+          "changelog": "**🔔 通知设置 + 关于**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.120/moo_0.6.120_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.120/moo_0.6.120_x86.fpk",
               "size": 7169216,
               "size_mb": 6.84,
               "sha256": "b02957698d52532a86fd77990c19d9d1263f12118d1c97118ea3e6e6da7b6a7f"
             }
           },
-          "updated_at": "2026-10-01T11:08:56+08:00"
-        },
-        "0.6.119": {
-          "changelog": "🗂️ **Moo v0.6.119**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.119/moo_0.6.119_x86.fpk",
-              "size": 7151314,
-              "size_mb": 6.82,
-              "sha256": "f5e8c4704f3b9163fbdb11518fae2212cce3331a23cf1831df373543596a5697"
-            }
-          },
-          "updated_at": "2026-10-01T11:07:56+08:00"
-        },
-        "0.6.118": {
-          "changelog": "🔔 **通知栏去进度条 + 安装弹窗对齐**——顶部通知栏只报结果（去掉进度条）；安装弹窗移动端对齐底部卡片宽度。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.118/moo_0.6.118_x86.fpk",
-              "size": 7152347,
-              "size_mb": 6.82,
-              "sha256": "f2c6d68af01535ee2212b17b4344208a2f6dd0c2aeef72e40e8f86ada0d8488f"
-            }
-          },
-          "updated_at": "2026-10-01T11:06:56+08:00"
-        },
-        "0.6.117": {
-          "changelog": "🛠️ **Moo v0.6.117**——（定稿，FPK sha256 `1ba6cb3b…`）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.117/moo_0.6.117_x86.fpk",
-              "size": 7149581,
-              "size_mb": 6.82,
-              "sha256": "1ba6cb3bf306e01492af9e47498a95c2446f887123d7d160f4fbc59458400f3a"
-            }
-          },
-          "updated_at": "2026-10-01T11:05:56+08:00"
-        },
-        "0.6.116": {
-          "changelog": "🛠️ **Moo v0.6.116**——（commit 65c6f43，FPK sha256 `a3002ebd…`，被取代）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.116/moo_0.6.116_x86.fpk",
-              "size": 7149632,
-              "size_mb": 6.82,
-              "sha256": "a3002ebda81547079b927a4a2992df86039f860e9b36d034cc6fa3c3193a0e9c"
-            }
-          },
-          "updated_at": "2026-10-01T11:04:56+08:00"
-        },
-        "0.6.115": {
-          "changelog": "🛠️ **Moo v0.6.115**——（commit 132f16a，FPK sha256 `7b9c1083…`，新 JS `index-BrKob-Gu`，被取代）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.115/moo_0.6.115_x86.fpk",
-              "size": 7149248,
-              "size_mb": 6.82,
-              "sha256": "7b9c10830d6b55a1d1114abd6d33c7d98b907001e18c19f60b37165bb0a5b042"
-            }
-          },
-          "updated_at": "2026-10-01T11:03:56+08:00"
-        },
-        "0.6.114": {
-          "changelog": "🛠️ **Moo v0.6.114**——（commit 404ed90，FPK sha256 `9bcf979f…`，被取代）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.114/moo_0.6.114_x86.fpk",
-              "size": 7149057,
-              "size_mb": 6.82,
-              "sha256": "9bcf979fc64eb27fbeebf208ce75c8834eed8250363eb7228f62393ad02df7b4"
-            }
-          },
-          "updated_at": "2026-10-01T11:02:56+08:00"
-        },
-        "0.6.113": {
-          "changelog": "⭐ **应用收藏**——列表行/桌面卡片/详情头部三处星标 + 发现页「收藏列表」（按收藏先后、空态提示）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.113/moo_0.6.113_x86.fpk",
-              "size": 7149112,
-              "size_mb": 6.82,
-              "sha256": "48e15f84f1fbdc0ae88595c18cba9a393fb9ad64c9c74cea4bf0bb50b5bb4cad"
-            }
-          },
-          "updated_at": "2026-10-01T11:01:56+08:00"
+          "updated_at": "2026-09-26T18:04:57+08:00"
         },
         "0.6.112": {
-          "changelog": "🗂️ **Moo v0.6.112**——早期版本归档（未留存变更记录）。",
+          "changelog": "**⚙️ 应用内自更新**",
           "packages": {
             "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.112/moo_0.6.112_x86.fpk",
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.112/moo_0.6.112_x86.fpk",
               "size": 7144242,
               "size_mb": 6.81,
               "sha256": "3176d16e53264930e8cd86294455b2accc1c46b82ab3c5db5e472cfccba91e69"
             }
           },
-          "updated_at": "2026-10-01T11:00:56+08:00"
-        },
-        "0.6.111": {
-          "changelog": "🐛 **第二轮全量审计交付**——1090 唯一应用逐条审计，3 类系统性根因修复：①driver 词收紧（去裸词 驱动/显卡/内核/amd，只认特征短语）AMD 驱动族 rocm/ai-runtime-migraphx/vitisai",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.111/moo_0.6.111_x86.fpk",
-              "size": 7105395,
-              "size_mb": 6.78,
-              "sha256": "0cb309d0bf238f8f3305448d567c5b2a8c9ccd1eb67b14086fc972d793892b7a"
-            }
-          },
-          "updated_at": "2026-10-01T10:59:56+08:00"
-        },
-        "0.6.110": {
-          "changelog": "🗂️ **Moo v0.6.110**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.110/moo_0.6.110_x86.fpk",
-              "size": 7105462,
-              "size_mb": 6.78,
-              "sha256": "7d9d540597923506d7f98d80bbe38a59593cc8a3cb267c6a365bdb23d23d8401"
-            }
-          },
-          "updated_at": "2026-10-01T10:58:56+08:00"
-        },
-        "0.6.109": {
-          "changelog": "🗂️ **Moo v0.6.109**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.109/moo_0.6.109_x86.fpk",
-              "size": 7102032,
-              "size_mb": 6.77,
-              "sha256": "1a9e53acd6f07eec83b98508a745f75ce2627bc440830543965411e22ead4787"
-            }
-          },
-          "updated_at": "2026-10-01T10:57:56+08:00"
-        },
-        "0.6.108": {
-          "changelog": "🗂️ **Moo v0.6.108**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.108/moo_0.6.108_x86.fpk",
-              "size": 7096900,
-              "size_mb": 6.77,
-              "sha256": "d4b3d2e897b949f991c78099aba38e5a2684080f309d7f9fce5de986f8d9cdfe"
-            }
-          },
-          "updated_at": "2026-10-01T10:56:56+08:00"
-        },
-        "0.6.107": {
-          "changelog": "🗂️ **Moo v0.6.107**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.107/moo_0.6.107_x86.fpk",
-              "size": 7095758,
-              "size_mb": 6.77,
-              "sha256": "d6dd32106d2f4238906a164575b332f1d5a495abe2e4a9e56f062db1583e4ff9"
-            }
-          },
-          "updated_at": "2026-10-01T10:55:56+08:00"
-        },
-        "0.6.106": {
-          "changelog": "💾 **Moo v0.6.106**——天数输入框 + 备份到手机/电脑 + 手动清理独立（已交付）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.106/moo_0.6.106_x86.fpk",
-              "size": 7089341,
-              "size_mb": 6.76,
-              "sha256": "f19bebf2aa5fa21cf7cdd8c78db614439cf1e5580b743021d3c335083fefecec"
-            }
-          },
-          "updated_at": "2026-10-01T10:54:56+08:00"
-        },
-        "0.6.105": {
-          "changelog": "🎨 **Moo v0.6.105**——清理周期选择器 + 按钮风格对齐（已交付）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.105/moo_0.6.105_x86.fpk",
-              "size": 7084429,
-              "size_mb": 6.76,
-              "sha256": "0c0737f4b14038fa9e9d501688fa677fc5a1d9c7b14ab6bdf8981b7e2b9ddd87"
-            }
-          },
-          "updated_at": "2026-10-01T10:53:56+08:00"
-        },
-        "0.6.104": {
-          "changelog": "🎨 **Moo v0.6.104**——备份 tab 六条反馈修复（参考 fn-knock，已交付）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.104/moo_0.6.104_x86.fpk",
-              "size": 7083115,
-              "size_mb": 6.75,
-              "sha256": "fe37d3e45ca026a18fb4034eb972f73a41814d93c052e2359c4125dcc0cab79c"
-            }
-          },
-          "updated_at": "2026-10-01T10:52:56+08:00"
-        },
-        "0.6.103": {
-          "changelog": "🧹 **备份 tab+滑动 tab+文案精简交付**——新增「备份设置」tab（config 全量快照/自动备份 6-12-24h/保留 20 份/FPK 缓存自动清理关-7-30-90 天+立即清理），tab 行 shrink-0 横向滑动",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.103/moo_0.6.103_x86.fpk",
-              "size": 7075759,
-              "size_mb": 6.75,
-              "sha256": "5309af95227d20ace51f4a2c27510da96d6a789057008195372b1ed0d9ba0364"
-            }
-          },
-          "updated_at": "2026-10-01T10:51:56+08:00"
-        },
-        "0.6.102": {
-          "changelog": "🗂️ **Moo v0.6.102**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.102/moo_0.6.102_x86.fpk",
-              "size": 7053619,
-              "size_mb": 6.73,
-              "sha256": "1243917b60340399103bf47b63bf8f07c8ab4d63af7e77527ee68f40dbd48a1a"
-            }
-          },
-          "updated_at": "2026-10-01T10:50:56+08:00"
-        },
-        "0.6.101": {
-          "changelog": "🗂️ **Moo v0.6.101**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.101/moo_0.6.101_x86.fpk",
-              "size": 7053642,
-              "size_mb": 6.73,
-              "sha256": "9a5ccb9f4d5a8d321dc151589d09e4015ff3f92b04930ad3c3fe6eb875ff946d"
-            }
-          },
-          "updated_at": "2026-10-01T10:49:56+08:00"
-        },
-        "0.6.100": {
-          "changelog": "🗂️ **Moo v0.6.100**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.100/moo_0.6.100_x86.fpk",
-              "size": 7053658,
-              "size_mb": 6.73,
-              "sha256": "a0491c114140ea5e3fb743e4134a2c2fe29489402739463edb26d396a715dbf4"
-            }
-          },
-          "updated_at": "2026-10-01T10:48:56+08:00"
-        },
-        "0.6.99": {
-          "changelog": "🗂️ **Moo v0.6.99**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.99/moo_0.6.99_x86.fpk",
-              "size": 7053435,
-              "size_mb": 6.73,
-              "sha256": "9b474b9389ccc60e030e79978a809effcc58c7ebfb02b44bb847e70e92114086"
-            }
-          },
-          "updated_at": "2026-10-01T10:47:56+08:00"
-        },
-        "0.6.98": {
-          "changelog": "🔀 **版本号移位+源长按抖动排序交付**——版本 chip 移至设置页头最右（桌面让位 X/移动 390px 实测）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.98/moo_0.6.98_x86.fpk",
-              "size": 7052901,
-              "size_mb": 6.73,
-              "sha256": "5c4e51fc7c627e9bc1e53d031a9e9886d8d20de06cf0ca4c47ae4965eea4b5c1"
-            }
-          },
-          "updated_at": "2026-10-01T10:46:56+08:00"
-        },
-        "0.6.97": {
-          "changelog": "🗂️ **Moo v0.6.97**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.97/moo_0.6.97_x86.fpk",
-              "size": 7053062,
-              "size_mb": 6.73,
-              "sha256": "205bc040eb535281eb24a14cab4d8bcf113afd6a733b7c4ac1c2d19617831bf4"
-            }
-          },
-          "updated_at": "2026-10-01T10:45:56+08:00"
-        },
-        "0.6.96": {
-          "changelog": "🗂️ **Moo v0.6.96**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.96/moo_0.6.96_x86.fpk",
-              "size": 7050437,
-              "size_mb": 6.72,
-              "sha256": "c2bf19124c338c6e8f0619b01e6e2fb2172305266acdf40480e1b4e51a829941"
-            }
-          },
-          "updated_at": "2026-10-01T10:44:56+08:00"
-        },
-        "0.6.95": {
-          "changelog": "🎨 **按钮间距+删除确认交付**——源行分两组 [⋯+开关]/[同步+删除]（组内 6px 组间 12px）、自动监测卡片 开关→复制→折叠（8px/4px）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.95/moo_0.6.95_x86.fpk",
-              "size": 7050372,
-              "size_mb": 6.72,
-              "sha256": "fd505e5a3ba8cace8517712f57532436902fac387acfc93c2865b3555d9a6e44"
-            }
-          },
-          "updated_at": "2026-10-01T10:43:56+08:00"
-        },
-        "0.6.94": {
-          "changelog": "🎨 **New Store 同步功能下线+按钮重排交付**——测试机核对 New Store 135 源全部已在 Moo（0 缺失）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.94/moo_0.6.94_x86.fpk",
-              "size": 7050018,
-              "size_mb": 6.72,
-              "sha256": "4bd0bbbb6b243cecf6084ae516faecbe7acf60db7a135b13aaffa92031c05ded"
-            }
-          },
-          "updated_at": "2026-10-01T10:42:56+08:00"
-        },
-        "0.6.93": {
-          "changelog": "🗂️ **Moo v0.6.93**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.93/moo_0.6.93_x86.fpk",
-              "size": 7058796,
-              "size_mb": 6.73,
-              "sha256": "334aa6e8350b2df5920ea1f5ddd870f062f2d2242063bc21224462f90d4027c3"
-            }
-          },
-          "updated_at": "2026-10-01T10:41:56+08:00"
-        },
-        "0.6.92": {
-          "changelog": "🛠️ **添加源文案诚实化交付**——查实「单次最多150个」为摆设（前后端无此限制），FnDepot V1/V2 与源名推导两句为真",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.92/moo_0.6.92_x86.fpk",
-              "size": 7052462,
-              "size_mb": 6.73,
-              "sha256": "49a7817066fdcd790c366b8e5665a8b1f45e306b28f8e51e07fc6481e4ac9bce"
-            }
-          },
-          "updated_at": "2026-10-01T10:40:56+08:00"
-        },
-        "0.6.91": {
-          "changelog": "🛠️ **源名改 fnos-store 交付**——sourceNameFromURL 对 conversun/fnos-apps 地址特判返回 fnos-store（原取 owner conversun），补单测",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.91/moo_0.6.91_x86.fpk",
-              "size": 7052562,
-              "size_mb": 6.73,
-              "sha256": "704de94e921a63d7ab1c825cf11614fba6dc2562f8f06977f63aa86ef77e2296"
-            }
-          },
-          "updated_at": "2026-10-01T10:39:56+08:00"
-        },
-        "0.6.90": {
-          "changelog": "🛠️ **间隔说明文案交付**——「自动检查更新间隔」下补一行说明（该间隔同时驱动源刷新/更新检测/源自动监测/自动更新应用，6h 较快 24h 省资源）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.90/moo_0.6.90_x86.fpk",
-              "size": 7052378,
-              "size_mb": 6.73,
-              "sha256": "a83cd804a68a7dd6bde74d25fc46561973240d363f7ef6a74dcc115027c4ba2d"
-            }
-          },
-          "updated_at": "2026-10-01T10:38:56+08:00"
-        },
-        "0.6.89": {
-          "changelog": "🛠️ **Moo v0.6.89**——conversun/fnos-store 应用同步 → 源适配器",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.89/moo_0.6.89_x86.fpk",
-              "size": 7052308,
-              "size_mb": 6.73,
-              "sha256": "b8c05ea513f04511811a95ff7bb8f907a954669fe4f046f1edf7df3767336f8f"
-            }
-          },
-          "updated_at": "2026-10-01T10:37:56+08:00"
-        },
-        "0.6.88": {
-          "changelog": "🚀 **加速源优选审计**——GitHub 优选=真（5min ticker 实锤 last_probe 恰 300s、active=yylx 3MB/s 吞吐最快、下载路径消费 ghOrderedKeys 手选优先）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.88/moo_0.6.88_x86.fpk",
-              "size": 7044094,
-              "size_mb": 6.72,
-              "sha256": "3f260aacb58ffc049084d6f659f15ffeddfd8adbf44ebe05e69221a2dd552050"
-            }
-          },
-          "updated_at": "2026-10-01T10:36:56+08:00"
-        },
-        "0.6.87": {
-          "changelog": "⬇️ **保存按钮半透明外框**——保存按钮补上与详情页「下载fpk」全宽悬浮条同款外框（border-border/40+bg-card/95+p-2+阴影，无 backdrop-blur 防滚动掉帧）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.87/moo_0.6.87_x86.fpk",
-              "size": 7043387,
-              "size_mb": 6.72,
-              "sha256": "3de71bf6cacfcd450c12da33f05df90037be876ec2d57d2c0e4a9a30f2a17c29"
-            }
-          },
-          "updated_at": "2026-10-01T10:35:56+08:00"
-        },
-        "0.6.86": {
-          "changelog": "🎨 **Moo v0.6.86**——设置页保存按钮 + 保存链路审计（已交付）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.86/moo_0.6.86_x86.fpk",
-              "size": 7043622,
-              "size_mb": 6.72,
-              "sha256": "196da0bc011e6273cfa3962bf35812331163384bde18d5a4234169e9c9b381e9"
-            }
-          },
-          "updated_at": "2026-10-01T10:34:56+08:00"
-        },
-        "0.6.85": {
-          "changelog": "🚀 **详情卡顿第二层修复**——视频逐帧=动画流畅，卡顿=点击后 500ms 主线程占用（4s 固定轮询全量拉 /api/apps 1.2MB+整表重渲染）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.85/moo_0.6.85_x86.fpk",
-              "size": 7036737,
-              "size_mb": 6.71,
-              "sha256": "ac0ba64e5123f650b53b4e4993df1dca4ade0fde47b4690a02bc9b95d08756f5"
-            }
-          },
-          "updated_at": "2026-10-01T10:33:56+08:00"
-        },
-        "0.6.84": {
-          "changelog": "🗂️ **Moo v0.6.84**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.84/moo_0.6.84_x86.fpk",
-              "size": 7036536,
-              "size_mb": 6.71,
-              "sha256": "26b9ce61fd853b74324d1f55062cae6491c3229c0dea513e78ac3e838e2e56e2"
-            }
-          },
-          "updated_at": "2026-10-01T10:32:56+08:00"
-        },
-        "0.6.83": {
-          "changelog": "🛠️ **Moo v0.6.83**——sseRunOp 终态按操作 ID 从 history 取回（Queue.Find），失败不再误报完成",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.83/moo_0.6.83_x86.fpk",
-              "size": 7033119,
-              "size_mb": 6.71,
-              "sha256": "4825153473b29162a4279701f1a3b58ab75ef488f3d175b7e8d506e143810555"
-            }
-          },
-          "updated_at": "2026-10-01T10:31:56+08:00"
-        },
-        "0.6.82": {
-          "changelog": "🚀 **Moo v0.6.82**——fetchJSON 一级候选加 gh-proxy 镜像（GitHub 直连国内超时实测：源同步 12s 全挂，FPK 下载走镜像一直好）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.82/moo_0.6.82_x86.fpk",
-              "size": 7031513,
-              "size_mb": 6.71,
-              "sha256": "a319121876954e723b3aeacf5ba9fba6731f989722252e4a1f156ac1da09b888"
-            }
-          },
-          "updated_at": "2026-10-01T10:30:56+08:00"
-        },
-        "0.6.81": {
-          "changelog": "🗂️ **Moo v0.6.81**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.81/moo_0.6.81_x86.fpk",
-              "size": 7030481,
-              "size_mb": 6.7,
-              "sha256": "9fd0445ed2088fbe5e58f492e45b46f6350bf50b043276f7c08adab0b6142aaa"
-            }
-          },
-          "updated_at": "2026-10-01T10:29:56+08:00"
-        },
-        "0.6.80": {
-          "changelog": "🧹 **ensureFpk 三级核验**——缓存复用改按「源 sha256 > 精确字节大小 > manifest 版本解析」逐级核验，跨源同名文件不再误复用。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.80/moo_0.6.80_x86.fpk",
-              "size": 7029761,
-              "size_mb": 6.7,
-              "sha256": "dedb03afb46c54fee5df75e949ca1165cb3e0d27b2c20b7f9d1318bbc85da79c"
-            }
-          },
-          "updated_at": "2026-10-01T10:28:56+08:00"
-        },
-        "0.6.79": {
-          "changelog": "⬇️ **下载列表中文名+行距交付**——｜状态：已发 FPK（sha256 733e892f）+本地 e2e 验证（display_name 6s 后就位、390px 截图中文行+行距确认）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.79/moo_0.6.79_x86.fpk",
-              "size": 7021137,
-              "size_mb": 6.7,
-              "sha256": "733e892f3166f32e20211460f33c371c8a32b0458a615d3cd02c523faed2924d"
-            }
-          },
-          "updated_at": "2026-10-01T10:27:56+08:00"
-        },
-        "0.6.78": {
-          "changelog": "🗂️ **Moo v0.6.78**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.78/moo_0.6.78_x86.fpk",
-              "size": 7021531,
-              "size_mb": 6.7,
-              "sha256": "385f5cff924f2b81913f4fa6346f7047c217e460c3b9e92889a691cdff400ece"
-            }
-          },
-          "updated_at": "2026-10-01T10:26:56+08:00"
-        },
-        "0.6.77": {
-          "changelog": "🗂️ **Moo v0.6.77**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.77/moo_0.6.77_x86.fpk",
-              "size": 7019242,
-              "size_mb": 6.69,
-              "sha256": "72baedbbe798f6421f1dd657709c9d7cb03e5a0a6f8e031b5cd054633f379e36"
-            }
-          },
-          "updated_at": "2026-10-01T10:25:56+08:00"
-        },
-        "0.6.76": {
-          "changelog": "⬇️ **Moo v0.6.76**——下载目录弹窗卡片化（补统一卡片样式）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.76/moo_0.6.76_x86.fpk",
-              "size": 7019635,
-              "size_mb": 6.69,
-              "sha256": "4a45eec8ed386136691739c34e3822ad197ad9f0981379460bd223f52a647fac"
-            }
-          },
-          "updated_at": "2026-10-01T10:24:56+08:00"
-        },
-        "0.6.75": {
-          "changelog": "🛠️ **切目录致 NAS 崩溃分析**——（只读）：切换代码=白名单+HasActive+rename 优先/跨卷 copy+remove，纯 POSIX 操作不可能损坏 btrfs",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.75/moo_0.6.75_x86.fpk",
-              "size": 7019365,
-              "size_mb": 6.69,
-              "sha256": "578b5dfeabd87628f9995257e304bfdc91dea2eedaea57c2261be7250ac6e0a8"
-            }
-          },
-          "updated_at": "2026-10-01T10:23:56+08:00"
-        },
-        "0.6.74": {
-          "changelog": "⬇️ **Moo v0.6.74**——下载目录卡片改造",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.74/moo_0.6.74_x86.fpk",
-              "size": 7017339,
-              "size_mb": 6.69,
-              "sha256": "4e76c2103936ece7d933a9db36eb408a5be69285d1a8922c45b08376b2c254a5"
-            }
-          },
-          "updated_at": "2026-10-01T10:22:56+08:00"
-        },
-        "0.6.73": {
-          "changelog": "🛠️ **Moo v0.6.73**——自动更新应用接线",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.73/moo_0.6.73_x86.fpk",
-              "size": 7008968,
-              "size_mb": 6.68,
-              "sha256": "babb0ea71918ad6f7fc20a83e6bfe64f884e76896819c609476ea30b895cbe8a"
-            }
-          },
-          "updated_at": "2026-10-01T10:21:56+08:00"
-        },
-        "0.6.72": {
-          "changelog": "🐛 **Moo v0.6.72**——官方更新漏显修复",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.72/moo_0.6.72_x86.fpk",
-              "size": 7001998,
-              "size_mb": 6.68,
-              "sha256": "b869d1551af2d1eb2d18008b90c540b231769b264b41ab236a99f72187f37140"
-            }
-          },
-          "updated_at": "2026-10-01T10:20:56+08:00"
-        },
-        "0.6.71": {
-          "changelog": "📦 **Moo v0.6.71**——KSpeeder 改独立依赖 + 安装按钮（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.71/moo_0.6.71_x86.fpk",
-              "size": 6992707,
-              "size_mb": 6.67,
-              "sha256": "dec9a6834bb23302be6bbc5e662a56b7f5ad35202c1fd5f659780b9330f39413"
-            }
-          },
-          "updated_at": "2026-10-01T10:19:56+08:00"
-        },
-        "0.6.70": {
-          "changelog": "🛠️ **Moo v0.6.70**——KSpeeder 成为 Docker 列表一行（照抄 New Store，已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.70/moo_0.6.70_x86.fpk",
-              "size": 11626180,
-              "size_mb": 11.09,
-              "sha256": "35911647cedaaedfb0b49ac0a9a6e1e7ace97b6a4c3c5142a5358ba78bda78a2"
-            }
-          },
-          "updated_at": "2026-10-01T10:18:56+08:00"
-        },
-        "0.6.69": {
-          "changelog": "🎨 **Moo v0.6.69**——Docker 测速加速度列（按速度优选）+ kspeeder 并进 Docker 卡片（第一版）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.69/moo_0.6.69_x86.fpk",
-              "size": 11625398,
-              "size_mb": 11.09,
-              "sha256": "23c6d5a60933afab772d68cc2821fdcd218517f266041831c44ae8f536e74447"
-            }
-          },
-          "updated_at": "2026-10-01T10:17:56+08:00"
-        },
-        "0.6.68": {
-          "changelog": "🚀 **Moo v0.6.68**——设置 tab「加速设置」改名「加速源设置」（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.68/moo_0.6.68_x86.fpk",
-              "size": 11620534,
-              "size_mb": 11.08,
-              "sha256": "e411dc2f5ac34a12bbabafd1d7b3f65a1f3e7373c9910214f4f1c53711e1cc95"
-            }
-          },
-          "updated_at": "2026-10-01T10:16:56+08:00"
-        },
-        "0.6.67": {
-          "changelog": "🛠️ **Moo v0.6.67**——面板改名「优选」+ 手选优先/失效自动切智能优选（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.67/moo_0.6.67_x86.fpk",
-              "size": 11620411,
-              "size_mb": 11.08,
-              "sha256": "0d03956d775d9a5d4186182f2f64d97ed288edf7476208ba918ea75d4dcea4a2"
-            }
-          },
-          "updated_at": "2026-10-01T10:15:56+08:00"
-        },
-        "0.6.66": {
-          "changelog": "🚀 **Moo v0.6.66**——移动端加速源列表无法触摸滑动修复（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.66/moo_0.6.66_x86.fpk",
-              "size": 11616832,
-              "size_mb": 11.08,
-              "sha256": "1674e51173db505e1d927a3e246cb400ab35f9cd7907aebbfb9b2462a80e9b56"
-            }
-          },
-          "updated_at": "2026-10-01T10:14:56+08:00"
-        },
-        "0.6.65": {
-          "changelog": "🎨 **Moo v0.6.65**——保存不关界面 + 悬浮保存按钮三 tab 共用（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.65/moo_0.6.65_x86.fpk",
-              "size": 11616951,
-              "size_mb": 11.08,
-              "sha256": "62fe0a2887735fe126178009d7e079ea945ed9b452e4a0ed21758e0c815abd9f"
-            }
-          },
-          "updated_at": "2026-10-01T10:13:56+08:00"
-        },
-        "0.6.64": {
-          "changelog": "🎨 **Moo v0.6.64**——健康列表改列名表格布局（0.6.63 中途坏版，勿用）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.64/moo_0.6.64_x86.fpk",
-              "size": 11616830,
-              "size_mb": 11.08,
-              "sha256": "579e4960b85f3c25d254c363587a23a34a85e78d28d18301fcfc09a1110b78cf"
-            }
-          },
-          "updated_at": "2026-10-01T10:12:56+08:00"
-        },
-        "0.6.63": {
-          "changelog": "🎨 **（废弃坏版）→ 0.6.64**——列名表头表格布局",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.63/moo_0.6.63_x86.fpk",
-              "size": 11616919,
-              "size_mb": 11.08,
-              "sha256": "8288ff8232fabf7529ab8d39d9f9215696b9ca5f2f3e7b12ccb95302eb22e1a2"
-            }
-          },
-          "updated_at": "2026-10-01T10:11:56+08:00"
-        },
-        "0.6.62": {
-          "changelog": "🚀 **Moo v0.6.62**——加速源后台自动测速 + 列表 ping/速度显示（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.62/moo_0.6.62_x86.fpk",
-              "size": 11616501,
-              "size_mb": 11.08,
-              "sha256": "3189063d57001d46e94b393e96d7102a17c94641ea618f0dec4c95f287c397e3"
-            }
-          },
-          "updated_at": "2026-10-01T10:10:56+08:00"
-        },
-        "0.6.61": {
-          "changelog": "🎨 **设置页重组**——新增「加速设置」tab（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.61/moo_0.6.61_x86.fpk",
-              "size": 11612633,
-              "size_mb": 11.07,
-              "sha256": "ffad147fac941b1eff828fda86020c9a80b979d361952cca2be31a1e8e69c1c0"
-            }
-          },
-          "updated_at": "2026-10-01T10:09:56+08:00"
-        },
-        "0.6.60": {
-          "changelog": "🎨 **Moo v0.6.60**——自装 FPK 停用/启动/卸载按钮恒 404 修复（已发用户）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.60/moo_0.6.60_x86.fpk",
-              "size": 11612600,
-              "size_mb": 11.07,
-              "sha256": "379491c9c74146bc30a63c493bbbf6a9c198598e94c67019f7c5095431e88502"
-            }
-          },
-          "updated_at": "2026-10-01T10:08:56+08:00"
-        },
-        "0.6.59": {
-          "changelog": "🐛 **wb2api 跨源更新不可见修复**——规范卡改组内最高版本卡为更新目标 + key 切换 + 官方豁免。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.59/moo_0.6.59_x86.fpk",
-              "size": 11620808,
-              "size_mb": 11.08,
-              "sha256": "cfbbd2fcac1b20e493d4cdd21e16b06f0c4f5681d2eb687c8a2e2f597fe55565"
-            }
-          },
-          "updated_at": "2026-10-01T10:07:56+08:00"
-        },
-        "0.6.58": {
-          "changelog": "🐛 **交付**——${host} 打开 bug 三根因（daemon host 恒空被硬拼模板+serviceName 漏接致壳内 bridge 失效+appStartStop Current() nil panic 空响应）已修，测试机 打开",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.58/moo_0.6.58_x86.fpk",
-              "size": 11619787,
-              "size_mb": 11.08,
-              "sha256": "515d702ac91aaa55d6408867ce0f93406de369a328344a49080fe0f6322bbc96"
-            }
-          },
-          "updated_at": "2026-10-01T10:06:56+08:00"
-        },
-        "0.6.57": {
-          "changelog": "🎨 **→ 0.6.58**——「打开」按钮三根因 + 停用/启动隐藏 panic",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.57/moo_0.6.57_x86.fpk",
-              "size": 11619800,
-              "size_mb": 11.08,
-              "sha256": "6a2a68cc4cc0927ef76cd2255c342c25345a5f05c9acd9269d0adec0495b6cfa"
-            }
-          },
-          "updated_at": "2026-10-01T10:05:56+08:00"
-        },
-        "0.6.56": {
-          "changelog": "🐛 **官方应用假更新修复（用户质疑**——官方应用官方中心不显示更新，Moo 却显示）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.56/moo_0.6.56_x86.fpk",
-              "size": 11617735,
-              "size_mb": 11.08,
-              "sha256": "3a7680380668c581e85df643954477ff7db170a605e0357e5ca4443c8c352c6d"
-            }
-          },
-          "updated_at": "2026-10-01T10:04:56+08:00"
-        },
-        "0.6.55": {
-          "changelog": "🔔 **指示条单条轮播交付**——通知竖排根因=同轮多任务变化整体渲染",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.55/moo_0.6.55_x86.fpk",
-              "size": 11612148,
-              "size_mb": 11.07,
-              "sha256": "c9f40851845c80a6c3fb1a70108f576b4166ac034cb1698ba7a0e36ea8b1d661"
-            }
-          },
-          "updated_at": "2026-10-01T10:03:56+08:00"
-        },
-        "0.6.54": {
-          "changelog": "⬇️ **后台任务指示条重弹修复（用户截图**——「后台下载 Read 完成」退出再进每次都在）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.54/moo_0.6.54_x86.fpk",
-              "size": 11612097,
-              "size_mb": 11.07,
-              "sha256": "5d211145132b049f6e5aeb957b1b93a91c5a2b32fef6ad3697d7dec623c6cdea"
-            }
-          },
-          "updated_at": "2026-10-01T10:02:56+08:00"
-        },
-        "0.6.53": {
-          "changelog": "🔖 **Moo v0.6.53**——中间迭代版本",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.53/moo_0.6.53_x86.fpk",
-              "size": 11612123,
-              "size_mb": 11.07,
-              "sha256": "e6591c080c4c24c863bbd62b09a7835715651650375057bb7881714b392955ce"
-            }
-          },
-          "updated_at": "2026-10-01T10:01:56+08:00"
-        },
-        "0.6.52": {
-          "changelog": "⬇️ **Moo v0.6.52**——下载按钮跨应用串台修复交付：校验 OK",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.52/moo_0.6.52_x86.fpk",
-              "size": 11611412,
-              "size_mb": 11.07,
-              "sha256": "7205699571e5df6a6b7a2fd9319f708142e2670fabbb90db0e74746365a1ea74"
-            }
-          },
-          "updated_at": "2026-10-01T10:00:56+08:00"
-        },
-        "0.6.51": {
-          "changelog": "🐛 **在场跟踪 pagePresence**——修复 0.6.50 遗留的两条问题（3 连发仅 1 条可见等）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.51/moo_0.6.51_x86.fpk",
-              "size": 11611517,
-              "size_mb": 11.07,
-              "sha256": "b58bdd1014d7916d9b03bf7e1bbcfea21c6d69937a8f6bc28f6390d276403434"
-            }
-          },
-          "updated_at": "2026-10-01T09:59:56+08:00"
-        },
-        "0.6.50": {
-          "changelog": "🔔 **Moo v0.6.50**——通知栏二次修复（用户反馈 0.6.49 仍有问题后）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.50/moo_0.6.50_x86.fpk",
-              "size": 11610982,
-              "size_mb": 11.07,
-              "sha256": "8b2bfbcb1b5d8fb8065f6cfb48d8def981762ea14655c62a9bcf42eb5de50b66"
-            }
-          },
-          "updated_at": "2026-10-01T09:58:56+08:00"
-        },
-        "0.6.49": {
-          "changelog": "🔔 **通知栏+下载进度交付**——并发 FPK（sha256 f60da419）：Toaster top-center/3s/折叠 visibleToasts=2、visibilitychange 清残留+hidden 不弹",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.49/moo_0.6.49_x86.fpk",
-              "size": 11610544,
-              "size_mb": 11.07,
-              "sha256": "f60da419ce560ddd4881ac8d1b5ce61fe7da8d53e40f2759e3dce84e8ae889df"
-            }
-          },
-          "updated_at": "2026-10-01T09:57:56+08:00"
-        },
-        "0.6.48": {
-          "changelog": "🗂️ **Moo v0.6.48**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.48/moo_0.6.48_x86.fpk",
-              "size": 11605536,
-              "size_mb": 11.07,
-              "sha256": "a38dc62d5431bd5c776614ff6b4fa9b9d4f2fd0f8045c3ddc91407a3535618f8"
-            }
-          },
-          "updated_at": "2026-10-01T09:56:56+08:00"
-        },
-        "0.6.46": {
-          "changelog": "🗂️ **Moo v0.6.46**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.46/moo_0.6.46_x86.fpk",
-              "size": 11603628,
-              "size_mb": 11.07,
-              "sha256": "51d4ed5000f55f218b61fb683dc8cbd291b1711b76bf54c5ddcd4e964e859c48"
-            }
-          },
-          "updated_at": "2026-10-01T09:55:56+08:00"
-        },
-        "0.6.45": {
-          "changelog": "🗂️ **Moo v0.6.45**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.45/moo_0.6.45_x86.fpk",
-              "size": 11602377,
-              "size_mb": 11.06,
-              "sha256": "e52eb69e3862c86aea9cb977e3ccd3e9e0e9118e5f0b5a1bfc11e71011266a2f"
-            }
-          },
-          "updated_at": "2026-10-01T09:54:56+08:00"
-        },
-        "0.6.44": {
-          "changelog": "🐛 **官方预览图调查+借用交付**——实锤平台 355 官方应用仅 25 个自研有 poster（原生应用中心 OpenList 同样无预览=数据缺口非 bug）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.44/moo_0.6.44_x86.fpk",
-              "size": 11602473,
-              "size_mb": 11.06,
-              "sha256": "782f4ea40b23cc2b41c7a734374c0ec248d008bb1c90467575c77e73a562bd6e"
-            }
-          },
-          "updated_at": "2026-10-01T09:53:56+08:00"
-        },
-        "0.6.43": {
-          "changelog": "🧹 **预览图补齐+触屏提速交付**——预览=源解析 preview_urls+proxyPreview 竞速两级缓存+魔数终审（200/1624 应用带图，2FMusic 灯箱 UI 实测过）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.43/moo_0.6.43_x86.fpk",
-              "size": 11599657,
-              "size_mb": 11.06,
-              "sha256": "cb717ddde6261b1cbf3ea9f9673423e4c6a1cbe81460b403a57841b7c4f31aab"
-            }
-          },
-          "updated_at": "2026-10-01T09:52:56+08:00"
-        },
-        "0.6.42": {
-          "changelog": "🚀 **GenOffice 破图三连修交付**——根因=镜像仓库缺 webp 截图(源数据缺失非 bug)+raw 黑洞窗口+冷启动无镜像候选(jsDelivr 301 回 raw 全候选同主机)",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.42/moo_0.6.42_x86.fpk",
-              "size": 11594574,
-              "size_mb": 11.06,
-              "sha256": "16204e5b266935914be28d3b85c2fed80919b4cd23bb66b829d7a6e0bc7d931b"
-            }
-          },
-          "updated_at": "2026-10-01T09:51:56+08:00"
-        },
-        "0.6.41": {
-          "changelog": "📄 **README 适配双修交付**——①rewriteRelImages 接线 serve 路径(抽 normalizeReadmeURL，imageadmin 6/6 图恢复)②table 组件包横向滚动容器",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.41/moo_0.6.41_x86.fpk",
-              "size": 11593521,
-              "size_mb": 11.06,
-              "sha256": "55d31cb0b37e5a2cb507c28d41480f3cc823941eddb7cc8af769b2371a5c15c2"
-            }
-          },
-          "updated_at": "2026-10-01T09:50:56+08:00"
-        },
-        "0.6.40": {
-          "changelog": "🧹 **README 图片代理+显示优化交付**——readme-img 代理(blob 归一化+SSRF 白名单+7 天缓存)、blob 页 looksLikeWebPage 终审、CSS 打磨、fetchReadmeRace 瞬态失败重试一次",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.40/moo_0.6.40_x86.fpk",
-              "size": 11587208,
-              "size_mb": 11.05,
-              "sha256": "091ca9bb35ecb840c61469e7e8ea4b0f119a720e7420462a410b6455f57e67b0"
-            }
-          },
-          "updated_at": "2026-10-01T09:49:56+08:00"
-        },
-        "0.6.39": {
-          "changelog": "🧹 **Moo v0.6.39**——README 两级缓存完善 + 预热",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.39/moo_0.6.39_x86.fpk",
-              "size": 11578064,
-              "size_mb": 11.04,
-              "sha256": "0536d9385e3ff60a9b45bbf591f94f6182321f97e289e4284b370335fc690536"
-            }
-          },
-          "updated_at": "2026-10-01T09:48:56+08:00"
-        },
-        "0.6.38": {
-          "changelog": "🧹 **README 两级缓存**——内存 1 小时 + 磁盘 7 天（readme_store.go）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.38/moo_0.6.38_x86.fpk",
-              "size": 11561378,
-              "size_mb": 11.03,
-              "sha256": "f4804e648f4e80d582bc21759d2c5daa827199e6e2b8d4e16adb713fd38faae7"
-            }
-          },
-          "updated_at": "2026-10-01T09:47:56+08:00"
-        },
-        "0.6.37": {
-          "changelog": "🖼️ **Moo v0.6.37**——+ 图标加载 NS 架构重写",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.37/moo_0.6.37_x86.fpk",
-              "size": 11555112,
-              "size_mb": 11.02,
-              "sha256": "50752d9de8518e596f5cb51a9a2c2b81d3577e5778c0293de5a47861122abb15"
-            }
-          },
-          "updated_at": "2026-10-01T09:46:56+08:00"
-        },
-        "0.6.36": {
-          "changelog": "🖼️ **Moo v0.6.36**——## 十五、图标加载按 NS 架构重写",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.36/moo_0.6.36_x86.fpk",
-              "size": 11553407,
-              "size_mb": 11.02,
-              "sha256": "4d0a95ee5e0ddb511cbe10287dfeceb817af38a9e0810538a04b3afd5ff51981"
-            }
-          },
-          "updated_at": "2026-10-01T09:45:56+08:00"
-        },
-        "0.6.35": {
-          "changelog": "🖼️ **Moo v0.6.35**——## 十五、图标加载按 NS 架构重写",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.35/moo_0.6.35_x86.fpk",
-              "size": 11551823,
-              "size_mb": 11.02,
-              "sha256": "f1d41a26af851a2755aef81105eb4a68185fad421fa8cfe1cd3461fa43ceec03"
-            }
-          },
-          "updated_at": "2026-10-01T09:44:56+08:00"
-        },
-        "0.6.34": {
-          "changelog": "🖼️ **Moo v0.6.34**——## 十五、图标加载按 NS 架构重写",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.34/moo_0.6.34_x86.fpk",
-              "size": 11551823,
-              "size_mb": 11.02,
-              "sha256": "3acfd0c61d959edb41ae34e9b03697078da9ae4268c969f943e601dac3154ca6"
-            }
-          },
-          "updated_at": "2026-10-01T09:43:56+08:00"
-        },
-        "0.6.33": {
-          "changelog": "🖼️ **Moo v0.6.33**——## 十五、图标加载按 NS 架构重写",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.33/moo_0.6.33_x86.fpk",
-              "size": 11551777,
-              "size_mb": 11.02,
-              "sha256": "245d866e133ba4a3af92f688d216d7cc6dbbb85f2985aab49d860c2d44dcc3f5"
-            }
-          },
-          "updated_at": "2026-10-01T09:42:56+08:00"
-        },
-        "0.6.32": {
-          "changelog": "🖼️ **图标/README 三修交付**——resolveRel 全相对路径补全(187 README 恢复)+官方合并卡图标回退(33 恢复)+本地 ICON.PNG 兜底+魔数终审/占位图哈希黑名单",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.32/moo_0.6.32_x86.fpk",
-              "size": 11531344,
-              "size_mb": 11.0,
-              "sha256": "497ea9f62c8ac22b4d74ec70737f1a91e3d26264efd4dd6231d4484e03cf3bb3"
-            }
-          },
-          "updated_at": "2026-10-01T09:41:56+08:00"
-        },
-        "0.6.31": {
-          "changelog": "🛠️ **Moo v0.6.31**——V8 品牌标（猫头眼镜）落地（2026-09-23 晚）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.31/moo_0.6.31_x86.fpk",
-              "size": 11524463,
-              "size_mb": 10.99,
-              "sha256": "74b3e6a9c88f37356b9d66c671b06f004921a44beda13eace382788ae4c5d13f"
-            }
-          },
-          "updated_at": "2026-10-01T09:40:56+08:00"
-        },
-        "0.6.30": {
-          "changelog": "🛠️ **Moo v0.6.30**——发现页计数改为隐藏（0.6.29 误加回滚，2026-09-23 晚）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.30/moo_0.6.30_x86.fpk",
-              "size": 11453009,
-              "size_mb": 10.92,
-              "sha256": "840d3c4cd81fb341b0d07c79c33e89b71cd7d9e2b6b1e02703d2ccf2abd30935"
-            }
-          },
-          "updated_at": "2026-10-01T09:39:56+08:00"
-        },
-        "0.6.29": {
-          "changelog": "🐛 **发现页补搜索框+计数**——根因=桌面 header 搜索+计数块被 activeFilter!=='recommended' 收窄整块隐藏",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.29/moo_0.6.29_x86.fpk",
-              "size": 11452903,
-              "size_mb": 10.92,
-              "sha256": "b9fbd82b5900a0486713914194bc5d1321b3025fb6e6c36c52ce11ee81948a19"
-            }
-          },
-          "updated_at": "2026-10-01T09:38:56+08:00"
-        },
-        "0.6.28": {
-          "changelog": "🐛 **搜索框计数修复**——根因=计数 span 写成无搜索词恒显 apps.length",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.28/moo_0.6.28_x86.fpk",
-              "size": 11453047,
-              "size_mb": 10.92,
-              "sha256": "58c252a657018f6f76a97e9386c2180f0c8c76e40dec02849f92efb15c25dfa6"
-            }
-          },
-          "updated_at": "2026-10-01T09:37:56+08:00"
-        },
-        "0.6.27": {
-          "changelog": "📦 **Moo v0.6.27**——已安装列表同名重复 bug（已装规范条目，2026-09-23 傍晚）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.27/moo_0.6.27_x86.fpk",
-              "size": 11453070,
-              "size_mb": 10.92,
-              "sha256": "44972e1370a8517d0c462868dd79849c337cade06c06c5f05424e6a359c9415e"
-            }
-          },
-          "updated_at": "2026-10-01T09:36:56+08:00"
-        },
-        "0.6.26": {
-          "changelog": "🚀 **列表提速交付**——1.5MB→190KB(gzip+瘦身)+ETag/304 重开零字节+确定性排序修复 ETag 漂移(同名条目随机换位根因)",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.26/moo_0.6.26_x86.fpk",
-              "size": 11451161,
-              "size_mb": 10.92,
-              "sha256": "293a78b27b3aad994dee50b6b0207af69e943ebbb838a6788b705f11327be397"
-            }
-          },
-          "updated_at": "2026-10-01T09:35:56+08:00"
-        },
-        "0.6.25": {
-          "changelog": "⬇️ **Moo v0.6.25**——GitHub Release 资产下载量同步（2026-09-23 午间）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.25/moo_0.6.25_x86.fpk",
-              "size": 11439407,
-              "size_mb": 10.91,
-              "sha256": "32b4bfcc8c9529b7c6013f7068e555b7293cdefaa08a4536047acd5ac06ee438"
-            }
-          },
-          "updated_at": "2026-10-01T09:34:56+08:00"
-        },
-        "0.6.24": {
-          "changelog": "⬇️ **已装应用下载量下限 1**——第三方源下载量缺失根因=120 源 0 个提供 download_count（FnDepot 规范外部源不统计，同 NS）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.24/moo_0.6.24_x86.fpk",
-              "size": 11420988,
-              "size_mb": 10.89,
-              "sha256": "64dbfd286fa9d255261d6c82378cc49f865863a48ad4243bd90ed9a62db7c8d3"
-            }
-          },
-          "updated_at": "2026-10-01T09:33:56+08:00"
-        },
-        "0.6.23": {
-          "changelog": "⬇️ **官方徽章统一**——官方目录 355 应用卡片源徽章恒置「飞牛应用中心源」(304→355)，开发者/发布者官方值非空时覆盖社区值，官方下载量权威覆盖",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.23/moo_0.6.23_x86.fpk",
-              "size": 11420924,
-              "size_mb": 10.89,
-              "sha256": "4a653947a82cae327cde862efe4556c33cc55701a5d00458c880f4142bf185b1"
-            }
-          },
-          "updated_at": "2026-10-01T09:32:56+08:00"
-        },
-        "0.6.22": {
-          "changelog": "🚀 **列表字段+同名不去重+详情同构**——releases 版本解析补全(无版本 95→3)、跨源同名不去重(715→1624，179 应用多源并存 @key 区分)、local_installs 回退激活、快照并发写损坏修复(saveMu",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.22/moo_0.6.22_x86.fpk",
-              "size": 11421002,
-              "size_mb": 10.89,
-              "sha256": "758f1de0dae664eaac1386605e1d5a4f3aeaef2f22861a15b2c6af752e34b644"
-            }
-          },
-          "updated_at": "2026-10-01T09:31:56+08:00"
-        },
-        "0.6.21": {
-          "changelog": "🧹 **Moo v0.6.21**——+ 移动端缓存与行视图修复 + 已装应用简介三级管道 + 测试机启动失败修复 + kspeeder 钩子自愈 + 列表三字段/同名不去重/详情同构",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.21/moo_0.6.21_x86.fpk",
-              "size": 11419447,
-              "size_mb": 10.89,
-              "sha256": "13b1a13622112061d102d4c5e0c36f2689022afafcdcf9d3f92c57660e00813c"
-            }
-          },
-          "updated_at": "2026-10-01T09:30:56+08:00"
-        },
-        "0.6.20": {
-          "changelog": "🖼️ **借鉴 FnDepot 实现**——逆向 FnDepot 0.5.1 实锤（目录 SQLite 持久化/app_updates 自更新状态机/图标 URL 变才失效/真周期同步）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.20/moo_0.6.20_x86.fpk",
-              "size": 11408428,
-              "size_mb": 10.88,
-              "sha256": "1b873467243f42effd219c35d02c34bc41df37498e4ec66924364bc1ffd6a6e9"
-            }
-          },
-          "updated_at": "2026-10-01T09:29:56+08:00"
-        },
-        "0.6.19": {
-          "changelog": "🚀 **New Store 全量同步**——镜像列表补 conversun/gh-ddlc 至 17 个与 NS 对齐（conversun 专用探测资产）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.19/moo_0.6.19_x86.fpk",
-              "size": 11390279,
-              "size_mb": 10.86,
-              "sha256": "f67a842b496584e8d48f8d183d7ca80921abb445200f858cec349dd2abee10cc"
-            }
-          },
-          "updated_at": "2026-10-01T09:28:56+08:00"
-        },
-        "0.6.18": {
-          "changelog": "🚀 **本地 FPK manifest 简介兜底交付**——新增 fpk_local.go：后台并发扫描 <vol>/1000/fpk 全部 FPK 的 manifest（tar.gz+zip，按包内 appname 全量索引，81包/48应用",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.18/moo_0.6.18_x86.fpk",
-              "size": 11380332,
-              "size_mb": 10.85,
-              "sha256": "ffda35f75454f6c8ef7159b2b4866e671f0b36427bf54f3c53775e7c8fcff226"
-            }
-          },
-          "updated_at": "2026-10-01T09:27:56+08:00"
-        },
-        "0.6.17": {
-          "changelog": "🗂️ **Moo v0.6.17**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.17/moo_0.6.17_x86.fpk",
-              "size": 11376290,
-              "size_mb": 10.85,
-              "sha256": "33980e905b5b6e728e11d54d98f9cde61afd8a386079fd0c033aaf173026e063"
-            }
-          },
-          "updated_at": "2026-10-01T09:26:56+08:00"
-        },
-        "0.6.16": {
-          "changelog": "🗂️ **Moo v0.6.16**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.16/moo_0.6.16_x86.fpk",
-              "size": 11188120,
-              "size_mb": 10.67,
-              "sha256": "41093e7c3980d29f2f6e9943334a081f3550012245c58a7fa6a0b59d7c85cce6"
-            }
-          },
-          "updated_at": "2026-10-01T09:25:56+08:00"
-        },
-        "0.6.15": {
-          "changelog": "🗂️ **Moo v0.6.15**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.15/moo_0.6.15_x86.fpk",
-              "size": 11184049,
-              "size_mb": 10.67,
-              "sha256": "9670ed308ee3a111691b3b155237a8853942d0b2c25fca4ee5ab7e36e6577da5"
-            }
-          },
-          "updated_at": "2026-10-01T09:24:56+08:00"
-        },
-        "0.6.14": {
-          "changelog": "🛠️ **列表行高统一交付**——AppRowList+AppCard 双处：简介行 min-h-9/min-h-10 恒占位（无简介已装应用行高对齐）+ 徽章区 min-h-6 恒占位（无徽章本地应用对齐）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.14/moo_0.6.14_x86.fpk",
-              "size": 11183796,
-              "size_mb": 10.67,
-              "sha256": "ba4ba8d5cf90d00a37d7a9448490145777da0fbf12610f3ffafe8fb4b0195bfe"
-            }
-          },
-          "updated_at": "2026-10-01T09:23:56+08:00"
-        },
-        "0.6.13": {
-          "changelog": "🗂️ **Moo v0.6.13**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.13/moo_0.6.13_x86.fpk",
-              "size": 11183805,
-              "size_mb": 10.67,
-              "sha256": "542e2e9645c76de42f0c741708a3daeda2076d7e1f97d8369eb9ab775a7c5e9a"
-            }
-          },
-          "updated_at": "2026-10-01T09:22:56+08:00"
-        },
-        "0.6.12": {
-          "changelog": "🐛 **移动端行列表状态位修复**——根因=移动端(<768px)走 AppRowList 而非 AppCard，0.6.9 只改了 AppCard 故手机仍旧",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.12/moo_0.6.12_x86.fpk",
-              "size": 11183577,
-              "size_mb": 10.67,
-              "sha256": "b1a8dfb0fd4a10158835c5cdcfa6d350b00b3804b6c5e0f3742acfaf6f47e621"
-            }
-          },
-          "updated_at": "2026-10-01T09:21:56+08:00"
-        },
-        "0.6.11": {
-          "changelog": "🖼️ **Moo v0.6.11**——用户反馈 PC 页\"问题反馈\"功能不要 → 删 PC 左侧边栏底部\"问题反馈\"整块（Tooltip+Button，跳 GitHub bug-report 模板，含折叠态图标）+ 清掉未用 MessageCircle import",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.11/moo_0.6.11_x86.fpk",
-              "size": 11183625,
-              "size_mb": 10.67,
-              "sha256": "dba42f0595712f844695bbd3e80e6b69c966afc0921e8c64ccd126a7cbffc2a6"
-            }
-          },
-          "updated_at": "2026-10-01T09:20:56+08:00"
-        },
-        "0.6.10": {
-          "changelog": "🧹 **移动端缓存根因修复**——\"移动端还没改\"根因=旧 index.html 无缓存头被手机 WebView 启发式缓存",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.10/moo_0.6.10_x86.fpk",
-              "size": 11184035,
-              "size_mb": 10.67,
-              "sha256": "cf392b506b8ea9c285c347fa6a2c236e0e69ec52b5d182e4735482c61a418508"
-            }
-          },
-          "updated_at": "2026-10-01T09:19:56+08:00"
-        },
-        "0.6.9": {
-          "changelog": "🖼️ **列表卡片状态位交付**——AppCard 列表卡\"未安装/已安装\"从徽章流行首移到图标列：绝对定位 left:-68px w-14 text-center（居中于图标中心）+ top-1/2 -translate-y-1",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.9/moo_0.6.9_x86.fpk",
-              "size": 11183380,
-              "size_mb": 10.67,
-              "sha256": "b39371ef81d3319cce54f5841fbad71bda7cd0895ae5e62199c3826e49f73ec3"
-            }
-          },
-          "updated_at": "2026-10-01T09:18:56+08:00"
-        },
-        "0.6.8": {
-          "changelog": "🖼️ **详情头部布局交付**——\"未安装/●运行中\"移到图标正下方居中（w-12 槽+whitespace-nowrap 防压行）、与徽章同行",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.8/moo_0.6.8_x86.fpk",
-              "size": 11183517,
-              "size_mb": 10.67,
-              "sha256": "d260a62d16d0df6eecf96cd63a96a8075a4bf85b4f08a431fa3a1f4ea2f2b14c"
-            }
-          },
-          "updated_at": "2026-10-01T09:17:56+08:00"
-        },
-        "0.6.7": {
-          "changelog": "⬇️ **底部按钮冻结交付**——对话框固定高度 min(85vh,800px)+三段式（头部冻结/中间滚动/底部动作区 flex-none 冻结），短介绍应用实测 mihomo-arm64「下载fpk」与 KMS「停用/卸载」均恒在对话框最底部",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.7/moo_0.6.7_x86.fpk",
-              "size": 11183570,
-              "size_mb": 10.67,
-              "sha256": "7fb912d0b81c6b05cd2d3c71d2a967e332eadc59feec9e6d7526e58789c884fb"
-            }
-          },
-          "updated_at": "2026-10-01T09:16:56+08:00"
-        },
-        "0.6.6": {
-          "changelog": "📦 **打开按钮归位头部 GET 位**——并部署测试机：头部 GET 位=安装(未装)/打开(已装运行中+Web 入口,装完即变)/处理中(转圈)",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.6/moo_0.6.6_x86.fpk",
-              "size": 11183580,
-              "size_mb": 10.67,
-              "sha256": "8e3d6484a6b334cf569cb787e4c8f0fd8c0220f27b4d9a291c0b23931d498ddc"
-            }
-          },
-          "updated_at": "2026-10-01T09:15:56+08:00"
-        },
-        "0.6.5": {
-          "changelog": "🖼️ **安装按钮回图标旁+未安装置 appname 下方**——并已部署测试机：未安装应用「安装」胶囊固定头部右上角(图标旁)、底部仅留下载fpk 全宽条、安装中转圈处理中",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.5/moo_0.6.5_x86.fpk",
-              "size": 11183577,
-              "size_mb": 10.67,
-              "sha256": "968cb3b3aed68516f23f7903ab8165586b2b27cc076ea3cfd485d94f41e42547"
-            }
-          },
-          "updated_at": "2026-10-01T09:14:56+08:00"
-        },
-        "0.6.4": {
-          "changelog": "🖼️ **详情页底部动作区改造 + kspeeder 钩子自愈**——下载fpk 改全宽最长悬浮条(与设置页保存同款磨砂条+主色按钮)、动作按钮全部移出图标行置底部(停用/卸载各占一半、打开+停用+卸载 均分、安装占满)",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.4/moo_0.6.4_x86.fpk",
-              "size": 11183585,
-              "size_mb": 10.67,
-              "sha256": "4d2ca6db2065e4321434eb103add9e54f9ee20604e561e62202e8f72fcffa3e9"
-            }
-          },
-          "updated_at": "2026-10-01T09:13:56+08:00"
-        },
-        "0.6.3": {
-          "changelog": "⬇️ **详情页 5 项改造交付**——删「支持平台」行/版本行同步显示最新为主值(→v24.19.0最新 高亮)/停用并入头部胶囊组(打开·琥珀停用·红卸载 同风格,删底部重复)/下载fpk 改底部居中主色悬浮胶囊",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.3/moo_0.6.3_x86.fpk",
-              "size": 11182528,
-              "size_mb": 10.66,
-              "sha256": "fdaf51c833b3901d269e029169e43b6df4d6ece0f984fb9942b3e26f2ae356e2"
-            }
-          },
-          "updated_at": "2026-10-01T09:12:56+08:00"
-        },
-        "0.6.2": {
-          "changelog": "🛠️ **Moo v0.6.2**——前端优化交付（2026-09-22 深夜）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.2/moo_0.6.2_x86.fpk",
-              "size": 11188492,
-              "size_mb": 10.67,
-              "sha256": "689c4e5f97d62cedeeda6e5db639469a52cf6f4d4d95a2665012a00ac79ea064"
-            }
-          },
-          "updated_at": "2026-10-01T09:11:56+08:00"
-        },
-        "0.6.1": {
-          "changelog": "🗂️ **Moo v0.6.1**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.1/moo_0.6.1_x86.fpk",
-              "size": 11172578,
-              "size_mb": 10.66,
-              "sha256": "7341f59089398f0bd7afa3dbb214849b639196ae41334d96e7c970d1ba09422e"
-            }
-          },
-          "updated_at": "2026-10-01T09:10:56+08:00"
-        },
-        "0.6.0": {
-          "changelog": "🗂️ **Moo v0.6.0**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.6.0/moo_0.6.0_x86.fpk",
-              "size": 11172961,
-              "size_mb": 10.66,
-              "sha256": "87fe1f93e00af5e797938a741536fdafb97d779a69712c6765a95005a53c430f"
-            }
-          },
-          "updated_at": "2026-10-01T09:09:56+08:00"
-        },
-        "0.5.4": {
-          "changelog": "🧹 **交付**——A1 吞吐体检(speed_bps+速度选路)/A2 aria2 引擎(-x16+候选试错+SIGTERM 续传)/A3 缓存复用全部真机 e2e 通过，0.5.4 时代候选失败=0",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.5.4/moo_0.5.4_x86.fpk",
-              "size": 6538024,
-              "size_mb": 6.24,
-              "sha256": "bae74602d756d7acf8f11b6bd4e65e7cc25b02cb27332e9bfdad488a0daad113"
-            }
-          },
-          "updated_at": "2026-10-01T09:08:56+08:00"
-        },
-        "0.5.3": {
-          "changelog": "🗂️ **Moo v0.5.3**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.5.3/moo_0.5.3_x86.fpk",
-              "size": 6538307,
-              "size_mb": 6.24,
-              "sha256": "2fcf4b37ba9bbe2d87ed12a1b7836203d8d2c3658fe74f0a33bc7cb8b61b2059"
-            }
-          },
-          "updated_at": "2026-10-01T09:07:56+08:00"
-        },
-        "0.5.2": {
-          "changelog": "🗂️ **Moo v0.5.2**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.5.2/moo_0.5.2_x86.fpk",
-              "size": 6538238,
-              "size_mb": 6.24,
-              "sha256": "5fccbcebc6785407d222b23b1641ccc0064836c6b02f440de690e386b6360272"
-            }
-          },
-          "updated_at": "2026-10-01T09:06:56+08:00"
-        },
-        "0.5.1": {
-          "changelog": "🗂️ **Moo v0.5.1**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.5.1/moo_0.5.1_x86.fpk",
-              "size": 6535911,
-              "size_mb": 6.23,
-              "sha256": "bdb3c0ece83d10f9d44be88d22a8ecc1ee0e54501441e8c720286c873807cbfa"
-            }
-          },
-          "updated_at": "2026-10-01T09:05:56+08:00"
-        },
-        "0.5.0": {
-          "changelog": "🗂️ **Moo v0.5.0**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.5.0/moo_0.5.0_x86.fpk",
-              "size": 6535995,
-              "size_mb": 6.23,
-              "sha256": "a65b51dea0552ca5be18ec8d0a02fee101b58533d7fb41a0747ccc294143595b"
-            }
-          },
-          "updated_at": "2026-10-01T09:04:56+08:00"
-        },
-        "0.4.6": {
-          "changelog": "🗂️ **Moo v0.4.6**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.6/moo_0.4.6_x86.fpk",
-              "size": 6378142,
-              "size_mb": 6.08,
-              "sha256": "89acbe25244282fed0d38891b240ad105e98a4fdde5d8371eb6049e8f45f8d46"
-            }
-          },
-          "updated_at": "2026-10-01T09:03:56+08:00"
-        },
-        "0.4.5": {
-          "changelog": "🗂️ **Moo v0.4.5**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.5/moo_0.4.5_x86.fpk",
-              "size": 6378203,
-              "size_mb": 6.08,
-              "sha256": "2c8e738fdcc548a8fb83ae86506e9ca20d6dbbff600ca1433b87471302d06c41"
-            }
-          },
-          "updated_at": "2026-10-01T09:02:56+08:00"
-        },
-        "0.4.4": {
-          "changelog": "🗂️ **Moo v0.4.4**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.4/moo_0.4.4_x86.fpk",
-              "size": 6376691,
-              "size_mb": 6.08,
-              "sha256": "3fed173dffffab1030b89e55b3f4192135a5867149e187a9f432c701a12ac126"
-            }
-          },
-          "updated_at": "2026-10-01T09:01:56+08:00"
-        },
-        "0.4.3": {
-          "changelog": "🗂️ **Moo v0.4.3**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.3/moo_0.4.3_x86.fpk",
-              "size": 6377158,
-              "size_mb": 6.08,
-              "sha256": "feeb2ccb4dd21ad3b6463d4aef1f3d03beaa3a78ab0ad789c267f627cac6ec9d"
-            }
-          },
-          "updated_at": "2026-10-01T09:00:56+08:00"
-        },
-        "0.4.2": {
-          "changelog": "🗂️ **Moo v0.4.2**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.2/moo_0.4.2_x86.fpk",
-              "size": 6372426,
-              "size_mb": 6.08,
-              "sha256": "fde64df3c6976620473327e2e8392fa6b3ae99893b5d5967bd1ace6894c43dad"
-            }
-          },
-          "updated_at": "2026-10-01T08:59:56+08:00"
-        },
-        "0.4.1": {
-          "changelog": "🚀 **交付**——4 问题全修+测试机 e2e：加速源 15+8 带延迟测速、官方源 355 应用 papersplit 官方安装/卸载全过、添加源 bug（name 推导+results 契约+URL 去重）",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.1/moo_0.4.1_x86.fpk",
-              "size": 6338099,
-              "size_mb": 6.04,
-              "sha256": "120008a8030d36ecfd39e4bd64d824d75e052dd02c5e44e1ffd9607b960c771f"
-            }
-          },
-          "updated_at": "2026-10-01T08:58:56+08:00"
-        },
-        "0.4.0": {
-          "changelog": "🖼️ **UI 对齐 New Store**——交付：前端整套移植(品牌改 Moo)+后端按 New Store 契约重写(SSE 安装/wizard/图标代理 jsDelivr 镜像并发 0.1s/分类映射)",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.4.0/moo_0.4.0_x86.fpk",
-              "size": 6225167,
-              "size_mb": 5.94,
-              "sha256": "7b8f0f6ce22e2ff0c1f8843b9ce687dc04c8f427c55a2ef618612d25c6920aff"
-            }
-          },
-          "updated_at": "2026-10-01T08:57:56+08:00"
-        },
-        "0.3.5": {
-          "changelog": "🗂️ **Moo v0.3.5**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.3.5/moo-0.3.5-fnos-amd64.fpk",
-              "size": 5594326,
-              "size_mb": 5.34,
-              "sha256": "e0bf577769710e10013e758524ce60fb5d866ba79d192c62ee76cb29d4ef48d7"
-            }
-          },
-          "updated_at": "2026-10-01T08:56:56+08:00"
-        },
-        "0.3.4": {
-          "changelog": "🗂️ **Moo v0.3.4**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.3.4/moo-0.3.4-fnos-amd64.fpk",
-              "size": 5594103,
-              "size_mb": 5.33,
-              "sha256": "93536ead26cbf1abdb3e3cd79ce1e421a6067a9bd8179d1ac95e4e2bf6d2855d"
-            }
-          },
-          "updated_at": "2026-10-01T08:55:56+08:00"
-        },
-        "0.3.3": {
-          "changelog": "🗂️ **Moo v0.3.3**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.3.3/moo-0.3.3-fnos-amd64.fpk",
-              "size": 5592423,
-              "size_mb": 5.33,
-              "sha256": "fa1f2219f1105a997bf1b261fc2f3f9472feb8f0423851cbfd81baa73354e5a2"
-            }
-          },
-          "updated_at": "2026-10-01T08:54:56+08:00"
-        },
-        "0.3.2": {
-          "changelog": "🗂️ **Moo v0.3.2**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.3.2/moo-0.3.2-fnos-amd64.fpk",
-              "size": 5591824,
-              "size_mb": 5.33,
-              "sha256": "ac408357dce05aaf02b1f945e3f309ca10452b0208faaf8bcf5b83fa6ab8fff3"
-            }
-          },
-          "updated_at": "2026-10-01T08:53:56+08:00"
-        },
-        "0.3.1": {
-          "changelog": "🗂️ **Moo v0.3.1**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.3.1/moo-0.3.1-fnos-amd64.fpk",
-              "size": 5591788,
-              "size_mb": 5.33,
-              "sha256": "ad39779c9b0b1f8f600ed655c1ba9e588cbef103526f25e0c04305ee323c4f47"
-            }
-          },
-          "updated_at": "2026-10-01T08:52:56+08:00"
-        },
-        "0.3.0": {
-          "changelog": "📦 **M2 安装管道交付**——并测试机全 e2e：daemon RPC 通道(stage/install/upgrade/uninstall/start/stop/list,任务三态语义)",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.3.0/moo-0.3.0-fnos-amd64.fpk",
-              "size": 5591485,
-              "size_mb": 5.33,
-              "sha256": "34248505488158aa5f858bef737a032b852b8c42aed922266c76431f7a94ef58"
-            }
-          },
-          "updated_at": "2026-10-01T08:51:56+08:00"
-        },
-        "0.2.0": {
-          "changelog": "🗂️ **Moo v0.2.0**——早期版本归档（未留存变更记录）。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.2.0/moo-0.2.0-fnos-amd64.fpk",
-              "size": 5410430,
-              "size_mb": 5.16,
-              "sha256": "0b9da57e0e1dade5c844773f2b8e21002da0698a18f51e966dc218cba523e265"
-            }
-          },
-          "updated_at": "2026-10-01T08:50:56+08:00"
-        },
-        "0.1.0": {
-          "changelog": "🗂️ **Moo v0.1.0**——首个版本归档。",
-          "packages": {
-            "x86": {
-              "download_url": "http://192.168.3.15:3033/bluemink/moo/releases/download/v0.1.0/moo_0.1.0_x86.fpk",
-              "size": 4686208,
-              "size_mb": 4.47,
-              "sha256": "66afaae26cbfb5ff33998e8150df5a1b10a913dd2c4b8cae3831c6eccd7ceea1"
-            }
-          },
-          "updated_at": "2026-10-01T08:49:56+08:00"
+          "updated_at": "2026-09-26T08:39:41+08:00"
         }
       },
-      "sha256": "2cb581b6345a3b338b6aac1542ac022b189fb78e29251026b8cd460e37b0fb94",
-      "icon_url": "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/fnos/ICON.PNG",
-      "readme_url": "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/README.md",
+      "sha256": "b3609c0a4e62572e98479d4a57a91fb3f3b4d0a56377a15b9fcfbac31372906a",
+      "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
+      "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
       "labels": "系统工具",
       "install_type": "root",
       "preview_urls": [
-        "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/docs/readme-pc-home.png",
-        "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/docs/readme-pc-detail.png",
-        "http://192.168.3.15:3033/bluemink/moo/raw/branch/main/docs/readme-mobile-1.png"
+        "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-pc-home.png",
+        "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-pc-detail.png",
+        "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-mobile-1.png"
       ],
-      "download_count": 291,
-      "first_release_at": "2026-10-01T08:49:56+08:00",
-      "updated_at": "2026-10-01T23:56:04+08:00"
+      "download_count": 0,
+      "first_release_at": "2026-09-26T08:39:41+08:00",
+      "updated_at": "2026-10-04T12:39:55+08:00"
     }
   }
 }
