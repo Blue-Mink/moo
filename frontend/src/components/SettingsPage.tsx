@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 import { useKeyboardDock } from '../lib/hooks';
 import {
@@ -19,11 +19,12 @@ import {
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogCancel } from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, Globe, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -518,8 +519,41 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [mirrorOptions, setMirrorOptions] = useState<MirrorOption[]>([]);
   const [dockerMirror, setDockerMirror] = useState<string>('daocloud');
   const [dockerMirrorOptions, setDockerMirrorOptions] = useState<MirrorOption[]>([]);
+  // 0.6.269 Docker 优选接入：系统 daemon.json 当前镜像源状态 + 应用流程
+  const [dkStatus, setDkStatus] = useState<DockerMirrorStatus | null>(null);
+  const [dkApplyOpen, setDkApplyOpen] = useState(false);
+  const [dkApplying, setDkApplying] = useState(false);
+  const loadDkStatus = useCallback(async () => {
+    try {
+      setDkStatus(await fetchDockerMirrorStatus());
+    } catch {
+      /* 状态获取失败不阻塞设置页（应用按钮仍可用，失败会另行报错） */
+    }
+  }, []);
+  useEffect(() => {
+    if (open) void loadDkStatus();
+  }, [open, loadDkStatus]);
+
   const [customGithubMirror, setCustomGithubMirror] = useState<string>('');
   const [customDockerMirror, setCustomDockerMirror] = useState<string>('');
+  // 应用当前所选镜像到系统 Docker（0.6.269：写 daemon.json + 重启，可回滚）。
+  // 镜像地址由后端按 key 解析（custom 除外，需带 custom_url）。
+  const handleApplyDockerMirror = useCallback(async () => {
+    setDkApplying(true);
+    try {
+      const res = await applyDockerMirror(
+        dockerMirror,
+        dockerMirror === 'custom' ? customDockerMirror.trim() : '',
+      );
+      setDkApplyOpen(false);
+      toast.success(res.message || '已应用');
+      void loadDkStatus();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '应用失败');
+    } finally {
+      setDkApplying(false);
+    }
+  }, [dockerMirror, customDockerMirror, loadDkStatus]);
   // 科学加速（0.6.206，加速源设置末卡片）：本机代理，仅 GitHub 域名改道
   const [proxyEnabled, setProxyEnabled] = useState<boolean>(false);
   const [proxyUrl, setProxyUrl] = useState<string>('');
@@ -528,6 +562,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [volumeOptions, setVolumeOptions] = useState<VolumeOption[]>([]);
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   const [autoUpdate, setAutoUpdate] = useState<boolean>(false);
+  const [catalogLang, setCatalogLang] = useState<string>('auto');
   // FPK 下载目录 + 已下载列表（设置页展示，可同步刷新）
   // 目录选择对话框：可下钻浏览（卷根 → 共享目录 → 任意子层），切换中状态
   const [dirApplying, setDirApplying] = useState(false);
@@ -1171,6 +1206,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setInstallVolume(settings.install_volume || 0);
         setVolumeOptions(settings.volume_options || []);
         setAutoUpdate(!!settings.auto_update);
+        setCatalogLang(settings.catalog_language || 'auto');
         // 0.6.255：面板账号加载行已移除（设置不再下发 panel_* 字段）
         setBackupDir(settings.backup_dir || '');
         setBackupAuto(!!settings.backup_auto);
@@ -1270,6 +1306,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         custom_docker_mirror: customDockerMirror,
         install_volume: installVolume,
         auto_update: autoUpdate,
+        catalog_language: catalogLang,
         // 0.6.255：面板账号字段已彻底移除（官方源 = 纯 OAuth）
         // 备份设置（备份目录空串 = 回本机默认数据目录，需显式提交）
         backup_dir: backupDir,
@@ -1813,11 +1850,77 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         )}
                       </>
                     )}
+                    {/* 0.6.269 Docker 优选接入：把所选镜像写入系统 daemon.json（可回滚） */}
+                    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-medium flex items-center gap-2">
+                          应用到系统 Docker
+                          {dkStatus ? (
+                            dkStatus.applied ? (
+                              <Badge className="gap-1.5 text-[11px]">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                已应用
+                              </Badge>
+                            ) : dkStatus.mirrors?.length ? (
+                              <Badge variant="secondary" className="text-[11px]">
+                                系统已有其它镜像源
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[11px]">
+                                直连（无镜像源）
+                              </Badge>
+                            )
+                          ) : null}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed break-all">
+                          {dkStatus?.mirrors?.length
+                            ? `当前 registry-mirrors：${dkStatus.mirrors.join('，')}`
+                            : '将所选源写入 /etc/docker/daemon.json 并重启 Docker（写前自动备份，失败自动回滚）'}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={dkStatus?.applied ? 'outline' : 'secondary'}
+                        className="shrink-0 h-8"
+                        onClick={() => setDkApplyOpen(true)}
+                        disabled={dockerMirror === 'direct' && !dkStatus?.mirrors?.length}
+                      >
+                        {dkStatus?.applied ? '重新应用' : '应用'}
+                      </Button>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {dockerEnabled
-                        ? '仅供参考：实际拉取走系统级 Docker 镜像源，可按下方测速结果配置'
-                        : '加速已关闭：实际拉取走系统级 Docker 镜像源'}
+                        ? '加速源由上方选择决定；「应用」后系统 Docker 拉取即走该源'
+                        : '关闭加速 = 直连 Docker Hub；「应用」可清除系统镜像源配置'}
                     </p>
+                    <AlertDialog open={dkApplyOpen} onOpenChange={setDkApplyOpen}>
+                      <AlertDialogContent className="rounded-[18px] border-border/20 shadow-appstore bg-card">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>应用 Docker 镜像源到系统</AlertDialogTitle>
+                          <AlertDialogDescription className="space-y-1.5">
+                            {dockerMirror === 'direct' ? (
+                              <p>将<b>清除</b> /etc/docker/daemon.json 的 registry-mirrors（回到 Docker Hub 直连）。</p>
+                            ) : (
+                              <p>
+                                将把 <b>{dockerMirror === 'custom' ? (customDockerMirror || '自定义地址') : dockerMirrorLabel(dockerMirror)}</b>{dockerMirror === 'custom' ? `（${customDockerMirror}）` : ''} 写入 /etc/docker/daemon.json 的 registry-mirrors。
+                              </p>
+                            )}
+                            <p>
+                              需要<b>重启 Docker</b>：本机所有容器会停止数秒后自动恢复（Docker 类应用短暂不可用）。写前自动备份，任一步失败自动回滚。
+                            </p>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={dkApplying}>取消</AlertDialogCancel>
+                          <Button onClick={handleApplyDockerMirror} disabled={dkApplying}>
+                            {dkApplying ? (
+                              <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                            ) : null}
+                            {dkApplying ? '应用中…' : '确认应用'}
+                          </Button>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                     {/* KSpeeder 镜像加速：独立应用依赖（同 New Store 依赖外部 iStoreEnhance 的做法），
                         未运行时提供安装入口，走标准应用安装管线（Blue-Mink 源 appname=kspeeder） */}
                     <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
@@ -2060,6 +2163,31 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       </p>
                     </div>
                     <Switch checked={autoUpdate} onCheckedChange={setAutoUpdate} />
+                  </div>
+                </div>
+
+                {/* 目录语言（0.6.269，M4 语言跟随）：官方目录名称/简介语言 */}
+                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                        目录语言
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        官方应用中心名称与简介的语言；「自动」跟随浏览器语言
+                      </p>
+                    </div>
+                    <Select value={catalogLang} onValueChange={(value) => setCatalogLang(value)}>
+                      <SelectTrigger className="w-[104px] h-9">
+                        <SelectValue placeholder="目录语言" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">自动</SelectItem>
+                        <SelectItem value="zh-CN">简体中文</SelectItem>
+                        <SelectItem value="en-US">English</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 

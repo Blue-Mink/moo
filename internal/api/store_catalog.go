@@ -8,13 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"moo/internal/lang"
 	"moo/internal/platform"
 	"moo/internal/source"
 )
 
 // cachedCatalog 返回目录缓存（共享只读切片，5s 内复用；过期自动重建）。
-// 只读约束：调用方不得修改元素字段（列表瘦身等写操作先 cachedCatalogCopy）。
-func (s *Server) cachedCatalog() []AppInfo {
+// l = 目录语言（0.6.269）：请求路径传 lang.From(r.Context())，
+// 后台路径传 s.bgLang()。只读约束：调用方不得修改元素字段
+//（列表瘦身等写操作先 cachedCatalogCopy）。
+func (s *Server) cachedCatalog(l string) []AppInfo {
 	s.catalogMu.Lock()
 	defer s.catalogMu.Unlock()
 	ttl := s.catalogTTL
@@ -24,14 +27,14 @@ func (s *Server) cachedCatalog() []AppInfo {
 	if s.catalogData != nil && time.Since(s.catalogAt) < ttl {
 		return s.catalogData
 	}
-	s.catalogData = s.buildCatalog()
+	s.catalogData = s.buildCatalog(l)
 	s.catalogAt = time.Now()
 	return s.catalogData
 }
 
 // cachedCatalogCopy 返回可安全修改的副本（1700+ 结构体浅拷贝，约百微秒）。
-func (s *Server) cachedCatalogCopy() []AppInfo {
-	c := s.cachedCatalog()
+func (s *Server) cachedCatalogCopy(l string) []AppInfo {
+	c := s.cachedCatalog(l)
 	out := make([]AppInfo, len(c))
 	copy(out, c)
 	return out
@@ -48,7 +51,8 @@ func (s *Server) invalidateCatalog() {
 // buildCatalog 合并应用源元数据与 daemon 安装状态，生成前端 AppInfo 列表。
 // 目录里存在但本机未装的 → installed=false；本机已装但不在任何源里的
 // （系统自带 / 源删了）也列入，保证「已装」页完整。
-func (s *Server) buildCatalog() []AppInfo {
+// l = 目录语言（0.6.269）：官方目录条目（Panel.Apps）按此语言取名称/简介。
+func (s *Server) buildCatalog(l string) []AppInfo {
 	all := s.Src.Apps("", "")
 	installed, _ := platform.ListInstalled(context.Background())
 	byName := make(map[string]platform.InstalledApp, len(installed))
@@ -194,7 +198,8 @@ func (s *Server) buildCatalog() []AppInfo {
 	// - 已装但无源 → 补官方源信息（可更新判断/官方徽章）
 	// - 社区源也有 → 跨源取最高版本（官方版本更高时更新 has_update）
 	if s.Panel != nil {
-		if official, _ := s.Panel.Apps(context.Background()); len(official) > 0 {
+		// 0.6.269：官方目录条目按请求/配置语言取名称与简介
+		if official, _ := s.Panel.Apps(lang.WithContext(context.Background(), l)); len(official) > 0 {
 			for _, oa := range official {
 				idx := -1
 				for i := range out {
@@ -471,6 +476,10 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 		SizeBytes:      sizeBytes,
 		InstallType:    a.InstallType,
 		FirstReleaseAt: a.FirstReleaseAt,
+		DescHTML:       a.DescHTML,
+		License:        a.License,
+		MinFnos:        a.MinFnos,
+		Wizard:         a.Wizard,
 		Sha256:         a.Sha256,
 		PreviewCount:   len(a.PreviewURLs),
 		PreviewURLs:    a.PreviewURLs,

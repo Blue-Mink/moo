@@ -155,7 +155,7 @@ GitHub 系统一成 `github.com/owner/repo` → 得到「源 key」与已配置�
 | 字段 | 类型 | 展示位置 | 说明 |
 |---|---|---|---|
 | `desc` | string | 列表卡片 / 详情页 | 纯文本简介 |
-| `desc_html` | string | 详情页 | 富文本（Moo 会消毒后渲染） |
+| `desc_html` | string | 详情页 | 富文本（**0.6.269 起实现**：DOMPurify 白名单消毒后渲染，优先于 `desc`） |
 | `changelog` | string | 详情页「更新日志」 | 本版更新日志；多版本请在 `releases.<ver>.changelog` 里写 |
 | `updated_at` | string | 详情页「最近更新」 | 本版发布时间 |
 | `first_release_at` | string | 详情页「最早发布」 | 该应用最早发布时间 |
@@ -206,8 +206,9 @@ GitHub 系统一成 `github.com/owner/repo` → 得到「源 key」与已配置�
 | `app_type` | `fpk` / `docker` / `native` | 应用类型；`docker` 会在列表/详情显示容器标记 |
 | `install_type` | `root` / `package` / `用户空间` / `系统空间` / `存储空间` | **运行身份**（root/package）或**安装位置**（系统空间/存储空间）。详情页**自适应标签**：运行身份 → 「运行方式」（`package` 显示为 **用户空间**，`root` 原样）；安装位置 → 「安装位置」；**认不出的值整行不显示** |
 | `service_port` | number / string | 应用服务端口（展示、跳转） |
-| `min_fnos` | string | 最低 fnOS 版本（不满足会提示） |
-| `wizard` | object | 安装向导参数，见示例 7 |
+| `license` | string | 许可协议（如 `MIT`），**0.6.269 起实现**：详情页「许可协议」行 |
+| `min_fnos` | string | 最低 fnOS 版本，**0.6.269 起实现**：详情页「系统最低版本」行提示；安装期由平台按应用做版本匹配校验（不满足安装会失败并报错） |
+| `wizard` | object | 安装向导参数，见示例 7（**0.6.269 起实现**：安装前弹窗收集，键名由应用定义，值随安装请求下发） |
 
 ---
 

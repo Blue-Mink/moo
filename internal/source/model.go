@@ -40,6 +40,30 @@ type App struct {
 	// PreviewURLs 来自 fnpack.json 的 preview_urls 字段（详情页预览图灯箱）。
 	// 社区源多数不声明（对齐 New Store 行为：有则显示，无则隐藏该区）。
 	PreviewURLs []string `json:"-"`
+	// ── moo.json 扩展字段（0.6.269 起实现，见 docs/MOO-PROTOCOL.md §4.2/§4.5）──
+	// DescHTML 富文本简介（详情页展示，Moo 消毒后渲染；缺省用纯文本 Desc）。
+	DescHTML string `json:"desc_html,omitempty"`
+	// License 许可协议（如 MIT），详情页展示。
+	License string `json:"license,omitempty"`
+	// MinFnos 最低 fnOS 版本（详情页提示；安装期由平台按应用做版本匹配校验）。
+	MinFnos string `json:"min_fnos,omitempty"`
+	// Wizard 源声明的安装向导参数（示例 7）：安装时向用户收集，
+	// 键名由应用自身定义，值经 ?wizard= 传入安装管线。
+	Wizard *SourceWizard `json:"wizard,omitempty"`
+}
+
+// SourceWizard moo.json 里声明的安装向导（见 docs/MOO-PROTOCOL.md 示例 7）。
+type SourceWizard struct {
+	Fields []SourceWizardField `json:"fields,omitempty"`
+}
+
+// SourceWizardField 单个向导字段：key 为应用约定的参数名，label 为显示名，
+// default 为缺省值，required 为必填（空值时前端拦截提交）。
+type SourceWizardField struct {
+	Key      string `json:"key"`
+	Label    string `json:"label,omitempty"`
+	Default  string `json:"default,omitempty"`
+	Required bool   `json:"required,omitempty"`
 }
 
 // Source 是源适配器的统一接口。

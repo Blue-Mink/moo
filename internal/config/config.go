@@ -108,6 +108,9 @@ type Config struct {
 	// （官方应用走平台 cloud 通道、社区应用走 FPK 升级管线，均保留 @appdata）。
 	// 排除商店自身（moo，防自更新环）。依赖 Moo 服务保持运行。
 	AutoUpdate bool `json:"auto_update,omitempty"`
+	// CatalogLanguage 目录语言（0.6.269）：""/auto = 跟随请求 Accept-Language；
+	// 显式值（zh-CN / en-US）固定。后台协程无请求上下文时按此值/默认。
+	CatalogLanguage string `json:"catalog_language,omitempty"`
 	// 本机安装次数（appname → 经 moo 安装/更新的累计次数）。
 	// 第三方源应用无全局下载量数据，列表/详情用「本机 N 次」回退展示。
 	LocalInstalls map[string]int `json:"local_installs,omitempty"`

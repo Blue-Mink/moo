@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"moo/internal/config"
+	"moo/internal/lang"
 	"moo/internal/netx"
 	"moo/internal/notify"
 	"moo/internal/operation"
@@ -72,7 +73,7 @@ func etagMatch(ifNoneMatch, etag string) bool {
 // 仅详情页用的字段不随列表下发——详情对话框打开时按 key 重拉全量
 // /api/apps/{key}（LAN 内毫秒级），接口未回前以列表条目兜底渲染。
 func (s *Server) appsResponse(r *http.Request) AppsResponse {
-	catalog := s.cachedCatalogCopy() // 后续会剥离瘦身字段，必须用副本
+	catalog := s.cachedCatalogCopy(lang.From(r.Context())) // 后续会剥离瘦身字段，必须用副本
 	src := r.URL.Query().Get("source")
 	if src != "" {
 		filtered := catalog[:0]
@@ -118,7 +119,7 @@ func (s *Server) lastCheckStamp() string {
 func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 	// 目录缓存命中（读-only）——详情点击不再触发全量重建（ListInstalled
 	// RPC + 1700+ 条目合并），打开详情对话框的骨架屏闪烁由此消除。
-	for _, a := range s.cachedCatalog() {
+	for _, a := range s.cachedCatalog(lang.From(r.Context())) {
 		if a.Key == r.PathValue("key") {
 			writeJSON(w, a)
 			return
@@ -129,7 +130,7 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 
 // recommended GET /api/recommended：随机 3 个（优先有图标的）。
 func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
-	catalog := s.cachedCatalog()
+	catalog := s.cachedCatalog(lang.From(r.Context()))
 	withIcon := make([]AppInfo, 0)
 	rest := make([]AppInfo, 0)
 	for _, a := range catalog {
@@ -178,7 +179,7 @@ func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 	s.invalidateCatalog() // 源已刷新，旧缓存作废
 	updates := 0
-	for _, a := range s.cachedCatalog() {
+	for _, a := range s.cachedCatalog(lang.From(r.Context())) {
 		if a.Installed && a.HasUpdate {
 			updates++
 		}
@@ -233,7 +234,7 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 		// 预热目录缓存：首个用户请求（详情点击/列表打开）不再撞上
 		// 冷启动全量重建（实测 ~750ms）。
 		if ctx.Err() == nil {
-			go s.cachedCatalog()
+			go s.cachedCatalog(s.bgLang())
 		}
 		// 「自动更新应用」开启时，源刷新后顺势跑一轮自动更新（同一周期）。
 		if ctx.Err() == nil {
@@ -271,7 +272,7 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 			}
 		}
 	}
-	apps := s.buildCatalog()
+	apps := s.buildCatalog(s.bgLang())
 	type job struct {
 		key, appName, source, target string
 		official                     bool
@@ -438,7 +439,7 @@ func (s *Server) StartGHStatsRefresh(ctx context.Context) {
 // ghStatsRound 一轮：把目录里全部 Release 链接排入队列，拉取限额内的仓库。
 func (s *Server) ghStatsRound(ctx context.Context) {
 	urls := make([]string, 0, 2048)
-	for _, a := range s.cachedCatalog() {
+	for _, a := range s.cachedCatalog(s.bgLang()) {
 		if a.ReleaseURL != "" {
 			urls = append(urls, a.ReleaseURL)
 		}
@@ -1115,6 +1116,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListOff:       s.Cfg.SourceListOff,
 		SourceAutoCareOff:   s.Cfg.SourceAutoCareOff,
 		AutoUpdate:          s.Cfg.AutoUpdate,
+		CatalogLanguage:     orAuto(s.Cfg.CatalogLanguage),
 		BackupDir:           s.Cfg.BackupDir,
 		BackupAuto:          s.Cfg.BackupAuto,
 		BackupIntervalDays:  s.backupIntervalDaysOf(),
@@ -1198,6 +1200,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
 		AutoUpdate *bool `json:"auto_update"`
+		// 目录语言（0.6.269）：nil = 未提交不改动；auto/zh-CN/en-US。
+		CatalogLanguage *string `json:"catalog_language"`
 		// FPK 下载目录（选择器给出的绝对路径；空 = 不改动）。
 		DownloadDir string `json:"download_dir"`
 		// 备份设置（备份设置 tab）：
@@ -1262,6 +1266,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// 0.6.255：面板账号已彻底移除——不再接受/落盘 panel_* 字段。
 	if in.AutoUpdate != nil {
 		s.Cfg.AutoUpdate = *in.AutoUpdate
+	}
+	// 目录语言（0.6.269）：只接受白名单值，越界整单拒绝。
+	if in.CatalogLanguage != nil {
+		v := strings.TrimSpace(*in.CatalogLanguage)
+		if !lang.Supported[v] {
+			writeErr(w, http.StatusBadRequest, errors.New("目录语言仅支持 auto / zh-CN / en-US"))
+			return
+		}
+		s.Cfg.CatalogLanguage = v
 	}
 	// 加速源自动测速间隔（0.6.148）：越界整单拒绝（齿轮只产出 0-23/0-59，
 	// 拒绝脏值入 config；0h0m 合法 = 未设置 → 后端按默认 5 分钟执行）。

@@ -36,26 +36,26 @@ func TestCatalogCache(t *testing.T) {
 	s := newCatalogTestServer(t)
 	s.catalogTTL = time.Hour // 拉长 TTL，单独控制过期路径
 
-	c1 := s.cachedCatalog()
+	c1 := s.cachedCatalog("zh-CN")
 	if len(c1) != 1 || c1[0].AppName != "demo" {
 		t.Fatalf("目录应有 1 条 demo，实际 %d", len(c1))
 	}
-	c2 := s.cachedCatalog()
+	c2 := s.cachedCatalog("zh-CN")
 	if &c1[0] != &c2[0] {
 		t.Error("TTL 内二次读取应命中同一缓存切片")
 	}
 
 	// 副本隔离：瘦身式修改副本，共享缓存不受影响
-	cp := s.cachedCatalogCopy()
+	cp := s.cachedCatalogCopy("zh-CN")
 	cp[0].DisplayName = "被污染"
 	cp[0].ChangelogEntries = nil
-	if got := s.cachedCatalog()[0].DisplayName; got == "被污染" {
+	if got := s.cachedCatalog("zh-CN")[0].DisplayName; got == "被污染" {
 		t.Error("修改副本污染了共享缓存（缓存切片被共享引用）")
 	}
 
 	// 显式失效 → 重建
 	s.invalidateCatalog()
-	c3 := s.cachedCatalog()
+	c3 := s.cachedCatalog("zh-CN")
 	if &c3[0] == &c1[0] {
 		t.Error("失效后应重建新切片")
 	}
@@ -66,7 +66,7 @@ func TestCatalogCache(t *testing.T) {
 	// TTL 过期 → 重建
 	s.catalogTTL = 30 * time.Millisecond
 	time.Sleep(60 * time.Millisecond)
-	c4 := s.cachedCatalog()
+	c4 := s.cachedCatalog("zh-CN")
 	if &c4[0] == &c3[0] {
 		t.Error("TTL 过期后应重建新切片")
 	}

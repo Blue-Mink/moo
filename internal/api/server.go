@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"moo/internal/config"
+	"moo/internal/lang"
 	"moo/internal/netguard"
 	"moo/internal/official"
 	"moo/internal/operation"
@@ -177,6 +178,9 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/mirrors/health", s.mirrorHealth)
 	mux.HandleFunc("GET /api/mirrors/docker/health", s.dockerMirrorHealth)
 	mux.HandleFunc("POST /api/mirrors/check", s.requireAdmin(s.mirrorsCheck))
+	// 0.6.269 Docker 优选接入：把选中的镜像写入系统 daemon.json 并重启（可回滚）
+	mux.HandleFunc("GET /api/settings/docker-mirror/status", s.requireAdmin(s.dockerMirrorStatus))
+	mux.HandleFunc("POST /api/settings/docker-mirror/apply", s.requireAdmin(s.dockerMirrorApply))
 
 	// 0.6.255：/api/panel/test 已移除（面板账号随设置卡片一并下线；
 	// 授权时的临时账号校验由 /api/official/authorize-headless 承担）。
@@ -219,6 +223,10 @@ func (s *Server) Handler(trust bool) http.Handler {
 
 	// 静态前端：/ 与 /app/moo/ 下均提供 SPA（非 /api 路径回退 index.html）
 	core = s.withStatic(core, trust)
+
+	// 目录语言跟随（0.6.269）：最外层注入，所有下游 handler 的 r.Context()
+	// 都能取到语言（显式配置 > Accept-Language > 默认 zh-CN）。
+	core = s.langMiddleware(core)
 
 	if trust {
 		return http.StripPrefix(GatewayPrefix, withUser(true, core))
@@ -273,6 +281,31 @@ func orAnon(name string) string {
 		return "未知用户"
 	}
 	return name
+}
+
+// langMiddleware（0.6.269，M4 语言跟随）：请求上下文注入目录语言——
+// 显式配置 catalog_language（非 auto）优先，否则跟随请求 Accept-Language。
+// 后台协程（无请求上下文）走 bgLang()：配置值或 zh-CN 默认。
+func (s *Server) langMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(lang.WithContext(r.Context(), s.langForRequest(r))))
+	})
+}
+
+// langForRequest 解析单请求的目录语言（显式配置 > Accept-Language > 默认）。
+func (s *Server) langForRequest(r *http.Request) string {
+	if v := s.Cfg.CatalogLanguage; v != "" && v != "auto" && lang.Supported[v] {
+		return v
+	}
+	return lang.FromAcceptLanguage(r.Header.Get("Accept-Language"))
+}
+
+// bgLang 后台协程的目录语言（无请求上下文）。
+func (s *Server) bgLang() string {
+	if v := s.Cfg.CatalogLanguage; v != "" && v != "auto" && lang.Supported[v] {
+		return v
+	}
+	return lang.Default
 }
 
 // SetupNetguard 注册豁免主机重建器（启动时调用）：管理员显式配置的

@@ -381,6 +381,11 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 		DownloadCount:  anyInt(m, "download_count"),
 		PreviewURLs:    strListField(m, "preview_urls"),
 		FirstReleaseAt: str(m, "first_release_at"),
+		// moo.json 扩展（0.6.269）：富文本简介 / 许可 / 最低 fnOS 版本 / 源级向导
+		DescHTML: str(m, "desc_html"),
+		License:  str(m, "license"),
+		MinFnos:  str(m, "min_fnos"),
+		Wizard:   parseSourceWizard(m["wizard"]),
 	}
 	if a.DisplayName == "" {
 		a.DisplayName = name
@@ -508,6 +513,44 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 	}
 	a.PreviewURLs = previewURLs
 	return a
+}
+
+// parseSourceWizard 解析 moo.json 的源级向导字段（示例 7 的
+// `wizard: { fields: [{key,label,default,required}] }`）。
+// 结构不符/空 fields 返回 nil（调用方按「无向导」处理）。
+func parseSourceWizard(v any) *SourceWizard {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := obj["fields"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	fields := make([]SourceWizardField, 0, len(raw))
+	for _, it := range raw {
+		fm, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		key, _ := fm["key"].(string)
+		if strings.TrimSpace(key) == "" {
+			continue // 无 key 的字段无法回传，整条丢弃
+		}
+		label, _ := fm["label"].(string)
+		def, _ := fm["default"].(string)
+		req, _ := fm["required"].(bool)
+		fields = append(fields, SourceWizardField{
+			Key:      strings.TrimSpace(key),
+			Label:    label,
+			Default:  def,
+			Required: req,
+		})
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return &SourceWizard{Fields: fields}
 }
 
 // strListField 取字符串数组字段（兼容 JSON 数组与单字符串两种写法）。

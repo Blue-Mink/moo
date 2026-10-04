@@ -847,6 +847,19 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               </>
             );
           }
+          if (app.desc_html) {
+            // moo.json 扩展（0.6.269）：源显式声明的富文本简介，优先于 desc
+            // 猜测式识别；DOMPurify 白名单消毒后渲染（与官方 desc 同策略）
+            return (
+              <>
+                <DialogDescription
+                  className={DESC_RICH_CLS}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(app.desc_html) }}
+                />
+                <Separator />
+              </>
+            );
+          }
           if (app.description) {
             const d = app.description;
             // 第三方 desc 同样允许 HTML（与官方 desc 同源写法）：像 HTML 则清洗后按富文本
@@ -1001,6 +1014,19 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
           {app.first_release_at && (
             <DetailRow icon={CalendarClock} label="最早发布">
               {formatDate(app.first_release_at)}
+            </DetailRow>
+          )}
+
+          {/* moo.json 扩展（0.6.269）：许可协议 / 最低 fnOS 版本（源未提供不显示） */}
+          {app.license && (
+            <DetailRow icon={FileText} label="许可协议">
+              {app.license}
+            </DetailRow>
+          )}
+
+          {app.min_fnos && (
+            <DetailRow icon={Network} label="系统最低版本">
+              fnOS {app.min_fnos}
             </DetailRow>
           )}
 

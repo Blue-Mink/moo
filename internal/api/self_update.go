@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"moo/internal/lang"
 	"moo/internal/netx"
 )
 
@@ -365,7 +366,7 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 		"appName":       staged.AppName,
 		"updateVersion": staged.Version,
 		"packageType":   staged.PackageType,
-		"language":      "zh-CN",
+		"language":      lang.From(ctx),
 	}, &info); err != nil {
 		failNotify("升级前检查", err.Error())
 		sseSend(w, f, map[string]any{"step": "error", "error": "升级前检查失败: " + err.Error()})
@@ -397,7 +398,7 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 			"immediateStart":   false, // daemon 升级后自动恢复原运行状态
 		},
 		"customParameters": []any{},
-		"language":         "zh-CN",
+		"language":         lang.From(ctx),
 	}, &task)
 	if err != nil {
 		failNotify("提交升级", err.Error())

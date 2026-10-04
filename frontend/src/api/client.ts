@@ -89,6 +89,21 @@ export interface AppInfo {
   install_type?: string;
   /** moo.json 扩展：该应用最早发布时间 */
   first_release_at?: string;
+  /** moo.json 扩展：富文本简介（后端已原样下发；前端消毒后渲染） */
+  desc_html?: string;
+  /** moo.json 扩展：许可协议（如 MIT） */
+  license?: string;
+  /** moo.json 扩展：最低 fnOS 版本（详情页提示；安装期由平台校验） */
+  min_fnos?: string;
+  /** moo.json 扩展：源声明的安装向导参数（安装时收集，键名由应用定义） */
+  wizard?: {
+    fields?: {
+      key: string;
+      label?: string;
+      default?: string;
+      required?: boolean;
+    }[];
+  };
   sha256?: string;
   preview_count?: number;
   has_readme?: boolean;
@@ -611,6 +626,8 @@ export interface Settings {
   source_auto_care_disabled?: boolean;
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   auto_update?: boolean;
+  // 目录语言（0.6.269）：auto（默认，跟随浏览器语言）/ zh-CN / en-US
+  catalog_language?: string;
   // 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
   // panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
   // 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
@@ -1153,7 +1170,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1164,6 +1181,41 @@ export const updateSettings = async (settings: { check_interval_hours?: number; 
   if (!response.ok) {
     throw new Error(await extractError(response, `Failed to update settings: ${response.statusText}`));
   }
+};
+
+// ── Docker 系统镜像源应用（0.6.269，M4 Docker 优选接入）────────────────
+export interface DockerMirrorStatus {
+  daemon_json_exists: boolean;
+  mirrors: string[];
+  docker_active: boolean;
+  applied?: boolean;
+  error?: string;
+  last_applied?: {
+    applied_at: string;
+    mirror: string;
+    mirrors: string[];
+    backup_file?: string;
+    docker_active: boolean;
+  };
+}
+export const fetchDockerMirrorStatus = async (): Promise<DockerMirrorStatus> => {
+  const res = await apiFetch(apiUrl('/api/settings/docker-mirror/status'));
+  if (!res.ok) throw new Error(`获取 Docker 镜像源状态失败: ${res.status}`);
+  return res.json();
+};
+export const applyDockerMirror = async (
+  mirror: string,
+  customUrl: string,
+): Promise<{ ok: boolean; message: string; mirrors: string[]; restarted: boolean }> => {
+  const res = await apiFetch(apiUrl('/api/settings/docker-mirror/apply'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mirror, custom_url: customUrl }),
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res, `应用 Docker 镜像源失败: ${res.status}`));
+  }
+  return res.json();
 };
 
 /** 备份设置：备份列表 + 备份/清理设置 + FPK 缓存统计。 */

@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+
+	"moo/internal/lang"
 )
 
 // StoreApp 是 /app-center/v1/app/list 条目的子集（Moo 需要的字段）。
@@ -65,7 +67,7 @@ func (m *Manager) StoreList(ctx context.Context) ([]StoreApp, error) {
 	const pageSize = 200
 	for page := 1; page <= 20; page++ {
 		q := url.Values{}
-		q.Set("language", "zh-CN")
+		q.Set("language", lang.From(ctx))
 		q.Set("limit", strconv.Itoa(pageSize))
 		q.Set("page", strconv.Itoa(page))
 		data, err := m.doGet(ctx, "/app-center/v1/app/list", q)
@@ -95,7 +97,7 @@ func (m *Manager) StoreList(ctx context.Context) ([]StoreApp, error) {
 // StoreDetail 单个应用详情。
 func (m *Manager) StoreDetail(ctx context.Context, appName string) (map[string]any, error) {
 	q := url.Values{}
-	q.Set("language", "zh-CN")
+	q.Set("language", lang.From(ctx))
 	q.Set("appName", appName)
 	data, err := m.doGet(ctx, "/app-center/v1/app/detail", q)
 	if err != nil {
@@ -111,7 +113,7 @@ func (m *Manager) StoreDetail(ctx context.Context, appName string) (map[string]a
 // StoreSearch 关键字搜索。
 func (m *Manager) StoreSearch(ctx context.Context, keyword string) ([]StoreApp, error) {
 	q := url.Values{}
-	q.Set("language", "zh-CN")
+	q.Set("language", lang.From(ctx))
 	q.Set("keyword", keyword)
 	data, err := m.doGet(ctx, "/app-center/v1/app/search", q)
 	if err != nil {
@@ -128,7 +130,7 @@ func (m *Manager) StoreSearch(ctx context.Context, keyword string) ([]StoreApp, 
 
 // Installed 官方已装列表（含运行状态）。
 func (m *Manager) Installed(ctx context.Context) (map[string]any, error) {
-	data, err := m.doGet(ctx, "/app-center/v1/app/installed", url.Values{"language": {"zh-CN"}})
+	data, err := m.doGet(ctx, "/app-center/v1/app/installed", url.Values{"language": {lang.From(ctx)}})
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +143,7 @@ func (m *Manager) Installed(ctx context.Context) (map[string]any, error) {
 
 // CheckUpdate 检查更新可用性。
 func (m *Manager) CheckUpdate(ctx context.Context) (map[string]any, error) {
-	data, err := m.doGet(ctx, "/app-center/v1/check-update", url.Values{"language": {"zh-CN"}})
+	data, err := m.doGet(ctx, "/app-center/v1/check-update", url.Values{"language": {lang.From(ctx)}})
 	if err != nil {
 		return nil, err
 	}

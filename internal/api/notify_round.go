@@ -358,7 +358,7 @@ func (s *Server) favoriteSourcePass() {
 	if len(s.Cfg.FavoriteSources) == 0 {
 		return
 	}
-	catalog := s.cachedCatalog()
+	catalog := s.cachedCatalog(s.bgLang())
 	bySrc := make(map[string][]AppInfo)
 	for _, a := range catalog {
 		if a.Source != "" {
@@ -526,7 +526,7 @@ func (s *Server) favoriteSourceReportPass() {
 	if len(s.Cfg.FavoriteSources) == 0 {
 		return
 	}
-	catalog := s.cachedCatalog()
+	catalog := s.cachedCatalog(s.bgLang())
 	bySrc := make(map[string][]AppInfo)
 	for _, a := range catalog {
 		if a.Source != "" {
@@ -768,7 +768,7 @@ func (s *Server) pushFavSourceReport(r favSrcRep) {
 // 「已装且有更新」的应用集合；集合（应用×版本指纹）变化且非空才推送——
 // 数目 + 每个应用的 旧→新 版本与来源（前 8 个，超出汇总）。
 func (s *Server) updatesAvailablePass() {
-	catalog := s.cachedCatalog()
+	catalog := s.cachedCatalog(s.bgLang())
 	type upd struct{ label, old, new, src string }
 	var upds []upd
 	fps := make([]string, 0)
@@ -875,7 +875,7 @@ func (s *Server) favoriteUpdatePass() {
 	if len(s.Cfg.Favorites) == 0 {
 		return
 	}
-	catalog := s.cachedCatalog()
+	catalog := s.cachedCatalog(s.bgLang())
 	byKey := make(map[string]AppInfo, len(catalog))
 	for _, a := range catalog {
 		byKey[a.Key] = a

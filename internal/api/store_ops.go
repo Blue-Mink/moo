@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,11 +16,13 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"moo/internal/config"
+	"moo/internal/lang"
 	"moo/internal/netguard"
 	"moo/internal/netx"
 	"moo/internal/operation"
@@ -84,7 +87,8 @@ func (s *Server) daemonAppNameFor(ctx context.Context, key string) string {
 // 含已装状态合并，单次 ~50ms；此前每个回退分支各构建一次，panel-detail
 // 一条请求最多触发 7 次 → 详情页「卡一下」的主因之一）。
 func (s *Server) catalogByKey(key string) (AppInfo, bool) {
-	catalog := s.cachedCatalog()
+	// 0.6.269：目录语言——查表用（key 匹配与语言无关），统一按后台语言取。
+	catalog := s.cachedCatalog(s.bgLang())
 	return catalogByKeyIn(catalog, key)
 }
 
@@ -578,7 +582,7 @@ func (s *Server) appPanelDetail(w http.ResponseWriter, r *http.Request) {
 	// 目录走缓存：官方判定 + 条目解析 + panelDetail 同名依赖共用
 	// （此前每次 buildCatalog ~50ms，isOfficialKey/catalogByKey 各自再
 	// 构建会把本请求拖到 ~300ms——详情页「卡一下」的主因之一）。
-	catalog := s.cachedCatalog()
+	catalog := s.cachedCatalog(lang.From(r.Context()))
 	ai, ok := catalogByKeyIn(catalog, key)
 	// 0.6.255：官方源恒存在（纯 OAuth；未连接时 panelDetail 内部透传「未连接」）
 	if !ok || ai.Source != OfficialSourceID {
@@ -1626,9 +1630,93 @@ func localAppIcon(appName string) ([]byte, bool) {
 	return nil, false
 }
 
-// appDiagnostic 应用诊断（M4 排障能力接入前不可用）。
+// appDiagnostic 应用诊断（0.6.269，M4 排障能力；契约 = 前端
+// ReportFailureDialog/fetchDiagnostic，此前 501 桩导致「上报」按钮恒败）：
+// GET /api/apps/{key}/diagnostic?step=<步骤>&error=<错误> →
+// {report: {app, display_name, version, arch, app_type, failed_step,
+//  error_message, log_tail, log_truncated, store_version, platform,
+//  timestamp}, issue_url}。只读收集，不改动任何状态。
 func (s *Server) appDiagnostic(w http.ResponseWriter, r *http.Request) {
-	writeErr(w, http.StatusNotImplemented, errors.New("诊断能力尚未启用（M4 里程碑接入）"))
+	key := r.PathValue("key")
+	step := r.URL.Query().Get("step")
+	errMsg := r.URL.Query().Get("error")
+
+	ai, ok := s.catalogByKey(key)
+	appname, displayName := key, key
+	if ok {
+		appname, displayName = ai.AppName, ai.DisplayName
+	}
+	version := ""
+	appType := ""
+	if ok {
+		version = ai.InstalledVersion
+		if version == "" {
+			version = ai.LatestVersion
+		}
+		appType = ai.AppType
+	}
+
+	arch := "x86"
+	if runtime.GOARCH == "arm64" || runtime.GOARCH == "arm" {
+		arch = "ARM"
+	}
+	lines, truncated := diagnosticLogTail(appname, 2000, 50, 8000)
+
+	report := map[string]any{
+		"app":            appname,
+		"display_name":   displayName,
+		"version":        version,
+		"arch":           arch,
+		"app_type":       appType,
+		"failed_step":    step,
+		"error_message":  errMsg,
+		"log_tail":       strings.Join(lines, "\n"),
+		"log_truncated":  truncated,
+		"store_version":  s.Version,
+		"platform":       "fnos",
+		"timestamp":      time.Now().Format(time.RFC3339),
+	}
+	writeJSON(w, map[string]any{
+		"report":    report,
+		"issue_url": "https://github.com/Blue-Mink/FnDepot/issues/new",
+	})
+}
+
+// diagnosticLogTail 读 Moo 日志尾部 scanLines 行，取最近 maxLines 条提及
+// appname（大小写不敏感）的行；拼接超过 maxBytes 时截断并置 truncated。
+// 文件缺失/无命中返回空切片。
+func diagnosticLogTail(appname string, scanLines, maxLines, maxBytes int) ([]string, bool) {
+	dir := dataDirOf(nil)
+	logPath := resolveMooLogPath(dir)
+	f, err := os.Open(logPath)
+	if err != nil {
+		return []string{}, false
+	}
+	defer f.Close()
+	var all []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		all = append(all, sc.Text())
+		if len(all) > scanLines {
+			all = all[len(all)-scanLines:]
+		}
+	}
+	needle := strings.ToLower(appname)
+	var hit []string
+	for i := len(all) - 1; i >= 0 && len(hit) < maxLines; i-- {
+		if strings.Contains(strings.ToLower(all[i]), needle) {
+			hit = append([]string{all[i]}, hit...)
+		}
+	}
+	truncated := false
+	joined := strings.Join(hit, "\n")
+	if len(joined) > maxBytes {
+		joined = joined[:maxBytes]
+		hit = strings.Split(joined, "\n")
+		truncated = true
+	}
+	return hit, truncated
 }
 
 // jsonUnmarshal 小工具。

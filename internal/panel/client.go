@@ -50,6 +50,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"moo/internal/lang"
 )
 
 const (
@@ -275,8 +277,8 @@ func (c *Client) doJSON(ctx context.Context, method, path string, query url.Valu
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "*/*")
-		req.Header.Set("language", "zh-CN")
-		req.Header.Set("Cookie", "language=zh-CN; ost="+cookie)
+		req.Header.Set("language", lang.From(ctx))
+		req.Header.Set("Cookie", "language="+lang.From(ctx)+"; ost="+cookie)
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("面板请求失败: %w", err)
@@ -352,7 +354,7 @@ func (c *Client) FileDownloadTask(ctx context.Context, path string) (string, err
 		return "", err
 	}
 	data, err := c.doJSON(ctx, http.MethodPost, "/app-center/v1/download/task", nil,
-		map[string]any{"packageSourceType": "file", "path": path, "language": "zh-CN"})
+		map[string]any{"packageSourceType": "file", "path": path, "language": lang.From(ctx)})
 	if err != nil {
 		return "", err
 	}
@@ -375,7 +377,7 @@ func (c *Client) FileDownloadTask(ctx context.Context, path string) (string, err
 
 // AppList fetches the full official catalog (single page, ~355 entries).
 func (c *Client) AppList(ctx context.Context) ([]PanelApp, error) {
-	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/app/list", url.Values{"language": {"zh-CN"}}, nil)
+	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/app/list", url.Values{"language": {lang.From(ctx)}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +393,7 @@ func (c *Client) AppList(ctx context.Context) ([]PanelApp, error) {
 
 // AppDetail fetches one app's detail (description + resolved dependencies).
 func (c *Client) AppDetail(ctx context.Context, appName string) (*PanelDetail, error) {
-	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/app/detail", url.Values{"appName": {appName}, "language": {"zh-CN"}}, nil)
+	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/app/detail", url.Values{"appName": {appName}, "language": {lang.From(ctx)}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +412,7 @@ func (c *Client) DownloadTask(ctx context.Context, appName, sourceID, version st
 		"sourceID":          sourceID,
 		"version":           version,
 		"volumeID":          volumeID,
-		"language":          "zh-CN",
+		"language":          lang.From(ctx),
 	}
 	data, err := c.doJSON(ctx, http.MethodPost, "/app-center/v1/download/task", nil, body)
 	if err != nil {
@@ -427,7 +429,7 @@ func (c *Client) DownloadTask(ctx context.Context, appName, sourceID, version st
 
 // DownloadStatus polls a cloud download task.
 func (c *Client) DownloadStatus(ctx context.Context, downloadTaskID string) (*DownloadStatus, error) {
-	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/download/status", url.Values{"downloadTaskId": {downloadTaskID}, "language": {"zh-CN"}}, nil)
+	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/download/status", url.Values{"downloadTaskId": {downloadTaskID}, "language": {lang.From(ctx)}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +444,7 @@ func (c *Client) DownloadStatus(ctx context.Context, downloadTaskID string) (*Do
 // The package must have been downloaded first (see InstallInfo docs).
 func (c *Client) InstallInfo(ctx context.Context, appName, version string) (*InstallInfo, error) {
 	data, err := c.doJSON(ctx, http.MethodGet, "/app-center/v1/install/info",
-		url.Values{"appName": {appName}, "version": {version}, "language": {"zh-CN"}}, nil)
+		url.Values{"appName": {appName}, "version": {version}, "language": {lang.From(ctx)}}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -472,7 +474,7 @@ func (c *Client) InstallTask(ctx context.Context, appName, version string, volum
 			"apiScope":         map[string]any{},
 		},
 		"customParameters": customParams,
-		"language":         "zh-CN",
+		"language":         lang.From(ctx),
 	}
 	data, err := c.doJSON(ctx, http.MethodPost, "/app-center/v1/install/task", nil, body)
 	if err != nil {
@@ -489,7 +491,7 @@ func (c *Client) InstallTask(ctx context.Context, appName, version string, volum
 
 // InstallStatus polls an install task.
 func (c *Client) InstallStatus(ctx context.Context, taskID string) (*InstallStatus, error) {
-	body := map[string]any{"taskId": taskID, "language": "zh-CN"}
+	body := map[string]any{"taskId": taskID, "language": lang.From(ctx)}
 	data, err := c.doJSON(ctx, http.MethodPost, "/app-center/v1/install/status", nil, body)
 	if err != nil {
 		return nil, err

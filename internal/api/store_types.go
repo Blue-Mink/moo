@@ -1,6 +1,9 @@
 package api
 
-import "moo/internal/config"
+import (
+	"moo/internal/config"
+	"moo/internal/source"
+)
 
 // 本文件镜像 New Store 前端 src/api/client.ts 的数据契约（Moo 后端按此提供）。
 
@@ -66,6 +69,15 @@ type AppInfo struct {
 	// FirstReleaseAt 该应用最早发布时间（源提供时展示）。
 	FirstReleaseAt string `json:"first_release_at,omitempty"`
 	Sha256         string `json:"sha256,omitempty"`
+	// ── moo.json 扩展（0.6.269 起实现，见 docs/MOO-PROTOCOL.md §4.2/§4.5）──
+	// DescHTML 富文本简介（详情页消毒后渲染）。
+	DescHTML string `json:"desc_html,omitempty"`
+	// License 许可协议（如 MIT）。
+	License string `json:"license,omitempty"`
+	// MinFnos 最低 fnOS 版本（详情页提示）。
+	MinFnos string `json:"min_fnos,omitempty"`
+	// Wizard 源声明的安装向导参数（安装时前端收集后传 ?wizard=）。
+	Wizard *source.SourceWizard `json:"wizard,omitempty"`
 	PreviewCount   int    `json:"preview_count,omitempty"`
 	// PreviewURLs 预览图直链（详情页灯箱按 index 取 /asset?type=preview）；
 	// 与 PreviewCount 配套，仅详情用（列表瘦身时若剔除不影响计数展示）。
@@ -140,6 +152,9 @@ type Settings struct {
 	VolumeOptions       []VolumeOption        `json:"volume_options,omitempty"`
 	DownloadDir         string                `json:"download_dir,omitempty"`
 	AutoUpdate          bool                  `json:"auto_update"`
+	// CatalogLanguage 目录语言（0.6.269）：auto（默认，跟随请求
+	// Accept-Language）/ zh-CN / en-US。影响官方目录的名称/简介语言。
+	CatalogLanguage string `json:"catalog_language"`
 	SourceAutoCareOff   bool                  `json:"source_auto_care_disabled"`
 	SourceListURL       string                `json:"source_list_url,omitempty"`
 	SourceListOff       bool                  `json:"source_list_disabled"`

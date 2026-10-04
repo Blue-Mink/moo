@@ -29,6 +29,7 @@ import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 // 重型对话框懒加载（见上方说明）：按需分包，首屏只加载列表/导航核心。
 const PanelInstallDialog = React.lazy(() => import('./components/PanelInstallDialog'));
+const SourceWizardDialog = React.lazy(() => import('./components/SourceWizardDialog'));
 const ReportFailureDialog = React.lazy(() => import('./components/ReportFailureDialog').then(m => ({ default: m.ReportFailureDialog })));
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -229,6 +230,10 @@ const App: React.FC = () => {
   // 官方通道：用户在体积/依赖弹窗里确认的参数，向导弹窗确认后随安装一起提交
   // （FPK 通道恒为 null）。
   const [panelWizardParams, setPanelWizardParams] = useState<PanelInstallParams | null>(null);
+  // 0.6.269：源声明的安装向导（moo.json wizard.fields）——先收集、后走 FPK 探测流；
+  // 收集值暂存 ref，最终在 runInstall 调用点与 FPK 向导参数合并（?wizard= 契约）。
+  const [sourceWizardApp, setSourceWizardApp] = useState<AppInfo | null>(null);
+  const pendingSourceParamsRef = useRef<WizardParam[]>([]);
   // 官方应用中心（fnos-official）安装：详情+依赖弹窗
   const [panelApp, setPanelApp] = useState<AppInfo | null>(null);
   const [panelDetail, setPanelDetail] = useState<PanelDetailResponse | null>(null);
@@ -689,6 +694,34 @@ const App: React.FC = () => {
     }
   }, [createSSEHandler, setAppOp]);
 
+  /** 0.6.269：安装主流程（源级向导收集后 / 无源级向导时直达）：
+      探测 FPK 自带向导 → 有则弹 WizardDialog（其 onConfirm 合并 pending
+      源参数），无则直接 runInstall（带上 pending 源参数）。 */
+  const continueInstall = useCallback(async (app: AppInfo) => {
+    const pending = pendingSourceParamsRef.current;
+    // Probe for an install form first. A lookup failure must never block
+    // installing, so anything unexpected falls through to a plain install.
+    setWizardApp(app);
+    setWizardLoading(true);
+    setWizardDef(null);
+    setPanelWizardParams(null);
+    try {
+      const w = await fetchWizard(app.appname);
+      if (w.has_wizard && (w.content?.length ?? 0) > 0) {
+        // FPK 自带向导：源向导值已暂存 ref，WizardDialog onConfirm 处合并
+        setWizardDef(w);
+        setWizardLoading(false);
+        return;
+      }
+    } catch {
+      // ignore — fall through and install with defaults
+    }
+    setWizardApp(null);
+    setWizardLoading(false);
+    pendingSourceParamsRef.current = [];
+    void runInstall(app, pending.length ? pending : undefined);
+  }, [runInstall]);
+
   const handleInstall = useCallback(async (app: AppInfo) => {
     if (appOperationsRef.current.has(app.appname)) return;
 
@@ -711,26 +744,14 @@ const App: React.FC = () => {
       return;
     }
 
-    // Probe for an install form first. A lookup failure must never block
-    // installing, so anything unexpected falls through to a plain install.
-    setWizardApp(app);
-    setWizardLoading(true);
-    setWizardDef(null);
-    setPanelWizardParams(null);
-    try {
-      const w = await fetchWizard(app.appname);
-      if (w.has_wizard && (w.content?.length ?? 0) > 0) {
-        setWizardDef(w);
-        setWizardLoading(false);
-        return;
-      }
-    } catch {
-      // ignore — fall through and install with defaults
+    // 0.6.269：源声明了向导字段（moo.json wizard.fields）→ 先收集再走安装流
+    if (app.wizard?.fields?.length) {
+      pendingSourceParamsRef.current = [];
+      setSourceWizardApp(app);
+      return;
     }
-    setWizardApp(null);
-    setWizardLoading(false);
-    void runInstall(app);
-  }, [runInstall]);
+    void continueInstall(app);
+  }, [continueInstall]);
 
   const handleUpdate = useCallback(async (app: AppInfo) => {
     const appname = app.appname;
@@ -1811,11 +1832,35 @@ const App: React.FC = () => {
           onConfirm={(params) => {
             const app = wizardApp;
             const panelParams = panelWizardParams;
+            // 0.6.269：源向导参数（pending）+ FPK 向导参数 合并下发
+            const pending = pendingSourceParamsRef.current;
+            pendingSourceParamsRef.current = [];
             setWizardApp(null);
             setWizardDef(null);
             setWizardLoading(false);
             setPanelWizardParams(null);
-            void runInstall(app, params, panelParams ?? undefined);
+            const merged = [...pending, ...params];
+            void runInstall(app, merged.length ? merged : undefined, panelParams ?? undefined);
+          }}
+        />
+        </Suspense>
+      )}
+
+      {/* 0.6.269：源声明的安装向导（moo.json wizard.fields，键名由应用定义） */}
+      {sourceWizardApp && (
+        <Suspense fallback={null}>
+        <SourceWizardDialog
+          appDisplayName={sourceWizardApp.display_name}
+          fields={sourceWizardApp.wizard?.fields ?? []}
+          onCancel={() => {
+            pendingSourceParamsRef.current = [];
+            setSourceWizardApp(null);
+          }}
+          onConfirm={(params) => {
+            const app = sourceWizardApp;
+            pendingSourceParamsRef.current = params;
+            setSourceWizardApp(null);
+            void continueInstall(app);
           }}
         />
         </Suspense>
