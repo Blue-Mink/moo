@@ -72,13 +72,35 @@ func (f *FnDepot) fetchJSON() ([]byte, string, error) {
 		}
 	}
 	if data, winner, err := raceFetch(primary, ctx); err == nil {
-		return data, strings.TrimSuffix(winner, "/fnpack.json"), nil
+		return data, indexBaseDir(winner), nil
+	} else if len(fallback) == 0 {
+		// 0.6.271：无回退候选时透传真实错误（旧实现落入空 fallback 竞速，
+		// 报「无候选地址」把 404/连接失败/登录墙全吞掉）
+		return nil, "", err
 	}
 	data, winner, err := raceFetch(fallback, ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	return data, strings.TrimSuffix(winner, "/fnpack.json"), nil
+	return data, indexBaseDir(winner), nil
+}
+
+// indexBaseDir 0.6.271：相对资源（icon/readme/preview）的 base = 索引文件
+// 所在目录。旧实现只剥 /fnpack.json——moo.json 源的 base 残留 "…/moo.json"，
+// 全部相对资源拼成 "…/moo.json/<rel>" → 404（10-04 主 NAS moo.log
+// readme-warm 0/30 命中实锤）。规则：末段是 *.json → 取其目录，
+// 否则地址本身即目录。
+func indexBaseDir(winner string) string {
+	p := winner
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		if strings.HasSuffix(p[i+1:], ".json") {
+			return p[:i]
+		}
+	}
+	return p
 }
 
 // raceFetch 并发竞速一组 URL，返回第一个 200 的 JSON（包级：FnDepot 与

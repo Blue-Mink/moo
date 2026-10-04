@@ -16,6 +16,8 @@ var (
 	searchKeyDomainRe = regexp.MustCompile(`^([a-z0-9][a-z0-9.-]*\.[a-z]{2,}|(\d{1,3}\.){3}\d{1,3})$`)
 	// 尾部 /raw/<分支>/ 段（非 GitHub 主机用）
 	searchKeyRawSegRe = regexp.MustCompile(`/raw/[^/]+/`)
+	// Gitea 风格 /raw/branch/<分支>/ 段（两段，先于上一正则剥离）
+	searchKeyGiteaRawSegRe = regexp.MustCompile(`/raw/branch/[^/]+/`)
 )
 
 // 0.6.240：加入 moo.json（Moo 原生源协议），与前端 sourceKey.ts 保持一致

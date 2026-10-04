@@ -248,23 +248,34 @@ func HealLegacyURLs(cfg *config.Config) int {
 	return fixed
 }
 
-// AddSource 校验并添加源（立即拉取验证可达性）。
-func (m *Manager) AddSource(name, url string) error {
+// AddSource 校验并添加源（立即拉取验证可达性），返回最终源名。
+// 0.6.271：名字与现有源冲突但地址是新地址时（典型：同作者的第二个仓库，
+// 自动命名取 owner 撞名）不再报 ErrExists——改用 UniqueSourceName 自动
+// 消歧（owner-repo → -2/-3…）后添加；地址与现有源相同仍报 ErrExists
+// （同一仓库 = 同一源，协议文件 moo/fnpack 自动共存，moo.json 优先）。
+func (m *Manager) AddSource(name, url string) (string, error) {
 	name = strings.TrimSpace(name)
 	url = ensureSourceScheme(strings.TrimSpace(url))
 	if name == "" || url == "" {
-		return &ErrInvalid{"源名称与地址均不能为空"}
+		return "", &ErrInvalid{"源名称与地址均不能为空"}
 	}
 	m.mu.Lock()
+	taken := make(map[string]bool, len(m.cfg.Sources))
 	for _, s := range m.cfg.Sources {
-		if s.Name == name {
-			m.mu.Unlock()
-			return &ErrExists{"源已存在: " + name}
-		}
-		// 同一仓库不同名称（如 Blue-Mink 与 FnDepot 指向同一 URL）视为重复
+		taken[s.Name] = true
+		// 同一仓库不同形态的链接（仓库根/moo.json 直链/fnpack.json 直链/
+		// 镜像前缀）归一化后同地址，视为重复
 		if normalizeSourceURL(s.URL) == normalizeSourceURL(url) {
 			m.mu.Unlock()
-			return &ErrExists{"源已存在（与「" + s.Name + "」同地址）"}
+			return "", &ErrExists{"源已存在（与「" + s.Name + "」同地址）"}
+		}
+	}
+	if taken[name] {
+		if uname := UniqueSourceName(url, taken); uname != "" && uname != name {
+			name = uname
+		} else {
+			m.mu.Unlock()
+			return "", &ErrExists{"源已存在: " + name}
 		}
 	}
 	m.cfg.Sources = append(m.cfg.Sources, config.SourceRef{Name: name, URL: url})
@@ -279,34 +290,40 @@ func (m *Manager) AddSource(name, url string) error {
 			}
 		}
 		m.mu.Unlock()
-		return err
+		return "", err
 	}
-	return nil
+	return name, nil
 }
 
 // AddSourcePassive 校验并添加源，但不立即拉取（供「从 New Store 同步」等
 // 批量导入场景：坏源不应因首拉失败而被回滚；目录由后续后台刷新填充）。
 // enabled 为 nil 时缺省启用（与 SourceRef 语义一致）。
-func (m *Manager) AddSourcePassive(name, url string, enabled *bool) error {
+func (m *Manager) AddSourcePassive(name, url string, enabled *bool) (string, error) {
 	name = strings.TrimSpace(name)
 	url = ensureSourceScheme(strings.TrimSpace(url))
 	if name == "" || url == "" {
-		return &ErrInvalid{"源名称与地址均不能为空"}
+		return "", &ErrInvalid{"源名称与地址均不能为空"}
 	}
 	m.mu.Lock()
+	taken := make(map[string]bool, len(m.cfg.Sources))
 	for _, s := range m.cfg.Sources {
-		if s.Name == name {
-			m.mu.Unlock()
-			return &ErrExists{"源已存在: " + name}
-		}
+		taken[s.Name] = true
 		if normalizeSourceURL(s.URL) == normalizeSourceURL(url) {
 			m.mu.Unlock()
-			return &ErrExists{"源已存在（与「" + s.Name + "」同地址）"}
+			return "", &ErrExists{"源已存在（与「" + s.Name + "」同地址）"}
+		}
+	}
+	if taken[name] {
+		if uname := UniqueSourceName(url, taken); uname != "" && uname != name {
+			name = uname
+		} else {
+			m.mu.Unlock()
+			return "", &ErrExists{"源已存在: " + name}
 		}
 	}
 	m.cfg.Sources = append(m.cfg.Sources, config.SourceRef{Name: name, URL: url, Enabled: enabled})
 	m.mu.Unlock()
-	return nil
+	return name, nil
 }
 
 // FlushCache 立即把目录快照落盘（改名后调用，避免旧名残留在启动快照里）。
@@ -592,13 +609,35 @@ type SourceStatus struct {
 }
 
 // NormalizeSourceURL 归一化源地址用于去重：去协议/尾斜杠/fnpack.json，小写 host。
+// NormalizeSourceURL 把源地址归一化为身份比较用的规范形（小写）：
+//   - GitHub 系（github.com / raw.githubusercontent.com / cdn.jsdelivr.net/gh /
+//     镜像前缀）→ "github.com/owner/repo"——同一仓库的仓库根、moo.json 直链、
+//     fnpack.json 直链、tree 页、镜像前缀都算同一源（协议文件只是同一源的
+//     索引文件候选，moo.json 优先，见 mooindex.go）；
+//   - 其它主机 → 剥协议、Gitea /raw/branch/<分支>/ 段、/raw/<分支>/ 段、
+//     已知索引文件名（moo/fnpack/fndepot/fndepot_v2/apps.json）、.git。
+//
+// 0.6.271：旧实现只剥 /fnpack.json——moo.json 直链与仓库根被判成两个源
+// （同仓库重复入库、应用列两遍、双份同步）；raw moo.json 直链与仓库根也
+// 因归一化不同而逃过同地址去重。现与 SourceURLKey 共用 GitHub 系归一。
 func NormalizeSourceURL(u string) string {
+	if k := SourceURLKey(u); strings.HasPrefix(k, "github.com/") {
+		return k
+	}
 	p := strings.TrimSpace(strings.TrimSuffix(u, "/"))
 	if i := strings.Index(p, "://"); i >= 0 {
 		p = p[i+3:]
 	}
-	p = strings.TrimSuffix(p, "/fnpack.json")
-	return strings.ToLower(strings.TrimSuffix(p, "/"))
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	p = searchKeyGiteaRawSegRe.ReplaceAllString(p, "/")
+	p = searchKeyRawSegRe.ReplaceAllString(p, "/")
+	for _, f := range searchKeyIndexFiles {
+		p = strings.TrimSuffix(p, "/"+f)
+	}
+	p = strings.TrimSuffix(p, ".git")
+	return strings.ToLower(strings.TrimRight(p, "/"))
 }
 
 // normalizeSourceURL 包内别名。

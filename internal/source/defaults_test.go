@@ -37,6 +37,14 @@ func TestSourceNameFromURL(t *testing.T) {
 		"https://github.com/Blue-Mink/FnDepot": "Blue-Mink",
 		"github.com/Blue-Mink/FnDepot":         "Blue-Mink",
 		"https://www.github.com/a/b.git":       "a",
+		// 0.6.271：GitHub 系直链也取作者（保留原始大小写），不再叫 "moo.json"
+		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json":                  "Blue-Mink",
+		"https://cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/moo.json":                            "Blue-Mink",
+		"https://gh-proxy.com/https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json": "Blue-Mink",
+		// 0.6.271：Gitea raw 分支直链取仓库名（先剥 /raw/branch/<分支>/ 与索引文件名）
+		"http://192.0.2.15:3033/bluemink/moo/raw/branch/main/moo.json": "moo",
+		// 0.6.271：非 GitHub 剥索引文件名后取最后一段
+		"https://example.com/myapps/fnpack.json": "myapps",
 	}
 	for in, want := range cases {
 		if got := SourceNameFromURL(in); got != want {
@@ -45,5 +53,40 @@ func TestSourceNameFromURL(t *testing.T) {
 	}
 	if got := SourceNameFromURL("https://github.com/conversun/fnos-apps"); got != "fnos-store" {
 		t.Errorf("conversun 应固定为 fnos-store，got %q", got)
+	}
+}
+
+// TestNormalizeSourceURLSameRepo 0.6.271：同一仓库的各种形态归一化为同一
+// 身份（旧实现只剥 /fnpack.json：moo.json 直链与仓库根被判成两个源，
+// 同仓库重复入库、应用列两遍）。
+func TestNormalizeSourceURLSameRepo(t *testing.T) {
+	base := NormalizeSourceURL("https://github.com/Blue-Mink/FnDepot")
+	if base != "github.com/blue-mink/fndepot" {
+		t.Fatalf("仓库根应归一为 github.com/owner/repo，实际 %q", base)
+	}
+	for _, u := range []string{
+		"https://github.com/Blue-Mink/FnDepot/",
+		"https://github.com/Blue-Mink/FnDepot/tree/main",
+		"https://github.com/Blue-Mink/FnDepot.git",
+		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json",
+		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json",
+		"https://cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/moo.json",
+		"https://gh-proxy.com/https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json",
+	} {
+		if got := NormalizeSourceURL(u); got != base {
+			t.Errorf("同仓库形态 %q → %q，期望 %q", u, got, base)
+		}
+	}
+	if NormalizeSourceURL("https://github.com/Blue-Mink/New-Store") == base {
+		t.Error("不同仓库不应同身份")
+	}
+	// Gitea：仓库根与 raw 分支直链同身份（0.6.271 剥 /raw/branch/<分支>/ 段）
+	g1 := NormalizeSourceURL("http://192.0.2.15:3033/bluemink/moo")
+	g2 := NormalizeSourceURL("http://192.0.2.15:3033/bluemink/moo/raw/branch/main/moo.json")
+	if g1 != g2 {
+		t.Errorf("Gitea 仓库根 %q vs raw 直链 %q 应同身份", g1, g2)
+	}
+	if g1 != "192.0.2.15:3033/bluemink/moo" {
+		t.Errorf("Gitea 归一结果异常: %q", g1)
 	}
 }

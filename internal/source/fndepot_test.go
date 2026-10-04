@@ -183,3 +183,36 @@ func TestTranslateEntryTopLevelWinsOverReleases(t *testing.T) {
 		t.Errorf("releases 说明仍应收集")
 	}
 }
+
+// TestIndexBaseDir 0.6.271：相对资源 base = 索引文件所在目录（旧实现只剥
+// /fnpack.json，moo.json 源的 base 残留文件名 → 相对资源 404）。
+func TestIndexBaseDir(t *testing.T) {
+	cases := map[string]string{
+		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json":    "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main",
+		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json": "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main",
+		"https://github.com/Blue-Mink/FnDepot/fnpack.json":                    "https://github.com/Blue-Mink/FnDepot",
+		"http://192.0.2.15:3033/bluemink/moo/moo.json":                      "http://192.0.2.15:3033/bluemink/moo",
+		// 地址本身是目录（末段非 .json）→ 原样
+		"https://example.com/store/":   "https://example.com/store/",
+		"https://example.com/store":    "https://example.com/store",
+		"http://127.0.0.1:18899":       "http://127.0.0.1:18899",
+		// 根目录索引（无路径目录）→ 主机根（相对资源直接拼主机根下）
+		"https://example.com/fnpack.json": "https://example.com",
+	}
+	for in, want := range cases {
+		if got := indexBaseDir(in); got != want {
+			t.Errorf("indexBaseDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestFetchJSONRealErrorTransparent 0.6.271：直链不可达时透传真实错误
+//（旧实现在 fallback 为空时报「无候选地址」，把 404/连接失败/登录墙吞掉）。
+func TestFetchJSONRealErrorTransparent(t *testing.T) {
+	f := NewFnDepot("t", "http://127.0.0.1:1/x.json") // 1 端口必不可达
+	if _, err := f.Fetch(); err == nil {
+		t.Fatal("应当失败")
+	} else if err.Error() == "无候选地址" {
+		t.Fatal("真实错误被吞掉，仍报无候选地址")
+	}
+}

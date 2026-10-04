@@ -413,6 +413,22 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 ### 11.5 `GET /api/settings/download-dirs/browse?path=/vol1`（admin）
 目录浏览（目录选择器用；逐层下钻，返回子目录名）。
 
+### 11.6 `GET /api/settings/docker-mirror/status`（admin）
+Docker 优选镜像源状态：读 daemon.json 的 `registry-mirrors` 当前值。
+```json
+响应：{"mirrors": ["docker.fnnas.com"], "docker_active": true,
+       "applied_at": "…", "mirror": "…", "backup_file": "…"}   // 末三项仅应用过时有值
+```
+
+### 11.7 `POST /api/settings/docker-mirror/apply`（admin）
+应用优选镜像源：备份 daemon.json（滚动 5 代）→ 合并写 `registry-mirrors`
+（原子 rename）→ `systemctl restart docker` → 读回验证，失败自动回滚；
+daemon.json 损坏时拒绝写入。
+```json
+请求：{"mirror": "aliyun", "custom_url": ""}      // mirror=预设名或 "custom"
+响应：{"ok": true, "mirrors": ["…"], "backup_file": "…"}   // 或 {"ok": false, "error": "…"}
+```
+
 ---
 
 ## 12. 备份与缓存清理

@@ -38,30 +38,76 @@ func BundledDefaultSources() []string {
 	return out
 }
 
-// SourceNameFromURL 从源地址推导源名（与添加源入口同一命名规则）：
-// conversun/fnos-apps 固定取商店项目名 fnos-store；其余 GitHub 仓库取
-// owner；其它地址取最后一段路径（去 .git 与 /fnpack.json）。
-// 0.6.247 从 api 层迁入 source 包：首装填充与添加源共用，避免两套命名。
+// ghOwner 识别 GitHub 系地址（github.com 仓库页 / raw 直链 / jsDelivr /
+// 镜像前缀）并返回**原始大小写**的作者名。非 GitHub 系返回 ("", false)。
+// 0.6.271：与 SourceURLKey 同一套前缀剥离规则，但保留大小写（显示名用）。
+func ghOwner(u string) (string, bool) {
+	s := strings.TrimSpace(u)
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+	// 镜像前缀（gh-proxy 等）：剥掉首个已知 GitHub 主机之前的部分
+	//（与 SourceURLKey 同一规则——按 "/主机/" 子串定位，不会误剥开头的
+	// GitHub 主机本身；旧版 HasPrefix 写法会把 "github.com/owner/…" 剥成
+	// "owner/…" 导致识别失败）
+	for _, h := range searchKeyGHHosts {
+		if i := strings.Index(s, "/"+h); i >= 0 {
+			s = s[i+1:]
+			break
+		}
+	}
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+	}
+	for _, form := range []string{"raw.githubusercontent.com/", "cdn.jsdelivr.net/gh/", "www.github.com/", "github.com/"} {
+		rest, ok := strings.CutPrefix(s, form)
+		if !ok {
+			continue
+		}
+		owner, _, _ := strings.Cut(rest, "/")
+		owner = strings.TrimSpace(owner)
+		if owner == "" {
+			return "", false
+		}
+		return owner, true
+	}
+	return "", false
+}
+
+// SourceNameFromURL 从源地址推导默认显示名。
+// 规则：
+//  1. conversun/fnos-apps 任意形态 → "fnos-store"（商店项目名，见 IsConversunURL）
+//  2. GitHub 系（github.com 仓库页 / raw 直链 / jsDelivr / 镜像前缀）
+//     → 作者名（owner，原始大小写）——0.6.271：raw 直链以前落入"取最后
+//     一段"产生 "moo.json" 这类名字，现与仓库根地址一致取作者
+//  3. 其它 → 剥 Gitea /raw/branch/<分支>/ 段、/raw/<分支>/ 段与索引文件
+//     名后的路径最后一段（"…/owner/repo/raw/branch/main/moo.json" → "repo"）
 func SourceNameFromURL(u string) string {
 	if IsConversunURL(u) {
 		return "fnos-store"
+	}
+	if owner, ok := ghOwner(u); ok {
+		return owner
 	}
 	p := strings.TrimSpace(u)
 	p = strings.TrimSuffix(p, "/")
 	if i := strings.Index(p, "://"); i >= 0 {
 		p = p[i+3:]
 	}
-	p = strings.TrimSuffix(p, "/fnpack.json")
-	p = strings.TrimSuffix(p, "/")
-	seg := strings.Split(p, "/")
-	if len(seg) >= 3 && (seg[0] == "github.com" || seg[0] == "www.github.com") {
-		if owner := strings.TrimSpace(seg[1]); owner != "" {
-			return owner
-		}
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
 	}
-	last := seg[len(seg)-1]
-	last = strings.TrimSuffix(last, ".git")
-	return strings.TrimSpace(last)
+	p = searchKeyGiteaRawSegRe.ReplaceAllString(p, "/")
+	p = searchKeyRawSegRe.ReplaceAllString(p, "/")
+	for _, f := range searchKeyIndexFiles {
+		p = strings.TrimSuffix(p, "/"+f)
+	}
+	p = strings.TrimSuffix(p, "/")
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		p = p[i+1:]
+	}
+	p = strings.TrimSuffix(p, ".git")
+	return strings.TrimSpace(p)
 }
 
 // UniqueSourceName 为源地址推导一个不与 taken 中任何名字冲突的源名：
@@ -79,17 +125,39 @@ func UniqueSourceName(u string, taken map[string]bool) string {
 	if taken == nil || !taken[name] {
 		return name
 	}
+	// 0.6.271：GitHub 系（含 raw/jsDelivr 直链）消歧名 = owner-repo
+	// （与命名规则同源；旧逻辑取"倒数第二段-最后一段"，raw 直链会算出
+	// "main-moo.json" 这类垃圾名）
+	if owner, ok := ghOwner(u); ok {
+		if rest := strings.TrimPrefix(SourceURLKey(u), "github.com/"); strings.Contains(rest, "/") {
+			if _, repo, found := strings.Cut(rest, "/"); found && repo != "" {
+				cand := normalizeSourceNamePart(owner + "-" + repo)
+				if cand != name {
+					base := cand
+					n := 2
+					for taken[cand] {
+						n++
+						cand = base + "-" + strconv.Itoa(n)
+					}
+					return cand
+				}
+			}
+		}
+	}
+	// 非 GitHub：剥索引文件名与 raw 段后取倒数第二段-最后一段
 	p := strings.TrimSpace(u)
 	if i := strings.Index(p, "://"); i >= 0 {
 		p = p[i+3:]
 	}
-	p = strings.TrimSuffix(p, "/fnpack.json")
+	p = searchKeyGiteaRawSegRe.ReplaceAllString(p, "/")
+	p = searchKeyRawSegRe.ReplaceAllString(p, "/")
+	for _, f := range searchKeyIndexFiles {
+		p = strings.TrimSuffix(p, "/"+f)
+	}
 	p = strings.TrimSuffix(p, "/")
 	seg := strings.Split(p, "/")
 	var cand string
-	if len(seg) >= 3 && (seg[0] == "github.com" || seg[0] == "www.github.com") {
-		cand = seg[1] + "-" + seg[len(seg)-1]
-	} else if len(seg) >= 2 {
+	if len(seg) >= 2 {
 		cand = seg[len(seg)-2] + "-" + seg[len(seg)-1]
 	} else {
 		cand = name + "-2"

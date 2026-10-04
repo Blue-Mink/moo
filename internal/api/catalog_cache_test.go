@@ -23,10 +23,23 @@ func newCatalogTestServer(t *testing.T) *Server {
 	t.Cleanup(ts.Close)
 	cfg := &config.Config{}
 	m := source.NewManager(cfg)
-	if err := m.AddSource("tst", ts.URL+"/fnpack.json"); err != nil {
+	if _, err := m.AddSource("tst", ts.URL+"/fnpack.json"); err != nil {
 		t.Fatalf("AddSource: %v", err)
 	}
 	return &Server{Src: m, Cfg: cfg}
+}
+
+// findDemo 在目录里按 AppName 定位 demo 条目（目录可能并入本地 FPK 索引
+// 的条目，条数随环境而变，不能断言恰好 1 条）。
+func findDemo(t *testing.T, c []AppInfo) int {
+	t.Helper()
+	for i, a := range c {
+		if a.AppName == "demo" {
+			return i
+		}
+	}
+	t.Fatalf("目录应含 demo，实际 %d 条", len(c))
+	return -1
 }
 
 // TestCatalogCache 目录缓存：TTL 内命中（同底层切片）、过期重建、
@@ -37,37 +50,37 @@ func TestCatalogCache(t *testing.T) {
 	s.catalogTTL = time.Hour // 拉长 TTL，单独控制过期路径
 
 	c1 := s.cachedCatalog("zh-CN")
-	if len(c1) != 1 || c1[0].AppName != "demo" {
-		t.Fatalf("目录应有 1 条 demo，实际 %d", len(c1))
-	}
+	i1 := findDemo(t, c1)
 	c2 := s.cachedCatalog("zh-CN")
-	if &c1[0] != &c2[0] {
+	if &c1[i1] != &c2[i1] {
 		t.Error("TTL 内二次读取应命中同一缓存切片")
 	}
 
 	// 副本隔离：瘦身式修改副本，共享缓存不受影响
 	cp := s.cachedCatalogCopy("zh-CN")
-	cp[0].DisplayName = "被污染"
-	cp[0].ChangelogEntries = nil
-	if got := s.cachedCatalog("zh-CN")[0].DisplayName; got == "被污染" {
+	cp[i1].DisplayName = "被污染"
+	cp[i1].ChangelogEntries = nil
+	if got := s.cachedCatalog("zh-CN")[i1].DisplayName; got == "被污染" {
 		t.Error("修改副本污染了共享缓存（缓存切片被共享引用）")
 	}
 
 	// 显式失效 → 重建
 	s.invalidateCatalog()
 	c3 := s.cachedCatalog("zh-CN")
-	if &c3[0] == &c1[0] {
+	i3 := findDemo(t, c3)
+	if &c3[i3] == &c1[i1] {
 		t.Error("失效后应重建新切片")
 	}
-	if c3[0].DisplayName != "演示" {
-		t.Errorf("重建后内容应完整，DisplayName=%q", c3[0].DisplayName)
+	if c3[i3].DisplayName != "演示" {
+		t.Errorf("重建后内容应完整，DisplayName=%q", c3[i3].DisplayName)
 	}
 
 	// TTL 过期 → 重建
 	s.catalogTTL = 30 * time.Millisecond
 	time.Sleep(60 * time.Millisecond)
 	c4 := s.cachedCatalog("zh-CN")
-	if &c4[0] == &c3[0] {
+	i4 := findDemo(t, c4)
+	if &c4[i4] == &c3[i3] {
 		t.Error("TTL 过期后应重建新切片")
 	}
 }

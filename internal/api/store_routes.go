@@ -580,19 +580,20 @@ func (s *Server) addSource(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("url 不能为空"))
 		return
 	}
-	if err := s.Src.AddSource(body.Name, body.URL); err != nil {
+	finalName, err := s.Src.AddSource(body.Name, body.URL)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	s.invalidateCatalog()
 	_ = s.Cfg.Save(dataDirOf(s))
 	for _, st := range s.Src.Sources() {
-		if st.Name == body.Name {
+		if st.Name == finalName {
 			writeJSON(w, map[string]any{"source": s.sourceEntry(st)})
 			return
 		}
 	}
-	writeJSON(w, map[string]any{"source": map[string]any{"id": body.Name, "name": body.Name, "url": body.URL, "enabled": true}})
+	writeJSON(w, map[string]any{"source": map[string]any{"id": finalName, "name": finalName, "url": body.URL, "enabled": true}})
 }
 
 func (s *Server) batchSources(w http.ResponseWriter, r *http.Request) {
@@ -629,9 +630,9 @@ func (s *Server) batchSources(w http.ResponseWriter, r *http.Request) {
 			results = append(results, result{URL: url, Error: "无法从地址推导源名称"})
 			continue
 		}
-		if err := s.Src.AddSource(name, url); err == nil {
+		if finalName, err := s.Src.AddSource(name, url); err == nil {
 			added++
-			results = append(results, result{URL: url, Name: name, OK: true})
+			results = append(results, result{URL: url, Name: finalName, OK: true})
 		} else {
 			var ee *source.ErrExists
 			// 0.6.173：重复（与列表已有源同地址/同名，或本批内重复）不算错误，
@@ -778,7 +779,7 @@ func (s *Server) fetchSourceList(ctx context.Context) (string, error) {
 }
 
 // addMissingSources 并发添加 urls 中缺失的源（并发 4；单源失败不影响其他；
-// AddSource 撞重名按已存在计）。0.6.172 从 syncList 抽出，restoreDefaults 复用。
+// 0.6.271：重名自动消歧、同地址计已存在）。0.6.172 从 syncList 抽出，restoreDefaults 复用。
 func (s *Server) addMissingSources(urls []string) (added, already, failed int, addedNames, errs []string) {
 	existing := make(map[string]bool, len(s.Src.Sources()))
 	for _, st := range s.Src.Sources() {
@@ -810,41 +811,17 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 				mu.Unlock()
 				return
 			}
-			if err := s.Src.AddSource(name, u); err == nil {
+			// 0.6.271：重名 → AddSource 自动消歧返回最终名（0.6.248 的手动
+			// 重试块已收进 source 包，与交互添加路径共用）；ErrExists 现在
+			// 只剩「同地址」一种 → 计 already。
+			if finalName, err := s.Src.AddSource(name, u); err == nil {
 				mu.Lock()
 				added++
-				addedNames = append(addedNames, name)
+				addedNames = append(addedNames, finalName)
 				mu.Unlock()
 			} else {
 				var ee *source.ErrExists
 				if errors.As(err, &ee) {
-					// 0.6.248：区分两种 ErrExists——
-					//  ① 同地址（别的名字已指向同一 URL）→ 真重复，计 already；
-					//  ② 同名不同地址（典型：同 owner 的第二个仓库，命名取
-					//     owner 撞名）→ 以唯一名（owner-repo 归一）重试一次，
-					//     基准集里 7 组同 owner 双仓库由此全部补齐。
-					urlTaken := false
-					for _, st := range s.Src.Sources() {
-						if source.NormalizeSourceURL(st.URL) == source.NormalizeSourceURL(u) {
-							urlTaken = true
-							break
-						}
-					}
-					if !urlTaken {
-						taken := make(map[string]bool)
-						for _, st := range s.Src.Sources() {
-							taken[st.Name] = true
-						}
-						if uname := source.UniqueSourceName(u, taken); uname != "" && uname != name {
-							if err2 := s.Src.AddSource(uname, u); err2 == nil {
-								mu.Lock()
-								added++
-								addedNames = append(addedNames, uname)
-								mu.Unlock()
-								return
-							}
-						}
-					}
 					mu.Lock()
 					already++
 					mu.Unlock()
