@@ -119,7 +119,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                 )}
               </div>
               {canUpdate && (
-                <Badge variant="secondary" className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-xs shrink-0 rounded-full">
+                <Badge variant="secondary" title={app.update_from_source ? `更新来自 ${app.update_from_source} 源` : undefined} className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-xs shrink-0 rounded-full">
                   有更新
                 </Badge>
               )}

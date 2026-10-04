@@ -1,8 +1,8 @@
 # Moo HTTP API 全量文档
 
-> 版本基线：0.6.217（面板线）+ 官方应用中心 OAuth 模块（2026-10-01 两线合并）· 适用架构：fnOS x86_64（Go 后端 + React 前端单二进制服务）
+> 版本基线：0.6.271（2026-10-05）· 适用架构：fnOS x86_64（Go 后端 + React 前端单二进制服务）
 >
-> 本文档覆盖 Moo 对外提供的全部 85 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
+> 本文档覆盖 Moo 对外提供的全部 91 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
 
 ---
 
@@ -123,6 +123,7 @@ Moo 采用**两层防线**：
 | `installed` | bool | 本机是否已装 |
 | `installed_version` / `latest_version` | string | 已装版本 / 源内最新版 |
 | `installed_fpk_version` / `available_version` | string | FPK 包版本 / 可更新版本 |
+| `update_from_source` | string | 更新策略（0.6.272）= origin/lineage 时更新目标的来源源名（跨源同宗）；空 = 安装源自身 |
 | `has_update` | bool | 有可用更新（已忽略时为 false） |
 | `update_ignored` | bool | 更新已被用户忽略 |
 | `update_ignored_pending` | bool | 已忽略但确实压着新版本（角标计数含此类） |
@@ -191,7 +192,7 @@ Docker 组同构（`/api/mirrors/docker/health`）。
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `catalog_language`, `update_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -328,7 +329,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | `GET /api/apps/{key}/panel-detail?appname=…` | admin | 面板侧应用详情（账号/端口/状态） |
 | `GET /api/apps/{key}/wizard` | 公开 | 取安装向导字段：非官方应用 `StageOnly` 暂存后 `FetchWizard`；**官方应用**走面板下载链（最长 12 分钟），返回 `{appname, has_wizard, fields…}`，失败时 `has_wizard=false` + `error` |
 | `GET /api/apps/{key}/asset?type=…&index=N&u=…` | 公开 | 远端资源代理透传（见下） |
-| `GET /api/apps/{key}/diagnostic` | 公开 | 诊断（**501 尚未启用**，M4 里程碑） |
+| `GET /api/apps/{key}/diagnostic?step=…&error=…` | 公开 | 应用诊断（0.6.269 起启用）：只读收集 report（应用/版本/架构/失败步骤/错误/日志尾部 ≤50 行/平台）+ `issue_url`，供前端上报页一键生成 issue 内容，不改动任何状态 |
 
 `asset` 查询参数：
 - `type=icon`：应用图标（本地缓存优先，miss 时代理抓取；源数据 URL 受 SSRF 防护：仅公共地址）。
@@ -382,6 +383,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 - 布尔字段（`auto_update`、`proxy_enabled`、`backup_auto`、`panel_enabled`、`source_list_disabled`…）：指针语义同上（缺省 = 不改动）。
 - 数值字段（`gh_probe_hours`…、`cache_clean_days`…）：越界整单拒绝。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
+- `update_policy`（0.6.272 跨源更新策略）：仅接受 `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
 
 常用片段示例：
 

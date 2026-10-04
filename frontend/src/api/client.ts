@@ -34,6 +34,8 @@ export interface AppInfo {
    */
   installed_fpk_version?: string;
   available_version?: string;
+  // 跨源同宗更新的来源源名（0.6.272，策略=同源/同宗时）；空=安装源自身
+  update_from_source?: string;
   has_update: boolean;
   update_ignored?: boolean;
   /** 已忽略且确有被压住的更新（0.6.197：dock「有更新」列表含它） */
@@ -628,6 +630,8 @@ export interface Settings {
   auto_update?: boolean;
   // 目录语言（0.6.269）：auto（默认，跟随浏览器语言）/ zh-CN / en-US
   catalog_language?: string;
+  // 已装应用跨源更新判定策略（0.6.272）：strict（默认）/ origin / lineage
+  update_policy?: string;
   // 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
   // panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
   // 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
@@ -1170,7 +1174,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {

@@ -44,6 +44,23 @@ func (s *Server) resolveKey(key string) (string, *source.App, error) {
 	return a.Source, a, nil
 }
 
+// resolveInstallEntry（0.6.272）：跨源同宗更新（策略=同源/同宗）时，真正的
+// 更新目标包在**同宗源**里——安装/下载条目必须跟随卡片上的
+// UpdateFromSource，否则管线取规范源自己的（更旧）版本：版本交叉校验
+// 报「并不比已安装的更新」而失败（手动更新 409 / 自动更新空转）。
+// 返回实际安装源名+条目；同宗源条目已不存在（源被删/应用消失）时诚实报错。
+// 卡片无 UpdateFromSource（strict / 自身源更新）时原样返回。
+func (s *Server) resolveInstallEntry(key, srcName string, a *source.App) (string, *source.App, error) {
+	if ai, ok := s.catalogByKey(key); ok && ai.UpdateFromSource != "" && ai.UpdateFromSource != srcName {
+		sa := s.Src.Get(ai.UpdateFromSource, a.Name)
+		if sa == nil || sa.DownloadURL == "" {
+			return "", nil, fmt.Errorf("更新来源 %s 不可用（源已删除或应用不存在），请先刷新源", ai.UpdateFromSource)
+		}
+		return ai.UpdateFromSource, sa, nil
+	}
+	return srcName, a, nil
+}
+
 // daemonAppNameFor 解析 daemon 通道操作（启动/停用/卸载/暂停-继续）用的
 // appname。源目录 key → 源应用的 appname；裸 key（自装 FPK / 系统自带
 // 应用不在任何源目录里，如 fndepot/moo，卡片 key 就是 appname）→ 直接用
@@ -205,6 +222,12 @@ func (s *Server) appUpdateSSE(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
+	// 0.6.272：跨源同宗更新从同宗源安装（版本校验也随之用同宗源条目）
+	srcName, a, err = s.resolveInstallEntry(r.PathValue("key"), srcName, a)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
 	installed, _ := platform.ListInstalled(r.Context())
 	// 0.6.208：daemon appname 与源 feed appname 大小写可能不一致
 	//（daemon "Gitea" vs feed "gitea"），按 EqualFold 匹配，
@@ -282,6 +305,11 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 	_, a, err := s.resolveKey(r.PathValue("key"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	// 0.6.272：跨源同宗更新下载同宗源的包（DownloadURL/大小/sha 跟随）
+	if _, a, err = s.resolveInstallEntry(r.PathValue("key"), a.Source, a); err != nil {
+		writeErr(w, http.StatusConflict, err)
 		return
 	}
 	if a.DownloadURL == "" {

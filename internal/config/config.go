@@ -111,6 +111,12 @@ type Config struct {
 	// CatalogLanguage 目录语言（0.6.269）：""/auto = 跟随请求 Accept-Language；
 	// 显式值（zh-CN / en-US）固定。后台协程无请求上下文时按此值/默认。
 	CatalogLanguage string `json:"catalog_language,omitempty"`
+	// UpdatePolicy 已装应用跨源更新判定策略（0.6.272，设置页三选一）：
+	// ""/strict = 只认安装源自身最新（0.6.174 默认，零变化）；
+	// origin = 同一发布仓库（download_url 归一 owner/repo）的新版也算；
+	// lineage = origin 之外 maintainer / distributor 相等也算同宗。
+	// 平台跟踪应用（sourceID 非空 / official）不受影响。
+	UpdatePolicy string `json:"update_policy,omitempty"`
 	// 本机安装次数（appname → 经 moo 安装/更新的累计次数）。
 	// 第三方源应用无全局下载量数据，列表/详情用「本机 N 次」回退展示。
 	LocalInstalls map[string]int `json:"local_installs,omitempty"`

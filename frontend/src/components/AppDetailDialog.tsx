@@ -1166,6 +1166,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                   {app.has_update && (
                     <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal shrink-0">
                       可更新至 v{app.latest_version}
+                      {/* 0.6.272：跨源同宗更新时标明来源源（供应链透明） */}
+                      {app.update_from_source ? ` · 来自 ${app.update_from_source} 源` : ''}
                     </Badge>
                   )}
                 </div>

@@ -274,8 +274,8 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 	}
 	apps := s.buildCatalog(s.bgLang())
 	type job struct {
-		key, appName, source, target string
-		official                     bool
+		key, appName, display, source, target string
+		official                              bool
 	}
 	jobs := make([]job, 0)
 	for _, a := range apps {
@@ -285,8 +285,14 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 		if a.AppName == "moo" {
 			continue // 商店自身：防自更新环
 		}
+		src := a.Source
+		display := a.AppName
+		if a.UpdateFromSource != "" {
+			src = a.UpdateFromSource // 0.6.272：跨源同宗更新，日志/通知显示真实安装源
+			display = a.AppName + "（来自 " + a.UpdateFromSource + " 源）"
+		}
 		jobs = append(jobs, job{
-			key: a.Key, appName: a.AppName, source: a.Source,
+			key: a.Key, appName: a.AppName, display: display, source: src,
 			target:   a.AvailableVersion,
 			official: a.Source == OfficialSourceID || officialUpgrade[a.AppName],
 		})
@@ -315,12 +321,18 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 			if rerr != nil {
 				err = rerr
 			} else {
-				err = s.Pipe.InstallWithParams(ctx, srcName, a.Name, nil, func(string, float64) {})
+				// 0.6.272：跨源同宗更新从同宗源安装（目标包在那里，
+				// 用规范源会取到旧版被版本交叉校验挡住）
+				if srcName, a, rerr = s.resolveInstallEntry(j.key, srcName, a); rerr != nil {
+					err = rerr
+				} else {
+					err = s.Pipe.InstallWithParams(ctx, srcName, a.Name, nil, func(string, float64) {})
+				}
 			}
 		}
 		if err != nil {
 			failed++
-			failedNames = append(failedNames, j.appName)
+			failedNames = append(failedNames, j.display) // 跨源同宗更新带「来自 XX 源」
 			failedSet[j.appName] = true
 			// 结果未知（任务被回收但平台可能已完成升级）也要失效缓存，
 			// 避免「有更新」列表拿着旧版本数据多滞留一个 TTL。
@@ -329,7 +341,7 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 			continue
 		}
 		done++
-		doneNames = append(doneNames, j.appName)
+		doneNames = append(doneNames, j.display) // 跨源同宗更新带「来自 XX 源」
 		s.invalidateCatalog()
 		log.Printf("[auto-update] %s 已更新到 v%s", j.appName, j.target)
 		// 给平台任务队列/应用重启留缓冲，避免连环升级踩踏
@@ -1094,6 +1106,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		SourceAutoCareOff:   s.Cfg.SourceAutoCareOff,
 		AutoUpdate:          s.Cfg.AutoUpdate,
 		CatalogLanguage:     orAuto(s.Cfg.CatalogLanguage),
+		UpdatePolicy:        orStrict(s.Cfg.UpdatePolicy),
 		BackupDir:           s.Cfg.BackupDir,
 		BackupAuto:          s.Cfg.BackupAuto,
 		BackupIntervalDays:  s.backupIntervalDaysOf(),
@@ -1179,6 +1192,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		AutoUpdate *bool `json:"auto_update"`
 		// 目录语言（0.6.269）：nil = 未提交不改动；auto/zh-CN/en-US。
 		CatalogLanguage *string `json:"catalog_language"`
+		// 跨源更新策略（0.6.272）：nil = 未提交不改动；
+		// strict（默认）/ origin / lineage，其余值整单拒绝。
+		UpdatePolicy *string `json:"update_policy"`
 		// FPK 下载目录（选择器给出的绝对路径；空 = 不改动）。
 		DownloadDir string `json:"download_dir"`
 		// 备份设置（备份设置 tab）：
@@ -1252,6 +1268,19 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.Cfg.CatalogLanguage = v
+	}
+	// 跨源更新策略（0.6.272）：nil = 未提交不改动；白名单外值整单拒绝。
+	// 策略变化影响目录更新判定 → 保存成功后失效目录缓存。
+	if in.UpdatePolicy != nil {
+		v := strings.TrimSpace(*in.UpdatePolicy)
+		if v != "strict" && v != "origin" && v != "lineage" {
+			writeErr(w, http.StatusBadRequest, errors.New("更新策略仅支持 strict / origin / lineage"))
+			return
+		}
+		if s.Cfg.UpdatePolicy != v {
+			s.Cfg.UpdatePolicy = v
+			s.invalidateCatalog() // 策略变化 → 目录更新判定重建（下次 /api/apps）
+		}
 	}
 	// 加速源自动测速间隔（0.6.148）：越界整单拒绝（齿轮只产出 0-23/0-59，
 	// 拒绝脏值入 config；0h0m 合法 = 未设置 → 后端按默认 5 分钟执行）。
@@ -1623,6 +1652,14 @@ func orAuto(m string) string {
 		return "auto"
 	}
 	return m
+}
+
+// orStrict 更新策略缺省归一（0.6.272）："" = 未设置 = strict（0.6.174 行为）。
+func orStrict(p string) string {
+	if p == "" {
+		return "strict"
+	}
+	return p
 }
 
 func checkStatus(st MirrorStat) string {

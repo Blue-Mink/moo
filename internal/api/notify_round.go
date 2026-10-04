@@ -781,6 +781,11 @@ func (s *Server) updatesAvailablePass() {
 			label = a.AppName
 		}
 		src, _, _ := s.resolveKey(a.Key)
+		// 0.6.272：跨源同宗更新（策略=同源/同宗）时来源源与卡片源不同，
+		// 摘要须标明真实来源（供应链透明，与详情页「来自 XX 源」一致）。
+		if a.UpdateFromSource != "" {
+			src = a.UpdateFromSource
+		}
 		upds = append(upds, upd{label, a.InstalledVersion, a.AvailableVersion, src})
 		fps = append(fps, a.Key+"@"+a.AvailableVersion)
 	}

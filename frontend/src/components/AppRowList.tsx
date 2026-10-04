@@ -140,7 +140,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
                   <DockerIcon className="h-4 w-4 text-primary" />
                 )}
                 {canUpdate && (
-                  <Badge variant="secondary" className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-[11px] shrink-0 rounded-full">
+                  <Badge variant="secondary" title={app.update_from_source ? `更新来自 ${app.update_from_source} 源` : undefined} className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-[11px] shrink-0 rounded-full">
                     有更新
                   </Badge>
                 )}

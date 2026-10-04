@@ -348,6 +348,12 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	}
 	markInstalledCanonical(out, upgVer)
 
+	// 跨源更新策略（0.6.272）：origin/lineage 下允许同宗同名卡提供更新
+	// 目标。必须在 markInstalledCanonical 之后（规范卡/降级卡已定）、
+	// applyPlatformUpgrades 之前（平台信号随后 OR）、applyPlatformUpdateAuthority
+	// 之前（平台跟踪应用由它收敛，双重保险）。
+	applyLineageUpdates(out, orStrict(s.Cfg.UpdatePolicy), byName)
+
 	// 平台权威更新信号（daemon upgradeInfo，与应用中心 UI 同源），
 	// 补齐目录版本滞后漏掉的「有更新」。
 	applyPlatformUpgrades(out, byName)
@@ -922,5 +928,140 @@ func markInstalledCanonical(out []AppInfo, upgVer map[string]string) {
 			a.HasUpdate = false
 			a.AvailableVersion = ""
 		}
+	}
+}
+
+// releaseOrigin 把 download_url 归一成发布来源仓库「owner/repo」（0.6.272）。
+// 覆盖 GitHub 直链 / raw / jsDelivr gh 路径，并容忍 gh-proxy 类前缀
+// （https://proxy/https://raw.githubusercontent.com/… —— 正则在完整 URL
+// 里找首个匹配主机段即可）；大小写归一（同一仓库在 URL 里常出现
+// FnDepot / Fndepot 两种写法）。非 GitHub 系返回 ""（无证据，保守）。
+var releaseOriginPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`github\.com/([^/]+)/([^/#?]+)`),
+	regexp.MustCompile(`raw\.githubusercontent\.com/([^/]+)/([^/#?]+)`),
+	regexp.MustCompile(`cdn\.jsdelivr\.net/gh/([^/]+)/@?([^/#?]+)`),
+}
+
+func releaseOrigin(url string) string {
+	for _, re := range releaseOriginPatterns {
+		if m := re.FindStringSubmatch(url); m != nil {
+			return strings.ToLower(m[1]) + "/" + strings.ToLower(m[2])
+		}
+	}
+	return ""
+}
+
+// applyLineageUpdates 跨源更新策略（0.6.272，设置页「严格/同源/同宗」）：
+// update_policy=origin/lineage 时，已装应用同名组里的「同宗」卡片可以
+// 提供更新目标；strict / "" = 空操作（保持 0.6.174 行为）。
+//
+// 否决（命中则该卡不参与，防跨作者/跨应用误更新）：
+//   - 显示名不同 → 同名不同应用（如「三体甜甜圈」vs「赛博甜甜圈」）；
+//   - 双方 maintainer 均非空且明显不同、distributor 也不相等 → 不同作者。
+//
+// 同宗证据（命中任一即视为同一发布谱系）：
+//   - origin 策略：releaseOrigin(download_url) 相同（同一发布仓库）；
+//   - lineage 策略：origin 相同，或 maintainer 相等，或 distributor 相等。
+//
+// 平台跟踪应用（sourceID 非空 / source=official）整体跳过：更新判定归
+// daemon 权威（0.6.257，applyPlatformUpdateAuthority 在下游收敛）。
+//
+// 更新目标 = 规范卡自身来源最新版（fillInstalled 已判，可能为空）与同宗卡
+// 中高于已装版本的最高者；目标来自跨源卡时 ReleaseURL/说明等跟随该卡
+// （否则「更新」会下载规范卡自己的旧包），并记 UpdateFromSource 供
+// UI/通知展示「来自 XX 源」。按 slice 顺序遍历、同版本先者胜 →
+// 输出确定性，ETag 稳定。
+func applyLineageUpdates(out []AppInfo, policy string, byName map[string]platform.InstalledApp) {
+	if policy != "origin" && policy != "lineage" {
+		return
+	}
+	type grp struct {
+		canon    int
+		siblings []int
+	}
+	var groups []grp
+	gi := map[string]int{}
+	for i := range out {
+		j, ok := gi[out[i].AppName]
+		if !ok {
+			j = len(groups)
+			gi[out[i].AppName] = j
+			groups = append(groups, grp{canon: -1})
+		}
+		if out[i].Installed {
+			groups[j].canon = i // 至多一个（markInstalledCanonical 已保证）
+		} else {
+			groups[j].siblings = append(groups[j].siblings, i)
+		}
+	}
+	for _, g := range groups {
+		if g.canon < 0 || len(g.siblings) == 0 {
+			continue
+		}
+		name := out[g.canon].AppName
+		if ia, ok := byName[name]; ok && (ia.SourceID != "" || ia.Source == "official") {
+			continue // 平台权威（0.6.257），不收社区更新
+		}
+		c := &out[g.canon]
+		if c.InstalledVersion == "" {
+			continue
+		}
+		bestVer := c.AvailableVersion // 基线 = 规范卡自身来源的更新目标（可能为空）
+		bestIdx := -1
+		for _, j := range g.siblings {
+			s := &out[j]
+			if s.Source == OfficialSourceID || s.LatestVersion == "" {
+				continue
+			}
+			// 否决 1：显示名不同 → 不同应用
+			if c.DisplayName != "" && s.DisplayName != "" &&
+				!strings.EqualFold(strings.TrimSpace(c.DisplayName), strings.TrimSpace(s.DisplayName)) {
+				continue
+			}
+			// 否决 2：maintainer 明显不同且 distributor 不救
+			if c.Maintainer != "" && s.Maintainer != "" &&
+				!strings.EqualFold(c.Maintainer, s.Maintainer) &&
+				!(c.Distributor != "" && s.Distributor != "" && strings.EqualFold(c.Distributor, s.Distributor)) {
+				continue
+			}
+			// 同宗证据
+			ok := false
+			if policy == "lineage" {
+				ok = c.Maintainer != "" && s.Maintainer != "" &&
+					strings.EqualFold(c.Maintainer, s.Maintainer)
+				if !ok {
+					ok = c.Distributor != "" && s.Distributor != "" &&
+						strings.EqualFold(c.Distributor, s.Distributor)
+				}
+			}
+			if !ok {
+				o1 := releaseOrigin(c.ReleaseURL)
+				ok = o1 != "" && o1 == releaseOrigin(s.ReleaseURL)
+			}
+			if !ok {
+				continue
+			}
+			if compareVersions(s.LatestVersion, c.InstalledVersion) <= 0 {
+				continue // 不比已装新
+			}
+			if bestVer == "" || compareVersions(s.LatestVersion, bestVer) > 0 {
+				bestVer = s.LatestVersion
+				bestIdx = j
+			}
+		}
+		if bestIdx < 0 {
+			continue // 无跨源同宗新版（含 strict 语义不变的情形）
+		}
+		s := &out[bestIdx]
+		c.HasUpdate = true
+		c.AvailableVersion = bestVer
+		c.UpdateFromSource = s.Source
+		// 下载目标跟随同宗卡（版本/包/校验和/说明），防下错旧包
+		c.ReleaseURL = s.ReleaseURL
+		c.ReleaseNotes = s.ReleaseNotes
+		c.SizeBytes = s.SizeBytes
+		c.Sha256 = s.Sha256
+		c.UpdatedAt = s.UpdatedAt
+		c.DownloadCount = s.DownloadCount
 	}
 }

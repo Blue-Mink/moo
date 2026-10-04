@@ -24,7 +24,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, Globe, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -33,6 +33,18 @@ import LogSettingsTab from './LogSettingsTab'
 import ReorderList from './ReorderList'
 import GearTimePicker from './GearTimePicker'
 import WizardDialog from './WizardDialog'
+
+// 已装应用跨源更新策略（0.6.272）：严格 / 同源 / 同宗（三横排切换）
+const UPDATE_POLICY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'strict', label: '严格' },
+  { value: 'origin', label: '同源' },
+  { value: 'lineage', label: '同宗' },
+];
+const UPDATE_POLICY_DESCS: Record<string, string> = {
+  strict: '只提示当初安装来源的新版本，最保守（默认）',
+  origin: '同一发布仓库的新版本也提示，其他源的同名包不算更新',
+  lineage: '同作者或同发布仓库的新版本都提示（覆盖最全）',
+};
 
 type SettingsTab = 'system' | 'accel' | 'source' | 'backup' | 'notify' | 'log' | 'about';
 
@@ -562,7 +574,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [volumeOptions, setVolumeOptions] = useState<VolumeOption[]>([]);
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   const [autoUpdate, setAutoUpdate] = useState<boolean>(false);
-  const [catalogLang, setCatalogLang] = useState<string>('auto');
+  // 已装应用跨源更新策略（0.6.272）：严格/同源/同宗（替换 0.6.269 目录语言入口）
+  const [updatePolicy, setUpdatePolicy] = useState<string>('strict');
   // FPK 下载目录 + 已下载列表（设置页展示，可同步刷新）
   // 目录选择对话框：可下钻浏览（卷根 → 共享目录 → 任意子层），切换中状态
   const [dirApplying, setDirApplying] = useState(false);
@@ -1206,7 +1219,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setInstallVolume(settings.install_volume || 0);
         setVolumeOptions(settings.volume_options || []);
         setAutoUpdate(!!settings.auto_update);
-        setCatalogLang(settings.catalog_language || 'auto');
+        setUpdatePolicy(settings.update_policy || 'strict');
         // 0.6.255：面板账号加载行已移除（设置不再下发 panel_* 字段）
         setBackupDir(settings.backup_dir || '');
         setBackupAuto(!!settings.backup_auto);
@@ -1306,7 +1319,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         custom_docker_mirror: customDockerMirror,
         install_volume: installVolume,
         auto_update: autoUpdate,
-        catalog_language: catalogLang,
+        update_policy: updatePolicy,
         // 0.6.255：面板账号字段已彻底移除（官方源 = 纯 OAuth）
         // 备份设置（备份目录空串 = 回本机默认数据目录，需显式提交）
         backup_dir: backupDir,
@@ -2166,28 +2179,34 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 </div>
 
-                {/* 目录语言（0.6.269，M4 语言跟随）：官方目录名称/简介语言 */}
+                {/* 跨源更新策略（0.6.272）：严格 / 同源 / 同宗 三横排切换
+                    （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
                 <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <label className="text-sm font-medium leading-none flex items-center gap-1.5">
-                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                        目录语言
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        官方应用中心名称与简介的语言；「自动」跟随浏览器语言
-                      </p>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+                      更新检测策略
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
+                    </p>
+                    <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/50 p-1">
+                      {UPDATE_POLICY_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => setUpdatePolicy(o.value)}
+                          className={cn(
+                            'h-8 rounded-lg text-xs font-medium transition-colors',
+                            updatePolicy === o.value
+                              ? 'bg-card text-foreground shadow-appstore'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
                     </div>
-                    <Select value={catalogLang} onValueChange={(value) => setCatalogLang(value)}>
-                      <SelectTrigger className="w-[104px] h-9">
-                        <SelectValue placeholder="目录语言" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">自动</SelectItem>
-                        <SelectItem value="zh-CN">简体中文</SelectItem>
-                        <SelectItem value="en-US">English</SelectItem>
-                      </SelectContent>
-                    </Select>
                   </div>
                 </div>
 

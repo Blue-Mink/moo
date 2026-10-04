@@ -24,6 +24,10 @@ type AppInfo struct {
 	LatestVersion    string `json:"latest_version,omitempty"`
 	InstalledFPKVer  string `json:"installed_fpk_version,omitempty"`
 	AvailableVersion string `json:"available_version,omitempty"`
+	// UpdateFromSource（0.6.272）：update_policy=origin/lineage 时，更新目标
+	// 来自跨源同宗卡片——记录该来源源名供 UI/通知展示「来自 XX 源」；
+	// 空 = 更新来自安装源自身（默认 strict 下恒为空）。
+	UpdateFromSource string `json:"update_from_source,omitempty"`
 	HasUpdate        bool   `json:"has_update"`
 	// UpdateIgnored 更新已被用户忽略（0.6.181）：has_update 已同步置假，
 	// 详情页/行卡显示「已忽略」徽章并提供「取消忽略」；available_version
@@ -155,6 +159,12 @@ type Settings struct {
 	// CatalogLanguage 目录语言（0.6.269）：auto（默认，跟随请求
 	// Accept-Language）/ zh-CN / en-US。影响官方目录的名称/简介语言。
 	CatalogLanguage string `json:"catalog_language"`
+	// UpdatePolicy 已装应用跨源更新判定策略（0.6.272，设置页三选一）：
+	// "" / strict = 只认安装源自身最新（0.6.174 行为，默认零变化）；
+	// origin = 同一发布仓库（download_url 归一 owner/repo）的新版也算更新；
+	// lineage = origin 之外，author / distributor 相等也算同宗。
+	// 平台跟踪应用（sourceID 非空 / official）不受本策略影响。
+	UpdatePolicy string `json:"update_policy"`
 	SourceAutoCareOff   bool                  `json:"source_auto_care_disabled"`
 	SourceListURL       string                `json:"source_list_url,omitempty"`
 	SourceListOff       bool                  `json:"source_list_disabled"`
