@@ -169,7 +169,7 @@ export const appWebUrl = (app: AppInfo): string | null => {
  * 私网 IP（10.x / 192.168.x / 172.16-31.x / 169.254.x）、回环、
  * mDNS（.local / .localhost）或 .home.arpa 视为内网；其余一律视为公网。
  */
-const isLanHost = (h: string): boolean => {
+export const isLanHost = (h: string): boolean => {
   if (h === 'localhost') return true;
   if (h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.home.arpa')) return true;
   const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);

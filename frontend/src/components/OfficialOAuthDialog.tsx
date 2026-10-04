@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import {
   fetchOfficialStatus, officialAuthorize, officialCallback, officialCancel,
-  officialLogout, officialAuthorizeHeadless, fetchOfficialApps, type OfficialStatus,
+  officialLogout, officialAuthorizeHeadless, fetchOfficialApps, isLanHost,
+  type OfficialStatus,
 } from '../api/client';
 import { toast } from 'sonner';
 
@@ -32,10 +33,42 @@ interface OfficialOAuthDialogProps {
 
 type View = 'status' | 'iframe' | 'code';
 
-// 推导用户浏览器可达的面板地址：Moo UI 与面板同主机；
-// https 入口对应面板 https 端口 5667，http 对应 5666。
-const guessPanelBase = () => {
+// ── 面板基址自动识别（0.6.270）─────────────────────────────────────────────
+// 历史坑：旧版只按协议猜「同主机 :5666/:5667」，只在局域网 IP 直连时成立；
+// FN Connect 中继域、knock 子域（网关端口如 7999/8443）、ESA/EdgeOne 免端口
+// 等网关模式下，面板只挂在浏览器当前入口（origin）上，局域网端口从外网不通
+// → 授权页 iframe 打不开 / 要手动改端口。
+//
+// 现在三层判定（命中即停）：
+//  ① localStorage 记忆：上次走通的地址直接复用（网关拓扑是稳定配置，
+//     一次确认长期有效）；点「自动」钮可清记忆回到 ②③ 探测。
+//  ② 非内网主机（公网域名/公网 IP/中继域，isLanHost=false）= 网关/中继模式：
+//     base = 浏览器当前 origin —— 端口天然跟随（7999/443/免端口全对，
+//     不写死任何网关端口）。
+//  ③ 内网主机（私网 IP/.local/.home.arpa/回环）= 局域网直连：
+//     面板 = 同主机 5666(http)/5667(https)。
+// 输入框仍可手动覆盖任意地址（最终兜底）。
+
+const PANEL_BASE_KEY = 'moo.officialPanelBase';
+const loadSavedBase = (): string => {
+  try { return localStorage.getItem(PANEL_BASE_KEY) || ''; } catch { return ''; }
+};
+const saveBase = (b: string) => {
+  try { localStorage.setItem(PANEL_BASE_KEY, b.trim()); } catch { /* 忽略 */ }
+};
+const clearSavedBase = () => {
+  try { localStorage.removeItem(PANEL_BASE_KEY); } catch { /* 忽略 */ }
+};
+
+const guessPanelBase = (): string => {
+  const saved = loadSavedBase();
+  if (saved) return saved;
   const host = window.location.hostname || 'localhost';
+  if (!isLanHost(host.toLowerCase())) {
+    // 网关/中继模式：面板与浏览器同入口，origin 自带正确协议与端口
+    return window.location.origin;
+  }
+  // 局域网直连：Moo 与面板同主机，面板走 5666(http)/5667(https)
   return window.location.protocol === 'https:'
     ? `https://${host}:5667`
     : `http://${host}:5666`;
@@ -50,6 +83,8 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
   const [authUrl, setAuthUrl] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  // 0.6.270：内嵌授权页 8s 未加载完成 → 提示（网关可能拦 iframe 或入口地址不对）
+  const [slowTip, setSlowTip] = useState(false);
   // 0.6.255：无头授权的临时面板账号（旧版 fnOS 前端无授权 UI 时用；不保存）
   const [hhUser, setHhUser] = useState('');
   const [hhPass, setHhPass] = useState('');
@@ -70,6 +105,22 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
       void refreshStatus();
     }
   }, [open, refreshStatus]);
+
+  // 0.6.270：内嵌授权页 8s 未加载 → 出提示条（不自动关，给用户选择）
+  useEffect(() => {
+    if (view !== 'iframe') {
+      setSlowTip(false);
+      return;
+    }
+    const t = setTimeout(() => setSlowTip(true), 8000);
+    return () => clearTimeout(t);
+  }, [view, authUrl]);
+
+  // 0.6.270：清掉记忆地址，回到自动探测（域名→origin / IP→5666/5667）
+  const resetBaseAuto = useCallback(() => {
+    clearSavedBase();
+    setBase(guessPanelBase());
+  }, []);
 
   // ── 发起授权（生成链接 → 切 iframe 视图） ──
   const startAuthorize = useCallback(async () => {
@@ -92,6 +143,8 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
     setBusy(true);
     try {
       await officialCallback(c);
+      // 0.6.270：整条流程（含 iframe 授权页）走通 → 记住该面板地址
+      saveBase(base);
       // 验证：拉官方全量目录（证明 token 可用）
       const { total } = await fetchOfficialApps();
       toast.success(`连接成功，官方目录共 ${total} 个应用`);
@@ -233,15 +286,26 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
               {status?.ui_supported !== false && (
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground" htmlFor="official-panel-base">
-                  面板地址（授权页打开位置，一般无需修改）
+                  面板地址（授权页打开位置，自动识别：网关入口=当前地址，局域网 IP=5666/5667）
                 </label>
-                <Input
-                  id="official-panel-base"
-                  value={base}
-                  onChange={(e) => setBase(e.target.value)}
-                  placeholder="http://192.168.x.x:5666"
-                  className="h-9 font-mono text-xs"
-                />
+                <div className="flex gap-1.5">
+                  <Input
+                    id="official-panel-base"
+                    value={base}
+                    onChange={(e) => setBase(e.target.value)}
+                    placeholder="http://192.168.x.x:5666"
+                    className="h-9 flex-1 font-mono text-xs"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 shrink-0 px-2.5 text-[11px] text-muted-foreground"
+                    onClick={resetBaseAuto}
+                    title="清除已记住的地址，回到自动识别"
+                  >
+                    自动
+                  </Button>
+                </div>
               </div>
               )}
               <div className="flex items-center justify-between gap-2 pt-1">
@@ -307,6 +371,15 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
             {/* 0.6.255：内嵌授权页给固定高度（卡片内不再无限拉伸，
                 手机上单手可看到「返回输入」顶栏 + 授权页主体） */}
             <div className="bg-muted/30 p-2">
+              {slowTip && (
+                <div className="mx-0.5 mb-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                  <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin" />
+                  <span>
+                    授权页加载较慢或无法打开。可点右上角 ↗ 在新标签页打开，
+                    或返回修改「面板地址」后重试（网关拦截内嵌页面时新标签页通常可用）。
+                  </span>
+                </div>
+              )}
               <iframe
                 key={authUrl}
                 src={authUrl}
