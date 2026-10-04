@@ -1,8 +1,8 @@
 # Moo HTTP API 全量文档
 
-> 版本基线：0.6.217（面板线）+ 官方应用中心 OAuth 模块（2026-10-01 两线合并）· 适用架构：fnOS x86_64（Go 后端 + React 前端单二进制服务）
+> 版本基线：0.6.271（2026-10-05）· 适用架构：fnOS x86_64（Go 后端 + React 前端单二进制服务）
 >
-> 本文档覆盖 Moo 对外提供的全部 85 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
+> 本文档覆盖 Moo 对外提供的全部 91 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
 
 ---
 
@@ -328,7 +328,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | `GET /api/apps/{key}/panel-detail?appname=…` | admin | 面板侧应用详情（账号/端口/状态） |
 | `GET /api/apps/{key}/wizard` | 公开 | 取安装向导字段：非官方应用 `StageOnly` 暂存后 `FetchWizard`；**官方应用**走面板下载链（最长 12 分钟），返回 `{appname, has_wizard, fields…}`，失败时 `has_wizard=false` + `error` |
 | `GET /api/apps/{key}/asset?type=…&index=N&u=…` | 公开 | 远端资源代理透传（见下） |
-| `GET /api/apps/{key}/diagnostic` | 公开 | 诊断（**501 尚未启用**，M4 里程碑） |
+| `GET /api/apps/{key}/diagnostic?step=…&error=…` | 公开 | 应用诊断（0.6.269 起启用）：只读收集 report（应用/版本/架构/失败步骤/错误/日志尾部 ≤50 行/平台）+ `issue_url`，供前端上报页一键生成 issue 内容，不改动任何状态 |
 
 `asset` 查询参数：
 - `type=icon`：应用图标（本地缓存优先，miss 时代理抓取；源数据 URL 受 SSRF 防护：仅公共地址）。

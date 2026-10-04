@@ -5,11 +5,11 @@
 <h1 align="center">For fnOS<br/>Moo is more</h1>
 
 <p align="center">
-  在飞牛 NAS 上装一个第三方应用中心，2000+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
+  在飞牛 NAS 上装一个第三方应用中心，1800+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.269-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.271-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -33,7 +33,7 @@
 <p align="center">
   <img src="docs/readme-mobile-2.png" width="86%" alt="移动端设置：备份 / 通知 / 关于"/><br/>
   <b>移动端 · 设置全 tab</b><br/>
-  加速源健康自动监测 · 应用源 156 个一键恢复 · 通知内容三档
+  加速源健康自动监测 · 应用源 157 个一键恢复 · 通知内容三档
 </p>
 
 <p align="center">
@@ -57,7 +57,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.269` · SHA256 `b3609c0a4e62572e98479d4a57a91fb3f3b4d0a56377a15b9fcfbac31372906a` |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.271` · SHA256 `bdbd28f58ff2295ec09ee78ba5afc4922fe273fb571c28382475b3a387c517b1` |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -71,7 +71,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| 三源同步 | 飞牛官方应用中心 · FnDepot（V1/V2）· fnos-apps；内置 156 个社区源，一键恢复 / 去重 / 重命名 / 拖拽排序 |
+| 三源同步 | 飞牛官方应用中心 · FnDepot（V1/V2）· fnos-apps；内置 157 个社区源，一键恢复 / 去重 / 重命名 / 拖拽排序 |
 | 智能归类 | 14 个领域分类：精选表优先 → 标签映射 → 关键词兜底，官方口径对齐 |
 | 通知体系 | 30+ 事件 × 7 外部渠道，内容三档 × 形式按渠道可选；应用内通知恒开、永不漏记 |
 | GitHub 加速 | 多镜像测速自动优选，自更新 / FPK 下载 / 源同步全链路走加速；全挂告警 + 恢复通知 |
@@ -87,7 +87,7 @@
 flowchart LR
     A["应用中心安装 FPK"] --> B["wizard 选 Web 端口<br/>默认 38100"]
     B --> C["moo-server 仅监听回环<br/>唯一入口：面板网关 /app/moo/"]
-    C --> D["三源同步 + 156 社区源<br/>14 类智能归类"]
+    C --> D["三源同步 + 157 社区源<br/>14 类智能归类"]
     D --> E["更新监测 + GitHub 加速<br/>镜像测速自动优选"]
     E --> F["30+ 事件 × 7 渠道<br/>内容三档推送"]
 ```
@@ -162,6 +162,6 @@ go test ./...     # 单元测试
 
 **如果觉得好用，顺手点个 ⭐ Star 支持一下！**
 
-Made with  and by [Blue-Mink](https://github.com/Blue-Mink)
+Made with ❤️ by [Blue-Mink](https://github.com/Blue-Mink)
 
 </div>
