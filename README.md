@@ -22,7 +22,7 @@
   <a href="https://github.com/Blue-Mink/moo/issues">反馈问题</a>
 </p>
 
-本仓库包含 Moo 的全部源码：Go 后端（单二进制，web embed）+ React / TypeScript 前端（Vite 构建后内嵌），发布产物为仅 x86_64 的单 FPK。应用目录数据来自三大平台——飞牛官方应用中心、FnDepot、fnos-apps（conversun），Moo 只负责聚合、归类与推送，不修改上游数据。
+本仓库包含 Moo 的全部源码：Go 后端（单二进制，web embed）+ React / TypeScript 前端（Vite 构建后内嵌），发布产物为仅 x86_64 的单 FPK。应用目录数据来自三大平台——飞牛官方应用中心、FnDepot、fnos-apps（conversun），Moo 只负责聚合、归类与推送，不修改上游数据。仓库根部的 `moo.json` 是自索引——**本仓库本身就是一个 Moo 应用源**（见下方「作为 Moo 应用源」）。
 
 <p align="center">
   <img src="docs/readme-mobile-1.png" width="100%" alt="移动端（暗黑模式）：主页 / 系统设置 / 加速源 / 发现"/><br/>
@@ -66,6 +66,15 @@
 
 > [!TIP]
 > 装完可应用内自更新：版本号红点 + 确认框，走平台升级通道就地更新，`@appdata` 数据保留。
+
+## 作为 Moo 应用源
+
+仓库根部的 `moo.json` 是按 [Moo 应用源协议](docs/MOO-PROTOCOL.md) 生成的自索引（当前收录最近 3 个版本，下载链接指向本仓库 releases，含 SHA256）。在 Moo 中添加本仓库作为源：
+
+- 搜索框直接粘贴 `https://github.com/Blue-Mink/moo` → 自动识别为源
+- 或 设置 → 应用源 → 添加源：仓库地址 / raw 直链（`…/raw/main/moo.json`）均可
+
+这也是协议的最小可用示例源；字段规范、多版本与 `packages` 结构、版本比较规则见 [docs/MOO-PROTOCOL.md](docs/MOO-PROTOCOL.md)。
 
 ## 为什么这样设计
 
