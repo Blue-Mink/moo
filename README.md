@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.271-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.278-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -57,7 +57,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.271` · SHA256 `bdbd28f58ff2295ec09ee78ba5afc4922fe273fb571c28382475b3a387c517b1` |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.278` · SHA256 `f1f091180f5d01996c274f98dd116678a68a8b483b64dd9afaad439b5c67b1ca` |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
