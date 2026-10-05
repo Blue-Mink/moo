@@ -42,21 +42,30 @@ function orderTabs(order?: string[]): typeof TABS {
 }
 
 /**
- * iOS App Store 风格底部标签栏：
- * 激活 = iOS 蓝图标+文字（无底色），未激活 = 灰色；
- * 「有更新」带红色角标。固定底部，适配刘海屏安全区。
+ * 移动端底部 Dock（0.6.273 A档：与 PC 端 Desktop Dock 同款材质）——
+ * 悬浮居中毛玻璃胶囊：bg-card/55 + backdrop-blur-2xl + 24px 大圆角 +
+ * 0.5px 级 hairline 描边 + dock 投影（与 App.tsx 末尾桌面 Dock 完全一致），
+ * 距底 10px + 刘海屏安全区。激活 = iOS 蓝图标+文字+浅色底，未激活 = 灰色；
+ * 「有更新」带红色角标。
  */
 const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, order, bottomOffset = 0 }) => {
   const tabs = orderTabs(order);
   return (
   <nav
+    // 静止：距底 10px + safe-area（与 PC Dock bottom-6 同一视觉节奏）。
     // bottom: -bottomOffset → 键盘弹出时 dock 下移键盘高度，钉在物理屏幕
     // 底边被键盘盖住；收起时 offset 归 0，dock 已在位（无回弹位移）
-    style={bottomOffset > 0 ? { bottom: `-${bottomOffset}px` } : undefined}
-    className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-card/90 backdrop-blur-xl border-t border-border/60 pb-[max(0px,env(safe-area-inset-bottom))]"
+    style={bottomOffset > 0
+      ? { bottom: `-${bottomOffset}px` }
+      : { bottom: 'calc(10px + env(safe-area-inset-bottom))' }}
+    // 0.6.274（用户反馈「太短很拥挤」）：按钮 70px 加宽。
+    // 0.6.275（用户仍反馈「不够长」）：胶囊改近全宽 —— w-[calc(100%-24px)]
+    //（左右各留 12px）+ max-w-[380px] 防平板宽屏下胶囊过宽，
+    // 按钮改 flex-1 均匀铺满胶囊（375px 屏 ≈75px/钮，<360px 小屏自动收缩防溢出）
+    className="md:hidden fixed left-1/2 -translate-x-1/2 z-30 flex w-[calc(100%-24px)] max-w-[380px] items-end rounded-[24px] border border-white/10 bg-card/55 px-3 py-2.5 shadow-2xl shadow-black/40 backdrop-blur-2xl"
     aria-label="主导航"
   >
-    <div className="grid grid-cols-4">
+    <div className="flex w-full items-end gap-2">
       {tabs.map(t => {
         const Icon = t.icon;
         const isActive = active === t.key;
@@ -65,16 +74,18 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
             key={t.key}
             onClick={() => onSelect(t.key)}
             className={cn(
-              "flex flex-col items-center justify-center gap-[3px] pt-1.5 pb-1.5",
+              // 与 PC Dock 按钮同构：图标 24px + 10px 标签 + 按下缩放反馈
+              // 0.6.275：flex-1 均分胶囊宽度（随屏宽自适应，替代固定 70px）
+              "relative flex flex-1 flex-col items-center gap-1 rounded-2xl px-2 py-1.5",
               // 0.6.232（用户反馈「点击响应有点慢」）：加**按下缩放反馈** ——
               // 手指落下即刻有视觉回应，不必等内容切换完才"看起来有反应"
-              "transition-[color,transform] duration-100 active:scale-90",
-              isActive ? "text-primary" : "text-muted-foreground"
+              "transition-[background-color,color,transform] duration-100 active:scale-90",
+              isActive ? 'bg-primary/15 text-primary' : 'text-muted-foreground'
             )}
             aria-current={isActive ? 'page' : undefined}
           >
             <span className="relative">
-              <Icon className="h-[26px] w-[26px]" strokeWidth={isActive ? 2.2 : 1.9} />
+              <Icon className="h-6 w-6" strokeWidth={isActive ? 2.2 : 1.8} />
               {t.key === 'update_available' && updateCount > 0 && (
                 <span
                   className={cn(

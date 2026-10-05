@@ -99,13 +99,15 @@
 
 :root {
   /* ---- Apple App Store 亮色 ---- */
-  --background: 240 5% 97%;        /* #f5f5f7 */
+  /* 0.6.273 A档（对齐 dog-dev iOS 亮色）：背景 #f2f2f7 */
+  --background: 240 24% 96%;       /* #f2f2f7 */
   --foreground: 240 3% 11%;        /* #1d1d1f */
   --card: 0 0% 100%;               /* #ffffff */
   --card-foreground: 240 3% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 240 3% 11%;
-  --primary: 212 100% 45%;         /* iOS 蓝 #0071e3 */
+  /* 0.6.273 A档（对齐 dog-dev iOS 蓝）：#0a84ff（hsl 210 100% 52% ≈ #0a85ff，G 通道差 1 不可见） */
+  --primary: 210 100% 52%;         /* iOS 蓝 #0a84ff */
   --primary-foreground: 0 0% 100%;
   --secondary: 240 16% 92%;        /* #e8e8ed */
   --secondary-foreground: 240 3% 11%;
@@ -117,8 +119,8 @@
   --destructive-foreground: 0 0% 98%;
   --border: 240 4% 83%;            /* #d2d2d7 */
   --input: 240 4% 83%;
-  --ring: 212 100% 45%;
-  --chart-1: 212 100% 45%;
+  --ring: 210 100% 52%;
+  --chart-1: 210 100% 52%;
   --chart-2: 160 60% 35%;
   --chart-3: 43 90% 50%;
   --chart-4: 275 70% 55%;
@@ -134,7 +136,7 @@
   --card-foreground: 240 5% 97%;
   --popover: 240 5% 11%;
   --popover-foreground: 240 5% 97%;
-  --primary: 211 100% 52%;         /* iOS 暗色蓝 #0a84ff */
+  --primary: 210 100% 52%;         /* iOS 暗色蓝 #0a84ff（0.6.273 与亮色统一） */
   --primary-foreground: 0 0% 100%;
   --secondary: 240 5% 17%;         /* #2c2c2e */
   --secondary-foreground: 240 5% 97%;
@@ -146,8 +148,8 @@
   --destructive-foreground: 0 0% 98%;
   --border: 240 3% 23%;            /* #3a3a3c */
   --input: 240 3% 23%;
-  --ring: 211 100% 52%;
-  --chart-1: 211 100% 52%;
+  --ring: 210 100% 52%;
+  --chart-1: 210 100% 52%;
   --chart-2: 160 60% 45%;
   --chart-3: 43 90% 55%;
   --chart-4: 275 70% 60%;

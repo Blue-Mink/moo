@@ -1484,7 +1484,8 @@ const App: React.FC = () => {
            </div>
         </header>
 
-        <main className="flex-grow p-4 pb-24 md:p-8 md:pb-36 overflow-y-auto">
+        {/* 0.6.273：移动端 Dock 改悬浮胶囊（距底 10px+safe），内容底部留白 96→112px */}
+        <main className="flex-grow p-4 pb-28 md:p-8 md:pb-36 overflow-y-auto">
           {activeFilter === 'recommended' ? (
             <div className="space-y-10">
               {apps.length > 0 && (
