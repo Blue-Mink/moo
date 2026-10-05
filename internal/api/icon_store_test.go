@@ -142,3 +142,49 @@ func TestIconCacheKey_Versioned(t *testing.T) {
 		t.Fatalf("空版本 key 应稳定非空: %q", iconCacheKey(e1))
 	}
 }
+
+// 0.6.289 空白墙治本：版本键位移（Source@Name@旧版本 条目在盘、
+// Source@Name@新版本 键 miss）时，GetStale 按前缀取 TS 最新的旧图标兜底。
+func TestIconStore_GetStalePrefixFallback(t *testing.T) {
+	dir := t.TempDir()
+	st := newIconStore(dir)
+	st.Put("src@demo@1.0.0", testPNG, "image/png")
+	// 模拟版本刷新后的新键（盘上不存在）
+	if _, _, ok := st.Get("src@demo@2.0.0"); ok {
+		t.Fatal("新键本应 miss")
+	}
+	b, ct, ok := st.GetStale("src@demo@")
+	if !ok || ct != "image/png" || len(b) != len(testPNG) {
+		t.Fatalf("前缀回退未命中旧图标: ok=%v ct=%q", ok, ct)
+	}
+	// 多版本时取 TS 最新
+	other := append([]byte{}, testPNG...)
+	other[9] = 0x42
+	st.Put("src@demo@1.5.0", other, "image/png")
+	b2, _, ok2 := st.GetStale("src@demo@")
+	if !ok2 || b2[9] != 0x42 {
+		t.Fatal("多旧版本应取最新 TS 条目")
+	}
+	if _, _, ok3 := st.GetStale("nosuch@"); ok3 {
+		t.Fatal("无匹配前缀不应命中")
+	}
+	// 重启后（磁盘索引重建）依然可回退
+	st.Flush()
+	st2 := newIconStore(dir)
+	if _, _, ok4 := st2.GetStale("src@demo@"); !ok4 {
+		t.Fatal("重启后前缀回退失效")
+	}
+}
+
+// iconCacheKey 与预热键一致性（Has 用真实键才有效）
+func TestIconWarmKeyMatchesCacheKey(t *testing.T) {
+	a := &source.App{Name: "demo", Source: "src", Version: "1.2.3"}
+	if got := iconCacheKey(a); got != "src@demo@1.2.3" {
+		t.Fatalf("iconCacheKey=%q", got)
+	}
+	st := newIconStore(t.TempDir())
+	st.Put(iconCacheKey(a), testPNG, "image/png")
+	if !st.Has(iconCacheKey(a)) {
+		t.Fatal("Has 应命中真实缓存键")
+	}
+}

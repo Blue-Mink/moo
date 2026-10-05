@@ -1248,6 +1248,7 @@ func iconCacheKey(a *source.App) string {
 
 func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string, error) {
 	cacheKey := iconCacheKey(a)
+	stalePrefix := a.Source + "@" + a.Name + "@"
 	st := s.iconStore()
 	if data, ctype, ok := st.Get(cacheKey); ok {
 		return data, ctype, nil
@@ -1256,6 +1257,10 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	if st.IsNegative(cacheKey) {
 		if data, ok := localAppIcon(a.Name); ok {
 			return data, "image/png", nil
+		}
+		// 0.6.289：负缓存/键位移时旧版本图标兜底（显示旧图 > 空白）
+		if data, ct, ok := st.GetStale(stalePrefix); ok {
+			return data, ct, nil
 		}
 		return nil, "", errors.New("图标不存在或拉取失败")
 	}
@@ -1364,6 +1369,12 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	// 误判缺失 30 分钟（2026-09 预热风暴实测：igame 等被瞬时故障误杀）
 	if len(defMissPaths) > 0 {
 		st.MarkNegative(cacheKey)
+	}
+	// 0.6.289 空白墙治本：本版本键竞速全败（DNS 瞬断/镜像限流/键位移）时
+	// 回退磁盘层同应用旧版本图标——2026-10-06 部署风暴实锤：516 图标键位移
+	// 重抓撞本地 DNS 瞬断，整面图标墙空白；旧版本条目一直躺在盘上没人取。
+	if data, ct, ok := st.GetStale(stalePrefix); ok {
+		return data, ct, nil
 	}
 	return nil, "", errors.New("图标不存在或拉取失败")
 }
@@ -1662,8 +1673,9 @@ func localAppIcon(appName string) ([]byte, bool) {
 // ReportFailureDialog/fetchDiagnostic，此前 501 桩导致「上报」按钮恒败）：
 // GET /api/apps/{key}/diagnostic?step=<步骤>&error=<错误> →
 // {report: {app, display_name, version, arch, app_type, failed_step,
-//  error_message, log_tail, log_truncated, store_version, platform,
-//  timestamp}, issue_url}。只读收集，不改动任何状态。
+//
+//	error_message, log_tail, log_truncated, store_version, platform,
+//	timestamp}, issue_url}。只读收集，不改动任何状态。
 func (s *Server) appDiagnostic(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	step := r.URL.Query().Get("step")
@@ -1691,18 +1703,18 @@ func (s *Server) appDiagnostic(w http.ResponseWriter, r *http.Request) {
 	lines, truncated := diagnosticLogTail(appname, 2000, 50, 8000)
 
 	report := map[string]any{
-		"app":            appname,
-		"display_name":   displayName,
-		"version":        version,
-		"arch":           arch,
-		"app_type":       appType,
-		"failed_step":    step,
-		"error_message":  errMsg,
-		"log_tail":       strings.Join(lines, "\n"),
-		"log_truncated":  truncated,
-		"store_version":  s.Version,
-		"platform":       "fnos",
-		"timestamp":      time.Now().Format(time.RFC3339),
+		"app":           appname,
+		"display_name":  displayName,
+		"version":       version,
+		"arch":          arch,
+		"app_type":      appType,
+		"failed_step":   step,
+		"error_message": errMsg,
+		"log_tail":      strings.Join(lines, "\n"),
+		"log_truncated": truncated,
+		"store_version": s.Version,
+		"platform":      "fnos",
+		"timestamp":     time.Now().Format(time.RFC3339),
 	}
 	writeJSON(w, map[string]any{
 		"report":    report,

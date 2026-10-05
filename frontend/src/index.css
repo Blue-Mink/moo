@@ -129,31 +129,38 @@
 }
 
 .dark {
-  /* ---- Apple App Store 暗色（iOS dark） ---- */
-  --background: 0 0% 0%;           /* #000000 */
-  --foreground: 240 5% 97%;        /* #f5f5f7 */
-  --card: 240 5% 11%;              /* #1c1c1e */
-  --card-foreground: 240 5% 97%;
-  --popover: 240 5% 11%;
-  --popover-foreground: 240 5% 97%;
-  --primary: 210 100% 52%;         /* iOS 暗色蓝 #0a84ff（0.6.273 与亮色统一） */
+  /* ---- 0.6.293 暗色降噪重校（用户实报「配色吵/刺眼」，亮色保持不动）----
+     设计思路 = 给整个暗色面「降低音量」而不改设计语言：
+     ① 底色从纯黑抬到墨黑（#0c0c0e），消除背景↔卡片生硬的剃刀对比；
+     ② 近白文字减一档亮度，削减大面积 97% 白字在深底上的振颤感；
+     ③ 主色由 100% 饱和的 #0a84ff 改为沉稳钢青 #4a90ec —— 蓝色实心
+        胶囊/按钮/选中态是暗色下最大 glare 源，降饱和一档后仍然醒目；
+     ④ 红色系与描边同步降饱和；分隔线减亮 = 减少「线噪」。
+     语义（颜色含义）与 iOS 版式全部保持不变。 */
+  --background: 240 6% 5%;        /* #0c0c0e 墨黑（原 #000） */
+  --foreground: 240 5% 93%;       /* 柔和近白（原 97%） */
+  --card: 240 5% 12%;             /* 卡片微抬，层级靠高度而非纯黑白差 */
+  --card-foreground: 240 5% 93%;
+  --popover: 240 5% 13%;
+  --popover-foreground: 240 5% 93%;
+  --primary: 215 85% 58%;         /* 钢青 #4a90ec（原 iOS #0a84ff） */
   --primary-foreground: 0 0% 100%;
-  --secondary: 240 5% 17%;         /* #2c2c2e */
-  --secondary-foreground: 240 5% 97%;
+  --secondary: 240 5% 17%;        /* #2c2c2e */
+  --secondary-foreground: 240 5% 93%;
   --muted: 240 5% 17%;
-  --muted-foreground: 240 3% 60%;  /* #98989e */
+  --muted-foreground: 240 3% 62%; /* 底色抬升后微提一档保住可读性 */
   --accent: 240 5% 20%;
-  --accent-foreground: 240 5% 97%;
-  --destructive: 3 100% 61%;       /* #ff453a */
+  --accent-foreground: 240 5% 93%;
+  --destructive: 4 75% 58%;       /* 柔和红（原 #ff453a） */
   --destructive-foreground: 0 0% 98%;
-  --border: 240 3% 23%;            /* #3a3a3c */
-  --input: 240 3% 23%;
-  --ring: 210 100% 52%;
-  --chart-1: 210 100% 52%;
-  --chart-2: 160 60% 45%;
-  --chart-3: 43 90% 55%;
-  --chart-4: 275 70% 60%;
-  --chart-5: 330 85% 60%;
+  --border: 240 4% 20%;           /* 减亮描边 = 减线噪 */
+  --input: 240 4% 20%;
+  --ring: 215 85% 65%;
+  --chart-1: 215 85% 58%;
+  --chart-2: 160 45% 45%;
+  --chart-3: 43 70% 55%;
+  --chart-4: 275 55% 62%;
+  --chart-5: 330 60% 60%;
 }
 
 @layer base {
@@ -183,6 +190,27 @@
 .hero-gradient-3 {
   background: linear-gradient(135deg, #f59e0b 0%, #f97316 45%, #ef4444 100%);
 }
+
+/* ── 极光模式色板（0.6.294 A 方案；0.6.295 扩 12 组；0.6.296 按推荐卡方法学重写）──
+   机制 = 照抄发现页 HeroBanner：单条 linear-gradient(135deg, A → B → C)
+   高饱和三色整卡斜铺，无暗底、无径向光晕。前 3 组 = hero-gradient-1/2/3 原配方。
+   0.6.296 治「生硬」：4-12 组完全按推荐卡反推的三条规律重写（palette_gate.py
+   以 hero-1..3 为黄金标准逐对断言）——①每步色相 Δ≤75°（hero1=71° 先例）
+   ②全程单调不折返 ③每条 sRGB 插值段中点饱和度 ≥50%（温润不互灰的直接检验；
+   旧 10/11/12 组 90-148° 大跳中段坍塌成灰正是生硬根因）。组间 max(起,终)≥30°
+   保身份。按应用名哈希稳定取色（同应用恒同色）。── */
+.aurora-1 { background: linear-gradient(135deg, #2563eb 0%, #7c3aed 55%, #db2777 100%); } /* 蓝紫粉=hero-1 */
+.aurora-2 { background: linear-gradient(135deg, #0d9488 0%, #0ea5e9 50%, #3b82f6 100%); } /* 青碧蓝=hero-2 */
+.aurora-3 { background: linear-gradient(135deg, #f59e0b 0%, #f97316 45%, #ef4444 100%); } /* 橙红=hero-3 */
+.aurora-4 { background: linear-gradient(135deg, #f43f5e 0%, #fb923c 50%, #fbbf24 100%); } /* 珊瑚玫红→琥珀 */
+.aurora-5 { background: linear-gradient(135deg, #d946ef 0%, #ec4899 50%, #f43f5e 100%); } /* 品红→玫红 */
+.aurora-6 { background: linear-gradient(135deg, #84cc16 0%, #22c55e 50%, #10b981 100%); } /* 黄绿→翡翠 */
+.aurora-7 { background: linear-gradient(135deg, #22c55e 0%, #10b981 50%, #14b8a6 100%); } /* 绿→青翠 */
+.aurora-8 { background: linear-gradient(135deg, #4f46e5 0%, #8b5cf6 50%, #c026d3 100%); } /* 靛紫→洋红 */
+.aurora-9 { background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #5b21b6 100%); } /* 午夜蓝紫 */
+.aurora-10 { background: linear-gradient(135deg, #db2777 0%, #e11d48 50%, #f43f5e 100%); } /* 玫红→绯红 */
+.aurora-11 { background: linear-gradient(135deg, #eab308 0%, #a3e635 50%, #84cc16 100%); } /* 柠黄→春绿 */
+.aurora-12 { background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 50%, #06b6d4 100%); } /* 湛蓝→青 */
 
 /* 顶部搜索展开动画：点击"搜索"药丸后，全宽搜索框从右侧（药丸位置）悬浮展开 */
 @keyframes search-expand {
@@ -261,4 +289,76 @@ section[aria-label="Notifications alt+T"] {
 }
 section[aria-label="Notifications alt+T"] [data-sonner-toast] {
   pointer-events: auto;
+}
+
+/* ── 0.6.291 全局滚动条（用户定稿：极简一根细条、两端无箭头）───────────
+   0.6.290 的教训：标准 scrollbar-color/width 属性一旦设在 `*` 上，
+   Chrome 121+ 会切换到「原生渲染模式」并整体忽略 ::-webkit-scrollbar 定制
+   （Windows 原生滚动条自带两端箭头按钮）；且未分层规则还压过了 Tailwind
+   utilities 层的 .no-scrollbar/[scrollbar-width:none]（分类条、齿轮选择器
+   的隐藏滚动条全部复活）。因此：
+   ① Chrome/Edge/Safari 只走 ::-webkit-scrollbar 纯自定义（无槽底、无按钮、
+      圆角细条）——跨平台渲染一致，作者全权控制；
+   ② 标准属性仅给 Firefox（其细滚动条本就无箭头），且必须进 @layer base，
+      让 utilities 层的隐藏规则能覆盖回 none。 */
+@layer base {
+  @supports (-moz-appearance: none) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgb(127 127 127 / 0.4) transparent;
+    }
+  }
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(127 127 127 / 0.4);
+  border-radius: 8px;
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(127 127 127 / 0.65);
+  background-clip: padding-box;
+}
+
+/* ── 0.6.292 分类 pill 条横向滑条（用户实报：网页端窗口缩小后分类条溢出、
+   没有可见滑条 = 鼠标无法横向滚动切换类别）──────────────────────────────
+   pointer:fine（鼠标/触控板设备）= 溢出时显示全局同款极简横向细条可拖拽；
+   触屏设备维持隐藏（移动端布局不动，手指滑动本就顺手）。
+   沿用 291 教训：Chrome 只走 ::-webkit（标准 scrollbar-* 属性会切原生模式
+   带出箭头），标准属性仅给 Firefox。*/
+.pill-bar::-webkit-scrollbar {
+  display: none;
+}
+@media (pointer: fine) {
+  .pill-bar::-webkit-scrollbar {
+    display: block;
+    height: 10px;
+  }
+}
+@supports (-moz-appearance: none) {
+  .pill-bar {
+    scrollbar-width: none;
+  }
+  @media (pointer: fine) {
+    .pill-bar {
+      scrollbar-width: thin;
+      scrollbar-color: rgb(127 127 127 / 0.4) transparent;
+    }
+  }
 }

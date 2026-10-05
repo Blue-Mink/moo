@@ -491,7 +491,9 @@ const NotifySettingsTab: React.FC = () => {
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-5">
       {/* 子 tab 分段控件（对齐 knock 事件中心：推送渠道/通知规则/推送记录） */}
-      <div className="flex items-center gap-1 bg-muted/40 rounded-xl p-1 mb-3 w-fit max-w-full overflow-x-auto" role="tablist">
+      {/* 0.6.287：子 tab 与设置页顶部 tab 同语言（选中实心蓝 / 未选毛玻璃胶囊），
+          旧 bg-muted/40+bg-card 分段在暗黑模式不可辨 */}
+      <div className="flex items-center gap-1 bg-card/55 backdrop-blur-xl border border-white/10 rounded-full p-1 mb-3 w-fit max-w-full overflow-x-auto" role="tablist">
         {NOTIFY_SUB_TABS.map(({ key, label }) => (
           <button
             key={key}
@@ -499,8 +501,8 @@ const NotifySettingsTab: React.FC = () => {
             aria-selected={sub === key}
             onClick={() => setSub(key)}
             className={cn(
-              'h-7 rounded-lg px-3.5 text-xs font-medium transition-colors whitespace-nowrap focus:outline-none',
-              sub === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              'h-7 rounded-full px-3.5 text-xs font-medium transition-colors whitespace-nowrap focus:outline-none',
+              sub === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {label}
@@ -536,7 +538,7 @@ const NotifySettingsTab: React.FC = () => {
               0.6.144 补丁2：仅当存在卡片形式渠道时才显示——view_base 只被卡片跳转消费，
               其余形式渠道对它无意义（未配置时卡片渠道也自动降级 markdown）） */}
           {channels.some((c) => c.format === 'card') && (
-          <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-3">
+          <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
             <button
               type="button"
               onClick={toggleViewOpen}
@@ -578,7 +580,7 @@ const NotifySettingsTab: React.FC = () => {
           )}
 
           {channels.length === 0 && (
-            <div className="bg-card rounded-[18px] border border-dashed border-border/40 py-10 text-center">
+            <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-dashed border-border/40 py-10 text-center">
               <p className="text-xs text-muted-foreground">尚未配置推送渠道</p>
               <p className="mt-1 text-[11px] text-muted-foreground/70">
                 支持企业微信 / 钉钉 / 飞书 / Server酱 / PushPlus / Bark / 通用 Webhook（QQ 机器人等）
@@ -588,7 +590,7 @@ const NotifySettingsTab: React.FC = () => {
           {channels.map((ch) => {
             const def = defs.find((d) => d.type === ch.type);
             return (
-              <div key={ch.id} className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-3">
+              <div key={ch.id} className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 text-base">
                     {TYPE_ICON[ch.type] ?? '•'}
@@ -649,7 +651,7 @@ const NotifySettingsTab: React.FC = () => {
           {/* 外部渠道通知总开关（0.6.124 从「推送渠道」移入；只管外部渠道，
               应用内顶部通知栏始终开、不受此开关控制）。
               折叠按钮在开关后面（0.6.125 用户定稿）：控制下方全部通知类型。 */}
-          <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4">
+          <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <Bell className="h-5 w-5 text-primary" />
@@ -699,7 +701,7 @@ const NotifySettingsTab: React.FC = () => {
                     <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", groupCollapsed[g.name] !== false && "-rotate-90")} />
                   </button>
                   {groupCollapsed[g.name] === false && (
-                    <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore divide-y divide-border/15 overflow-hidden">
+                    <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore divide-y divide-border/15 overflow-hidden">
                       {g.items.map((e) => (
                         <div key={e.key} className="flex items-center gap-2 px-4 py-2.5">
                           <div className="flex-1 min-w-0">
@@ -773,7 +775,7 @@ const NotifySettingsTab: React.FC = () => {
               </Button>
             </div>
           </div>
-          <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore divide-y divide-border/15 overflow-hidden">
+          <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore divide-y divide-border/15 overflow-hidden">
             {logLoading && log.length === 0 && (
               <div className="flex justify-center py-10">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

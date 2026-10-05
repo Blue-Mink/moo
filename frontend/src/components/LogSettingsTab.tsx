@@ -183,16 +183,21 @@ export default function LogSettingsTab() {
 
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
-      <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
+      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+        {/* 0.6.293（用户定稿）：折行方案多占一行 → 恢复 0.6.283 单行布局
+            （标题左 + 控件右，justify-between）；弹出同宽修复保留 */}
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <FileText className="h-4 w-4" />
-            <span>应用日志（moo.log）</span>
+          <div className="flex items-center gap-2 text-sm font-semibold min-w-0">
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate">应用日志（moo.log）</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Select value={String(count)} onValueChange={handleCountChange}>
               <SelectTrigger className="h-9 w-[104px] text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
+              {/* 0.6.288：align=start 左缘对齐；0.6.292：面板宽度锁定=触发框宽
+                  （104px），不再出现弹出框比选择框宽的不齐平（用户实报）。
+                  Radix popper 模式注入 --radix-select-trigger-width */}
+              <SelectContent align="start" className="w-[var(--radix-select-trigger-width)] min-w-0">
                 <SelectItem value="50">50 行</SelectItem>
                 <SelectItem value="100">100 行</SelectItem>
                 <SelectItem value="200">200 行</SelectItem>
@@ -244,7 +249,7 @@ export default function LogSettingsTab() {
           桌面端(sm+) = 紧凑三行 时间｜级别｜详情（窄列 + gap-2）；
           移动端 = 两行式——首行小字「时间 级别」，次行详情占满整宽，
           长日志不再被三列挤成窄条。 */}
-      <div className="overflow-hidden bg-card rounded-[18px] border border-border/20 shadow-appstore">
+      <div className="overflow-hidden bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore">
         <div className="sm:hidden border-b bg-muted/40 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
           日志详情（最新在上）
         </div>

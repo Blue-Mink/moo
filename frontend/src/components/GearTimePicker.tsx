@@ -37,6 +37,33 @@ function GearColumn({ value, max, unit, label, onChange }: GearColumnProps) {
 
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
+  // 0.6.291（用户定稿）：滚轮减速——原生滚动一格冲好几行、很难停准。
+  // 改为拦截 wheel：累积 deltaY 过阈值才走一格（一格=一个数字），平滑吸附。
+  // ⚠ React 合成 onWheel 是 passive 的（不能 preventDefault），必须原生监听。
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let acc = 0;
+    const THRESHOLD = 50;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) return; // 捏合缩放交还浏览器
+      e.preventDefault();
+      e.stopPropagation();
+      acc += e.deltaY;
+      if (acc > THRESHOLD) acc = THRESHOLD + 1;
+      if (acc < -THRESHOLD) acc = -THRESHOLD - 1;
+      if (Math.abs(acc) <= THRESHOLD) return;
+      const step = acc > 0 ? 1 : -1;
+      acc -= step * THRESHOLD;
+      const next = Math.max(0, Math.min(max, valueRef.current + step));
+      if (next !== valueRef.current) {
+        el.scrollTo({ top: next * ITEM_H, behavior: 'smooth' });
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [max]);
+
   const onScroll = useCallback(() => {
     cancelAnimationFrame(raf.current);
     raf.current = requestAnimationFrame(() => {

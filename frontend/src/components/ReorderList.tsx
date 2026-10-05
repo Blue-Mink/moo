@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Check, GripVertical } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface ReorderItem {
@@ -187,6 +187,17 @@ const ReorderList: React.FC<ReorderListProps> = ({ items, onReorder, busy }) => 
     setTargetIdx(idx);
   };
 
+  // 0.6.284（用户报「网页版排序不起作用」）：鼠标长按 500ms 进抖动 + 150ms 抓住
+  // 的隐式手势在桌面几乎不可发现 → 桌面（≥sm）每行直排「上移/下移」按钮，
+  // 一次点击即换序并保存；触控抖动拖拽完全保留、互不影响。
+  const move = (from: number, to: number) => {
+    if (busy || from === to || to < 0 || to >= items.length) return;
+    const keys = items.map((i) => i.key);
+    const [m] = keys.splice(from, 1);
+    keys.splice(to, 0, m);
+    onReorder(keys);
+  };
+
   return (
     <div>
       <div className={cn('space-y-2', wiggle && 'touch-none select-none')}>
@@ -242,7 +253,30 @@ const ReorderList: React.FC<ReorderListProps> = ({ items, onReorder, busy }) => 
                 <span className="truncate text-sm font-medium">{item.label}</span>
                 {item.badge}
               </div>
-              <span className="shrink-0 text-[11px] text-muted-foreground/60 tabular-nums">{idx + 1}</span>
+              {/* 桌面直排按钮（0.6.284）：hover 即可发现，点击=换序+保存 */}
+              <div className="hidden sm:flex shrink-0 items-center gap-0.5" onPointerDown={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  disabled={busy || idx === 0}
+                  onClick={() => move(idx, idx - 1)}
+                  className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 transition-colors"
+                  title="上移"
+                  aria-label={`上移 ${item.label}`}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || idx === items.length - 1}
+                  onClick={() => move(idx, idx + 1)}
+                  className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 transition-colors"
+                  title="下移"
+                  aria-label={`下移 ${item.label}`}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
+              <span className="shrink-0 w-4 text-right text-[11px] text-muted-foreground/60 tabular-nums">{idx + 1}</span>
             </div>
           );
         })}

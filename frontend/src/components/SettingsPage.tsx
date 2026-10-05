@@ -34,11 +34,12 @@ import ReorderList from './ReorderList'
 import GearTimePicker from './GearTimePicker'
 import WizardDialog from './WizardDialog'
 
-// 已装应用跨源更新策略（0.6.272）：严格 / 同源 / 同宗（三横排切换）
+// 已装应用跨源更新策略（0.6.272）：三档横排切换
+// 0.6.284（用户定稿）：档位命名 严格/同源/同宗 → 严格/友好/宽松（语义不变，仅更口语）
 const UPDATE_POLICY_OPTIONS: { value: string; label: string }[] = [
   { value: 'strict', label: '严格' },
-  { value: 'origin', label: '同源' },
-  { value: 'lineage', label: '同宗' },
+  { value: 'origin', label: '友好' },
+  { value: 'lineage', label: '宽松' },
 ];
 const UPDATE_POLICY_DESCS: Record<string, string> = {
   strict: '只提示当初安装来源的新版本，最保守（默认）',
@@ -78,6 +79,8 @@ interface SettingsPageProps {
   onStoreUpdate?: () => void;
   /** 外部应用源变化后刷新应用目录 */
   onCatalogChanged?: () => void;
+  /** 极光预览模式（0.6.297，仅网页端）：面板底=推荐卡一号渐变，元素样式不动 */
+  aurora?: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -169,7 +172,7 @@ const MirrorHealthPanel: React.FC<{
   const failCount = rows.filter((r) => r.status === 'fail').length;
 
   return (
-    <div className="relative rounded-xl bg-card border border-border/20 px-3 py-3">
+    <div className="relative rounded-xl bg-card/55 backdrop-blur-xl border border-white/10 px-3 py-3">
       {/* 0.6.150（用户定稿）：标题上移至「卡片最顶部 ↔ 齿轮最顶部」的正中——
           卡片外顶→齿轮顶 = 1(border) + 12(py-3) + 14(齿轮列顶部留白) = 27px，
           标题中心 = 距卡片顶 13.5px（绝对定位 -translate-y-1/2；
@@ -330,7 +333,7 @@ const AboutTab: React.FC = () => {
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
       {/* 应用信息 */}
-      <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3.5">
+      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3.5">
         <div className="flex items-center gap-3.5">
           <img src="./icon-192.png" alt="Moo" className="h-14 w-14 rounded-2xl border border-border/20 shrink-0" />
           <div className="flex-1 min-w-0">
@@ -360,7 +363,7 @@ const AboutTab: React.FC = () => {
       </div>
 
       {/* 版本信息 */}
-      <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
+      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
         <div className="text-sm font-medium">版本信息</div>
         <div className="space-y-2.5">
           <AboutRow k="当前版本" v={info ? `v${info.version}` : '—'} />
@@ -376,7 +379,7 @@ const AboutTab: React.FC = () => {
           血缘收敛去功能宣传 /「反编译」柔化为「参考实现」/ fn-knock 参考范围补全
           （通知事件中心形式 + 设置备份模型）/ 补 GitHub 加速镜像维护者 /
           补人机协作开发一句（不带版本号）/ 末尾补许可声明 */}
-      <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
+      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
         <div className="text-base font-semibold text-center">Moo is more</div>
         <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
           <p className="py-0.5 text-center text-[13px] font-medium tracking-wide text-foreground/80">致谢</p>
@@ -428,6 +431,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   onOpenChange,
   initialTab,
   onTabChange,
+  aurora,
   onStoreUpdate,
   onCatalogChanged,
 }) => {
@@ -583,7 +587,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [volumeOptions, setVolumeOptions] = useState<VolumeOption[]>([]);
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   const [autoUpdate, setAutoUpdate] = useState<boolean>(false);
-  // 已装应用跨源更新策略（0.6.272）：严格/同源/同宗（替换 0.6.269 目录语言入口）
+  // 已装应用跨源更新策略（0.6.272）：严格/友好/宽松（替换 0.6.269 目录语言入口）
   const [updatePolicy, setUpdatePolicy] = useState<string>('strict');
   // FPK 下载目录 + 已下载列表（设置页展示，可同步刷新）
   // 目录选择对话框：可下钻浏览（卷根 → 共享目录 → 任意子层），切换中状态
@@ -1406,7 +1410,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           - pan（壳平移）：聚焦期间整体隐藏兜底。 */}
       <DialogContent
         style={dialogKeyboardStyle}
-        className="inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden bg-background sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex">
+        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", aurora ? "aurora-1" : "bg-background")}>
+        {/* 极光模式（0.6.297）：底板渐变 + 一层背景色玻璃遮罩把渐变压成
+            温润底色染色；上方元素全部保持原样式。Radix 自带的右上关闭钮
+            (button.absolute) 在遮罩之后渲染，不受影响。 */}
+        {aurora && (
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-background/70 backdrop-blur-2xl rounded-none sm:rounded-[18px]" />
+        )}
         {/* 键盘几何调试浮层（**长按版本 chip** 才显示；真机排查用，默认不打扰） */}
         {kbDebug && (
           <div className="pointer-events-none fixed left-1 top-1 z-[9999] max-w-[97vw] rounded bg-black/85 px-1.5 py-1 font-mono text-[9px] leading-tight text-lime-300">
@@ -1414,7 +1424,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
         {/* 顶栏：← 返回 + 标题 */}
-        <div className="flex items-center gap-1 border-b border-border/60 px-2 py-2 shrink-0">
+        <div className={cn("flex items-center gap-1 border-b border-border/60 px-2 py-2 shrink-0", aurora && "relative z-10")}>
           <Button
             variant="ghost"
             size="icon"
@@ -1453,7 +1463,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 onPointerUp={cancelKbDebugPress}
                 onPointerLeave={cancelKbDebugPress}
                 onPointerCancel={cancelKbDebugPress}
-                className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-muted"
+                className="rounded-full bg-muted/60 border border-white/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground dark:text-foreground/80 transition-colors hover:bg-muted"
                 title={`Moo 版本 v${storeInfo?.current_version || '…'}，点击查看更新（长按显示键盘调试信息）`}
               >
                 v{storeInfo?.current_version || '…'}
@@ -1462,11 +1472,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col">
-          {/* 顶部 tab：分段控件，内容区全宽。容器左右滑动（tab 文字大小不变、
-              不换行 shrink-0）——tab 增多时横向滚动而非挤压换行。 */}
+        <div className={cn("flex-1 min-h-0 flex flex-col", aurora && "relative z-10")}>
+          {/* 顶部 tab（0.6.287 用户定稿）：与首页分类胶囊完全同款语言——
+              选中=实心蓝 / 未选=Dock 毛玻璃胶囊（bg-card/55 + blur + white/10 描边）。
+              旧分段控件 bg-muted/60+bg-card 在暗黑模式下几乎不可辨（用户实报
+              「药丸都很不明显」），实心蓝选中态在两种主题下都最醒目。
+              容器左右滑动（tab 增多时横向滚动而非挤压换行）。 */}
           <div className="shrink-0 px-4 sm:px-6 pt-3 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <div className="inline-flex rounded-xl bg-muted/60 p-1" role="tablist">
+            <div className="inline-flex items-center gap-2 pr-1" role="tablist">
               {orderedTabs.map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
@@ -1474,10 +1487,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   aria-selected={tab === key}
                   onClick={() => { setTab(key); onTabChange?.(key); }}
                   className={cn(
-                    "h-8 rounded-lg px-4 flex items-center gap-1.5 text-[13px] font-medium transition-colors focus:outline-none shrink-0 whitespace-nowrap",
+                    "h-8 rounded-full px-3.5 flex items-center gap-1.5 border border-white/10 backdrop-blur-xl text-[13px] font-medium transition-colors focus:outline-none shrink-0 whitespace-nowrap",
                     tab === key
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? "bg-primary text-primary-foreground border-transparent"
+                      : "bg-card/55 text-foreground hover:bg-card/80"
                   )}
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -1492,7 +1505,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             {tab === 'backup' ? (
               <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* 设置备份 */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <Archive className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">设置备份</span>
@@ -1635,7 +1648,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
 
                 {/* Moo 应用缓存清理（只动 app 自身缓存，不碰已下载 FPK） */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <HardDrive className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Moo 应用缓存</span>
@@ -1736,7 +1749,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               ) : (
                 <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* 下载加速 */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-5">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-5">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1876,20 +1889,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     {/* 0.6.269 Docker 优选接入：把所选镜像写入系统 daemon.json（可回滚） */}
                     <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
                       <div className="min-w-0">
-                        <div className="text-[13px] font-medium flex items-center gap-2">
-                          应用到系统 Docker
+                        {/* 0.6.287：标题强制一行（CJK 默认可在任意字间断行，窄屏被拆成
+                            两行 = 用户实报「本来一行显示被改成两行」）。「已应用」短徽章
+                            随行显示；两条长徽章移动端隐藏（下方说明行已列出当前
+                            registry-mirrors，信息不丢），桌面端保持完整 */}
+                        <div className="text-[13px] font-medium flex items-center gap-2 flex-wrap">
+                          <span className="whitespace-nowrap">应用到系统 Docker</span>
                           {dkStatus ? (
                             dkStatus.applied ? (
-                              <Badge className="gap-1.5 text-[11px]">
+                              <Badge className="gap-1.5 text-[11px] whitespace-nowrap">
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                                 已应用
                               </Badge>
                             ) : dkStatus.mirrors?.length ? (
-                              <Badge variant="secondary" className="text-[11px]">
+                              <Badge variant="secondary" className="text-[11px] whitespace-nowrap hidden sm:inline-flex">
                                 系统已有其它镜像源
                               </Badge>
                             ) : (
-                              <Badge variant="secondary" className="text-[11px]">
+                              <Badge variant="secondary" className="text-[11px] whitespace-nowrap hidden sm:inline-flex">
                                 直连（无镜像源）
                               </Badge>
                             )
@@ -1993,7 +2010,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 </div>
                 {/* 科学加速（0.6.206）：本机代理，仅 GitHub 域名改道 */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-3">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-sm font-medium">科学加速</div>
@@ -2047,7 +2064,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* Dock 栏排序（0.6.122）：移动端底部主导航，长按进入拖动；
                     头部「恢复默认 + 折叠」与「应用源列表」同款（默认折叠，持久化） */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm font-medium leading-none">Dock 栏排序</div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -2079,7 +2096,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
 
                 {/* 设置 tab 排序（0.6.122）：本页顶部 6 个 tab；头部按钮同上 */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm font-medium leading-none">设置 tab 排序</div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -2111,7 +2128,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
 
                 {/* 常规 */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4 space-y-4">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none">
                       自动检查更新间隔
@@ -2174,7 +2191,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
                 {/* 自动更新应用（安装位置下方小卡片：周期检查时后台自动检测+安装，
                     无需打开应用；排除已忽略应用与商店自身） */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-3.5">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <label className="text-sm font-medium leading-none flex items-center gap-1.5">
@@ -2189,9 +2206,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 </div>
 
-                {/* 跨源更新策略（0.6.272）：严格 / 同源 / 同宗 三横排切换
+                {/* 跨源更新策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
                     （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-3.5">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none flex items-center gap-1.5">
                       <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2200,17 +2217,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     <p className="text-xs text-muted-foreground">
                       {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
                     </p>
-                    <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted/50 p-1">
+                    {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
+                        bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
+                        语言与顶部 tab 一致 */}
+                    <div className="grid grid-cols-3 gap-1.5">
                       {UPDATE_POLICY_OPTIONS.map((o) => (
                         <button
                           key={o.value}
                           type="button"
                           onClick={() => setUpdatePolicy(o.value)}
                           className={cn(
-                            'h-8 rounded-lg text-xs font-medium transition-colors',
+                            'h-8 rounded-full text-xs font-medium transition-colors',
                             updatePolicy === o.value
-                              ? 'bg-card text-foreground shadow-appstore'
-                              : 'text-muted-foreground hover:text-foreground',
+                              ? 'bg-primary text-primary-foreground shadow-sm'
+                              : 'bg-muted/60 text-muted-foreground hover:text-foreground',
                           )}
                         >
                           {o.label}
@@ -2221,7 +2241,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
 
                 {/* FPK 下载目录 + 已下载列表（独立卡片，不与常规设置混在一起） */}
-                <div className="bg-card rounded-[18px] border border-border/20 shadow-appstore px-4 py-4">
+                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none flex items-center gap-1.5">
                       <FolderDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2393,7 +2413,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
                             ) : f.installed ? (
                               <span
-                                className="shrink-0 rounded-full bg-muted/80 px-2 h-6 inline-flex items-center text-[11px] font-medium text-muted-foreground"
+                                className="shrink-0 rounded-full bg-muted/80 border border-white/10 px-2 h-6 inline-flex items-center text-[11px] font-medium text-muted-foreground"
                                 title="该应用当前已安装"
                               >
                                 已安装

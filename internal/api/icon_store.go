@@ -388,6 +388,61 @@ func (st *iconStore) Has(key string) bool {
 	return false
 }
 
+// GetStale 按前缀（Source@Name@）找**旧版本**图标条目回退。
+// iconCacheKey 含版本号（0.6.200：发布者常随版本换图，URL 不变内容变），
+// 副作用是源同步刷新版本后整批应用键位移、磁盘层全部 miss——2026-10-06
+// 0.6.288 部署后 516 图标重抓又撞本地 DNS 瞬断，整墙空白到下一轮预热。
+// 旧版本条目文件仍在盘上（仅键不可达）：所有候选失败时取前缀下 TS 最新的
+// 条目兜底——显示旧图标远好于空白墙。不做 Put 灌回（让正常竞速赢新键）。
+func (st *iconStore) GetStale(prefix string) ([]byte, string, bool) {
+	if prefix == "" {
+		return nil, "", false
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	// 内存层优先（刚 Put 未落盘的条目也救得了；mem-only 实例同样生效）
+	var bestKey string
+	var bestExp time.Time
+	found := false
+	for k, e := range st.mem {
+		if !strings.HasPrefix(k, prefix) || !time.Now().Before(e.expires) {
+			continue
+		}
+		if !found || e.expires.After(bestExp) {
+			bestKey, bestExp, found = k, e.expires, true
+		}
+	}
+	if found {
+		e := st.mem[bestKey]
+		if len(e.data) > 0 {
+			return e.data, e.ctype, true
+		}
+	}
+	if st.dir == "" {
+		return nil, "", false
+	}
+	st.load()
+	var best iconDiskRef
+	found = false
+	for k, r := range st.index {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		if !found || r.TS > best.TS {
+			best = r
+			found = true
+		}
+	}
+	if !found {
+		return nil, "", false
+	}
+	b, err := os.ReadFile(filepath.Join(st.dir, best.File))
+	if err != nil || len(b) < 64 || !looksLikeImage(b) {
+		return nil, "", false
+	}
+	return b, best.CT, true
+}
+
 // diskIconFile 磁盘文件名：<sha1(key)[:16]><扩展名>。
 func diskIconFile(key, ctype string) string {
 	sum := sha1.Sum([]byte(key))
@@ -440,35 +495,51 @@ func (s *Server) StartIconWarm(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	s.warmIconsPass(ctx, 10*time.Minute)
+	hit0, pend0 := s.warmIconsPass(ctx, 10*time.Minute)
 	s.warmReadmesPass(ctx, 10*time.Minute)
-	ticker := time.NewTicker(30 * time.Minute)
-	defer ticker.Stop()
+	// 0.6.289 快速重试：整轮命中率 <20% 且待补量大 → 大概率处于网络故障
+	// 窗口（DNS 瞬断/镜像限流风暴，2026-10-06 部署当日实锤），2 分钟后重试，
+	// 图标墙分钟级恢复，而不是让用户对着空白墙等到下一轮 30 分钟。
+	delay := 30 * time.Minute
+	if pend0 > 20 && hit0*5 < pend0 {
+		delay = 2 * time.Minute
+		log.Printf("[icon-warm] 首轮命中率过低（%d/%d），2 分钟后快速重试", hit0, pend0)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			s.warmIconsPass(ctx, 5*time.Minute)
+		case <-timer.C:
+			hit, pend := s.warmIconsPass(ctx, 5*time.Minute)
 			s.warmReadmesPass(ctx, 5*time.Minute)
+			if pend > 20 && hit*5 < pend {
+				delay = 2 * time.Minute
+			} else {
+				delay = 30 * time.Minute
+			}
+			timer.Reset(delay)
 		}
 	}
 }
 
-// warmIconsPass 预热一轮缺失图标（预算内、6 并发）。
-func (s *Server) warmIconsPass(ctx context.Context, budget time.Duration) {
+// warmIconsPass 预热一轮缺失图标（预算内、3 并发）；返回（命中数, 待补数）。
+func (s *Server) warmIconsPass(ctx context.Context, budget time.Duration) (int, int) {
 	st := s.iconStore()
 	apps := s.Src.Apps("", "")
 	var pending []*appRef
 	for _, a := range apps {
-		key := a.Source + "@" + a.Name
+		// 0.6.289：键改为含版本的真实缓存键（此前 2 段键永不命中索引层，
+		// Has 形同虚设，每轮全量 1800+ 应用重走 resolveIcon）
+		key := iconCacheKey(a)
 		if st.Has(key) || st.IsNegative(key) {
 			continue
 		}
 		pending = append(pending, &appRef{a: a, key: key})
 	}
 	if len(pending) == 0 {
-		return
+		return 0, 0
 	}
 	log.Printf("[icon-warm] %d 个应用图标待预热（预算 %s）", len(pending), budget)
 	pctx, cancel := context.WithTimeout(ctx, budget)
@@ -495,6 +566,7 @@ func (s *Server) warmIconsPass(ctx context.Context, budget time.Duration) {
 	}
 	wg.Wait()
 	log.Printf("[icon-warm] 预热完成: %d/%d 命中", hit, len(pending))
+	return hit, len(pending)
 }
 
 // appRef 预热用的（应用, 缓存键）对。

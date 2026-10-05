@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import AppIcon from "./AppIcon";
+import { auroraFor } from "./ViewModeGrids";
 import {
   Package,
   Globe,
@@ -61,7 +62,7 @@ import DOMPurify from 'dompurify';
  * innerHTML（先经 DOMPurify 消毒）渲染。
  */
 // 详情页与应用列表共用的"源/开发者/发布者"蓝框徽章样式（字号两端统一）
-const META_PILL = "inline-flex items-start gap-1 rounded-full bg-primary/10 px-2 py-[3px] max-w-full text-xs leading-[17px] font-medium text-primary hover:bg-primary/20 transition-colors focus:outline-none focus-visible:outline-none";
+export const META_PILL = "inline-flex items-start gap-1 rounded-full bg-primary/10 px-2 py-[3px] max-w-full text-xs leading-[17px] font-medium text-primary hover:bg-primary/20 transition-colors focus:outline-none focus-visible:outline-none";
 
 /** 字节数 → 人类可读（下载按钮「总量未知」时显示已下载大小） */
 function formatBytes(n: number): string {
@@ -74,9 +75,9 @@ function formatBytes(n: number): string {
 }
 
 /** 描述富文本渲染样式（官方 desc / HTML 第三方 desc 共用；链接=主色+下划线） */
-const DESC_RICH_CLS = "text-sm leading-relaxed [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-[13px] font-medium [&_p]:my-1.5 [&_b]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_img]:max-w-full [&_img]:rounded-lg [&_a]:text-primary [&_a]:underline";
+export const DESC_RICH_CLS = "text-sm leading-relaxed [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-[13px] font-medium [&_p]:my-1.5 [&_b]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_img]:max-w-full [&_img]:rounded-lg [&_a]:text-primary [&_a]:underline";
 
-const readmeLooksLikeHtml = (t: string): boolean => {
+export const readmeLooksLikeHtml = (t: string): boolean => {
   const s = (t || '').trimStart();
   if (!s.startsWith('<')) return false;
   const head = s.slice(0, 500);
@@ -90,7 +91,7 @@ const readmeLooksLikeHtml = (t: string): boolean => {
 /** README 图片加载失败处理：破图图标+长 alt 会撑满单元格（GenOffice
     实锤），压成紧凑的「图片不可用」占位。img 的 error 事件不冒泡，
     用容器 onErrorCapture（capture 阶段）统一拦截。 */
-const handleReadmeImgError = (e: React.SyntheticEvent) => {
+export const handleReadmeImgError = (e: React.SyntheticEvent) => {
   const t = e.target as HTMLImageElement;
   if (t.tagName !== 'IMG' || t.dataset.imgFailed) return;
   t.dataset.imgFailed = '1';
@@ -104,6 +105,54 @@ const handleReadmeImgError = (e: React.SyntheticEvent) => {
 };
 
 // 移动端悬浮返回钮：磨玻璃圆钮贴左缘半露出（磁吸），细线 ‹ 箭头右移完全可见。
+
+/* ── 0.6.284 共享件（对话框 ⇄ 网页版详情卡片同源）───────────────────
+   SmallBox：README/更新日志同款「固定上限独立滚动小框」（0.6.279/280 定稿
+   材质：圆角+细边框+浅底 px-4 py-3 + overscroll-contain）；maxH 由调用方
+   给（对话框移动 24rem/桌面 28rem；详情卡片更矮以适配卡高）。
+   ReadmeRender：README 正文渲染（HTML/Markdown 双分支 + 图片代理 + 表格
+   横滚容器），对话框与卡片共用 → 两处布局逐字节一致。 */
+export const SmallBox: React.FC<{ children: React.ReactNode; maxH?: string }> = ({ children, maxH = "max-h-[24rem] sm:max-h-[28rem]" }) => (
+  <div className={cn("my-2 overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3", maxH)}>
+    {children}
+  </div>
+);
+
+export const ReadmeRender: React.FC<{ readme: string; appKey: string; maxH?: string }> = ({ readme, appKey, maxH }) => (
+  <SmallBox maxH={maxH}>
+    <div onErrorCapture={handleReadmeImgError} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
+      [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
+      [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
+      [&_table]:w-full [&_table]:text-xs [&_th]:border [&_th]:border-border [&_th]:p-1.5 [&_td]:border [&_td]:border-border [&_td]:p-1.5
+      [&_a]:text-primary [&_a]:underline [&_a]:break-all [&_a]:hover:opacity-80 [&_img]:h-auto [&_th]:bg-muted/60 [&_th]:text-left [&_table]:border-collapse [&_table]:block [&_table]:overflow-x-auto [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:break-all [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:rounded-none [&_pre_code]:break-normal
+      [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5
+      [&_p]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_hr]:my-4 [&_video]:max-w-full [&_video]:rounded-lg">
+      {readmeLooksLikeHtml(readme) ? (
+        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(
+          readme.replace(/src="(https?:\/\/[^"]+)"/g, (_m, u: string) => `src="${rewriteReadmeImgSrc(u, appKey)}"`),
+          { ADD_ATTR: ['target'] },
+        ) }} />
+      ) : (
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize]}
+          components={{
+            img: (props: any) => (
+              <img {...props} src={rewriteReadmeImgSrc(props.src, appKey)} loading="lazy" alt={props.alt ?? ''} />
+            ),
+            table: ({ node, ...props }: any) => (
+              <div className="my-2 overflow-x-auto rounded-lg border border-border/40">
+                <table {...props} />
+              </div>
+            ),
+          }}
+        >
+          {readme || ''}
+        </ReactMarkdown>
+      )}
+    </div>
+  </SmallBox>
+);
 
 interface AppDetailDialogProps {
   app: AppInfo | null;
@@ -133,9 +182,11 @@ interface AppDetailDialogProps {
   isFavorite?: boolean;
   /** 切换收藏（头部星标，与列表同一端点） */
   onToggleFavorite?: (app: AppInfo) => void;
+  /** 极光预览模式（0.6.297，仅网页端）：面板底=该应用极光卡同款渐变 */
+  aurora?: boolean;
 }
 
-const DetailRow: React.FC<{ icon: React.ElementType; label: string; children: React.ReactNode }> = ({ icon: Icon, label, children }) => (
+export const DetailRow: React.FC<{ icon: React.ElementType; label: string; children: React.ReactNode }> = ({ icon: Icon, label, children }) => (
   <div className="flex items-start gap-3 py-2">
     <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
     <div className="flex-1 min-w-0">
@@ -148,7 +199,7 @@ const DetailRow: React.FC<{ icon: React.ElementType; label: string; children: Re
 /** 更新内容列表（对标 FnDepot 自更新屏：版本化条目逐条列出，最新在前）。
     0.6.280：去掉展开/收起——整表常驻 README 同款「固定上限独立滚动小框」，
     始终渲染全量条目，溢出由框体滚动承接（短文自然缩到内容高度）。 */
-const ChangelogList: React.FC<{
+export const ChangelogList: React.FC<{
   entries: { version?: string; text: string }[];
   /** 有可更新版本时高亮首条（即将装上的新版说明）。 */
   highlightLatest: boolean;
@@ -177,14 +228,14 @@ const ChangelogList: React.FC<{
   );
 };
 
-const formatSize = (bytes?: number): string => {
+export const formatSize = (bytes?: number): string => {
   if (!bytes || bytes <= 0) return '-';
   if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(2) + ' GB';
   if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(1) + ' MB';
   return (bytes / 1024).toFixed(0) + ' KB';
 };
 
-const formatDownloads = (n?: number): string => {
+export const formatDownloads = (n?: number): string => {
   if (!n || n <= 0) return '-';
   if (n >= 10000) return (n / 10000).toFixed(1) + ' 万';
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
@@ -196,7 +247,7 @@ const formatDownloads = (n?: number): string => {
 // DOMPurify 默认策略即剥离 script/style/iframe/object/embed/on* 与
 // javascript: 数据 URL，只保留展示型标签。
 
-const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onUninstall, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite }) => {
+const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onUninstall, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
   // 列表载荷瘦身：changelog/homepage/release_url/sha256 与外部源 icon_url
   // 不在列表里，打开详情后由 /api/apps/{key} 补齐（LAN 内几 KB 瞬时）。
   // 接口未回前先以列表条目兜底渲染，回包后无缝升级为完整字段。
@@ -234,6 +285,10 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     return () => { alive = false; };
   }, [propApp?.key, open]);
   const app = fullApp ?? propApp;
+  // 极光模式（0.6.297，用户定稿「只是底板用这种渐变，页面其他元素不用」）：
+  // 面板底 = 该应用极光卡同款渐变（同应用恒同色）；内容元素一律不改样式，
+  // 靠一层 bg-background/65+blur 玻璃遮罩把渐变压成可读底色染色。
+  const aBg = aurora && app ? auroraFor(app.appname || app.display_name) : '';
   // 安装/更新/卸载完成（operation 从有值变无值）后重拉一次详情，同步已装状态、
   // 版本与主操作行——detailApp 是打开时的静态快照，不重拉的话头部 GET 位与
   // 底部操作区会停留在装前状态（与「装完即变」不符）。
@@ -648,18 +703,23 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* 移动端 = 整页展示（左上角返回按钮退回应用列表，App Store 同构）；
           桌面端保持居中对话框 */}
-      <DialogContent className="inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden bg-background sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(85vh,800px)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:top-3 [&>button.absolute]:right-3 [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex">
+      <DialogContent className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(90vh,920px)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden", aBg || "bg-background")}>
         {/* 列布局：头部行冻结在顶部（不随内容滚动），下方内容区独立滚动。
             移动端整体包一张圆角内边框卡（与列表同款）；桌面端卡片透明化。 */}
-        <div className="flex-1 min-h-0 flex flex-col px-3 pt-3 sm:px-0 sm:pt-0">
-        <div className="flex-1 min-h-0 flex flex-col bg-card rounded-[18px] border border-border/20 shadow-appstore overflow-hidden sm:bg-transparent sm:rounded-none sm:border-0 sm:shadow-none">
+        {/* 0.6.298：玻璃层自带圆角——带 backdrop-filter 的子元素会提升合成层
+            逃逸父级 rounded+overflow-hidden 裁剪，四角方角底色外溢（用户实抓） */}
+        <div className={cn("flex-1 min-h-0 flex flex-col px-3 pt-3 sm:px-0 sm:pt-0", aBg && "bg-background/70 backdrop-blur-2xl sm:rounded-[18px]")}>
+        <div className="flex-1 min-h-0 flex flex-col bg-card/60 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore overflow-hidden sm:bg-transparent sm:rounded-none sm:border-0 sm:shadow-none">
         {/* 头部行：冻结（应用信息 + 动作胶囊组）。
             0.6.217：底色改透明（原 bg-background 在暗色主题 = 纯黑 #000，
             与卡片底 bg-card 形成黑框；滚动区是独立盒、内容不会滑过头部，
             透明安全，桌面/移动统一）。 */}
         <div className="flex-none border-b border-border/60 px-3 py-3">
           <DialogHeader className="space-y-0">
-          <div className="flex items-center gap-3 sm:pr-7">
+          {/* 0.6.293（用户定稿）：桌面端「安装/打开」胶囊与关闭叉位置互换——
+              GET 位胶囊绝对居中于图标行（与图标同一水平线），「磨玻璃圆圈+叉」
+              移到行尾右侧；手机端布局不动（GET 位仍在行尾，叉隐藏）。 */}
+          <div className="relative flex items-center gap-3">
             <AppIcon app={app} className="w-12 h-12 rounded-[12px] shrink-0" />
             {/* 收藏星标：图标旁（与列表卡片同一位置语言），实心琥珀 = 已收藏 */}
             {onToggleFavorite && (
@@ -687,9 +747,11 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 </div>
               )}
             </div>
-            {/* 头部 GET 位：未安装 = 安装胶囊（与图标同一排，位置固定）；
-                安装中 = 转圈。已装应用的主操作在底部「主操作行」。 */}
-            {operation ? (
+            {/* 头部 GET 位：未安装 = 安装胶囊；安装中 = 转圈。已装应用的
+                主操作在底部「主操作行」。0.6.293：桌面端绝对居中于图标行
+                （wrapper sm 以下 = contents 完全透明，手机行为与旧版一致）。 */}
+            <div className="contents sm:block sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2">
+              {operation ? (
               <button disabled className={cn(headerPillCls, "min-w-[84px] bg-primary text-primary-foreground opacity-80")}>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 处理中
@@ -706,6 +768,17 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 打开
               </Button>
             ) : null}
+            </div>
+            {/* 0.6.293：关闭叉 = 行尾「磨玻璃圆圈+叉」（与图标/安装同一水平线；
+                触屏隐藏，手机端保持左上角返回） */}
+            <button
+              onClick={() => onOpenChange(false)}
+              aria-label="关闭详情"
+              title="关闭"
+              className="hidden sm:inline-flex shrink-0 h-8 w-8 items-center justify-center rounded-full bg-card/55 backdrop-blur-xl border border-white/10 text-muted-foreground hover:text-foreground hover:bg-card/80 transition-colors focus:outline-none focus-visible:outline-none"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
           {/* 来源 + 开发者/发布者：图标行下方横排，左缘对齐标题/"未安装"列
               （pl = 图标 48px + gap 12px）；三项与列表同一款蓝框徽章（字号统一）、
@@ -1087,7 +1160,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             ) : (
               /* 阅读友好框：上限约 17~20 行（移动端 24rem / 桌面 28rem），
                  圆角+细边框+浅底区分卡片层，四周留白 px-4 py-3 */
-              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
+              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
               <div onErrorCapture={handleReadmeImgError} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
                 [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
                 [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
@@ -1157,7 +1230,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               {/* 0.6.280（用户定稿）：去掉「展开全部 N 条 / 收起」按钮——更新日志装入 README 同款小框：
                   圆角+细边框+浅底、固定上限（移动 24rem / 桌面 28rem）；短列表自然缩到内容高度，
                   长列表框内独立滚动（overscroll-contain 防滚动链外泄），两框外观与行为完全一致 */}
-              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
+              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
                 <ChangelogList entries={entries} highlightLatest={app.has_update} />
               </div>
             </>

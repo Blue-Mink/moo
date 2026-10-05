@@ -607,7 +607,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       )}
 
       {/* 源列表自动同步 */}
-      <div className="space-y-2 rounded-lg border border-border/20 bg-card p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
@@ -644,7 +644,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       </div>
 
       {/* 应用源自动监测（连续无应用自动关闭 + 空源沉底；列表折叠也放在这里） */}
-      <div className="space-y-2 rounded-lg border border-border/20 bg-card p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Activity className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1002,7 +1002,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         onCatalogChanged={onCatalogChanged}
       />
 
-      <div className="space-y-2 rounded-lg border border-border/20 bg-card p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
         <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
           <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
           添加应用源

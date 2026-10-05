@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
-import { useDebouncedValue, useKeyboardDock } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, Check, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff } from 'lucide-react';
+import { useDebouncedValue, useKeyboardDock, useIsDesktop } from './lib/hooks';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, Check, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -8,6 +8,7 @@ import AppList from './components/AppList';
 import ProgressOverlay from './components/ProgressOverlay';
 import BackgroundTasksIndicator from './components/BackgroundTasksIndicator';
 import AppCard from './components/AppCard';
+import { WebAppDetailCardSkeleton } from './components/webCardSkeleton';
 import AppIcon from './components/AppIcon';
 import FeaturedShowcase from './components/FeaturedShowcase';
 // 重型对话框懒加载：首屏 bundle 只保留列表/导航核心，设置页(1089行)/详情
@@ -19,6 +20,7 @@ const WizardDialog = React.lazy(() => import('./components/WizardDialog'));
 import ThemeToggle from './components/ThemeToggle';
 import MobileDock from './components/MobileDock';
 import AppRowList from './components/AppRowList';
+import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
 import { fetchApps, triggerCheck, installApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
@@ -31,6 +33,8 @@ import { Toaster } from "@/components/ui/sonner"
 const PanelInstallDialog = React.lazy(() => import('./components/PanelInstallDialog'));
 const SourceWizardDialog = React.lazy(() => import('./components/SourceWizardDialog'));
 const ReportFailureDialog = React.lazy(() => import('./components/ReportFailureDialog').then(m => ({ default: m.ReportFailureDialog })));
+// 0.6.284 网页版详情卡片（收藏区桌面端使用；markdown 依赖随懒包，不进主包）
+const WebAppDetailCard = React.lazy(() => import('./components/WebAppDetailCard'));
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { stableApps } from "@/lib/stableApps"
@@ -140,6 +144,21 @@ const App: React.FC = () => {
   };
   // Dock 主导航顺序（系统设置「Dock 栏排序」）：启动拉一次 + 设置页改完刷新
   const [dockOrder, setDockOrder] = useState<string[] | null>(null);
+  // 0.6.284：桌面/移动真分支（收藏区两套卡片只挂载一套，见 useIsDesktop）
+  const isDesktop = useIsDesktop();
+
+  // 0.6.293 网页端三种预览模式（用户定稿，仅桌面渲染）：
+  //   minimal=极简（图标+名称+安装/未安装）| aurora=极光（底部极光渐变推荐卡）
+  //   | standard=标准（现 WebAppDetailCard）。localStorage 持久化，移动端无入口。
+  const [viewMode, setViewMode] = useState<'minimal' | 'aurora' | 'standard'>(() => {
+    const v = localStorage.getItem('moo.web_view_mode');
+    return v === 'minimal' || v === 'aurora' ? v : 'standard';
+  });
+  useEffect(() => { localStorage.setItem('moo.web_view_mode', viewMode); }, [viewMode]);
+
+  // 0.6.290：0.6.284 的滚动条「活动才显示」(.ui-active) 已撤——隐形时抓不住拖不到顶；
+  // 样式改为常驻细竖条（见 index.css），此类切换逻辑随之删除
+
   const [storeHasUpdate, setStoreHasUpdate] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'installed' | 'update_available' | 'recommended'>('all');
   const [recommendedApps, setRecommendedApps] = useState<RecommendedApp[]>([]);
@@ -1211,8 +1230,9 @@ const App: React.FC = () => {
       <button
         onClick={() => setActiveCategory(null)}
         className={cn(
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full text-[13px] font-medium whitespace-nowrap",
-          activeCategory === null ? "bg-primary text-primary-foreground" : "bg-muted/60 text-foreground"
+          // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
+          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
+          activeCategory === null ? "bg-primary text-primary-foreground border-transparent" : "bg-card/55 text-foreground"
         )}
       >
         全部
@@ -1552,15 +1572,18 @@ const App: React.FC = () => {
             )}
             {/* 分类 pill 行：与上方搜索框左缘对齐（header px-4），不再贴屏幕边 */}
             {activeFilter !== 'recommended' && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              // 0.6.292：触屏保持隐藏滑条（移动端布局不变）；鼠标设备（含缩小窗口的
+              // 网页端）溢出时显示全局同款极简横向细条，可用鼠标拖动切换类别
+              <div className="flex gap-2 overflow-x-auto pill-bar">
                 {allCategoryPill}
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
                     onClick={() => setActiveCategory(cat.key)}
                     className={cn(
-                      "shrink-0 h-8 px-3.5 rounded-full text-[13px] font-medium whitespace-nowrap",
-                      activeCategory === cat.key ? "bg-primary text-primary-foreground" : "bg-muted/60 text-foreground"
+                      // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
+                      "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
+                      activeCategory === cat.key ? "bg-primary text-primary-foreground border-transparent" : "bg-card/55 text-foreground"
                     )}
                   >
                     {cat.label}
@@ -1596,9 +1619,11 @@ const App: React.FC = () => {
               )}
            </h2>
            </div>
-           <div className="flex items-center gap-3">
+           {/* 0.6.284（用户定稿）：搜索框从右侧组独立出来，居中占顶栏中段并加长
+               （224/256px → 320/420px），计数跟随其后；主题/刷新保持在最右。 */}
+           <div className="flex flex-1 min-w-0 items-center justify-center gap-2">
                <>
-                 <div className="relative">
+                 <div className="relative shrink-0">
                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                      <Input
                        type="text"
@@ -1610,7 +1635,7 @@ const App: React.FC = () => {
                          // 与移动端一致：发现 tab 里输入即跳「全部」搜索目录
                          if (activeFilter === 'recommended' && v) switchFilter('all');
                        }}
-                       className="w-56 md:w-64 pl-9 pr-8 h-9 shadow-none rounded-full border-0 bg-muted/60 focus-visible:ring-primary/40"
+                       className="w-80 xl:w-[420px] pl-9 pr-8 h-9 shadow-none rounded-full border-0 bg-muted/60 focus-visible:ring-primary/40"
                      />
                      {searchInput && (
                        <button
@@ -1629,6 +1654,31 @@ const App: React.FC = () => {
                      </span>
                    )}
                  </>
+           </div>
+           <div className="flex items-center gap-3 shrink-0">
+               {/* 0.6.293 预览模式切换（用户定位）：ThemeToggle 之前、与后面的
+                   刷新按钮同组同 gap-3 间距。极简=Grid2x2 / 极光=Sparkles / 标准=LayoutGrid */}
+               <div className="flex items-center gap-0.5 rounded-full bg-muted/60 p-1" role="group" aria-label="预览模式">
+                 {([
+                   ['minimal', Grid2x2, '极简模式'],
+                   ['aurora', Sparkles, '极光模式'],
+                   ['standard', LayoutGrid, '标准模式'],
+                 ] as const).map(([mode, Icon, label]) => (
+                   <button
+                     key={mode}
+                     onClick={() => setViewMode(mode)}
+                     title={label}
+                     aria-label={label}
+                     aria-pressed={viewMode === mode}
+                     className={cn(
+                       "h-7 w-7 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                       viewMode === mode ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                     )}
+                   >
+                     <Icon className="h-[15px] w-[15px]" />
+                   </button>
+                 ))}
+               </div>
                <ThemeToggle />
                <Button 
                  onClick={handleCheck} 
@@ -1680,27 +1730,54 @@ const App: React.FC = () => {
                 </div>
                 {favExpanded && (
                   favoriteApps.length > 0 ? (
-                    /* 0.6.228：与列表页统一为瀑布流（多列 + 卡片避免跨列断裂） */
-                    <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-4">
-                      {favoriteApps.map(app => (
-                        <div key={app.key || app.appname} className="mb-4 break-inside-avoid">
-                        <AppCard
-                          key={app.key || app.appname}
-                          app={app}
-                          operation={appOperations.get(app.appname)}
-                          onInstall={handleInstall}
-                          onUpdate={handleUpdate}
-                          onUninstall={handleUninstall}
-                          onDetail={setDetailApp}
-                          onCancelOp={handleCancelOp}
-                          upgradeAllowed={upgradeAllowed}
-                          onOpenApp={handleOpenApp}
-                          isFavorite={favoriteSet.has(app.key || app.appname)}
-                          onToggleFavorite={handleToggleFavorite}
-                        />
-                        </div>
-                      ))}
-                    </div>
+                    /* 0.6.295（用户定稿）：收藏区随三种预览模式切换（仅网页端） */
+                    isDesktop && viewMode === 'minimal' ? (
+                      <MinimalIconGridM apps={favoriteApps} onDetail={setDetailApp} />
+                    ) : isDesktop && viewMode === 'aurora' ? (
+                      <AuroraGridM apps={favoriteApps} onDetail={setDetailApp} />
+                    ) : isDesktop ? (
+                      /* 0.6.285：与主列表统一 —— 固定等高大卡网格（h-180）；
+                         卡面动作只剩安装/打开；2xl 5 列 */
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 items-start">
+                        {favoriteApps.map(app => (
+                          <Suspense key={app.key || app.appname} fallback={<WebAppDetailCardSkeleton />}>
+                            <WebAppDetailCard
+                              app={app}
+                              operation={appOperations.get(app.appname)}
+                              onInstall={handleInstall}
+                              onUpdate={handleUpdate}
+                              upgradeAllowed={upgradeAllowed}
+                              onDetail={setDetailApp}
+                              onCancelOp={handleCancelOp}
+                              onOpenApp={handleOpenApp}
+                              isFavorite={favoriteSet.has(app.key || app.appname)}
+                              onToggleFavorite={handleToggleFavorite}
+                            />
+                          </Suspense>
+                        ))}
+                      </div>
+                    ) : (
+                      /* 移动端布局不变：保留原瀑布流卡（单列宽度） */
+                      <div className="columns-1 gap-4">
+                        {favoriteApps.map(app => (
+                          <div key={app.key || app.appname} className="mb-4 break-inside-avoid">
+                          <AppCard
+                            app={app}
+                            operation={appOperations.get(app.appname)}
+                            onInstall={handleInstall}
+                            onUpdate={handleUpdate}
+                            onUninstall={handleUninstall}
+                            onDetail={setDetailApp}
+                            onCancelOp={handleCancelOp}
+                            upgradeAllowed={upgradeAllowed}
+                            onOpenApp={handleOpenApp}
+                            isFavorite={favoriteSet.has(app.key || app.appname)}
+                            onToggleFavorite={handleToggleFavorite}
+                          />
+                          </div>
+                        ))}
+                      </div>
+                    )
                   ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                       <Star className="h-12 w-12 mb-4 opacity-40" />
@@ -1733,6 +1810,13 @@ const App: React.FC = () => {
                 </div>
                 {ignoreExpanded && (
                   ignoredApps.length > 0 ? (
+                    /* 0.6.295（用户定稿）：忽略更新区随三种预览模式切换（仅网页端）；
+                       极简/极光形态下「取消忽略」经详情对话框完成 */
+                    isDesktop && viewMode === 'minimal' ? (
+                      <MinimalIconGridM apps={ignoredApps} onDetail={setDetailApp} />
+                    ) : isDesktop && viewMode === 'aurora' ? (
+                      <AuroraGridM apps={ignoredApps} onDetail={setDetailApp} />
+                    ) : (
                     <div className="bg-card rounded-[18px] overflow-hidden border border-border/20 shadow-appstore">
                       {ignoredApps.map((app, i) => (
                         <div
@@ -1771,6 +1855,7 @@ const App: React.FC = () => {
                         </div>
                       ))}
                     </div>
+                    )
                   ) : (
                     <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                       <BellOff className="h-10 w-10 mb-3 opacity-40" />
@@ -1783,16 +1868,18 @@ const App: React.FC = () => {
             </div>
           ) : loadStatus === 'loaded' ? (
             <>
-              {/* 分类筛选条（App Store 风格横排 pill，桌面端；移动端在顶部 header） */}
-              <div className="hidden md:flex items-center gap-2 overflow-x-auto no-scrollbar mb-5">
+              {/* 分类筛选条（App Store 风格横排 pill，桌面端；移动端在顶部 header）。
+                  0.6.292：同移动端——鼠标设备窗口缩小放不下时显示极简横向细条 */}
+              <div className="hidden md:flex items-center gap-2 overflow-x-auto pill-bar mb-5">
                 {allCategoryPill}
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
                     onClick={() => setActiveCategory(cat.key)}
                     className={cn(
-                      "shrink-0 h-8 px-3.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors",
-                      activeCategory === cat.key ? "bg-primary text-primary-foreground" : "bg-muted/60 text-foreground hover:bg-muted"
+                      // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
+                      "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
+                      activeCategory === cat.key ? "bg-primary text-primary-foreground border-transparent" : "bg-card/55 text-foreground hover:bg-card/80"
                     )}
                   >
                     {cat.label}
@@ -1801,16 +1888,23 @@ const App: React.FC = () => {
                 ))}
               </div>
 
-              <div className="hidden md:block">
+              {isDesktop ? (
+                <div>
+                {/* 0.6.293 三种预览模式（网页端）：极简/极光替换标准详情卡网格；
+                    双击卡片进入详情（与标准模式双击行为一致） */}
+                {viewMode === 'minimal' ? (
+                  <MinimalIconGridM apps={filteredApps} onDetail={setDetailApp} />
+                ) : viewMode === 'aurora' ? (
+                  <AuroraGridM apps={filteredApps} onDetail={setDetailApp} />
+                ) : (
                 <AppList
                    apps={filteredApps}
                    loading={false}
                    onInstall={handleInstall}
                    onUpdate={handleUpdate}
-                   onUninstall={handleUninstall}
+                   upgradeAllowed={upgradeAllowed}
                    onDetail={setDetailApp}
                    onCancelOp={handleCancelOp}
-                   upgradeAllowed={upgradeAllowed}
                    filterType={activeFilter}
                    appOperations={appOperations}
                    searchQuery={searchQuery}
@@ -1818,19 +1912,18 @@ const App: React.FC = () => {
                    onAuthorFilter={applyTextFilter}
                    onDistributorFilter={applyTextFilter}
                    activeTerms={activeSearchTerms}
-                   onControl={handleControl}
-                   controlling={controlling}
                    onOpenApp={handleOpenApp}
                    favoriteSet={favoriteSet}
                    onToggleFavorite={handleToggleFavorite}
                 />
-              </div>
-              <div className="md:hidden">
+                )}
+                </div>
+              ) : (
+                <div>
                 <AppRowList
                   apps={filteredApps}
                   onInstall={handleInstall}
                   onUpdate={handleUpdate}
-                  onUninstall={handleUninstall}
                   onDetail={setDetailApp}
                   onCancelOp={handleCancelOp}
                   appOperations={appOperations}
@@ -1841,13 +1934,12 @@ const App: React.FC = () => {
                   onAuthorFilter={applyTextFilter}
                   onDistributorFilter={applyTextFilter}
                   activeTerms={activeSearchTerms}
-                  onControl={handleControl}
-                  controlling={controlling}
                   onOpenApp={handleOpenApp}
                   favoriteSet={favoriteSet}
                   onToggleFavorite={handleToggleFavorite}
                 />
-              </div>
+                </div>
+              )}
             </>
           ) : loadStatus === 'loading' ? (
             <div className="flex flex-col items-center justify-center h-64">
@@ -1916,14 +2008,30 @@ const App: React.FC = () => {
       {/* 0.6.230（用户定稿）：「苹果风」底部毛玻璃 Dock（桌面端）——
           原左侧菜单模块（发现 / 全部 / 已安装 / 有更新 / 设置）搬到这里；
           悬浮居中、圆角、毛玻璃（backdrop-blur），有更新时右上角小红点，
-          计数放 title 提示里（保持 Dock 干净，贴近 macOS 观感）。 */}
-      <nav className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-30 items-end gap-2 rounded-[24px] border border-white/10 bg-card/55 px-3 py-2.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
-        {([
-          { key: 'recommended', label: '发现', icon: Compass, count: counts.recommended },
-          { key: 'all', label: '全部', icon: LayoutGrid, count: counts.all },
-          { key: 'installed', label: '已安装', icon: CheckCircle2, count: counts.installed },
-          { key: 'update_available', label: '有更新', icon: RefreshCw, count: counts.update_available },
-        ] as const).map(({ key, label, icon: Icon, count }) => {
+          计数放 title 提示里（保持 Dock 干净，贴近 macOS 观感）。
+          0.6.284（用户报「网页版排序不起作用+太小太短」）：
+          ① 应用系统设置「Dock 栏排序」（此前桌面端固定顺序，设置只对移动端生效）；
+          ② 整体加大加宽：按钮 70→88px、图标 24→28px、字号 10→11px、留白全面加大。 */}
+      <nav className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-30 items-end gap-3 rounded-[26px] border border-white/10 bg-card/55 px-4 py-3 shadow-2xl shadow-black/40 backdrop-blur-2xl">
+        {(() => {
+          type DockKey = 'recommended' | 'all' | 'installed' | 'update_available';
+          const items: { key: DockKey; label: string; icon: React.ElementType; count: number }[] = [
+            { key: 'recommended', label: '发现', icon: Compass, count: counts.recommended },
+            { key: 'all', label: '全部', icon: LayoutGrid, count: counts.all },
+            { key: 'installed', label: '已安装', icon: CheckCircle2, count: counts.installed },
+            { key: 'update_available', label: '有更新', icon: RefreshCw, count: counts.update_available },
+          ];
+          // 与 MobileDock.orderTabs 同逻辑：按已存顺序排，缺 key 追加末尾
+          if (!dockOrder || dockOrder.length === 0) return items;
+          const byKey = new Map(items.map((t) => [t.key as string, t]));
+          const out: typeof items = [];
+          for (const k of dockOrder) {
+            const t = byKey.get(k);
+            if (t) { out.push(t); byKey.delete(k); }
+          }
+          for (const t of byKey.values()) out.push(t);
+          return out;
+        })().map(({ key, label, icon: Icon, count }) => {
           const active = activeFilter === key;
           return (
             <button
@@ -1932,32 +2040,32 @@ const App: React.FC = () => {
               onClick={() => switchFilter(key)}
               title={`${label}（${count}）`}
               className={cn(
-                'relative flex w-[70px] flex-col items-center gap-1 rounded-2xl px-2 py-1.5 transition-[background-color,color,transform] duration-100 active:scale-90',
+                'relative flex w-[88px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',
                 active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
               )}
             >
-              <Icon className="h-6 w-6" strokeWidth={active ? 2.2 : 1.8} />
-              <span className={cn('text-[10px] leading-none', active && 'font-semibold')}>{label}</span>
+              <Icon className="h-7 w-7" strokeWidth={active ? 2.2 : 1.8} />
+              <span className={cn('text-[11px] leading-none', active && 'font-semibold')}>{label}</span>
               {key === 'update_available' && count > 0 && (
-                <span className="absolute right-2.5 top-0.5 h-2 w-2 rounded-full bg-destructive" />
+                <span className="absolute right-3 top-1 h-2 w-2 rounded-full bg-destructive" />
               )}
             </button>
           );
         })}
-        <span className="mx-1 h-8 w-px self-center bg-border/60" />
+        <span className="mx-1 h-9 w-px self-center bg-border/60" />
         <button
           type="button"
           onClick={() => setSettingsVisible(true)}
           title="设置"
-          className="relative flex w-[70px] flex-col items-center gap-1 rounded-2xl px-2 py-1.5 text-muted-foreground transition-[background-color,color,transform] duration-100 hover:bg-white/5 hover:text-foreground active:scale-90"
+          className="relative flex w-[88px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 text-muted-foreground transition-[background-color,color,transform] duration-100 hover:bg-white/5 hover:text-foreground active:scale-90"
         >
           <div className="relative">
-            <Settings className="h-6 w-6" strokeWidth={1.8} />
+            <Settings className="h-7 w-7" strokeWidth={1.8} />
             {storeHasUpdate && (
               <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-destructive" />
             )}
           </div>
-          <span className="text-[10px] leading-none">设置</span>
+          <span className="text-[11px] leading-none">设置</span>
         </button>
       </nav>
 
@@ -1982,6 +2090,7 @@ const App: React.FC = () => {
           initialTab={settingsTab ?? undefined}
           onTabChange={setSettingsTab}
           onStoreUpdate={handleStoreUpdate}
+          aurora={isDesktop && viewMode === 'aurora'}
           onCatalogChanged={() => setTimeout(() => loadApps(), 2500)}
         />
       </Suspense>
@@ -2117,6 +2226,7 @@ const App: React.FC = () => {
           controlling={controlling}
           isFavorite={detailApp ? favoriteSet.has(detailApp.key || detailApp.appname) : false}
           onToggleFavorite={handleToggleFavorite}
+          aurora={isDesktop && viewMode === 'aurora'}
         />
       </Suspense>
 

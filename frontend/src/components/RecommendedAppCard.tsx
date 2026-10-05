@@ -13,7 +13,8 @@ interface RecommendedAppCardProps {
 const RecommendedAppCard: React.FC<RecommendedAppCardProps> = ({ app }) => {
   return (
     <Card className={cn(
-      "relative overflow-hidden border border-border/30 bg-card shadow-[0_1px_3px_0_rgb(0_0_0/0.04)] rounded-xl"
+      // 0.6.284：与 Dock/详情卡统一毛玻璃材质（移动/桌面同步）
+      "relative overflow-hidden border border-white/10 bg-card/55 backdrop-blur-xl shadow-[0_1px_3px_0_rgb(0_0_0/0.04)] rounded-xl"
     )}>
       <div className="p-4 flex flex-col h-full gap-3">
         <div className="flex items-start gap-3">

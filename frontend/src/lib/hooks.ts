@@ -236,3 +236,21 @@ export function useKeyboardDock(
   }, [deadbandPx, keyboardThresholdPx, settleMs]);
   return state;
 }
+
+/**
+ * 桌面断点钩子（0.6.284）：与 CSS md:（768px）一致。
+ * 用途：收藏区等共享区块按端渲染不同卡片（移动端瀑布流卡 / 桌面详情卡），
+ * 用真分支避免两套卡片同时挂载（双份 DOM + 详情/README 请求浪费）。
+ */
+export function useIsDesktop(): boolean {
+  const [is, setIs] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const cb = (e: MediaQueryListEvent) => setIs(e.matches);
+    mq.addEventListener('change', cb);
+    return () => mq.removeEventListener('change', cb);
+  }, []);
+  return is;
+}

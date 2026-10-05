@@ -80,7 +80,8 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
 
   return (
     <Card className={cn(
-      "relative overflow-hidden border border-border/20 bg-card shadow-appstore rounded-[18px] transition-all duration-200 hover:shadow-appstore-hover hover:-translate-y-0.5",
+      // 0.6.284：移动端卡片与 Dock 统一毛玻璃材质（布局不变）
+      "relative overflow-hidden border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore rounded-[18px] transition-all duration-200 hover:shadow-appstore-hover hover:-translate-y-0.5",
       operation && "border-primary/50"
     )}>
       <div className="p-4 flex flex-col h-full gap-3">
@@ -118,11 +119,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                   <DockerIcon className="h-4 w-4 text-primary" />
                 )}
               </div>
-              {canUpdate && (
-                <Badge variant="secondary" title={app.update_from_source ? `更新来自 ${app.update_from_source} 源` : undefined} className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-xs shrink-0 rounded-full">
-                  有更新
-                </Badge>
-              )}
+              {/* 0.6.290（用户定稿）：「有更新」徽章撤下（同移动行/网页卡），名字优先完整显示 */}
               {app.update_ignored && (
                 <Badge variant="secondary" className="bg-muted text-muted-foreground border-0 font-medium px-1.5 h-5 text-xs shrink-0 rounded-full gap-0.5">
                   <BellOff className="h-2.5 w-2.5" />

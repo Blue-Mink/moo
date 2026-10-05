@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import type { AppInfo, AppOperation } from '../api/client';
-import AppCard from './AppCard';
 import { PackageSearch, CheckCircle2, RefreshCw, Search } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { WebAppDetailCardSkeleton } from './webCardSkeleton';
+
+// 详情卡片含 README markdown 渲染依赖，与详情对话框共分包（懒加载不进主包）。
+const WebAppDetailCard = React.lazy(() => import('./WebAppDetailCard'));
 
 // 渐进渲染批量：首批只渲染这么多卡，滚动接近底部再追加。
 // 700+ 卡片一次全渲染（含数百个图标 <img> 同时加载/解码）在 WebView 里
@@ -14,19 +17,16 @@ interface AppListProps {
   loading: boolean;
   onInstall: (app: AppInfo) => void;
   onUpdate: (app: AppInfo) => void;
-  onUninstall: (app: AppInfo) => void;
+  /** false when this fnOS build cannot update apps without destroying them. */
+  upgradeAllowed?: boolean;
   onDetail: (app: AppInfo) => void;
   onCancelOp?: (app: AppInfo) => void;
   filterType?: string;
   appOperations?: Map<string, AppOperation>;
   searchQuery?: string;
-  /** false when this fnOS build cannot update apps without destroying them. */
-  upgradeAllowed?: boolean;
   onSourceFilter?: (source: string) => void;
   onAuthorFilter?: (author: string) => void;
   onDistributorFilter?: (distributor: string) => void;
-  onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
-  controlling?: string | null;
   /** 打开已安装应用的 Web UI（有 web 入口的应用才渲染按钮）。 */
   onOpenApp?: (app: AppInfo) => void;
   /** 搜索框内当前词条（徽章词条叠加多选），命中者渲染选中态。 */
@@ -48,7 +48,7 @@ const getEmptyMessage = (filterType?: string) => {
   }
 };
 
-const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, onUninstall, onDetail, onCancelOp, filterType, appOperations, searchQuery, upgradeAllowed, onSourceFilter, onAuthorFilter, onDistributorFilter, onControl, controlling, onOpenApp, activeTerms, favoriteSet, onToggleFavorite }) => {
+const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite }) => {
   // 渐进渲染：apps 集合变化（搜索/筛选/刷新后首尾不同）时回到首批；
   // 内容相同的重复拉取（安装/启停后刷新）不重置，避免用户滚动位置被弹回。
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -113,35 +113,30 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, o
   }
 
   return (
-    /* 0.6.228（用户定稿）：改为「小红书式」瀑布流 —— 多列布局 + 卡片避免跨列断裂，
-       卡片高度错落但列内紧凑，不再出现等高行留下的空洞。
-       注：这里不再用 content-visibility:auto（多列布局需真实高度才能均衡分列），
-       列表本身已有递增渲染（IntersectionObserver + visible）控制 DOM 规模。 */
-    <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4">
+    /* 0.6.285（用户定稿）：统一等高大卡网格（h-180 固定高）；卡面动作只剩
+       安装/打开（头部 GET 位）；2xl 宽屏 5 列让卡片整体更小更匀。 */
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 items-start">
       {shown.map((app) => (
-        <div key={app.key || app.appname} className="mb-4 break-inside-avoid">
-          <AppCard
+        <Suspense key={app.key || app.appname} fallback={<WebAppDetailCardSkeleton />}>
+          <WebAppDetailCard
             app={app}
             operation={appOperations?.get(app.appname)}
             onInstall={onInstall}
             onUpdate={onUpdate}
-            onUninstall={onUninstall}
+            upgradeAllowed={upgradeAllowed}
             onDetail={onDetail}
             onCancelOp={onCancelOp}
-            upgradeAllowed={upgradeAllowed}
             onSourceFilter={onSourceFilter}
             onAuthorFilter={onAuthorFilter}
             onDistributorFilter={onDistributorFilter}
             activeTerms={activeTerms}
-            onControl={onControl}
-            controlling={controlling}
             onOpenApp={onOpenApp}
             isFavorite={favoriteSet?.has(app.key || app.appname)}
             onToggleFavorite={onToggleFavorite}
           />
-        </div>
+        </Suspense>
       ))}
-      {visible < apps.length && <div ref={sentinelRef} className="h-px break-inside-avoid" />}
+      {visible < apps.length && <div ref={sentinelRef} className="h-px" />}
     </div>
   );
 };

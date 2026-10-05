@@ -15,7 +15,6 @@ interface AppRowListProps {
   apps: AppInfo[];
   onInstall: (app: AppInfo) => void;
   onUpdate: (app: AppInfo) => void;
-  onUninstall: (app: AppInfo) => void;
   onDetail: (app: AppInfo) => void;
   onCancelOp?: (app: AppInfo) => void;
   appOperations?: Map<string, AppOperation>;
@@ -28,8 +27,6 @@ interface AppRowListProps {
   onDistributorFilter?: (distributor: string) => void;
   /** 搜索框内当前词条（徽章词条叠加多选），命中者渲染选中态。 */
   activeTerms?: string[];
-  onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
-  controlling?: string | null;
   /** 打开应用 Web UI（与 fnOS 应用中心"打开"按钮同目标） */
   onOpenApp?: (app: AppInfo) => void;
   /** 收藏 key 集合（O(1) 查询） */
@@ -97,8 +94,9 @@ const AppRowList: React.FC<AppRowListProps> = ({
     );
   }
 
+  // 0.6.284：移动端列表容器与 Dock/详情卡统一毛玻璃材质（布局不变）
   return (
-    <div className="bg-card rounded-[18px] overflow-hidden border border-border/20 shadow-appstore">
+    <div className="bg-card/55 backdrop-blur-xl rounded-[18px] overflow-hidden border border-white/10 shadow-appstore">
       {shown.map((app, i) => {
         const operation = appOperations?.get(app.appname);
         const isInstalled = app.installed;
@@ -139,11 +137,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 {app.app_type === 'docker' && (
                   <DockerIcon className="h-4 w-4 text-primary" />
                 )}
-                {canUpdate && (
-                  <Badge variant="secondary" title={app.update_from_source ? `更新来自 ${app.update_from_source} 源` : undefined} className="bg-primary/10 text-primary border-0 font-medium px-1.5 h-5 text-[11px] shrink-0 rounded-full">
-                    有更新
-                  </Badge>
-                )}
+                {/* 0.6.290（用户定稿）：应用名旁「有更新」徽章撤下——名字被挤截断，
+                    且更新信息已有两处（下方版本行 v旧→v新 + 右侧「更新」胶囊），三重标注冗余 */}
                 {app.update_ignored && (
                   <Badge variant="secondary" className="bg-muted text-muted-foreground border-0 font-medium px-1.5 h-5 text-[11px] shrink-0 rounded-full gap-0.5">
                     <BellOff className="h-2.5 w-2.5" />已忽略
@@ -287,10 +282,11 @@ const AppRowList: React.FC<AppRowListProps> = ({
               )}
             </div>
 
-            {/* 右侧操作（App Store 风格：未安装=GET / 有更新=UPDATE / 已安装=OPEN，单一药丸）：
-                药丸在行内垂直居中（原位不挪）；收藏星标绝对定位——与应用名（标题）
-                同一行（top-0 = 行内容顶边）、水平居中于「安装」药丸所在列；
-                药丸隐藏时星标贴右缘 */}
+            {/* 右侧操作（0.6.287 用户定稿：「更新」药丸恢复——有更新就要第一时间
+                看到「更新」两个字，不能撤；启停/卸载仍不进卡面）。
+                安装/打开=主色药丸，更新=描边主色药丸。药丸在行内垂直居中（原位不挪）；
+                收藏星标绝对定位——与应用名（标题）同一行（top-0 = 行内容顶边）、
+                水平居中于药丸列；药丸隐藏时星标贴右缘 */}
             <div className="relative shrink-0 self-stretch flex items-center" onClick={e => e.stopPropagation()}>
               {!operation && (!isInstalled ? (
                   <button
