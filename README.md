@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.279-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.282-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -33,7 +33,7 @@
 <p align="center">
   <img src="docs/readme-mobile-2.png" width="86%" alt="移动端设置：备份 / 通知 / 关于"/><br/>
   <b>移动端 · 设置全 tab</b><br/>
-  加速源健康自动监测 · 应用源 157 个一键恢复 · 通知内容三档
+  加速源健康自动监测 · 应用源 156 个一键恢复 · 通知内容三档
 </p>
 
 <p align="center">
@@ -57,7 +57,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.279` · SHA256 `a2a8c170328e6bc5c0de27da6ad43dc174e30ae091cb2a8b5e9b9590b74d002b` |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.282` · SHA256 `9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4` |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -80,13 +80,14 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| 三源同步 | 飞牛官方应用中心 · FnDepot（V1/V2）· fnos-apps；内置 157 个社区源，一键恢复 / 去重 / 重命名 / 拖拽排序 |
+| 三源同步 | 飞牛官方应用中心 · FnDepot（V1/V2）· fnos-apps；内置 156 个社区源，一键恢复 / 去重 / 重命名 / 拖拽排序 |
 | 智能归类 | 14 个领域分类：精选表优先 → 标签映射 → 关键词兜底，官方口径对齐 |
 | 通知体系 | 30+ 事件 × 7 外部渠道，内容三档 × 形式按渠道可选；应用内通知恒开、永不漏记 |
 | GitHub 加速 | 多镜像测速自动优选，自更新 / FPK 下载 / 源同步全链路走加速；全挂告警 + 恢复通知 |
 | 应用内自更新 | 平台升级通道就地更新，`@appdata` 数据保留；版本号红点 + 确认框 |
 | 收藏与关注 | 应用收藏、关注源（新增应用推送 + 关注源报表）、忽略更新（列表可找回） |
 | 搜索贴源 | 搜索框直接粘贴 GitHub / FnDepot 源地址，自动识别源并搜索其应用 |
+| 深链现场恢复 | 详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复现场、无跳闪（0.6.282） |
 | 备份与缓存 | 配置快照一键备份 / 周期自动备份；已下载 FPK 缓存自动清理 |
 | 下载中心 | aria2 高速下载 + 断点续传，任务状态全透明、可暂停 / 删除 |
 
@@ -96,7 +97,7 @@
 flowchart LR
     A["应用中心安装 FPK"] --> B["wizard 选 Web 端口<br/>默认 38100"]
     B --> C["moo-server 仅监听回环<br/>唯一入口：面板网关 /app/moo/"]
-    C --> D["三源同步 + 157 社区源<br/>14 类智能归类"]
+    C --> D["三源同步 + 156 社区源<br/>14 类智能归类"]
     D --> E["更新监测 + GitHub 加速<br/>镜像测速自动优选"]
     E --> F["30+ 事件 × 7 渠道<br/>内容三档推送"]
 ```

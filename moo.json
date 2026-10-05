@@ -19,6 +19,18 @@
       "homepage": "https://github.com/Blue-Mink/moo",
       "license": "MIT",
       "releases": {
+        "0.6.282": {
+          "changelog": "深链现场恢复：详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复、无跳闪（新增恢复门）；设置页深链 #settings=<tab>；Go 后端零改动。",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.282/moo_0.6.282_x86.fpk",
+              "size": 8910109,
+              "size_mb": 8.5,
+              "sha256": "9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4"
+            }
+          },
+          "updated_at": "2026-10-05T14:30:00+08:00"
+        },
         "0.6.279": {
           "changelog": "README 面板定版：修复应用详情 README 图片 404（源数据改绝对路径）、去展开/收起改固定上限独立滚动小框（移动端 24rem / 桌面 28rem，阅读友好留白）。",
           "packages": {
@@ -42,21 +54,9 @@
             }
           },
           "updated_at": "2026-10-05T11:30:00+08:00"
-        },
-        "0.6.271": {
-          "changelog": "源去重/命名/相对路径 bug 修复组：同仓库双协议链接判同地址、同名源自动消歧、Gitea raw 直链名=仓库名、moo.json 源相对资源 404 根治、拉取失败透传真实错误。",
-          "packages": {
-            "x86": {
-              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.271/moo_0.6.271_x86.fpk",
-              "size": 8153652,
-              "size_mb": 7.78,
-              "sha256": "bdbd28f58ff2295ec09ee78ba5afc4922fe273fb571c28382475b3a387c517b1"
-            }
-          },
-          "updated_at": "2026-10-05T01:08:46+08:00"
         }
       },
-      "sha256": "a2a8c170328e6bc5c0de27da6ad43dc174e30ae091cb2a8b5e9b9590b74d002b",
+      "sha256": "9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4",
       "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
       "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
       "labels": "系统工具",
@@ -68,11 +68,11 @@
       ],
       "download_count": 0,
       "first_release_at": "2026-09-26T08:39:41+08:00",
-      "updated_at": "2026-10-05T11:45:00+08:00",
-      "version": "0.6.279",
-      "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.279/moo_0.6.279_x86.fpk",
+      "updated_at": "2026-10-05T14:30:00+08:00",
+      "version": "0.6.282",
+      "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.282/moo_0.6.282_x86.fpk",
       "size": 8.5,
-      "changelog": "README 面板定版：修复应用详情 README 图片 404（源数据改绝对路径）、去展开/收起改固定上限独立滚动小框（移动端 24rem / 桌面 28rem，阅读友好留白）。",
+      "changelog": "深链现场恢复：详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复、无跳闪（新增恢复门）；设置页深链 #settings=<tab>；Go 后端零改动。",
       "service_port": "38100"
     }
   }
