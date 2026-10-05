@@ -1,79 +1,78 @@
 {
-  "schema_version": "moo",
-  "source_info": {
-    "name": "Moo 应用商店",
-    "homepage": "https://github.com/Blue-Mink/moo",
-    "distributor": "Blue-Mink",
-    "generated_by": "gen-repo-moo-json (github)"
-  },
-  "apps": {
-    "moo": {
-      "display_name": "Moo 应用商店",
-      "app_type": "native",
-      "platform": [
-        "x86"
-      ],
-      "desc": "飞牛 NAS 上的第三方应用中心：1800+ 应用浏览 / 安装 / 更新 / 下载；三源同步（官方应用中心 / FnDepot / fnos-apps）、14 领域智能归类；30+ 事件 × 7 渠道通知推送；GitHub 加速与应用内自更新。",
-      "author": "Blue-Mink",
-      "distributor": "Blue-Mink",
-      "homepage": "https://github.com/Blue-Mink/moo",
-      "license": "MIT",
-      "releases": {
-        "0.6.282": {
-          "changelog": "深链现场恢复：详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复、无跳闪（新增恢复门）；设置页深链 #settings=<tab>；Go 后端零改动。",
-          "packages": {
-            "x86": {
-              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.282/moo_0.6.282_x86.fpk",
-              "size": 8910109,
-              "size_mb": 8.5,
-              "sha256": "9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4"
-            }
-          },
-          "updated_at": "2026-10-05T14:30:00+08:00"
-        },
-        "0.6.279": {
-          "changelog": "README 面板定版：修复应用详情 README 图片 404（源数据改绝对路径）、去展开/收起改固定上限独立滚动小框（移动端 24rem / 桌面 28rem，阅读友好留白）。",
-          "packages": {
-            "x86": {
-              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.279/moo_0.6.279_x86.fpk",
-              "size": 8908563,
-              "size_mb": 8.5,
-              "sha256": "a2a8c170328e6bc5c0de27da6ad43dc174e30ae091cb2a8b5e9b9590b74d002b"
-            }
-          },
-          "updated_at": "2026-10-05T11:45:00+08:00"
-        },
-        "0.6.278": {
-          "changelog": "UI 定版（玻璃质感统一）：移动端 dock 全宽胶囊、顶部通知栏 24px 大圆角毛玻璃、开关回退原版小号、sonner toast 改 dock 同款毛玻璃；Go 源码零改动。",
-          "packages": {
-            "x86": {
-              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.278/moo_0.6.278_x86.fpk",
-              "size": 8908982,
-              "size_mb": 8.5,
-              "sha256": "f1f091180f5d01996c274f98dd116678a68a8b483b64dd9afaad439b5c67b1ca"
-            }
-          },
-          "updated_at": "2026-10-05T11:30:00+08:00"
-        }
-      },
-      "sha256": "9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4",
-      "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
-      "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
-      "labels": "系统工具",
-      "install_type": "系统空间",
-      "preview_urls": [
-        "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-pc-home.png",
-        "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-pc-detail.png",
-        "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-mobile-1.png"
-      ],
-      "download_count": 0,
-      "first_release_at": "2026-09-26T08:39:41+08:00",
-      "updated_at": "2026-10-05T14:30:00+08:00",
-      "version": "0.6.282",
-      "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.282/moo_0.6.282_x86.fpk",
-      "size": 8.5,
-      "changelog": "深链现场恢复：详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复、无跳闪（新增恢复门）；设置页深链 #settings=<tab>；Go 后端零改动。",
-      "service_port": "38100"
+ "schema_version": "moo",
+ "source_info": {
+  "name": "Moo 应用商店",
+  "homepage": "https://github.com/Blue-Mink/moo",
+  "distributor": "Blue-Mink",
+  "generated_by": "gen-repo-moo-json (github)"
+ },
+ "apps": {
+  "moo": {
+   "display_name": "Moo 应用商店",
+   "app_type": "native",
+   "platform": [
+    "x86"
+   ],
+   "desc": "飞牛 NAS 上的第三方应用中心：1800+ 应用浏览 / 安装 / 更新 / 下载；三源同步（官方应用中心 / FnDepot / fnos-apps）、14 领域智能归类；30+ 事件 × 7 渠道通知推送；GitHub 加速与应用内自更新。",
+   "author": "Blue-Mink",
+   "distributor": "Blue-Mink",
+   "homepage": "https://github.com/Blue-Mink/moo",
+   "license": "MIT",
+   "releases": {
+    "0.6.283": {
+     "changelog": "直链源治本：GitHub 系 .json 直链源自动展开镜像与 jsDelivr 兜底候选（不再怕 raw 直连断流）；兜底竞速独立超时；源同步失败通知附具体原因。前端零改动。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.283/moo_0.6.283_x86.fpk",
+       "size": 8918203,
+       "size_mb": 8.5,
+       "sha256": "fccb76bf4c33714766153878a4340569ba8aeb11aeb2a7efdb2cb2a0025c3362"
+      }
+     }
+    },
+    "0.6.282": {
+     "changelog": "深链现场恢复：详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复、无跳闪（新增恢复门）；设置页深链 #settings=<tab>；Go 后端零改动。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.282/moo_0.6.282_x86.fpk",
+       "size": 8910109,
+       "size_mb": 8.5,
+       "sha256": "9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4"
+      }
+     },
+     "updated_at": "2026-10-05T14:30:00+08:00"
+    },
+    "0.6.279": {
+     "changelog": "README 面板定版：修复应用详情 README 图片 404（源数据改绝对路径）、去展开/收起改固定上限独立滚动小框（移动端 24rem / 桌面 28rem，阅读友好留白）。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.279/moo_0.6.279_x86.fpk",
+       "size": 8908563,
+       "size_mb": 8.5,
+       "sha256": "a2a8c170328e6bc5c0de27da6ad43dc174e30ae091cb2a8b5e9b9590b74d002b"
+      }
+     },
+     "updated_at": "2026-10-05T11:45:00+08:00"
     }
+   },
+   "sha256": "fccb76bf4c33714766153878a4340569ba8aeb11aeb2a7efdb2cb2a0025c3362",
+   "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
+   "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
+   "labels": "系统工具",
+   "install_type": "系统空间",
+   "preview_urls": [
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-pc-home.png",
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-pc-detail.png",
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/readme-mobile-1.png"
+   ],
+   "download_count": 0,
+   "first_release_at": "2026-09-26T08:39:41+08:00",
+   "updated_at": "2026-10-05T18:06:48+08:00",
+   "version": "0.6.283",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.283/moo_0.6.283_x86.fpk",
+   "size": "8.5",
+   "changelog": "直链源治本：GitHub 系 .json 直链源自动展开镜像与 jsDelivr 兜底候选（不再怕 raw 直连断流）；兜底竞速独立超时；源同步失败通知附具体原因。前端零改动。",
+   "service_port": "38100"
   }
+ }
 }
