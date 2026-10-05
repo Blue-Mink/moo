@@ -26,6 +26,19 @@ import (
 //
 // 去重/冷却状态持久化在 config.json（重启不重复告警）。
 
+// shortSyncErr 0.6.283：把源同步错误压缩成可进通知正文的短原因
+// （剥共性前缀噪声；rune 安全截断，防切断多字节字符）。
+func shortSyncErr(e string) string {
+	e = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(e), "所有候选地址均失败: "))
+	if e == "" {
+		return ""
+	}
+	if r := []rune(e); len(r) > 60 {
+		return string(r[:60]) + "…"
+	}
+	return e
+}
+
 // sourceRoundNotify 源刷新轮次后的通知检查（调用方保证刷新已完成）。
 func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	// D1 源同步失败摘要
@@ -51,7 +64,13 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 			if i > 0 {
 				b.WriteString("、")
 			}
-			b.WriteString(f.name)
+			// 0.6.283：基础文本也带上失败原因——此前只有 mdv2/卡片/完整
+			// 变体带 err，纯文本渠道与应用内记录只看得到源名
+			if r := shortSyncErr(f.err); r != "" {
+				fmt.Fprintf(&b, "%s（%s）", f.name, r)
+			} else {
+				b.WriteString(f.name)
+			}
 		}
 		// 0.6.144：markdown_v2 表格版（源 | 失败原因）
 		var tb strings.Builder

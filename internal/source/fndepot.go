@@ -78,7 +78,12 @@ func (f *FnDepot) fetchJSON() ([]byte, string, error) {
 		// 报「无候选地址」把 404/连接失败/登录墙全吞掉）
 		return nil, "", err
 	}
-	data, winner, err := raceFetch(fallback, ctx)
+	// 0.6.283：兜底竞速给独立 12s 预算——旧实现与主候选共享同一 ctx，
+	// 主候选把时间烧完后兜底只剩 0 时间，jsDelivr 明明活着也被拖死
+	// （2026-10-05 moo.json 直链源超时事件连带暴露）。
+	fctx, fcancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer fcancel()
+	data, winner, err := raceFetch(fallback, fctx)
 	if err != nil {
 		return nil, "", err
 	}

@@ -48,8 +48,13 @@ func buildCandidates(u string) []string {
 	var out []string
 	switch {
 	case strings.HasSuffix(u, ".json"):
-		// 直链：moo.json / fnpack.json 都走这里，内容自适应（V1 平铺或 V2 包裹）
+		// 直链：moo.json / fnpack.json 都走这里，内容自适应（V1 平铺或 V2 包裹）。
+		// 0.6.283：GitHub 系直链补镜像/规范化 raw/jsDelivr 候选——用户贴
+		// raw 直链当源时候选只有孤零零一条，raw 间歇断流整源就挂
+		// （2026-10-05 主 NAS 一天 11 次超时实锤），而仓库形态源有全套镜像
+		// 竞速。非 GitHub 主机维持原行为（仅原 URL）。
 		out = append(out, u)
+		out = append(out, ghJSONVariants(u)...)
 	case strings.Contains(u, "github.com/"):
 		trimmed := strings.TrimPrefix(u, "https://")
 		trimmed = strings.TrimPrefix(trimmed, "http://")
@@ -96,6 +101,83 @@ func buildCandidates(u string) []string {
 		uniq = append(uniq, c)
 	}
 	return uniq
+}
+
+// ghJSONVariants 0.6.283：为 GitHub 系 .json 直链生成补充候选
+// （镜像前缀 + 规范化 raw 直链 + jsDelivr 兜底）。识别四种入口形态：
+// raw 域直链、镜像前缀包裹的 raw、jsDelivr（带/不带 @分支）、
+// github.com 的 /raw/ 与 /blob/ 路径；其余主机返回 nil（原行为）。
+func ghJSONVariants(u string) []string {
+	p := "/" + u // 前缀哨兵，保证主机名从 "/" 边界开始匹配
+	low := strings.ToLower(p)
+	const rawHost = "/raw.githubusercontent.com/"
+	const jdHost = "/cdn.jsdelivr.net/gh/"
+	if i := strings.Index(low, rawHost); i >= 0 {
+		rest := p[i+len(rawHost):]
+		ownerRepo, branch, file, ok := splitRawPath(rest)
+		if !ok {
+			return nil
+		}
+		raw := "https://raw.githubusercontent.com/" + rest
+		return ghVariants(ownerRepo, branch, file, raw)
+	}
+	if i := strings.Index(low, jdHost); i >= 0 {
+		rest := p[i+len(jdHost):]
+		segs := strings.SplitN(rest, "/", 3) // owner / repo[@branch] / 文件路径
+		if len(segs) < 3 || segs[0] == "" || segs[1] == "" || segs[2] == "" {
+			return nil
+		}
+		repoPart, branch, hasRef := strings.Cut(segs[1], "@")
+		ownerRepo := segs[0] + "/" + strings.TrimSuffix(repoPart, ".git")
+		file := segs[2]
+		if hasRef {
+			raw := "https://raw.githubusercontent.com/" + ownerRepo + "/" + branch + "/" + file
+			return ghVariants(ownerRepo, branch, file, raw)
+		}
+		// 不带 @ref 的 jsDelivr：分支未知，main/master 双探（与仓库形态一致）
+		var out []string
+		for _, b := range []string{"main", "master"} {
+			raw := "https://raw.githubusercontent.com/" + ownerRepo + "/" + b + "/" + file
+			out = append(out, ghVariants(ownerRepo, b, file, raw)...)
+		}
+		return out
+	}
+	// github.com/owner/repo/raw|blob/branch/... （raw 域不含 "github.com/" 子串，
+	// githubusercontent ≠ github.com，无需担心误匹配）
+	if i := strings.Index(low, "/github.com/"); i >= 0 {
+		rest := p[i+len("/github.com/"):]
+		parts := strings.SplitN(rest, "/", 5)
+		if len(parts) < 5 || (parts[2] != "raw" && parts[2] != "blob") || parts[4] == "" {
+			return nil
+		}
+		ownerRepo := parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
+		rawURL := "https://raw.githubusercontent.com/" + ownerRepo + "/" + parts[3] + "/" + parts[4]
+		return ghVariants(ownerRepo, parts[3], parts[4], rawURL)
+	}
+	return nil
+}
+
+// splitRawPath 拆 raw 域路径 "owner/repo/branch/文件(可含子目录)"。
+func splitRawPath(rest string) (ownerRepo, branch, file string, ok bool) {
+	parts := strings.SplitN(rest, "/", 4)
+	if len(parts) < 4 || parts[0] == "" || parts[1] == "" || parts[3] == "" {
+		return "", "", "", false
+	}
+	return parts[0] + "/" + strings.TrimSuffix(parts[1], ".git"), parts[2], parts[3], true
+}
+
+// ghVariants 给定规范化 raw 直链，产出镜像前缀候选 + raw 本体 + jsDelivr。
+func ghVariants(ownerRepo, branch, file, rawURL string) []string {
+	var out []string
+	for _, opt := range config.GitHubMirrorOptions() {
+		if opt.URL == "" { // auto/custom/direct = 无固定前缀
+			continue
+		}
+		out = append(out, strings.TrimRight(opt.URL, "/")+"/"+rawURL)
+	}
+	out = append(out, rawURL)
+	out = append(out, "https://cdn.jsdelivr.net/gh/"+ownerRepo+"@"+branch+"/"+file)
+	return out
 }
 
 // appTypeOf 解析条目的应用类型，返回与 App.IsDocker 相同语义的字符串
