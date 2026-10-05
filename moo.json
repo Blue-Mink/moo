@@ -19,6 +19,18 @@
       "homepage": "https://github.com/Blue-Mink/moo",
       "license": "MIT",
       "releases": {
+        "0.6.279": {
+          "changelog": "README 面板定版：修复应用详情 README 图片 404（源数据改绝对路径）、去展开/收起改固定上限独立滚动小框（移动端 24rem / 桌面 28rem，阅读友好留白）。",
+          "packages": {
+            "x86": {
+              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.279/moo_0.6.279_x86.fpk",
+              "size": 8908563,
+              "size_mb": 8.5,
+              "sha256": "a2a8c170328e6bc5c0de27da6ad43dc174e30ae091cb2a8b5e9b9590b74d002b"
+            }
+          },
+          "updated_at": "2026-10-05T11:45:00+08:00"
+        },
         "0.6.278": {
           "changelog": "UI 定版（玻璃质感统一）：移动端 dock 全宽胶囊、顶部通知栏 24px 大圆角毛玻璃、开关回退原版小号、sonner toast 改 dock 同款毛玻璃；Go 源码零改动。",
           "packages": {
@@ -42,21 +54,9 @@
             }
           },
           "updated_at": "2026-10-05T01:08:46+08:00"
-        },
-        "0.6.270": {
-          "changelog": "OAuth 面板地址自动识别：网关入口（FN Connect/knock 子域/ESA 免端口）跟随浏览器 origin，局域网 IP 保持 5666/5667；成功地址本地记忆 + 内嵌授权页加载超时兜底。",
-          "packages": {
-            "x86": {
-              "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.270/moo_0.6.270_x86.fpk",
-              "size": 8149925,
-              "size_mb": 7.77,
-              "sha256": "90714555a5463a6e0538a95d05e60ef06af97600c8cc10cb0e0919b68e6e6801"
-            }
-          },
-          "updated_at": "2026-10-04T20:53:40+08:00"
         }
       },
-      "sha256": "f1f091180f5d01996c274f98dd116678a68a8b483b64dd9afaad439b5c67b1ca",
+      "sha256": "a2a8c170328e6bc5c0de27da6ad43dc174e30ae091cb2a8b5e9b9590b74d002b",
       "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
       "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
       "labels": "系统工具",
@@ -68,11 +68,11 @@
       ],
       "download_count": 0,
       "first_release_at": "2026-09-26T08:39:41+08:00",
-      "updated_at": "2026-10-05T11:30:00+08:00",
-      "version": "0.6.278",
-      "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.278/moo_0.6.278_x86.fpk",
+      "updated_at": "2026-10-05T11:45:00+08:00",
+      "version": "0.6.279",
+      "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.279/moo_0.6.279_x86.fpk",
       "size": 8.5,
-      "changelog": "UI 定版（玻璃质感统一）：移动端 dock 全宽胶囊、顶部通知栏 24px 大圆角毛玻璃、开关回退原版小号、sonner toast 改 dock 同款毛玻璃；Go 源码零改动。",
+      "changelog": "README 面板定版：修复应用详情 README 图片 404（源数据改绝对路径）、去展开/收起改固定上限独立滚动小框（移动端 24rem / 桌面 28rem，阅读友好留白）。",
       "service_port": "38100"
     }
   }

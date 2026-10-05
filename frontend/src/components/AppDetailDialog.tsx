@@ -265,7 +265,6 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 0.6.238（用户定稿）：展开/折叠按钮统一放**标题行右侧**（README 与更新日志同一款式）
   const [changelogExpanded, setChangelogExpanded] = useState(false);
   // 0.6.237（用户定稿）：README 默认收起，标题下方给统一的展开/折叠胶囊按钮
-  const [readmeExpanded, setReadmeExpanded] = useState(false);
   const [readmeError, setReadmeError] = useState('');
   const isOfficial = app?.source === 'fnos-official';
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -1075,26 +1074,13 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
         {app.has_readme && (
           <>
             <Separator />
-            {/* 0.6.238（用户定稿）：展开/收起按钮放标题行**右侧**（与更新日志同款），
-                README 默认收起（长文档不再把详情页撑得很长） */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
-                <FileText className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">README</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReadmeExpanded(v => !v)}
-                aria-expanded={readmeExpanded}
-                className="inline-flex shrink-0 items-center gap-1 h-7 px-3 rounded-full bg-muted/60 hover:bg-muted text-xs font-medium text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                {readmeExpanded ? '收起' : '展开'}
-                <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', readmeExpanded && 'rotate-180')} />
-              </button>
+            {/* 0.6.279（用户定稿）：去掉展开/收起——README 改为固定上限的独立滚动小框：
+                内容只在框内滚、不再随大卡片一起滚；短文自然缩到内容高度，
+                长文到 max-h 上限后框内独立滚动（overscroll-contain 防滚动链外泄） */}
+            <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">README</span>
             </div>
-            {/* 0.6.239（用户定稿）：README 默认只露出**约 10 行**（≈15rem：
-                text-sm + leading-relaxed 约 22.75px/行），其余由标题行右侧
-                「展开/收起」按钮控制；加载中/出错状态不受裁剪影响。 */}
             {readme === null && !readmeError ? (
               <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1103,7 +1089,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             ) : readmeError ? (
               <p className="py-2 text-xs text-muted-foreground">{readmeError}</p>
             ) : (
-              <div className={cn(!readmeExpanded && 'max-h-[15rem] overflow-hidden')}>
+              /* 阅读友好框：上限约 17~20 行（移动端 24rem / 桌面 28rem），
+                 圆角+细边框+浅底区分卡片层，四周留白 px-4 py-3 */
+              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
               <div onErrorCapture={handleReadmeImgError} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
                 [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
                 [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
