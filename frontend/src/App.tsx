@@ -76,6 +76,22 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'updated', label: '最近更新' },
 ];
 
+// 0.6.282：解析深链 hash（0.6.281 的 #app=<key>，扩展为 #app=<key>&settings[=<tab>]）。
+// 参数顺序不敏感；app 名经 encodeURIComponent 后取值内不会出现裸 & / =。
+const DEEPLINK_TAB_KEYS = ['system', 'accel', 'source', 'backup', 'notify', 'log', 'about'];
+const parseHashParams = (): { app: string | null; settings: string | null } => {
+  const h = window.location.hash.replace(/^#/, '');
+  const appM = h.match(/(?:^|&)app=([^&]+)/);
+  const app = appM ? decodeURIComponent(appM[1]) : null;
+  const settingsM = h.match(/(?:^|&)settings(?:=([^&]+))?/);
+  let settings: string | null = null;
+  if (settingsM) {
+    const t = settingsM[1] ? decodeURIComponent(settingsM[1]) : 'system';
+    settings = DEEPLINK_TAB_KEYS.includes(t) ? t : 'system';
+  }
+  return { app, settings };
+};
+
 const App: React.FC = () => {
   const [apps, setApps] = useState<AppInfo[]>([]);
   // false on fnOS builds whose update path destroys the app (see backend
@@ -116,6 +132,12 @@ const App: React.FC = () => {
   appOperationsRef.current = appOperations;
 
   const [settingsVisible, setSettingsVisible] = useState(false);
+  // 0.6.282：设置页深链——关闭时重置 tab 记忆（下次打开默认「系统设置」，同旧行为），
+  // hash 由下方同步 effect 随状态收敛
+  const handleSettingsOpenChange = (open: boolean) => {
+    setSettingsVisible(open);
+    if (!open) setSettingsTab(null);
+  };
   // Dock 主导航顺序（系统设置「Dock 栏排序」）：启动拉一次 + 设置页改完刷新
   const [dockOrder, setDockOrder] = useState<string[] | null>(null);
   const [storeHasUpdate, setStoreHasUpdate] = useState(false);
@@ -239,6 +261,139 @@ const App: React.FC = () => {
   const [panelDetail, setPanelDetail] = useState<PanelDetailResponse | null>(null);
   const [panelLoading, setPanelLoading] = useState(false);
   const [detailApp, setDetailApp] = useState<AppInfo | null>(null);
+  // 0.6.282：设置页深链——设置对话框 + 当前选中 tab 一并写入 URL（#settings[=<tab>]），
+  // 「关于」tab 等页面的外链返回后也能回到设置页。tab 本体状态在 SettingsPage 内，
+  // 这里只记最近 tab；关闭时重置（下次打开仍默认「系统设置」，行为同旧版）。
+  const [settingsTab, setSettingsTab] = useState<string | null>(null);
+  // 0.6.282：深链 hash 同步——详情页 + 设置页状态原地写入 URL（#app=<key>[&settings[=<tab>]]），
+  // 不加历史条目。关键竞态：挂载首帧两个状态必为 false，若此时同步会把 URL 里
+  // 待恢复的 hash 清掉（恢复 effect 等列表加载后才跑）→ 首帧跳过，只跳过这一次。
+  const hashSyncReadyRef = useRef(false);
+  useEffect(() => {
+    if (!hashSyncReadyRef.current) { hashSyncReadyRef.current = true; return; }
+    const base = window.location.pathname + window.location.search;
+    const parts: string[] = [];
+    const key = detailApp?.key || detailApp?.appname || '';
+    if (key) {
+      parts.push(`app=${encodeURIComponent(key)}`);
+    } else if (pendingAppRef.current) {
+      // 0.6.282：恢复尚未判定（深链待解析）时保留 app 参数——以挂载时捕获的 ref 为准，
+      // 不读当前 hash（避免「自己刚要清掉的参数又被自己保留」的自锁）；
+      // 判定完成后 ref 被恢复 effect 清空，本分支自然失效
+      parts.push(`app=${encodeURIComponent(pendingAppRef.current)}`);
+    }
+    if (settingsVisible) parts.push(settingsTab ? `settings=${settingsTab}` : 'settings');
+    window.history.replaceState(null, '', parts.length ? `${base}#${parts.join('&')}` : base);
+  }, [detailApp, settingsVisible, settingsTab]);
+  // 0.6.282：恢复门——挂载时 URL 带深链参数（外链返回/F5 刷新）就先显示纯净加载屏
+  // （不渲染列表/顶栏），恢复判定完成才放行，消除「首页列表闪一下再弹详情」的跳闪。
+  // 放行：无 app 参数 / 目录就绪完成解析 / 加载失败（交还正常 UI，重试后可再恢复）/ 8s 兜底。
+  const [restoreGate, setRestoreGate] = useState(() => {
+    const p = parseHashParams();
+    return p.app !== null || p.settings !== null;
+  });
+  // 0.6.282：待解析的深链 app 参数（挂载时从 URL 取一次）。恢复判定完成前同步 effect
+  // 以它为准保留 hash 参数；loaded 后必被下方恢复 effect 消费（开了/失效清了），不会残留
+  const pendingAppRef = useRef<string | null>(null);
+  // 挂载即：捕获待解析 app 参数 + 与目录拉取**并行**预载详情/设置懒加载 chunk——
+  // 否则目录就绪、门放行后 chunk 才开始下载，对话框仍会晚于列表出现（列表闪一下）
+  useEffect(() => {
+    const p = parseHashParams();
+    if (p.app) pendingAppRef.current = p.app;
+    if (p.app) import('./components/AppDetailDialog').catch(() => {});
+    if (p.settings) import('./components/SettingsPage').catch(() => {});
+  }, []);
+  // settings 参数不依赖目录：与判定同批应用（failed/兜底/正常三路都覆盖）——
+  // 不单独提前开设置对话框，避免其中间态重渲染冲掉待解析的 app 参数
+  const applySettingsParam = () => {
+    const s = parseHashParams().settings;
+    if (s && !settingsVisible) {
+      setSettingsVisible(true);
+      setSettingsTab(s);
+    }
+  };
+  // 0.6.282：期望恢复的对话框数量（判定时刻写入）= 详情（命中时）+ 设置（有参数时）。
+  // 门只在 DOM 对话框数达到它时才放——列表与对话框同帧出现，结构性消除跳闪
+  // （懒加载 chunk 的 eval / Radix 挂载可能滞后于 detailApp 置位，实测 276ms）。
+  // 初值从 hash 取：只有设置参数时挂载首帧就要开始等对话框，不能等判定 effect
+  // 的状态更新（同提交里 effect 闭包还是旧值 0，会提前放门）
+  const [expectedDialogs, setExpectedDialogs] = useState(() => (parseHashParams().settings ? 1 : 0));
+  // app 参数是否仍待解析（目录未就绪）——为 true 期间门不放行
+  const [appPending, setAppPending] = useState(() => parseHashParams().app !== null);
+  // 判定：目录就绪后解析 app 参数；failed/兜底交还正常 UI（hash 不动，
+  // 目录稍后就绪时下方恢复 effect 仍能补开详情）
+  useEffect(() => {
+    if (!restoreGate) return;
+    const p = parseHashParams();
+    if (loadStatus === 'failed') {
+      setAppPending(false);
+      setExpectedDialogs(p.settings ? 1 : 0);
+      applySettingsParam();
+      return;
+    }
+    if (p.app !== null && loadStatus !== 'loaded') return;
+    let need = p.settings ? 1 : 0;
+    if (p.app) {
+      const found = apps.find(a => (a.key || a.appname) === p.app || a.appname === p.app);
+      if (found) { setDetailApp(found); need += 1; }
+    }
+    setAppPending(false);
+    setExpectedDialogs(need);
+    applySettingsParam();
+  }, [restoreGate, loadStatus, apps]);
+  // 放门前确认：DOM 对话框数达到期望即放门；3s 兜底防对话框异常未挂载时恒挂加载屏
+  useEffect(() => {
+    if (!restoreGate || appPending) return;
+    const have = () => document.querySelectorAll('[role="dialog"]').length;
+    if (have() >= expectedDialogs) { setRestoreGate(false); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = () => {
+      if (have() >= expectedDialogs || performance.now() - t0 > 3000) setRestoreGate(false);
+      else raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [restoreGate, appPending, expectedDialogs]);
+  // 8s 兜底：目录长超时卡住时不再等 app 参数（hash 不动——下方恢复 effect 在目录
+  // 就绪后仍会补开详情），设置参数照常恢复
+  useEffect(() => {
+    if (!restoreGate) return;
+    const t = window.setTimeout(() => {
+      const p = parseHashParams();
+      setAppPending(false);
+      setExpectedDialogs(p.settings ? 1 : 0);
+      applySettingsParam();
+    }, 8000);
+    return () => window.clearTimeout(t);
+  }, [restoreGate]);
+  // 0.6.281：加载/刷新后若 URL 带深链参数且未开，列表就绪后自动恢复
+  // （等 loadStatus=loaded 再匹配，避免目录未拉到时误判「无此应用」；
+  //  0.6.282：loaded 即目录定论——空目录也算，失效 app 参数在此清理）
+  // 0.6.282：兼管「门因失败/兜底放行后、重试成功」的补恢复场景
+  useEffect(() => {
+    if (loadStatus !== 'loaded') return;
+    const { app, settings } = parseHashParams();
+    if (detailApp) {
+      // 详情已开（深链所开或用户点开的）：待解析标记已消费
+      pendingAppRef.current = null;
+      return;
+    }
+    if (!app) {
+      pendingAppRef.current = null;
+      return;
+    }
+    const found = apps.find(a => (a.key || a.appname) === app || a.appname === app);
+    if (found) {
+      setDetailApp(found);
+      pendingAppRef.current = null;
+    } else {
+      // 深链目标不在目录（应用已删/源未同步）：清掉失效 app 参数（保留 settings 参数）
+      pendingAppRef.current = null;
+      const base = window.location.pathname + window.location.search;
+      window.history.replaceState(null, '', settings ? `${base}#settings=${settings}` : base);
+    }
+  }, [apps, loadStatus, detailApp]);
   // App Store large title：内容滚动后标题收缩、头部转毛玻璃
   const [mainScrolled, setMainScrolled] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('default');
@@ -1109,8 +1264,19 @@ const App: React.FC = () => {
     </div>
   );
 
+  // 0.6.282：恢复门——门开启期间主树保持挂载（display:none 离屏；恢复对话框可
+  // portal 到 body 先就绪），视觉上只有纯净加载屏（无列表/顶栏/Dock）；门一开
+  // 列表与对话框同帧出现，结构性消除跳闪
+  const gateSplash = restoreGate ? (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background">
+      <img src="./icon-192.png" alt="" className="h-14 w-14 rounded-2xl opacity-80" />
+    </div>
+  ) : null;
+
   return (
-    <div className="min-h-dvh bg-background text-foreground flex flex-col md:flex-row">
+    <>
+      {gateSplash}
+      <div className={cn("min-h-dvh bg-background text-foreground flex flex-col md:flex-row", restoreGate && "hidden")}>
       {/* 0.6.230（用户定稿）：「苹果风」PC 布局 —— 左侧栏隐去，菜单模块搬到
           底部毛玻璃 Dock（见页面末尾的 Desktop Dock），品牌与实时时钟移到顶栏左侧。
           这里保留原侧栏结构（已置为 hidden）便于随时回退 / 后续复用。 */}
@@ -1812,7 +1978,9 @@ const App: React.FC = () => {
       <Suspense fallback={null}>
         <SettingsPage
           open={settingsVisible}
-          onOpenChange={setSettingsVisible}
+          onOpenChange={handleSettingsOpenChange}
+          initialTab={settingsTab ?? undefined}
+          onTabChange={setSettingsTab}
           onStoreUpdate={handleStoreUpdate}
           onCatalogChanged={() => setTimeout(() => loadApps(), 2500)}
         />
@@ -1967,7 +2135,8 @@ const App: React.FC = () => {
           visibleToasts=1 = 同一时刻只显示最新 1 条，其余排队折叠隐藏
           （前一条消失后自动顶上来），绝不出现多条通知栏上下排列 */}
       <Toaster position="top-center" duration={3000} visibleToasts={1} gap={8} />
-    </div>
+      </div>
+    </>
   );
 };
 

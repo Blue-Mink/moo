@@ -71,6 +71,10 @@ const SETTINGS_TAB_DEFAULT_ORDER = TABS.map((t) => t.key);
 interface SettingsPageProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 0.6.282：深链恢复的初始 tab（无效值回落「系统设置」） */
+  initialTab?: string;
+  /** 0.6.282：当前选中 tab 上报，供写入深链 hash */
+  onTabChange?: (tab: string) => void;
   onStoreUpdate?: () => void;
   /** 外部应用源变化后刷新应用目录 */
   onCatalogChanged?: () => void;
@@ -422,10 +426,15 @@ const AboutTab: React.FC = () => {
 const SettingsPage: React.FC<SettingsPageProps> = ({
   open,
   onOpenChange,
+  initialTab,
+  onTabChange,
   onStoreUpdate,
   onCatalogChanged,
 }) => {
-  const [tab, setTab] = useState<SettingsTab>('system');
+  // 0.6.282：初始 tab 支持深链恢复（#settings=<tab>），无效值回落 system
+  const [tab, setTab] = useState<SettingsTab>(() =>
+    initialTab && TABS.some(t => t.key === initialTab) ? (initialTab as SettingsTab) : 'system'
+  );
 
   // ── 排序（0.6.122）：dock 主导航 / 设置 tab ────────────────────────
   const [dockOrderArr, setDockOrderArr] = useState<string[]>([]);
@@ -1193,7 +1202,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 每次打开重置状态并拉取数据
   useEffect(() => {
     if (!open) return;
-    setTab('system');
+    // 0.6.282：深链恢复时落回 URL 指定的 tab，其余情况仍默认「系统设置」
+    setTab(initialTab && TABS.some(t => t.key === initialTab) ? (initialTab as SettingsTab) : 'system');
     setLoading(true);
     setGhLatency(new Map());
     setDkLatency(new Map());
@@ -1462,7 +1472,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   key={key}
                   role="tab"
                   aria-selected={tab === key}
-                  onClick={() => setTab(key)}
+                  onClick={() => { setTab(key); onTabChange?.(key); }}
                   className={cn(
                     "h-8 rounded-lg px-4 flex items-center gap-1.5 text-[13px] font-medium transition-colors focus:outline-none shrink-0 whitespace-nowrap",
                     tab === key

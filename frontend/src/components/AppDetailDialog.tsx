@@ -42,7 +42,6 @@ import {
   FileText,
   X,
   ChevronLeft,
-  ChevronDown,
   ChevronRight,
   Check,
   Star,
@@ -146,18 +145,17 @@ const DetailRow: React.FC<{ icon: React.ElementType; label: string; children: Re
   </div>
 );
 
-/** 更新内容列表（对标 FnDepot 自更新屏：版本化条目逐条列出，最新在前）。 */
+/** 更新内容列表（对标 FnDepot 自更新屏：版本化条目逐条列出，最新在前）。
+    0.6.280：去掉展开/收起——整表常驻 README 同款「固定上限独立滚动小框」，
+    始终渲染全量条目，溢出由框体滚动承接（短文自然缩到内容高度）。 */
 const ChangelogList: React.FC<{
   entries: { version?: string; text: string }[];
   /** 有可更新版本时高亮首条（即将装上的新版说明）。 */
   highlightLatest: boolean;
-  /** 0.6.238：展开态由父级标题行右侧的统一按钮控制（按钮不再跟在列表下方）。 */
-  expanded: boolean;
-}> = ({ entries, highlightLatest, expanded }) => {
-  const visible = expanded ? entries : entries.slice(0, 3);
+}> = ({ entries, highlightLatest }) => {
   return (
     <div className="space-y-1.5">
-      {visible.map((e, i) => (
+      {entries.map((e, i) => (
         <div
           key={`${e.version ?? 'x'}-${i}`}
           className={cn(
@@ -262,9 +260,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     return () => { alive = false; };
   }, [operation, open, propApp?.key, propApp?.source, propApp?.installed, propApp?.appname]);
   const [readme, setReadme] = useState<string | null>(null);
-  // 0.6.238（用户定稿）：展开/折叠按钮统一放**标题行右侧**（README 与更新日志同一款式）
-  const [changelogExpanded, setChangelogExpanded] = useState(false);
-  // 0.6.237（用户定稿）：README 默认收起，标题下方给统一的展开/折叠胶囊按钮
+  // 0.6.280（用户定稿）：README 与更新日志均为「固定上限独立滚动小框」，无展开/收起状态
   const [readmeError, setReadmeError] = useState('');
   const isOfficial = app?.source === 'fnos-official';
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -1147,31 +1143,23 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
           return (
             <>
               <Separator />
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">更新日志</span>
-                  {app.has_update && (
-                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal shrink-0">
-                      可更新至 v{app.latest_version}
-                      {/* 0.6.272：跨源同宗更新时标明来源源（供应链透明） */}
-                      {app.update_from_source ? ` · 来自 ${app.update_from_source} 源` : ''}
-                    </Badge>
-                  )}
-                </div>
-                {entries.length > 3 && (
-                  <button
-                    type="button"
-                    onClick={() => setChangelogExpanded(v => !v)}
-                    aria-expanded={changelogExpanded}
-                    className="inline-flex shrink-0 items-center gap-1 h-7 px-3 rounded-full bg-muted/60 hover:bg-muted text-xs font-medium text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    {changelogExpanded ? '收起' : `展开全部 ${entries.length} 条`}
-                    <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', changelogExpanded && 'rotate-180')} />
-                  </button>
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">更新日志</span>
+                {app.has_update && (
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal shrink-0">
+                    可更新至 v{app.latest_version}
+                    {/* 0.6.272：跨源同宗更新时标明来源源（供应链透明） */}
+                    {app.update_from_source ? ` · 来自 ${app.update_from_source} 源` : ''}
+                  </Badge>
                 )}
               </div>
-              <ChangelogList entries={entries} highlightLatest={app.has_update} expanded={changelogExpanded} />
+              {/* 0.6.280（用户定稿）：去掉「展开全部 N 条 / 收起」按钮——更新日志装入 README 同款小框：
+                  圆角+细边框+浅底、固定上限（移动 24rem / 桌面 28rem）；短列表自然缩到内容高度，
+                  长列表框内独立滚动（overscroll-contain 防滚动链外泄），两框外观与行为完全一致 */}
+              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
+                <ChangelogList entries={entries} highlightLatest={app.has_update} />
+              </div>
             </>
           );
         })()}
