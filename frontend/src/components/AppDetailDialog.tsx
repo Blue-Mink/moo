@@ -64,7 +64,9 @@ import DOMPurify from 'dompurify';
  * innerHTML（先经 DOMPurify 消毒）渲染。
  */
 // 详情页与应用列表共用的"源/开发者/发布者"蓝框徽章样式（字号两端统一）
-export const META_PILL = "inline-flex items-start gap-1 rounded-full bg-primary/10 px-2 py-[3px] max-w-full text-xs leading-[17px] font-medium text-primary hover:bg-primary/20 transition-colors focus:outline-none focus-visible:outline-none";
+// 0.6.307（用户定稿）：徽章=分类胶囊同款浅蓝玻璃语言（/15+primary/40 描边）；
+// 筛选选中态再深一档（bg-primary/25，见各处 pillCls(active) 覆盖）。
+export const META_PILL = "inline-flex items-start gap-1 rounded-full bg-primary/15 border border-primary/40 px-2 py-[2px] max-w-full text-xs leading-[17px] font-medium text-primary hover:bg-primary/25 transition-colors focus:outline-none focus-visible:outline-none";
 
 /** 字节数 → 人类可读（下载按钮「总量未知」时显示已下载大小） */
 function formatBytes(n: number): string {
@@ -634,13 +636,13 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   ) : null;
   // 未安装应用的主操作 = 头部「安装」胶囊（图标旁），底部不重复渲染
   const actionRow = !isInstalled ? null : operation ? (
-    <button disabled className={cn(actionBtnCls, "bg-primary text-primary-foreground opacity-80")}>
+    <button disabled className={cn(actionBtnCls, "bg-primary/15 text-primary border border-primary/40 opacity-70")}>
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
       处理中
     </button>
   ) : canUpdate ? (
     <>
-      <Button onClick={() => { onOpenChange(false); onUpdate(app); }} className={cn(actionBtnCls, "shadow-sm hover:opacity-90")}>
+      <Button onClick={() => { onOpenChange(false); onUpdate(app); }} className={cn(actionBtnCls, "hover:opacity-90")}>
         <RefreshCw className="h-3.5 w-3.5" />
         更新
       </Button>
@@ -720,7 +722,11 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
           // 0.6.301：打开后 400ms 免疫窗——忽略外点/遮罩点击（双击第二下防秒关）
           if (Date.now() - openedAtRef.current < 400) e.preventDefault();
         }}
-        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(90vh,920px)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden", isDesktop ? (aBg || "bg-background") : "bg-background")}>
+        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(90vh,920px)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden", // 0.6.306（用户定稿）：标准主题玻璃化——bg-background/70 + blur-2xl，
+// 背后 45% 黑遮罩下的列表隐约可见并被真实模糊（iOS 景深）；
+// 极光路径（aBg 渐变）不变。背景在对话框打开时静止（body 滚动锁定），
+// backdrop-filter 无逐帧重算成本。
+isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "bg-background/70 backdrop-blur-2xl")}>
         {/* 列布局：头部行冻结在顶部（不随内容滚动），下方内容区独立滚动。
             移动端整体包一张圆角内边框卡（与列表同款）；桌面端卡片透明化。 */}
         {/* 0.6.298：玻璃层自带圆角——带 backdrop-filter 的子元素会提升合成层
@@ -778,7 +784,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 （wrapper sm 以下 = contents 完全透明，手机行为与旧版一致）。 */}
             <div className="contents sm:block sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2">
               {operation ? (
-              <button disabled className={cn(headerPillCls, "min-w-[84px] bg-primary text-primary-foreground opacity-80")}>
+              <button disabled className={cn(headerPillCls, "min-w-[84px] bg-primary/15 text-primary border border-primary/40 opacity-70")}>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 处理中
               </button>
@@ -830,7 +836,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               // 徽章词条已在搜索框（多选叠加）→ 命中徽章渲染选中态（实心 + ✓）
               const aSrc = !!activeTerms && !!src && activeTerms.includes(src);
               const aAuth = !!activeTerms && !!author && activeTerms.includes(author);
-              const pillCls = (active: boolean) => cn(META_PILL, active && "bg-primary text-primary-foreground");
+              // 0.6.308：选中态=移动端行徽章同款实心蓝（网页端对齐）
+              const pillCls = (active: boolean) => cn(META_PILL, active && "bg-primary text-primary-foreground border-transparent");
               return (<>
                 {src && onSourceFilter && (
                   <button
@@ -868,7 +875,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
               return (
               <button
                 onClick={() => { if (onDistributorFilter) { onOpenChange(false); onDistributorFilter(app.distributor!); } }}
-                className={cn(META_PILL, aDist && "bg-primary text-primary-foreground")}
+                className={cn(META_PILL, aDist && "bg-primary text-primary-foreground border-transparent")}
                 title={onDistributorFilter ? (aDist ? `正在筛选「${app.distributor}」· 点击清除` : `只看「${app.distributor}」发布的应用`) : `发布：${app.distributor}`}
               >
                 <Package className="h-3 w-3 mt-px shrink-0" />
@@ -1329,11 +1336,14 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 未在 0.6.302 回退干净——移动端 pill 底部无圆角+无下边框+多 12px
                 padding = 阴影拖长、不成胶囊。恢复 0.6.283 定稿形态。 */}
             {downloadFpkVisible && (
-              <div className={cn("rounded-2xl border border-border/40 bg-card/95 p-2 shadow-2xl shadow-black/10", actionRow && "mt-2")}>
+              // 0.6.308（用户定稿）：外框白条去掉——浅色主题下 card/55=白色半透圈
+              // （浏览器实锤 computed bg=white/55），保留 p-2 间距即可，按钮直落玻璃底。
+              <div className={cn("p-2", actionRow && "mt-2")}>
                 <button
                   onClick={() => (dlPaused ? handleDlResume() : dlBusy ? handleDlPause() : handleDownloadFpk())}
                   title={dlBusy ? '暂停下载' : dlPaused ? '继续下载（断点续传）' : '下载 FPK 到本地缓存'}
-                  className="relative w-full h-10 overflow-hidden rounded-xl bg-primary text-primary-foreground text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:opacity-90 active:opacity-80 transition-opacity"
+                  // 0.6.307：下载按钮=选中胶囊同款浅蓝玻璃（进度白条保留）
+                  className="relative w-full h-10 overflow-hidden rounded-xl bg-primary/15 text-primary border border-primary/40 text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:bg-primary/25 active:opacity-80 transition-colors"
                 >
                   {dlBusy && dlPct != null && (
                     <span

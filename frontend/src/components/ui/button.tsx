@@ -9,8 +9,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // 0.6.307（用户定稿）：主色按钮全面胶囊化——与分类胶囊选中态同款
+        // 浅蓝玻璃语言（bg-primary/15 + 蓝字 + primary/40 描边），替代实心蓝。
+        // 覆盖：安装/打开/更新/下载/保存/刷新页面/上报/授权等全部 default 按钮。
         default:
-          "bg-primary text-primary-foreground shadow hover:bg-primary/90",
+          "bg-primary/15 text-primary border border-primary/40 hover:bg-primary/25",
         destructive:
           "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:

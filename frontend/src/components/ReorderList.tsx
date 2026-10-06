@@ -286,7 +286,8 @@ const ReorderList: React.FC<ReorderListProps> = ({ items, onReorder, busy }) => 
           <button
             type="button"
             onClick={exitWiggle}
-            className="inline-flex h-7 items-center gap-1 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground"
+            // 0.6.307：完成=胶囊同款浅蓝
+            className="inline-flex h-7 items-center gap-1 rounded-lg bg-primary/15 text-primary border border-primary/40 px-3 text-xs font-medium"
           >
             <Check className="h-3.5 w-3.5" />
             完成

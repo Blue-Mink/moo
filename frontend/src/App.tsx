@@ -1258,7 +1258,7 @@ const App: React.FC = () => {
         className={cn(
           // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
           "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
-          activeCategory === null ? "bg-primary text-primary-foreground border-transparent" : "bg-card/55 text-foreground"
+          activeCategory === null ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
         )}
       >
         全部
@@ -1323,6 +1323,10 @@ const App: React.FC = () => {
     <>
       {gateSplash}
       <div className={cn("min-h-dvh bg-background text-foreground flex flex-col md:flex-row", restoreGate && "hidden")}>
+      {/* 0.6.306（用户定稿）：页面环境光——极淡静态径向渐变（极光语言 ~1/4 强度），
+          让毛玻璃卡/顶栏/胶囊「透」到有色内容才有玻璃质感；纯静态层零滚动成本。
+          色值随主题切换见 index.css .app-ambient。fixed 贴底渲染，内容自然盖其上。 */}
+      <div aria-hidden className="app-ambient pointer-events-none fixed inset-0" />
       {/* 0.6.230（用户定稿）：「苹果风」PC 布局 —— 左侧栏隐去，菜单模块搬到
           底部毛玻璃 Dock（见页面末尾的 Desktop Dock），品牌与实时时钟移到顶栏左侧。
           这里保留原侧栏结构（已置为 hidden）便于随时回退 / 后续复用。 */}
@@ -1620,7 +1624,7 @@ const App: React.FC = () => {
                     className={cn(
                       // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
-                      activeCategory === cat.key ? "bg-primary text-primary-foreground border-transparent" : "bg-card/55 text-foreground"
+                      activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
                     )}
                   >
                     {cat.label}
@@ -1631,9 +1635,11 @@ const App: React.FC = () => {
         </div>
 
         <header className={cn(
-            "hidden md:flex px-8 justify-between items-center sticky top-0 z-10 transition-all duration-300",
+            "hidden md:flex flex-col px-8 sticky top-0 z-10 transition-all duration-300",
             mainScrolled ? "bg-card/70 backdrop-blur-xl border-b border-border/50 py-2" : "bg-transparent border-b border-transparent py-4"
           )}>
+           {/* row1：品牌+大标题 | 搜索+计数 | 三视图+主题+刷新（原顶栏内容，布局不变） */}
+           <div className="flex w-full items-center justify-between">
            <div className="flex items-center gap-2 shrink-0">
            {/* 0.6.230：侧栏隐去后，品牌「Moo is more」+ 实时时钟移到顶栏左侧
                （用户要求内容与格式保持不变：日期+时间、秒级刷新；上次检查在悬停提示里） */}
@@ -1735,6 +1741,29 @@ const App: React.FC = () => {
                  )}
                </Button>
            </div>
+           </div>
+           {/* row2：分类 pill 行（0.6.305 从 main 顶部移入顶栏冻结区，对齐移动端既有
+               模式——移动端分类条本就在 sticky 头里）：滚列表时类别常顶，不用回顶换类。
+               发现页（recommended）与移动端同款不显示。 */}
+           {activeFilter !== 'recommended' && (
+             <div className="flex items-center gap-2 overflow-x-auto pill-bar">
+               {allCategoryPill}
+               {CATEGORIES.map(cat => (
+                 <button
+                   key={cat.key}
+                   onClick={() => setActiveCategory(cat.key)}
+                   className={cn(
+                     // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
+                     "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
+                     activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground hover:bg-card/80"
+                   )}
+                 >
+                   {cat.label}
+                   <span className="ml-1 text-xs opacity-60 tabular-nums">{categoryCounts[cat.key] ?? 0}</span>
+                 </button>
+               ))}
+             </div>
+           )}
         </header>
 
         {/* 0.6.273：移动端 Dock 改悬浮胶囊（距底 10px+safe），内容底部留白 96→112px */}
@@ -1905,26 +1934,6 @@ const App: React.FC = () => {
             </div>
           ) : loadStatus === 'loaded' ? (
             <>
-              {/* 分类筛选条（App Store 风格横排 pill，桌面端；移动端在顶部 header）。
-                  0.6.292：同移动端——鼠标设备窗口缩小放不下时显示极简横向细条 */}
-              <div className="hidden md:flex items-center gap-2 overflow-x-auto pill-bar mb-5">
-                {allCategoryPill}
-                {CATEGORIES.map(cat => (
-                  <button
-                    key={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
-                    className={cn(
-                      // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
-                      "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
-                      activeCategory === cat.key ? "bg-primary text-primary-foreground border-transparent" : "bg-card/55 text-foreground hover:bg-card/80"
-                    )}
-                  >
-                    {cat.label}
-                    <span className="ml-1 text-xs opacity-60 tabular-nums">{categoryCounts[cat.key] ?? 0}</span>
-                  </button>
-                ))}
-              </div>
-
               {/* 0.6.301（用户定稿）：三种预览模式引入移动端 —— 极简/极光桌面移动
                   共用同一网格（auto-fill/响应式列数已适配窄屏）；标准模式保持
                   各自形态：桌面=卡网格 / 移动=行列表。交互：触屏单击开详情、

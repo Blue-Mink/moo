@@ -502,7 +502,8 @@ const NotifySettingsTab: React.FC = () => {
             onClick={() => setSub(key)}
             className={cn(
               'h-7 rounded-full px-3.5 text-xs font-medium transition-colors whitespace-nowrap focus:outline-none',
-              sub === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+              // 0.6.307：选中=胶囊同款浅蓝（玻璃轨道上，与分类胶囊选中一致）
+              sub === key ? 'bg-primary/15 text-primary border border-primary/40' : 'text-muted-foreground hover:text-foreground border border-transparent'
             )}
           >
             {label}

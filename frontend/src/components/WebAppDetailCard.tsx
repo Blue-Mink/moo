@@ -168,7 +168,7 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
           </div>
         </div>
         {operation ? (
-          <button disabled className="h-8 px-3.5 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 shrink-0 bg-primary text-primary-foreground opacity-80">
+          <button disabled className="h-8 px-3.5 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 shrink-0 bg-primary/15 text-primary border border-primary/40 opacity-70">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />处理中
           </button>
         ) : !isInstalled ? (
@@ -180,7 +180,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
           // 覆盖「打开」优先级：让用户第一时间看到并能一键更新，不必进详情
           <Button onClick={() => onUpdate(app)} variant="outline" disabled={!upgradeAllowed}
             title={upgradeAllowed ? undefined : '当前 fnOS 版本的更新通道会删除应用数据，请在系统应用中心手动安装 fpk'}
-            className="h-8 px-4 rounded-full text-[13px] font-semibold gap-1.5 shrink-0 border-primary/50 text-primary hover:bg-primary/10 hover:text-primary disabled:border-muted disabled:text-muted-foreground">
+            // 0.6.307：更新胶囊=选中胶囊同款（浅蓝底+primary/40 描边，原描边无底）
+            className="h-8 px-4 rounded-full text-[13px] font-semibold gap-1.5 shrink-0 border-primary/40 bg-primary/15 text-primary hover:bg-primary/25 disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground">
             <RefreshCw className="h-3.5 w-3.5" />{upgradeAllowed ? '更新' : '需手动'}
           </Button>
         ) : canOpen ? (
@@ -209,7 +210,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
             const aSrc = !!activeTerms && !!src && activeTerms.includes(src);
             const aAuth = !!activeTerms && !!author && activeTerms.includes(author);
             const aDist = !!activeTerms && !!app.distributor && activeTerms.includes(app.distributor);
-            const pill = (active: boolean) => cn(META_PILL, 'text-[11px] shrink-0', active && 'bg-primary text-primary-foreground');
+            // 0.6.308（用户定稿）：选中态=移动端行徽章同款实心蓝（用户实看满意，网页端对齐）
+const pill = (active: boolean) => cn(META_PILL, 'text-[11px] shrink-0', active && 'bg-primary text-primary-foreground border-transparent');
             return (<>
               {src && onSourceFilter && (
                 <button onClick={() => onSourceFilter(src)} className={pill(aSrc)} title={aSrc ? `正在筛选「${src}」源 · 点击清除` : `只看「${src}」源的应用`}>

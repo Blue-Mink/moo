@@ -212,6 +212,21 @@
 .aurora-11 { background: linear-gradient(135deg, #eab308 0%, #a3e635 50%, #84cc16 100%); } /* 柠黄→春绿 */
 .aurora-12 { background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 50%, #06b6d4 100%); } /* 湛蓝→青 */
 
+/* 0.6.306（用户定稿）：页面环境光——毛玻璃的「透光底」。
+   纯平底色下 backdrop-blur 无内容可透，玻璃=假实心；铺一层极淡静态
+   径向渐变（极光-1 蓝紫语言，强度 ~1/4）后，卡片/顶栏/胶囊的玻璃
+   质感才成立。纯静态层：一次渲染，滚动零成本。随主题切换。 */
+.app-ambient {
+  background-image:
+    radial-gradient(560px 420px at 16% 6%, rgba(10,132,255,.10), transparent 70%),
+    radial-gradient(680px 500px at 88% 96%, rgba(124,92,240,.09), transparent 72%);
+}
+.dark .app-ambient {
+  background-image:
+    radial-gradient(560px 420px at 16% 6%, rgba(74,144,236,.20), transparent 70%),
+    radial-gradient(680px 500px at 88% 96%, rgba(124,92,240,.15), transparent 72%);
+}
+
 /* 顶部搜索展开动画：点击"搜索"药丸后，全宽搜索框从右侧（药丸位置）悬浮展开 */
 @keyframes search-expand {
   from { opacity: 0; transform: translateY(-10px) scale(0.92); }

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
+// 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
+import { ReadmeRender } from './AppDetailDialog';
 import { useKeyboardDock } from '../lib/hooks';
 import {
   Dialog,
@@ -323,6 +325,21 @@ const AboutRow: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
   </div>
 );
 
+// 0.6.308（用户定稿）：「最新更新日志」卡——先伪造版本+日志演示效果，
+// 真实同步源（自索引/GitHub release 等）待用户确认效果后再接。
+const DEMO_CHANGELOG = {
+  version: '0.6.308',
+  date: '2026-10-06',
+  markdown: [
+    '## 毛玻璃胶囊风格全面统一',
+    '',
+    '- 全页面胶囊按钮（安装 / 打开 / 更新 / 下载 FPK / 刷新页面 / 保存 / 更新策略）统一为磨砂浅蓝风格',
+    '- 徽章（源 / 作者 / 发布）选中态改为实心蓝，与移动端完全一致',
+    '- 列表页新增环境光背景，对话框玻璃化，整体更有景深与质感',
+    '- 设置页关于 tab 新增「最新更新日志」卡片，内容可滚动',
+  ].join('\n'),
+};
+
 const AboutTab: React.FC = () => {
   const [info, setInfo] = React.useState<AboutInfo | null>(null);
 
@@ -360,6 +377,18 @@ const AboutTab: React.FC = () => {
           } />
           <AboutRow k="运行平台" v="飞牛 fnOS" />
         </div>
+      </div>
+
+      {/* 最新更新日志（0.6.308 用户定稿）：与详情页 README 同款渲染（markdown
+          + 滚动盒），卡高限 ~3-4 行文字（max-h-[110px]），超出卡内滚动。
+          当前为演示数据，同步源待用户确认后接入。 */}
+      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium">最新更新日志</span>
+          <Badge variant="outline" className="text-xs tabular-nums">v{DEMO_CHANGELOG.version}</Badge>
+          <span className="ml-auto text-xs text-muted-foreground tabular-nums">{DEMO_CHANGELOG.date}</span>
+        </div>
+        <ReadmeRender readme={DEMO_CHANGELOG.markdown} appKey="moo" maxH="max-h-[110px]" />
       </div>
 
       {/* 版本信息 */}
@@ -1430,7 +1459,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           - pan（壳平移）：聚焦期间整体隐藏兜底。 */}
       <DialogContent
         style={dialogKeyboardStyle}
-        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", aurora ? "aurora-1" : "bg-background")}>
+        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", // 0.6.306（用户定稿）：标准主题玻璃化（与详情页同款 /70+blur-2xl），
+// 极光路径 aurora-1 不变。
+aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
         {/* 极光模式（0.6.297）：底板渐变 + 一层背景色玻璃遮罩把渐变压成
             温润底色染色；上方元素全部保持原样式。Radix 自带的右上关闭钮
             (button.absolute) 在遮罩之后渲染，不受影响。 */}
@@ -1505,11 +1536,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
 
         <div className={cn("flex-1 min-h-0 flex flex-col", aurora && "relative z-10")}>
-          {/* 顶部 tab（0.6.287 用户定稿）：与首页分类胶囊完全同款语言——
-              选中=实心蓝 / 未选=Dock 毛玻璃胶囊（bg-card/55 + blur + white/10 描边）。
-              旧分段控件 bg-muted/60+bg-card 在暗黑模式下几乎不可辨（用户实报
-              「药丸都很不明显」），实心蓝选中态在两种主题下都最醒目。
-              容器左右滑动（tab 增多时横向滚动而非挤压换行）。 */}
+          {/* 顶部 tab：与首页分类胶囊、底部 Dock 完全同款语言（0.6.306 用户定稿）——
+              选中=Dock 款 bg-primary/15 蓝字+primary/40 描边（原实心蓝 0.6.287 定稿，
+              0.6.306 用户要求与 Dock 选中色对齐、不要太蓝）/ 未选=Dock 毛玻璃胶囊
+              （bg-card/55 + blur + white/10 描边）。容器左右滑动（横向滚动不换行）。 */}
           <div className="shrink-0 px-4 sm:px-6 pt-3 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="inline-flex items-center gap-2 pr-1" role="tablist">
               {orderedTabs.map(({ key, label, icon: Icon }) => (
@@ -1521,7 +1551,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   className={cn(
                     "h-8 rounded-full px-3.5 flex items-center gap-1.5 border border-white/10 backdrop-blur-xl text-[13px] font-medium transition-colors focus:outline-none shrink-0 whitespace-nowrap",
                     tab === key
-                      ? "bg-primary text-primary-foreground border-transparent"
+                      ? "bg-primary/15 text-primary border-primary/40"
                       : "bg-card/55 text-foreground hover:bg-card/80"
                   )}
                 >
@@ -2260,9 +2290,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           onClick={() => setUpdatePolicy(o.value)}
                           className={cn(
                             'h-8 rounded-full text-xs font-medium transition-colors',
+                            // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
                             updatePolicy === o.value
-                              ? 'bg-primary text-primary-foreground shadow-sm'
-                              : 'bg-muted/60 text-muted-foreground hover:text-foreground',
+                              ? 'bg-primary/15 text-primary border border-primary/40'
+                              : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
                           )}
                         >
                           {o.label}

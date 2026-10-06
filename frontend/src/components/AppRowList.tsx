@@ -292,7 +292,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
               {!operation && (!isInstalled ? (
                   <button
                     onClick={() => onInstall(app)}
-                    className="pill bg-primary text-primary-foreground h-7 px-4 text-[13px] font-semibold shadow-sm active:opacity-80"
+                    // 0.6.307：安装/打开=选中胶囊同款浅蓝玻璃
+                    className="pill bg-primary/15 text-primary border border-primary/40 h-7 px-4 text-[13px] font-semibold active:opacity-80"
                   >
                     安装
                   </button>
@@ -301,7 +302,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
                     onClick={() => onUpdate(app)}
                     disabled={!upgradeAllowed}
                     title={upgradeAllowed ? undefined : '当前 fnOS 版本的更新通道会删除应用数据，请在系统应用中心手动安装 fpk'}
-                    className="pill h-7 px-3.5 text-[13px] font-semibold border border-primary/50 text-primary active:bg-primary/10 disabled:border-muted disabled:text-muted-foreground"
+                    // 0.6.307：更新=选中胶囊同款（补浅蓝底，描边 50→40 对齐）
+                    className="pill h-7 px-3.5 text-[13px] font-semibold border border-primary/40 bg-primary/15 text-primary active:bg-primary/25 disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
                   >
                     {upgradeAllowed ? '更新' : '需手动'}
                   </button>
@@ -309,7 +311,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
                   <button
                     onClick={() => onOpenApp(app)}
                     aria-label={`打开 ${app.display_name}`}
-                    className="pill bg-primary text-primary-foreground h-7 px-4 text-[13px] font-semibold shadow-sm active:opacity-80"
+                    // 0.6.307：打开=选中胶囊同款浅蓝玻璃
+                    className="pill bg-primary/15 text-primary border border-primary/40 h-7 px-4 text-[13px] font-semibold active:opacity-80"
                   >
                     打开
                   </button>

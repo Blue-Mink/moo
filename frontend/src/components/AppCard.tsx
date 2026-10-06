@@ -278,7 +278,8 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                 {!isInstalled ? (
                   <Button
                     onClick={() => onInstall(app)}
-                    className="pill w-full bg-primary text-primary-foreground px-4 h-8 text-[13px] font-semibold shadow-sm hover:opacity-90"
+                    // 0.6.307：安装=选中胶囊同款浅蓝玻璃
+                    className="pill w-full bg-primary/15 text-primary border border-primary/40 px-4 h-8 text-[13px] font-semibold hover:bg-primary/25"
                   >
                     <Download className="mr-1 h-3.5 w-3.5" />
                     安装
@@ -289,7 +290,8 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                     variant="outline"
                     disabled={!upgradeAllowed}
                     title={upgradeAllowed ? undefined : '当前 fnOS 版本的更新通道会删除应用数据，请在系统应用中心手动安装 fpk'}
-                    className="pill w-full h-8 px-4 text-[13px] font-semibold border-primary/50 text-primary hover:bg-primary/10 hover:text-primary disabled:border-muted disabled:text-muted-foreground"
+                    // 0.6.307：更新=选中胶囊同款（补浅蓝底）
+                    className="pill w-full h-8 px-4 text-[13px] font-semibold border-primary/40 bg-primary/15 text-primary hover:bg-primary/25 disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
                   >
                     <RefreshCw className="mr-1 h-3.5 w-3.5" />
                     {upgradeAllowed ? '更新' : '需手动更新'}
@@ -298,7 +300,8 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                   <Button
                     onClick={() => onOpenApp?.(app)}
                     aria-label={`打开 ${app.display_name}`}
-                    className="pill w-full bg-primary text-primary-foreground px-4 h-8 text-[13px] font-semibold shadow-sm hover:opacity-90"
+                    // 0.6.307：安装=选中胶囊同款浅蓝玻璃
+                    className="pill w-full bg-primary/15 text-primary border border-primary/40 px-4 h-8 text-[13px] font-semibold hover:bg-primary/25"
                   >
                     <ExternalLink className="mr-1 h-3.5 w-3.5" />
                     打开
