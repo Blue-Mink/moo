@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ReadmeRender } from './AppDetailDialog';
@@ -325,27 +325,36 @@ const AboutRow: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
   </div>
 );
 
-// 0.6.308（用户定稿）：「最新更新日志」卡——先伪造版本+日志演示效果，
-// 真实同步源（自索引/GitHub release 等）待用户确认效果后再接。
-const DEMO_CHANGELOG = {
-  version: '0.6.308',
-  date: '2026-10-06',
-  markdown: [
-    '## 毛玻璃胶囊风格全面统一',
-    '',
-    '- 全页面胶囊按钮（安装 / 打开 / 更新 / 下载 FPK / 刷新页面 / 保存 / 更新策略）统一为磨砂浅蓝风格',
-    '- 徽章（源 / 作者 / 发布）选中态改为实心蓝，与移动端完全一致',
-    '- 列表页新增环境光背景，对话框玻璃化，整体更有景深与质感',
-    '- 设置页关于 tab 新增「最新更新日志」卡片，内容可滚动',
-  ].join('\n'),
-};
+// 0.6.310：「最新更新日志」卡接入真实数据——取已安装 moo 目录条目的
+// changelog_entries（自索引源维护），优先展示当前运行版本的条目，
+// 找不到则回落到最新条目；源缺失/离线时整卡隐藏（0.6.308 演示数据移除）。
 
 const AboutTab: React.FC = () => {
   const [info, setInfo] = React.useState<AboutInfo | null>(null);
+  const [entries, setEntries] = React.useState<{ version?: string; text: string }[]>([]);
 
   React.useEffect(() => {
     fetchAbout().then(setInfo).catch(() => setInfo(null));
+    (async () => {
+      try {
+        const list = await fetchApps();
+        const self = list.apps.find((a) => a.appname === 'moo' && a.installed && a.key);
+        if (!self) return;
+        const detail = await fetchAppDetail(self.key);
+        setEntries(detail.changelog_entries || []);
+      } catch {
+        /* 自源缺失或离线：卡片隐藏 */
+      }
+    })();
   }, []);
+
+  const logEntry = React.useMemo(() => {
+    if (!entries.length) return null;
+    return (
+      entries.find((e) => e.version && info?.version && e.version === info.version) ||
+      entries[0]
+    );
+  }, [entries, info]);
 
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
@@ -379,17 +388,18 @@ const AboutTab: React.FC = () => {
         </div>
       </div>
 
-      {/* 最新更新日志（0.6.308 用户定稿）：与详情页 README 同款渲染（markdown
-          + 滚动盒），卡高限 ~3-4 行文字（max-h-[110px]），超出卡内滚动。
-          当前为演示数据，同步源待用户确认后接入。 */}
-      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium">最新更新日志</span>
-          <Badge variant="outline" className="text-xs tabular-nums">v{DEMO_CHANGELOG.version}</Badge>
-          <span className="ml-auto text-xs text-muted-foreground tabular-nums">{DEMO_CHANGELOG.date}</span>
+      {/* 最新更新日志：与详情页 README 同款渲染（markdown + 滚动盒），
+          卡高限 ~3-4 行文字（max-h-[110px]），超出卡内滚动。
+          0.6.310：内容=当前版本真实 changelog（自源 changelog_entries）。 */}
+      {logEntry && (
+        <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium">最新更新日志</span>
+            <Badge variant="outline" className="text-xs tabular-nums">v{logEntry.version}</Badge>
+          </div>
+          <ReadmeRender readme={logEntry.text} appKey="moo" maxH="max-h-[110px]" />
         </div>
-        <ReadmeRender readme={DEMO_CHANGELOG.markdown} appKey="moo" maxH="max-h-[110px]" />
-      </div>
+      )}
 
       {/* 版本信息 */}
       <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
