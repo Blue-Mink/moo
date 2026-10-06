@@ -5,7 +5,7 @@
 <h1 align="center">For fnOS<br/>Moo is more</h1>
 
 <p align="center">
-  在飞牛 NAS 上装一个第三方应用中心，1800+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
+  在飞牛 NAS 上装一个第三方应用中心，2100+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
 </p>
 
 <p align="center">
