@@ -11853,6 +11853,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.310": {
+     "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.310/moo_0.6.310_x86.fpk",
+       "size": 4654566,
+       "size_mb": 4.4,
+       "sha256": "f6c22cf15dedecf8d8288db7f7c324545efb18fb26818ea81d62ea97a6fba5dd"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.310/moo_0.6.310_arm.fpk",
+       "size": 4237727,
+       "size_mb": 4.0,
+       "sha256": "20f7959e1035308e0f103c2221e358841444373b969aa9781044a9572598b6a8"
+      }
+     },
+     "updated_at": "2026-10-06T22:35:00+08:00"
+    },
     "0.6.309": {
      "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
      "packages": {
@@ -11888,27 +11906,9 @@
       }
      },
      "updated_at": "2026-10-06T17:00:00+08:00"
-    },
-    "0.6.304": {
-     "changelog": "FPK 精简 −48%：app.tgz 去除冗余 web/ 目录（前端 go:embed 全量内嵌、零功能变化）+ 二进制剥离符号表（-s -w，运行时零变化）；x86 8.95M→4.4M / arm 7.8M→4.0M，界面与 0.6.303 逐字节一致。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.304/moo_0.6.304_x86.fpk",
-       "size": 4654527,
-       "size_mb": 4.4,
-       "sha256": "4c3c151b401602959ceead4367c73e9fa71419a8fb420136f959cf80a60bd95c"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.304/moo_0.6.304_arm.fpk",
-       "size": 4238356,
-       "size_mb": 4.0,
-       "sha256": "a0492042362db21c091d7748f3e16e8dc9b2cad662f53762fe1b22f4ac7f4f6e"
-      }
-     },
-     "updated_at": "2026-10-06T14:05:00+08:00"
     }
    },
-   "sha256": "8836f3dcad7c1a0d634f69dba80738dc98e2f4076fc7b86970074ac125a4983a",
+   "sha256": "f6c22cf15dedecf8d8288db7f7c324545efb18fb26818ea81d62ea97a6fba5dd",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -11920,9 +11920,9 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-06T22:00:00+08:00",
-   "version": "0.6.309",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.309/moo_0.6.309_x86.fpk",
+   "updated_at": "2026-10-06T22:35:00+08:00",
+   "version": "0.6.310",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.310/moo_0.6.310_x86.fpk",
    "size": "4.4",
    "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
    "service_port": "38100"
