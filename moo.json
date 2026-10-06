@@ -259,7 +259,8 @@
    "author_url": "https://github.com/710850609",
    "install_type": "存储空间",
    "size": 12.0,
-   "size_bytes": 12000000
+   "size_bytes": 12000000,
+   "icon_url": "https://raw.githubusercontent.com/710850609/fpk-adguardhome/main/AdGuardHome/ICON.PNG"
   },
   "Agent2API": {
    "display_name": "Agent2API",
@@ -515,7 +516,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 20.0,
-   "size_bytes": 20000000
+   "size_bytes": 20000000,
+   "icon_url": "https://raw.githubusercontent.com/roc0838/FnDepot1/main/BitComet/ICON.PNG"
   },
   "BitMeteor": {
    "display_name": "BitMeteor",
@@ -653,7 +655,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 5.0,
-   "size_bytes": 5000000
+   "size_bytes": 5000000,
+   "icon_url": "https://raw.githubusercontent.com/shuangji66/FnDepot/main/Bond/ICON.PNG"
   },
   "Chrome-for-Testing-yuexps": {
    "display_name": "Chrome for Testing",
@@ -932,7 +935,8 @@
    "author_url": "https://github.com/710850609",
    "install_type": "存储空间",
    "size": 15.0,
-   "size_bytes": 15000000
+   "size_bytes": 15000000,
+   "icon_url": "https://raw.githubusercontent.com/710850609/fpk-dbland/main/DBland/ICON.PNG"
   },
   "DDNS-GO": {
    "display_name": "DDNS-GO",
@@ -1126,7 +1130,8 @@
    "author_url": "https://github.com/710850609",
    "install_type": "存储空间",
    "size": 9.0,
-   "size_bytes": 9000000
+   "size_bytes": 9000000,
+   "icon_url": "https://raw.githubusercontent.com/710850609/EasyTier-EUI/main/EasyTier-EUI/ICON.PNG"
   },
   "Ech0": {
    "display_name": "Ech0",
@@ -1387,7 +1392,8 @@
    "changelog": "重构项目",
    "distributor": "shuangji66",
    "distributor_url": "https://github.com/shuangji66/FnDepot",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/FakeHTTP/ICON.PNG"
   },
   "FakeSIP": {
    "display_name": "FakeSIP",
@@ -1407,7 +1413,8 @@
    "changelog": "重构项目",
    "distributor": "shuangji66",
    "distributor_url": "https://github.com/shuangji66/FnDepot",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/FakeSIP/ICON.PNG"
   },
   "Filebrowser": {
    "display_name": "Filebrowser",
@@ -1429,7 +1436,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 14.0,
-   "size_bytes": 14000000
+   "size_bytes": 14000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/Filebrowser/ICON.PNG"
   },
   "Fluxor": {
    "display_name": "三体甜甜圈",
@@ -1566,7 +1574,8 @@
    "author_url": "https://go.dev",
    "install_type": "存储空间",
    "size": 57.0,
-   "size_bytes": 57000000
+   "size_bytes": 57000000,
+   "icon_url": "https://raw.githubusercontent.com/hepp995/FnDepot/main/Golang/ICON.PNG"
   },
   "Gotify": {
    "display_name": "Gotify",
@@ -1903,7 +1912,8 @@
    "distributor_url": "https://github.com/HiPM-Tech/HiDNS",
    "install_type": "存储空间",
    "size": 0.75,
-   "size_bytes": 750000
+   "size_bytes": 750000,
+   "icon_url": "https://raw.githubusercontent.com/ccyo-fang/FnDepot/main/HiDNS/ICON.PNG"
   },
   "HomePage": {
    "display_name": "HomePage",
@@ -2502,7 +2512,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 2.0,
-   "size_bytes": 2000000
+   "size_bytes": 2000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/LocalSend-Web/ICON.PNG"
   },
   "Lucky": {
    "display_name": "Lucky",
@@ -2523,7 +2534,8 @@
    "distributor_url": "https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzUzOTMwOTM2NQ==&action=getalbum&album_id=3644374086744178694#wechat_redirect/",
    "install_type": "系统空间",
    "size": 27.1,
-   "size_bytes": 27100000
+   "size_bytes": 27100000,
+   "icon_url": "https://raw.githubusercontent.com/seesky100825/FnDepot1/main/Lucky/ICON.PNG"
   },
   "Lucky.yuexps": {
    "display_name": "Lucky 3.0",
@@ -2616,7 +2628,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 43.0,
-   "size_bytes": 43000000
+   "size_bytes": 43000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/MTranServer/ICON.PNG"
   },
   "Mahjong": {
    "display_name": "万能麻将",
@@ -2751,7 +2764,8 @@
    "distributor_url": "https://github.com/DinDing1/FnDepot/tree/main/MediaHub",
    "install_type": "存储空间",
    "size": 30.02,
-   "size_bytes": 30020000
+   "size_bytes": 30020000,
+   "icon_url": "https://raw.githubusercontent.com/DinDing1/FnDepot/main/MediaHub/ICON.PNG"
   },
   "Mihomo": {
    "display_name": "Mihomo",
@@ -2767,7 +2781,8 @@
    "author_url": "https://github.com/MetaCubeX/mihomo",
    "install_type": "存储空间",
    "size": 16.1,
-   "size_bytes": 16100000
+   "size_bytes": 16100000,
+   "icon_url": "https://raw.githubusercontent.com/ai2ku/FnDepot/main/Mihomo/ICON.PNG"
   },
   "Mihomo-arm64": {
    "display_name": "Mihomo-arm64",
@@ -2783,7 +2798,8 @@
    "author_url": "https://github.com/MetaCubeX/mihomo",
    "install_type": "存储空间",
    "size": 16.1,
-   "size_bytes": 16100000
+   "size_bytes": 16100000,
+   "icon_url": "https://raw.githubusercontent.com/ai2ku/FnDepot/main/Mihomo-arm64/ICON.PNG"
   },
   "Mihomo-armv7": {
    "display_name": "Mihomo-armv7",
@@ -2799,7 +2815,8 @@
    "author_url": "https://github.com/MetaCubeX/mihomo",
    "install_type": "存储空间",
    "size": 16.1,
-   "size_bytes": 16100000
+   "size_bytes": 16100000,
+   "icon_url": "https://raw.githubusercontent.com/ai2ku/FnDepot/main/Mihomo-armv7/ICON.PNG"
   },
   "MihomoV2": {
    "display_name": "MihomoV2",
@@ -2815,7 +2832,8 @@
    "author_url": "https://github.com/MetaCubeX/mihomo",
    "install_type": "存储空间",
    "size": 16.1,
-   "size_bytes": 16100000
+   "size_bytes": 16100000,
+   "icon_url": "https://raw.githubusercontent.com/ai2ku/FnDepot/main/MihomoV2/ICON.PNG"
   },
   "Minesweeper": {
    "display_name": "超级扫雷",
@@ -3064,7 +3082,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 95.0,
-   "size_bytes": 95000000
+   "size_bytes": 95000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/MySQL8/ICON.PNG"
   },
   "Navidrome": {
    "display_name": "Navidrome音乐播放器",
@@ -3563,7 +3582,8 @@
    "author_url": "https://github.com/710850609",
    "install_type": "存储空间",
    "size": 49.0,
-   "size_bytes": 49000000
+   "size_bytes": 49000000,
+   "icon_url": "https://raw.githubusercontent.com/710850609/fpk-OpenList/main/OpenList/ICON.PNG"
   },
   "Openlist": {
    "display_name": "Openlist",
@@ -3890,7 +3910,8 @@
    "author_url": "https://qm.qq.com/q/mVrB8ASTXc",
    "install_type": "系统空间",
    "size": 0.31,
-   "size_bytes": 310000
+   "size_bytes": 310000,
+   "icon_url": "https://raw.githubusercontent.com/ZhangZsky/FnDepot/main/PipeBridge/ICON.PNG"
   },
   "Plex": {
    "display_name": "Plex",
@@ -3959,7 +3980,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 32.0,
-   "size_bytes": 32000000
+   "size_bytes": 32000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/Podman/ICON.PNG"
   },
   "Read": {
    "display_name": "轻阅读",
@@ -4329,7 +4351,8 @@
    "author_url": "https://github.com/710850609",
    "install_type": "存储空间",
    "size": 2.0,
-   "size_bytes": 2000000
+   "size_bytes": 2000000,
+   "icon_url": "https://raw.githubusercontent.com/710850609/fpk-TaoSync/main/TaoSync/ICON.PNG"
   },
   "Teamspeaker": {
    "display_name": "Teamspeaker3",
@@ -4870,7 +4893,8 @@
    "distributor_url": "https://github.com/maxsusu/FnDepot/tree/main/numa",
    "install_type": "存储空间",
    "size": 7.6,
-   "size_bytes": 7600000
+   "size_bytes": 7600000,
+   "icon_url": "https://raw.githubusercontent.com/maxsusu/FnDepot/main/VNT2/ICON.PNG"
   },
   "VNTS2": {
    "display_name": "VNTS2",
@@ -4892,7 +4916,8 @@
    "distributor_url": "https://github.com/maxsusu/FnDepot/tree/main/numa",
    "install_type": "存储空间",
    "size": 3.4,
-   "size_bytes": 3400000
+   "size_bytes": 3400000,
+   "icon_url": "https://raw.githubusercontent.com/maxsusu/FnDepot/main/VNTS2/ICON.PNG"
   },
   "Vaultwarden": {
    "display_name": "Vaultwarden密钥管理器",
@@ -5068,7 +5093,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 3.0,
-   "size_bytes": 3000000
+   "size_bytes": 3000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/Wol/ICON.PNG"
   },
   "Xboard": {
    "display_name": "Xboard面板",
@@ -5090,7 +5116,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 6.0,
-   "size_bytes": 6000000
+   "size_bytes": 6000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/Xboard/ICON.PNG"
   },
   "XiangQi": {
    "display_name": "中国象棋",
@@ -5220,7 +5247,6 @@
    "categories": [
     "download"
    ],
-   "icon_url": "https://cdn.jsdelivr.net/gh/cmbya/FnDepot/assets/icons/ZJJX.png",
    "readme_url": "https://github.com/cmbya/ZJJX",
    "bug_report_url": "https://github.com/cmbya/ZJJX/issues",
    "download_count": 97,
@@ -5680,7 +5706,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/beKing/ICON.PNG"
   },
   "bililivetools": {
    "display_name": "biliLive-tools",
@@ -5736,7 +5763,8 @@
    "distributor_url": "https://github.com/HonghaoLee/FnDepot",
    "install_type": "系统空间",
    "size": 50.0,
-   "size_bytes": 50000000
+   "size_bytes": 50000000,
+   "icon_url": "https://raw.githubusercontent.com/HonghaoLee/FnDepot/main/bitmagnet/ICON.PNG"
   },
   "boombird": {
    "display_name": "压爆只雀",
@@ -5848,7 +5876,8 @@
    "changelog": "修复 1.6.9 安装后管理界面仍白屏：入口 url /app/chat2api（无尾斜杠）+ index.html 相对资源路径 ./assets/，无尾斜杠下资源被解析到 /app/assets/（少一层），服务端 fallback 返回 HTML 而非 JS，导致白屏。现双重修复：server-entry.js 对无尾斜杠网关前缀 302 重定向到带尾斜杠；renderer 构建加 base=/app/chat2api/，资源改绝对路径。另附 1.6.8 白屏修复：electron 替身包（node_modules/electron）+ locateEntry() 抛真实原因。",
    "distributor": "narrator-z",
    "distributor_url": "https://github.com/narrator-z/FnDepot",
-   "install_type": "系统空间"
+   "install_type": "系统空间",
+   "icon_url": "https://raw.githubusercontent.com/narrator-z/FnDepot/main/chat2api/ICON.PNG"
   },
   "clashlite": {
    "display_name": "ClashLite",
@@ -5870,7 +5899,8 @@
    "distributor_url": "https://github.com/cliii-one/FnDepot/tree/main/clashlite",
    "install_type": "存储空间",
    "size": 40.0,
-   "size_bytes": 40000000
+   "size_bytes": 40000000,
+   "icon_url": "https://raw.githubusercontent.com/cliii-one/FnDepot/main/clashlite/ICON.PNG"
   },
   "clawstrike": {
    "display_name": "CLAWSTRIKE",
@@ -5891,7 +5921,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/clawstrike/ICON.PNG"
   },
   "cli2api": {
    "display_name": "CLI2API",
@@ -5969,7 +6000,8 @@
    "author_url": "https://github.com/hhxs2025",
    "install_type": "存储空间",
    "size": 9.05,
-   "size_bytes": 9050000
+   "size_bytes": 9050000,
+   "icon_url": "https://raw.githubusercontent.com/hhxs2025/FnDepot/main/cloud-bijia/ICON.PNG"
   },
   "cloud-collection": {
    "display_name": "云收集",
@@ -5985,7 +6017,8 @@
    "author_url": "https://github.com/hhxs2025",
    "install_type": "存储空间",
    "size": 9.5,
-   "size_bytes": 9500000
+   "size_bytes": 9500000,
+   "icon_url": "https://raw.githubusercontent.com/hhxs2025/FnDepot/main/cloud-collection/ICON.PNG"
   },
   "cloud-members": {
    "display_name": "云会员",
@@ -6001,7 +6034,8 @@
    "author_url": "https://github.com/hhxs2025",
    "install_type": "存储空间",
    "size": 1.88,
-   "size_bytes": 1880000
+   "size_bytes": 1880000,
+   "icon_url": "https://raw.githubusercontent.com/hhxs2025/FnDepot/main/cloud-members/ICON.PNG"
   },
   "cloud-printer": {
    "display_name": "互维云+远程打印助手",
@@ -6054,7 +6088,8 @@
    "author_url": "https://github.com/hhxs2025",
    "install_type": "存储空间",
    "size": 10.3,
-   "size_bytes": 10300000
+   "size_bytes": 10300000,
+   "icon_url": "https://raw.githubusercontent.com/hhxs2025/FnDepot/main/cloud-resources/ICON.PNG"
   },
   "clouddrive2": {
    "display_name": "clouddrive2",
@@ -6134,7 +6169,8 @@
    "distributor_url": "https://github.com/coder/code-server",
    "install_type": "存储空间",
    "size": 6.2,
-   "size_bytes": 6500000
+   "size_bytes": 6500000,
+   "icon_url": "https://raw.githubusercontent.com/dysfwhq/FnDepot/main/coder/ICON.PNG"
   },
   "coder-docker": {
    "display_name": "Coder 桌面版",
@@ -6152,7 +6188,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 6.8,
-   "size_bytes": 6800000
+   "size_bytes": 6800000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/coder-docker/ICON.PNG"
   },
   "com.dongguaha.vm": {
    "display_name": "冬瓜HAOS",
@@ -6326,7 +6363,8 @@
    "author_url": "https://github.com/boater-man",
    "install_type": "存储空间",
    "size": 15.0,
-   "size_bytes": 15000000
+   "size_bytes": 15000000,
+   "icon_url": "https://raw.githubusercontent.com/boater-man/FnDepot/main/comission/ICON.PNG"
   },
   "cover": {
    "display_name": "封面设计",
@@ -6375,7 +6413,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/cpolar-Native/ICON.PNG"
   },
   "cpuFind": {
    "display_name": "硬件天梯查询",
@@ -6396,7 +6435,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/cpuFind/ICON.PNG"
   },
   "cuber": {
    "display_name": "魔方栈",
@@ -6417,7 +6457,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/cuber/ICON.PNG"
   },
   "customIcon": {
    "display_name": "扩展图标管理",
@@ -6433,7 +6474,8 @@
    "author_url": "https://club.fnnas.com/home.php?mod=space&uid=15673",
    "install_type": "系统空间",
    "size": 5.2,
-   "size_bytes": 5200000
+   "size_bytes": 5200000,
+   "icon_url": "https://raw.githubusercontent.com/FNOSP/FnDepot/main/customIcon/ICON.PNG"
   },
   "cutcubes": {
    "display_name": "切碎方块",
@@ -6542,7 +6584,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/ddnsto/ICON.PNG"
   },
   "decotv": {
    "display_name": "DecoTV",
@@ -6558,7 +6601,8 @@
    "distributor_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 0.15,
-   "size_bytes": 150000
+   "size_bytes": 150000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/decotv/ICON.PNG"
   },
   "decotv-arm": {
    "display_name": "DecoTV-arm",
@@ -6574,7 +6618,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 0.15,
-   "size_bytes": 150000
+   "size_bytes": 150000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/decotv-arm/ICON.PNG"
   },
   "deepseek.harness": {
    "display_name": "DeepSeek Harness",
@@ -7018,7 +7063,8 @@
    "distributor_url": "https://dpanel.cc",
    "install_type": "存储空间",
    "size": 29.0,
-   "size_bytes": 29000000
+   "size_bytes": 29000000,
+   "icon_url": "https://raw.githubusercontent.com/DPanel-dev/FnDepot/main/dpanel/ICON.PNG"
   },
   "dpanel-amd64": {
    "display_name": "Dpanel",
@@ -7090,7 +7136,8 @@
    "download_count": 3262,
    "author": "火舞狂沙",
    "author_url": "https://github.com/zyp1690/FnDepot",
-   "install_type": "系统空间"
+   "install_type": "系统空间",
+   "icon_url": "https://raw.githubusercontent.com/zyp1690/FnDepot/main/duanju/ICON.PNG"
   },
   "dy.net": {
    "display_name": "抖小云",
@@ -7106,7 +7153,8 @@
    "author_url": "https://club.fnnas.com/home.php?mod=space&uid=93469",
    "install_type": "系统空间",
    "size": 48.0,
-   "size_bytes": 48000000
+   "size_bytes": 48000000,
+   "icon_url": "https://raw.githubusercontent.com/jianzhichu/FnDepot/main/dy.net/ICON.PNG"
   },
   "dzk3d": {
    "display_name": "打砖块3D版",
@@ -7127,7 +7175,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 4.5,
-   "size_bytes": 4500000
+   "size_bytes": 4500000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/dzk3d/ICON.PNG"
   },
   "eaglercraft": {
    "display_name": "Minecraft离线版",
@@ -7148,7 +7197,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 11.0,
-   "size_bytes": 11000000
+   "size_bytes": 11000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/eaglercraft/ICON.PNG"
   },
   "easydown": {
    "display_name": "easydown下载器",
@@ -7169,7 +7219,8 @@
    "distributor": "万剑魔君",
    "install_type": "系统空间",
    "size": 42.0,
-   "size_bytes": 85
+   "size_bytes": 85,
+   "icon_url": "https://raw.githubusercontent.com/wanjianmojun/FnDepot/main/easydown/ICON.PNG"
   },
   "easytier": {
    "display_name": "EasyTier",
@@ -7467,7 +7518,8 @@
    "distributor_url": "http://qdnas.icu/",
    "install_type": "存储空间",
    "size": 11.1,
-   "size_bytes": 11100000
+   "size_bytes": 11100000,
+   "icon_url": "https://raw.githubusercontent.com/yousili520/FnDepot/main/flatcms/ICON.PNG"
   },
   "flatnas": {
    "display_name": "FlatNas导航",
@@ -7530,7 +7582,8 @@
    "distributor_url": "https://github.com/cliii-one/FnDepot/tree/main/flymail",
    "install_type": "存储空间",
    "size": 40.0,
-   "size_bytes": 40000000
+   "size_bytes": 40000000,
+   "icon_url": "https://raw.githubusercontent.com/cliii-one/FnDepot/main/flymail/ICON.PNG"
   },
   "fn-ApacheManager": {
    "display_name": "Apache 管理器",
@@ -7542,7 +7595,8 @@
    "author": "Giraff",
    "author_url": "https://giraff.fun",
    "install_type": "root",
-   "size": 7.88
+   "size": 7.88,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-ApacheManager/ICON.PNG"
   },
   "fn-ImageAdmin": {
    "display_name": "ImagesGallery",
@@ -7553,7 +7607,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "laok",
    "author_url": "https://github.com/kuai410022283",
-   "size": 27.35
+   "size": 27.35,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-ImageAdmin/ICON.PNG"
   },
   "fn-MusicWave": {
    "display_name": "MusicWave",
@@ -7565,7 +7620,8 @@
    "author": "Giraff",
    "author_url": "https://giraff.fun",
    "install_type": "root",
-   "size": 0.39
+   "size": 0.39,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-MusicWave/ICON.PNG"
   },
   "fn-NginxManager": {
    "display_name": "Nginx 管理器",
@@ -7577,7 +7633,8 @@
    "author": "Giraff",
    "author_url": "https://giraff.fun",
    "install_type": "root",
-   "size": 6.89
+   "size": 6.89,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-NginxManager/ICON.PNG"
   },
   "fn-VirtualHereServer": {
    "display_name": "VirtualHereServer",
@@ -7611,7 +7668,8 @@
    "author": "Giraff,LaoK",
    "author_url": "https://giraff.fun",
    "install_type": "root",
-   "size": 7.65
+   "size": 7.65,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-WebServer/ICON.PNG"
   },
   "fn-aic8800": {
    "display_name": "aic8800",
@@ -7628,7 +7686,8 @@
    "author_url": "https://github.com/RROrg",
    "install_type": "root",
    "size": 1.33,
-   "size_bytes": 1335000
+   "size_bytes": 1335000,
+   "icon_url": "https://raw.githubusercontent.com/RROrg/fn-apps/main/fn-aic8800/ICON.PNG"
   },
   "fn-appcenterThirdParty": {
    "display_name": "应用精选",
@@ -7640,7 +7699,8 @@
    "author": "Giraff、laok、RROrg",
    "author_url": "https://github.com/Giraff/FnDepot",
    "install_type": "root",
-   "size": 7.48
+   "size": 7.48,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-appcenterThirdParty/ICON.PNG"
   },
   "fn-broadcom-sta": {
    "display_name": "Broadcom-STA",
@@ -7657,7 +7717,8 @@
    "author_url": "https://github.com/RROrg",
    "install_type": "root",
    "size": 5.5,
-   "size_bytes": 5499000
+   "size_bytes": 5499000,
+   "icon_url": "https://raw.githubusercontent.com/RROrg/fn-apps/main/fn-broadcom-sta/ICON.PNG"
   },
   "fn-chromium": {
    "display_name": "chromium",
@@ -7936,7 +7997,8 @@
    "author": "MariaDB",
    "author_url": "https://mariadb.org/",
    "install_type": "root",
-   "size": 85.42
+   "size": 85.42,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-mariaDB12/ICON.PNG"
   },
   "fn-mediaplayer": {
    "display_name": "MediaPlayer",
@@ -7947,7 +8009,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "Laok",
    "author_url": "https://github.com/kuai410022283/mediaplayer",
-   "size": 13.04
+   "size": 13.04,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-mediaplayer/ICON.PNG"
   },
   "fn-monitor": {
    "display_name": "显示器/电源设置",
@@ -7995,7 +8058,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "Giraff",
    "author_url": "https://giraff.fun",
-   "size": 0.04
+   "size": 0.04,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-mytvAdmin/ICON.PNG"
   },
   "fn-notepad": {
    "display_name": "便签记事本",
@@ -8006,7 +8070,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "laok",
    "author_url": "https://gitee.com/laoknas/fn_fpk_packages/tree/master/fn-notepad",
-   "size": 8.45
+   "size": 8.45,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-notepad/ICON.PNG"
   },
   "fn-ntfs3": {
    "display_name": "ntfs3",
@@ -8023,7 +8088,8 @@
    "author_url": "https://github.com/RROrg",
    "install_type": "root",
    "size": 0.64,
-   "size_bytes": 637000
+   "size_bytes": 637000,
+   "icon_url": "https://raw.githubusercontent.com/RROrg/fn-apps/main/fn-ntfs3/ICON.PNG"
   },
   "fn-open-vm-tools": {
    "display_name": "open-vm-tools",
@@ -8056,7 +8122,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "PHP.net",
    "author_url": "https://php.ac.cn/",
-   "size": 15.23
+   "size": 15.23,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-php8.2/ICON.PNG"
   },
   "fn-php8.3": {
    "display_name": "PHP 8.3 管理组件",
@@ -8067,7 +8134,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "PHP.net",
    "author_url": "https://php.ac.cn/",
-   "size": 16.89
+   "size": 16.89,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-php8.3/ICON.PNG"
   },
   "fn-php8.4": {
    "display_name": "PHP 8.4 管理组件",
@@ -8078,7 +8146,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "PHP.net",
    "author_url": "https://php.ac.cn/",
-   "size": 18.18
+   "size": 18.18,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-php8.4/ICON.PNG"
   },
   "fn-phpmyadmin": {
    "display_name": "phpMyAdmin",
@@ -8089,7 +8158,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "sfconservancy.org",
    "author_url": "https://sfconservancy.org/",
-   "size": 70.92
+   "size": 70.92,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-phpmyadmin/ICON.PNG"
   },
   "fn-qemu-ga": {
    "display_name": "qemu-ga",
@@ -8289,7 +8359,8 @@
    "distributor_url": "https://github.com/RROrg/fn-apps",
    "install_type": "系统空间",
    "size": 0.27,
-   "size_bytes": 272000
+   "size_bytes": 272000,
+   "icon_url": "https://raw.githubusercontent.com/RROrg/fn-apps/main/fn-vgmng/ICON.PNG"
   },
   "fn-video_transfer": {
    "display_name": "Video Transfer",
@@ -8300,7 +8371,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "fpk_docker",
    "author_url": "https://github.com/Brian099/fn_fpk_packages",
-   "size": 0.38
+   "size": 0.38,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-video_transfer/ICON.PNG"
   },
   "fn-wifi-hotspot": {
    "display_name": "无线热点",
@@ -8333,7 +8405,8 @@
    "bug_report_url": "https://github.com/Brian099/fn_fpk_packages/issues",
    "author": "Giraff",
    "author_url": "https://giraff.fun",
-   "size": 0.02
+   "size": 0.02,
+   "icon_url": "https://raw.githubusercontent.com/Brian099/fn_fpk_packages/main/fn-xlist-strm/ICON.PNG"
   },
   "fn-yt6801": {
    "display_name": "yt6801",
@@ -8350,7 +8423,8 @@
    "author_url": "https://github.com/RROrg",
    "install_type": "root",
    "size": 0.19,
-   "size_bytes": 189000
+   "size_bytes": 189000,
+   "icon_url": "https://raw.githubusercontent.com/RROrg/fn-apps/main/fn-yt6801/ICON.PNG"
   },
   "fn-zerotier": {
    "display_name": "ZeroTier",
@@ -8542,7 +8616,8 @@
    "download_count": 4360,
    "author": "BoB",
    "author_url": "https://github.com/710850609",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/tzi-shue/FnDepot-1/main/fndepot.source/ICON.PNG"
   },
   "fndesk": {
    "display_name": "飞牛桌面管理工具",
@@ -8824,7 +8899,8 @@
    "distributor_url": "https://github.com/YOUR_GITHUB",
    "install_type": "系统空间",
    "size": 15.0,
-   "size_bytes": 15000000
+   "size_bytes": 15000000,
+   "icon_url": "https://raw.githubusercontent.com/mg6630/fnos-lxc/master/ICON.PNG"
   },
   "fnm3u8": {
    "display_name": "m3u8下载器",
@@ -8844,7 +8920,8 @@
    "distributor_url": "https://gitee.com/wyf1015",
    "install_type": "存储空间",
    "size": 0.4,
-   "size_bytes": 400000
+   "size_bytes": 400000,
+   "icon_url": "https://raw.githubusercontent.com/wy77888/FnDepot/main/fnm3u8/ICON.PNG"
   },
   "fnm3u8dl": {
    "display_name": "m3u8DL 专业下载器",
@@ -8916,7 +8993,8 @@
    "distributor_url": "https://github.com/cliii-one/FnDepot/tree/main/fnnas-notes",
    "install_type": "存储空间",
    "size": 42.0,
-   "size_bytes": 42000000
+   "size_bytes": 42000000,
+   "icon_url": "https://raw.githubusercontent.com/cliii-one/FnDepot/main/fnnas-notes/ICON.PNG"
   },
   "fnnas.notes": {
    "display_name": "飞牛便签",
@@ -8958,7 +9036,8 @@
    "author_url": "https://github.com/x1027966382",
    "install_type": "root",
    "size": 15.0,
-   "size_bytes": 15000000
+   "size_bytes": 15000000,
+   "icon_url": "https://raw.githubusercontent.com/x1027966382/FnDepot/main/ICON.PNG"
   },
   "fnos-apps-store": {
    "display_name": "New Store",
@@ -9351,7 +9430,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 5.6,
-   "size_bytes": 5600000
+   "size_bytes": 5600000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-bark/ICON.PNG"
   },
   "fpk-cloudreve": {
    "display_name": "Cloudreve",
@@ -9371,7 +9451,8 @@
    "distributor_url": "https://github.com/moxyis",
    "install_type": "系统空间",
    "size": 34.5,
-   "size_bytes": 34500000
+   "size_bytes": 34500000,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-cloudreve/ICON.PNG"
   },
   "fpk-dnsmgr": {
    "display_name": "彩虹聚合DNS管理系统",
@@ -9387,7 +9468,8 @@
    "distributor_url": "https://github.com/moxyis",
    "install_type": "系统空间",
    "size": 0.3,
-   "size_bytes": 300000
+   "size_bytes": 300000,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-dnsmgr/ICON.PNG"
   },
   "fpk-dockercopilot": {
    "display_name": "Docker Copilot",
@@ -9408,7 +9490,8 @@
    "distributor_url": "https://github.com/ifsherlock/dockerCopilot",
    "install_type": "系统空间",
    "size": 12.0,
-   "size_bytes": 13000000
+   "size_bytes": 13000000,
+   "icon_url": "https://raw.githubusercontent.com/ifsherlock/FnDepot/main/fpk-dockercopilot/ICON.PNG"
   },
   "fpk-factorio": {
    "display_name": "异星工厂服务器",
@@ -9427,7 +9510,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 86.0,
-   "size_bytes": 86000000
+   "size_bytes": 86000000,
+   "icon_url": "https://raw.githubusercontent.com/yaya918/FnDepot/main/fpk-factorio/ICON.PNG"
   },
   "fpk-icloud-photos": {
    "display_name": "iCloud-Photos",
@@ -9445,7 +9529,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "存储空间",
    "size": 4.4,
-   "size_bytes": 4400000
+   "size_bytes": 4400000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-icloud-photos/ICON.PNG"
   },
   "fpk-moviepilot": {
    "display_name": "MoviePilot",
@@ -9473,7 +9558,8 @@
    "distributor_url": "https://github.com/moxyis",
    "install_type": "系统空间",
    "size": 0.3,
-   "size_bytes": 300000
+   "size_bytes": 300000,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-napcatqq/ICON.PNG"
   },
   "fpk-oneapi": {
    "display_name": "One API",
@@ -9489,7 +9575,8 @@
    "distributor_url": "https://github.com/moxyis",
    "install_type": "系统空间",
    "size": 0.3,
-   "size_bytes": 300000
+   "size_bytes": 300000,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-oneapi/ICON.PNG"
   },
   "fpk-ovs-switch-fn": {
    "display_name": "OVS 网桥",
@@ -9510,7 +9597,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 0.21,
-   "size_bytes": 210000
+   "size_bytes": 210000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-ovs-switch-fn/ICON.PNG"
   },
   "fpk-panindex": {
    "display_name": "PanIndex",
@@ -9526,7 +9614,8 @@
    "distributor_url": "https://github.com/moxyis",
    "install_type": "系统空间",
    "size": 15.0,
-   "size_bytes": 15000000
+   "size_bytes": 15000000,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-panindex/ICON.PNG"
   },
   "fpk-quark-auto-save": {
    "display_name": "夸克网盘自动转存",
@@ -9544,7 +9633,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 0.13,
-   "size_bytes": 130000
+   "size_bytes": 130000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-quark-auto-save/ICON.PNG"
   },
   "fpk-rustdesk-server": {
    "display_name": "RustDesk Server",
@@ -9565,7 +9655,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "存储空间",
    "size": 27.0,
-   "size_bytes": 27000000
+   "size_bytes": 27000000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-rustdesk-server/ICON.PNG"
   },
   "fpk-scrypted": {
    "display_name": "Scrypted",
@@ -9583,7 +9674,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 1.9,
-   "size_bytes": 1900000
+   "size_bytes": 1900000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-scrypted/ICON.PNG"
   },
   "fpk-suwayomi": {
    "display_name": "Suwayomi Server",
@@ -9602,7 +9694,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 310.0,
-   "size_bytes": 310000000
+   "size_bytes": 310000000,
+   "icon_url": "https://raw.githubusercontent.com/yaya918/FnDepot/main/fpk-suwayomi/ICON.PNG"
   },
   "fpk-xianyu": {
    "display_name": "闲鱼管理系统",
@@ -9617,7 +9710,8 @@
    "distributor": "moxyis",
    "distributor_url": "https://github.com/moxyis",
    "size": 0.02,
-   "size_bytes": 18400
+   "size_bytes": 18400,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-xianyu/ICON.PNG"
   },
   "fpk-xiaomi-album-syncer": {
    "display_name": "小米相册同步器",
@@ -9635,7 +9729,8 @@
    "distributor_url": "https://github.com/yaya918/FnDepot",
    "install_type": "系统空间",
    "size": 0.04,
-   "size_bytes": 40000
+   "size_bytes": 40000,
+   "icon_url": "https://raw.githubusercontent.com/meimolihan/FnDepot/main/fpk-xiaomi-album-syncer/ICON.PNG"
   },
   "fpk-zflie": {
    "display_name": "ZFile",
@@ -9651,7 +9746,8 @@
    "distributor_url": "https://github.com/moxyis",
    "install_type": "系统空间",
    "size": 0.3,
-   "size_bytes": 300000
+   "size_bytes": 300000,
+   "icon_url": "https://raw.githubusercontent.com/moxyis/FnDepot/main/fpk-zflie/ICON.PNG"
   },
   "fruit": {
    "display_name": "疯狂切水果",
@@ -9672,7 +9768,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 10.0,
-   "size_bytes": 10000000
+   "size_bytes": 10000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/fruit/ICON.PNG"
   },
   "fusion": {
    "display_name": "Fusion",
@@ -9693,7 +9790,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 8.0,
-   "size_bytes": 8000000
+   "size_bytes": 8000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/fusion/ICON.PNG"
   },
   "genoffice": {
    "display_name": "GenOffice",
@@ -9873,7 +9971,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/goldfishies/ICON.PNG"
   },
   "gotify": {
    "display_name": "Gotify",
@@ -9924,7 +10023,8 @@
    "distributor": "MuLin",
    "install_type": "存储空间",
    "size": 3.0,
-   "size_bytes": 16900000
+   "size_bytes": 16900000,
+   "icon_url": "https://raw.githubusercontent.com/zuohaill/FnDepot/main/gotty/ICON.PNG"
   },
   "greaterwms": {
    "display_name": "GreaterWMS",
@@ -9945,7 +10045,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/greaterwms/ICON.PNG"
   },
   "gridmerge": {
    "display_name": "GridMerge",
@@ -9965,7 +10066,8 @@
    "distributor": "ctllo-bit",
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
-   "size": 1.0
+   "size": 1.0,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/gridmerge/ICON.PNG"
   },
   "guandan": {
    "display_name": "掼蛋",
@@ -10033,7 +10135,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/hamsters/ICON.PNG"
   },
   "hermes": {
    "display_name": "Hermes Agent",
@@ -10054,7 +10157,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/hermes/ICON.PNG"
   },
   "homeassistant": {
    "display_name": "HomeAssistant",
@@ -10141,7 +10245,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 22.0,
-   "size_bytes": 22000000
+   "size_bytes": 22000000,
+   "icon_url": "https://raw.githubusercontent.com/SaucdX233/FnDepot/main/iVentoy/ICON.PNG"
   },
   "iconstation": {
    "display_name": "图标空间站",
@@ -10312,7 +10417,8 @@
    "bug_report_url": "https://github.com/Guovin/iptv-api/issues",
    "author": "火舞狂沙",
    "author_url": "https://github.com/zyp1690/FnDepot",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/zyp1690/FnDepot/main/iptv-api/ICON.PNG"
   },
   "iscsi-manager": {
    "display_name": "iSCSI挂载工具",
@@ -10330,7 +10436,8 @@
    "distributor": "0999we",
    "install_type": "系统空间",
    "size": 10.4,
-   "size_bytes": 10400000
+   "size_bytes": 10400000,
+   "icon_url": "https://raw.githubusercontent.com/0999we/FnDepot/main/iscsi-manager/ICON.PNG"
   },
   "ittools": {
    "display_name": "It-tools",
@@ -10423,7 +10530,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 52.0,
-   "size_bytes": 52000000
+   "size_bytes": 52000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-11-openj9/ICON.PNG"
   },
   "java-11-openjdk": {
    "display_name": "java-11-openjdk",
@@ -10445,7 +10553,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 186.0,
-   "size_bytes": 186000000
+   "size_bytes": 186000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-11-openjdk/ICON.PNG"
   },
   "java-17-openj9": {
    "display_name": "java-17-openj9",
@@ -10467,7 +10576,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 52.0,
-   "size_bytes": 52000000
+   "size_bytes": 52000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-17-openj9/ICON.PNG"
   },
   "java-17-openjdk": {
    "display_name": "java-17-openjdk",
@@ -10489,7 +10599,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 184.0,
-   "size_bytes": 184000000
+   "size_bytes": 184000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-17-openjdk/ICON.PNG"
   },
   "java-21-openj9": {
    "display_name": "java-21-openj9",
@@ -10511,7 +10622,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 56.0,
-   "size_bytes": 56000000
+   "size_bytes": 56000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-21-openj9/ICON.PNG"
   },
   "java-21-openjdk": {
    "display_name": "java-21-openjdk",
@@ -10533,7 +10645,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 197.0,
-   "size_bytes": 197000000
+   "size_bytes": 197000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-21-openjdk/ICON.PNG"
   },
   "java-25-openj9": {
    "display_name": "java-25-openj9",
@@ -10555,7 +10668,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 56.0,
-   "size_bytes": 56000000
+   "size_bytes": 56000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-25-openj9/ICON.PNG"
   },
   "java-25-openjdk": {
    "display_name": "java-25-openjdk",
@@ -10577,7 +10691,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 134.0,
-   "size_bytes": 135000000
+   "size_bytes": 135000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-25-openjdk/ICON.PNG"
   },
   "java-8-openj9": {
    "display_name": "java-8-openj9",
@@ -10599,7 +10714,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 51.0,
-   "size_bytes": 51000000
+   "size_bytes": 51000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-8-openj9/ICON.PNG"
   },
   "java-8-openjdk": {
    "display_name": "java-8-openjdk",
@@ -10621,7 +10737,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 98.0,
-   "size_bytes": 98000000
+   "size_bytes": 98000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/java-8-openjdk/ICON.PNG"
   },
   "jilehe": {
    "display_name": "鸡乐盒",
@@ -10642,7 +10759,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 25.3,
-   "size_bytes": 25300000
+   "size_bytes": 25300000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/jilehe/ICON.PNG"
   },
   "kerkerker": {
    "display_name": "壳儿 Kerkerker — 影视资源聚合平台",
@@ -10657,7 +10775,8 @@
    "bug_report_url": "https://github.com/unilei/kerkerker/issues",
    "author": "火舞狂沙",
    "author_url": "https://github.com/zyp1690/FnDepot",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/zyp1690/FnDepot/main/kerkerker/ICON.PNG"
   },
   "kspeeder": {
    "display_name": "KSpeeder",
@@ -10802,7 +10921,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/lifeRestart/ICON.PNG"
   },
   "lijin": {
    "display_name": "电子礼薄",
@@ -11017,7 +11137,8 @@
    "changelog": "1.1.1 修复「升级后登录态（认证）丢失」。原因：①备份源写死在安装目录 TRIM_APPDEST 之下，而它正是升级时最易被替换的位置，且未以真实挂载为准；②备份固定落在易失的 /tmp，临时目录一清就无物可恢复。现改为：升级前用 docker inspect 反查 /data/loomy-profile 真实挂载源（权威），逐级兜底到官方变量 TRIM_PKGVAR / TRIM_APPDEST；备份落到持久数据区同级目录（最后才退到官方升级临时目录 TRIM_TEMP_UPGRADE_FOLDER），跨升级与重启保留；升级后仅在目标目录为空且有备份时恢复，已有登录态不覆盖。注意本次修复保护的是后续升级，已丢失的登录态仍需按 README 重新迁移 loomy-profile。 1.1.0 性能与稳定性修复：①真流式（1.0.x 流式实现是未完成的死代码，实际等上游整段生成完再回放，首字延迟=完整生成耗时），改为页内边读边写入独立缓冲、Node 侧 80ms 轮询增量即时回写；②并发控制在途上限（默认 2）+ 单请求 120s 超时 + 客户端断开即 AbortController 中止上游；③每请求独立 reqId 作页面侧缓冲 key，消除多请求共用缓冲导致的响应串扰；④/v1/models 加 300s 缓存；⑤新增结构化访问日志与 docker 日志轮转（10MB×3），此前 24 小时零日志完全不可观测；⑥内存上限 1G→1.5G（实测常驻 650MB、峰值 681MB，1G 仅剩 33% 余量，易 OOMKill 中断在途请求）；⑦新增健康检查；⑧新增向导开关「渲染减负」（默认 0 关闭），置 1 可把空闲常驻 CPU 由 25~60% 降到 5% 以下、磁盘写入基本归零，异常时改回 0 即可。 1.0.0 首个版本：以 Docker 应用形态交付 Loomy Web 浏览器侧代理。镜像内置 Node 20 + Playwright Chromium（headless），容器内先起带 CDP 的持久化浏览器会话，再由 proxy.js 经 CDP 在页面内调用上游接口并转换为 OpenAI 协议。登录态（loomy-profile）挂载在应用数据目录 ./data/loomy-profile，升级不丢；因飞牛无图形会话，登录态需在有界面的电脑上用 login.js 生成后迁移。状态检查沿用仓库约定：从 docker-compose.yaml 解析 container_name 后 docker inspect。",
    "distributor": "narrator-z",
    "distributor_url": "https://github.com/narrator-z/FnDepot",
-   "install_type": "系统空间"
+   "install_type": "系统空间",
+   "icon_url": "https://raw.githubusercontent.com/narrator-z/FnDepot/main/loomyproxy/ICON.PNG"
   },
   "lunatv": {
    "display_name": "LunaTV",
@@ -11563,7 +11684,8 @@
    ],
    "author": "siilao",
    "size": 0.18,
-   "size_bytes": 180000
+   "size_bytes": 180000,
+   "icon_url": "https://raw.githubusercontent.com/ylgyyy/FnDepot/main/mdc/ICON.PNG"
   },
   "mediahub": {
    "display_name": "MediaHub",
@@ -11585,7 +11707,8 @@
    "distributor_url": "https://github.com/cliii-one/FnDepot/tree/main/mediahub",
    "install_type": "存储空间",
    "size": 69.0,
-   "size_bytes": 69000000
+   "size_bytes": 69000000,
+   "icon_url": "https://raw.githubusercontent.com/cliii-one/FnDepot/main/mediahub/ICON.PNG"
   },
   "mediaplayer": {
    "display_name": "MediaPlayer",
@@ -11838,7 +11961,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 0.15,
-   "size_bytes": 150000
+   "size_bytes": 150000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/mitv/ICON.PNG"
   },
   "moo": {
    "display_name": "Moo 应用商店",
@@ -11941,7 +12065,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 0.2,
-   "size_bytes": 200000
+   "size_bytes": 200000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/moontv/ICON.PNG"
   },
   "moviepilot": {
    "display_name": "MoviePilot",
@@ -12000,7 +12125,8 @@
    "distributor_url": "https://github.com/jxxghp/MoviePilot",
    "install_type": "存储空间",
    "size": 0.35,
-   "size_bytes": 350000
+   "size_bytes": 350000,
+   "icon_url": "https://raw.githubusercontent.com/ccyo-fang/FnDepot/main/moviepilot-v2/ICON.PNG"
   },
   "music-toolkit": {
    "display_name": "music-toolkit",
@@ -12049,7 +12175,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 0.15,
-   "size_bytes": 150000
+   "size_bytes": 150000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/music_tag_web/ICON.PNG"
   },
   "musicwave": {
    "display_name": "MusicWave",
@@ -12182,7 +12309,8 @@
    "bug_report_url": "https://gitee.com/yanfanVIP/nas-music/issues",
    "author": "火舞狂沙",
    "author_url": "https://github.com/zyp1690/FnDepot",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/zyp1690/FnDepot/main/nas-music/ICON.PNG"
   },
   "natpierce": {
    "display_name": "皎月内网穿透",
@@ -12203,7 +12331,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 8.0,
-   "size_bytes": 8000000
+   "size_bytes": 8000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/natpierce/ICON.PNG"
   },
   "netease": {
    "display_name": "网易云API",
@@ -12438,7 +12567,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 51.8,
-   "size_bytes": 51800000
+   "size_bytes": 51800000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/nodejs_v22-arm/ICON.PNG"
   },
   "nodejs_v24": {
    "display_name": "Node.js v24",
@@ -12642,7 +12772,8 @@
    "author_url": "https://github.com/htnanako",
    "install_type": "存储空间",
    "size": 19.0,
-   "size_bytes": 19000000
+   "size_bytes": 19000000,
+   "icon_url": "https://raw.githubusercontent.com/htnanako/FnDepot/main/notifyhub/ICON.PNG"
   },
   "numa": {
    "display_name": "numa",
@@ -12668,7 +12799,8 @@
    "distributor_url": "https://github.com/maxsusu/FnDepot/tree/main/numa",
    "install_type": "存储空间",
    "size": 4.89,
-   "size_bytes": 4890000
+   "size_bytes": 4890000,
+   "icon_url": "https://raw.githubusercontent.com/maxsusu/FnDepot/main/numa/ICON.PNG"
   },
   "octopus": {
    "display_name": "Octopus 网关",
@@ -12772,7 +12904,8 @@
    "distributor_url": "https://github.com/cliii-one/FnDepot/tree/main/oneserver",
    "install_type": "存储空间",
    "size": 50.0,
-   "size_bytes": 50000000
+   "size_bytes": 50000000,
+   "icon_url": "https://raw.githubusercontent.com/cliii-one/FnDepot/main/oneserver/ICON.PNG"
   },
   "openclaw-doc": {
    "display_name": "OpenClaw离线手册",
@@ -12853,7 +12986,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 5.0,
-   "size_bytes": 5000000
+   "size_bytes": 5000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/panorama/ICON.PNG"
   },
   "pansou": {
    "display_name": "PanSou盘搜",
@@ -12869,7 +13003,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 7.4,
-   "size_bytes": 83460000
+   "size_bytes": 83460000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/pansou/ICON.PNG"
   },
   "php-epg": {
    "display_name": "php-epg",
@@ -12888,7 +13023,8 @@
    "bug_report_url": "https://github.com/php-epg/php-epg/issues",
    "author": "火舞狂沙",
    "author_url": "https://github.com/zyp1690/FnDepot",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/zyp1690/FnDepot/main/php-epg/ICON.PNG"
   },
   "php-runtime": {
    "display_name": "php-runtime — 轻量PHP管理器",
@@ -12903,7 +13039,8 @@
    "bug_report_url": "https://github.com/zyp1690/FnDepot/issues",
    "author": "火舞狂沙",
    "author_url": "https://github.com/zyp1690/FnDepot/tree/main/php-runtime",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/zyp1690/FnDepot/main/php-runtime/ICON.PNG"
   },
   "php8.2": {
    "display_name": "PHP 8.2 管理组件",
@@ -13121,7 +13258,8 @@
    "author_url": "https://github.com/boater-man",
    "install_type": "存储空间",
    "size": 33.0,
-   "size_bytes": 33000000
+   "size_bytes": 33000000,
+   "icon_url": "https://raw.githubusercontent.com/boater-man/FnDepot/main/pixelbeans/ICON.PNG"
   },
   "playgl": {
    "display_name": "跳一跳",
@@ -13142,7 +13280,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 2.6,
-   "size_bytes": 2600000
+   "size_bytes": 2600000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/playgl/ICON.PNG"
   },
   "port_one": {
    "display_name": "Port One",
@@ -13229,7 +13368,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 6.0,
-   "size_bytes": 42000000
+   "size_bytes": 42000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/pvz-portable/ICON.PNG"
   },
   "pvz2-gardendless": {
    "display_name": "PvZ2 无花园",
@@ -13250,7 +13390,8 @@
    "author_url": "https://github.com/Gzh0821/pvzg_site",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/pvz2-gardendless/ICON.PNG"
   },
   "python312": {
    "display_name": "Python 3.12",
@@ -13272,7 +13413,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 25.0,
-   "size_bytes": 25000000
+   "size_bytes": 25000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/python312/ICON.PNG"
   },
   "python313": {
    "display_name": "Python 3.13",
@@ -13293,7 +13435,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 25.0,
-   "size_bytes": 25000000
+   "size_bytes": 25000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/python313/ICON.PNG"
   },
   "python314": {
    "display_name": "Python 3.14",
@@ -13314,7 +13457,8 @@
    "distributor_url": "https://github.com/shuangji66/FnDepot",
    "install_type": "存储空间",
    "size": 25.0,
-   "size_bytes": 25000000
+   "size_bytes": 25000000,
+   "icon_url": "https://raw.githubusercontent.com/xianyu110/FnDepot/main/python314/ICON.PNG"
   },
   "qBittorrent": {
    "display_name": "qBittorrent",
@@ -13448,7 +13592,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/qRubiks/ICON.PNG"
   },
   "qbittorrent": {
    "display_name": "qBittorrent",
@@ -13617,7 +13762,8 @@
    "author_url": "https://qm.qq.com/q/mVrB8ASTXc",
    "install_type": "系统空间",
    "size": 2.55,
-   "size_bytes": 2550000
+   "size_bytes": 2550000,
+   "icon_url": "https://raw.githubusercontent.com/ZhangZsky/FnDepot/main/r1toolbox/ICON.PNG"
   },
   "read": {
    "display_name": "轻阅读",
@@ -13836,7 +13982,8 @@
    "author_url": "https://github.com/710850609",
    "install_type": "存储空间",
    "size": 8.0,
-   "size_bytes": 8000000
+   "size_bytes": 8000000,
+   "icon_url": "https://raw.githubusercontent.com/710850609/fpk-smartdns/main/smartdns/ICON.PNG"
   },
   "stickFigure": {
    "display_name": "画线火柴人",
@@ -13857,7 +14004,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/stickFigure/ICON.PNG"
   },
   "streamcap": {
    "display_name": "StreamCap",
@@ -13917,7 +14065,8 @@
    "distributor_url": "https://github.com/cliii-one/FnDepot/tree/main/substore",
    "install_type": "存储空间",
    "size": 45.0,
-   "size_bytes": 45000000
+   "size_bytes": 45000000,
+   "icon_url": "https://raw.githubusercontent.com/cliii-one/FnDepot/main/substore/ICON.PNG"
   },
   "subwaySurfers": {
    "display_name": "地铁跑酷",
@@ -13938,7 +14087,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/subwaySurfers/ICON.PNG"
   },
   "tad-module": {
    "display_name": "TAD6S4N模块",
@@ -14055,7 +14205,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/templeRun2/ICON.PNG"
   },
   "tenfellos": {
    "display_name": "腾飞Webos",
@@ -14076,7 +14227,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/tenfellos/ICON.PNG"
   },
   "terminal": {
    "display_name": "飞牛终端",
@@ -14099,7 +14251,8 @@
    "distributor_url": "https://github.com/harbiu317/feiniu-terminal",
    "install_type": "系统空间",
    "size": 2.0,
-   "size_bytes": 2000000
+   "size_bytes": 2000000,
+   "icon_url": "https://raw.githubusercontent.com/harbiu317/feiniu-terminal/main/ICON.PNG"
   },
   "termix": {
    "display_name": "Termix-SSH",
@@ -14151,7 +14304,8 @@
    "author_url": "https://github.com/EWEDLCM/",
    "install_type": "系统空间",
    "size": 42.5,
-   "size_bytes": 42500000
+   "size_bytes": 42500000,
+   "icon_url": "https://raw.githubusercontent.com/coder23j/FnDepot-arm/main/test/ICON.PNG"
   },
   "tombRunner": {
    "display_name": "古墓丽影",
@@ -14172,7 +14326,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/tombRunner/ICON.PNG"
   },
   "tools": {
    "display_name": "IT工具箱",
@@ -14212,7 +14367,8 @@
    "distributor_url": "https://github.com/upchr/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/upchr/FnDepot/main/toolsplus/ICON.PNG"
   },
   "traefik": {
    "display_name": "Traefik 反向代理",
@@ -14232,7 +14388,8 @@
    "changelog": "修复安装失败(10266 too many colons)：compose 卷改为整块 ${TRIM_DATA_SHARE_PATHS}:/data 挂载；配置统一落到 /data；修正 ACME CA(prod/staging) 注入",
    "distributor": "narrator-z",
    "distributor_url": "https://github.com/narrator-z/FnDepot",
-   "install_type": "系统空间"
+   "install_type": "系统空间",
+   "icon_url": "https://raw.githubusercontent.com/narrator-z/FnDepot/main/traefik/ICON.PNG"
   },
   "traffic-keeper": {
    "display_name": "Traffic Keeper",
@@ -14251,7 +14408,8 @@
    "distributor_url": "https://github.com/w5456448820/",
    "install_type": "系统空间",
    "size": 0.09,
-   "size_bytes": 90000
+   "size_bytes": 90000,
+   "icon_url": "https://raw.githubusercontent.com/w5456448820/FnDepot/main/traffic-keeper/ICON.PNG"
   },
   "transmission": {
    "display_name": "Transmission",
@@ -14371,7 +14529,8 @@
    "bug_report_url": "https://github.com/linuxserver/docker-webtop/issues",
    "author": "linuxserver",
    "author_url": "https://github.com/linuxserver/docker-webtop",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/dysfwhq/FnDepot/main/ubuntu-xfce/ICON.PNG"
   },
   "uptime-kuma": {
    "display_name": "uptime-kuma",
@@ -14484,7 +14643,8 @@
    "distributor_url": "https://gitee.com/wyf1015",
    "install_type": "存储空间",
    "size": 1.5,
-   "size_bytes": 1500000
+   "size_bytes": 1500000,
+   "icon_url": "https://raw.githubusercontent.com/wy77888/FnDepot/main/usbrsync/ICON.PNG"
   },
   "usbrsync1": {
    "display_name": "USB自动同步",
@@ -14725,7 +14885,8 @@
    "distributor": "ctllo-bit",
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
-   "size": 1.0
+   "size": 1.0,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/vs-code/ICON.PNG"
   },
   "waoo": {
    "display_name": "AI影视生产",
@@ -14952,7 +15113,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/we-mp-rss/ICON.PNG"
   },
   "webMC": {
    "display_name": "Minecraft网页版",
@@ -14973,7 +15135,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/webMC/ICON.PNG"
   },
   "webcs": {
    "display_name": "网页版CS1.6",
@@ -14985,7 +15148,8 @@
     "game"
    ],
    "author": "webcs",
-   "install_type": "存储空间"
+   "install_type": "存储空间",
+   "icon_url": "https://raw.githubusercontent.com/dysfwhq/FnDepot/main/webcs/ICON.PNG"
   },
   "webintosh": {
    "display_name": "网页版 macOS",
@@ -15006,7 +15170,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/webintosh/ICON.PNG"
   },
   "webops": {
    "display_name": "webops",
@@ -15079,7 +15244,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 13.0,
-   "size_bytes": 13000000
+   "size_bytes": 13000000,
+   "icon_url": "https://raw.githubusercontent.com/ctllo-bit/FnDepot/main/webtop/ICON.PNG"
   },
   "wechat-article-exporter": {
    "display_name": "公众号下载器",
@@ -15188,7 +15354,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/winxp/ICON.PNG"
   },
   "wordmbdy": {
    "display_name": "WORD模板批量填充工具",
@@ -15226,7 +15393,8 @@
    "distributor_url": "https://github.com/ctllo-bit/FnDepot",
    "install_type": "存储空间",
    "size": 1.0,
-   "size_bytes": 1000000
+   "size_bytes": 1000000,
+   "icon_url": "https://raw.githubusercontent.com/lisi009216/FnDepot/main/xiaomusic/ICON.PNG"
   },
   "xlist-strm": {
    "display_name": "xlist-strm",
@@ -15287,7 +15455,8 @@
    "author_url": "https://github.com/mac1256/FnDepot",
    "install_type": "存储空间",
    "size": 0.15,
-   "size_bytes": 150000
+   "size_bytes": 150000,
+   "icon_url": "https://raw.githubusercontent.com/mac1256/FnDepot/main/xunlei-arm/ICON.PNG"
   },
   "xx-openclaw": {
    "display_name": "xx-openclaw",
