@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -53,7 +54,7 @@ func TestDoProbeAPI200Baseline(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestDoProbeFallbackOn403Ratelimit(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (fallback): %v", err)
 	}
@@ -127,7 +128,7 @@ func TestDoProbeAllChannelsFail(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	_, _, _, _, rl, err := s.doProbe()
+	_, _, _, _, _, rl, err := s.doProbe()
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -166,7 +167,7 @@ func TestDoProbeFallbackOnMirror(t *testing.T) {
 	defer func() { selfUpdateMirrorPrefixes = oldPrefixes }()
 
 	s := &Server{Cfg: config.Default()}
-	tag, _, asset, _, rl, err := s.doProbe()
+	tag, _, asset, _, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (mirror fallback): %v", err)
 	}
@@ -197,7 +198,7 @@ func TestDoProbeFallbackOnFnDepot(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (fnDepot fallback): %v", err)
 	}
@@ -355,5 +356,79 @@ func TestProbeRatelimitWindowShortCircuits(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Fatalf("hits = %d, want 1", got)
+	}
+}
+
+// 0.6.311：doProbe 的 API 主通道应带回 release 正文（更新日志）。
+func TestDoProbeAPICarriesBody(t *testing.T) {
+	suppressProbeNotify(t)
+	const wantBody = "## 更新日志\n第二行"
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// JSON 字符串内换行须转义
+		_, _ = w.Write([]byte(`{"tag_name":"v9.9.9","body":"` + strings.ReplaceAll(wantBody, "\n", "\\n") + `","assets":[` +
+			`{"name":"moo_9.9.9_x86.fpk","browser_download_url":"https://example.invalid/dl/moo_9.9.9_x86.fpk"}]}`))
+	}))
+	defer apiSrv.Close()
+	restore := setProbeBases(apiSrv.URL, "https://should-not-be-called.invalid", "https://should-not-be-called.invalid")
+	defer restore()
+
+	s := &Server{Cfg: config.Default()}
+	tag, _, _, _, body, _, err := s.doProbe()
+	if err != nil {
+		t.Fatalf("doProbe: %v", err)
+	}
+	if tag != "9.9.9" {
+		t.Fatalf("tag = %q, want 9.9.9", tag)
+	}
+	if body != wantBody {
+		t.Fatalf("body = %q, want %q", body, wantBody)
+	}
+}
+
+// 0.6.311：storeUpdateInfo 有更新时应透出 latest_changelog（探测缓存带 body 时）。
+func TestStoreUpdateInfoLatestChangelog(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("自更新仅 amd64")
+	}
+	t.Setenv("MOO_SELFUPDATE_AS_VERSION", "0.6.309")
+	restore := setProbeBases("https://should-not-be-called.invalid", "https://should-not-be-called.invalid", "https://should-not-be-called.invalid")
+	defer restore()
+	s := &Server{Cfg: config.Default()}
+	s.selfUpdOnce.Do(func() {}) // 先消费 Once，否则 selfUpdProbe() 会新建探测并覆盖注入
+	p := &selfUpdateProbe{srv: s}
+	p.checkedAt = time.Now()
+	p.latestTag = "0.6.310"
+	p.latestAssetURL = "https://example.invalid/dl/moo_0.6.310_x86.fpk"
+	p.latestAsset = "moo_0.6.310_x86.fpk"
+	p.latestBody = "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐"
+	s.selfUpd = p
+
+	rec := httptest.NewRecorder()
+	s.storeUpdateInfo(rec, httptest.NewRequest(http.MethodGet, "/api/store-update", nil))
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("响应解析: %v: %s", err, rec.Body.String())
+	}
+	if out["has_update"] != true {
+		t.Fatalf("has_update = %v", out["has_update"])
+	}
+	if out["available_version"] != "0.6.310" {
+		t.Fatalf("available_version = %v", out["available_version"])
+	}
+	if out["latest_changelog"] != "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐" {
+		t.Fatalf("latest_changelog = %v", out["latest_changelog"])
+	}
+
+	// 兜底通道无 body：latest_changelog 缺省
+	p.latestBody = ""
+	rec2 := httptest.NewRecorder()
+	s.storeUpdateInfo(rec2, httptest.NewRequest(http.MethodGet, "/api/store-update?force=0", nil))
+	var out2 map[string]any
+	if err := json.Unmarshal(rec2.Body.Bytes(), &out2); err != nil {
+		t.Fatalf("响应解析2: %v", err)
+	}
+	if _, ok := out2["latest_changelog"]; ok {
+		t.Fatalf("无 body 时 latest_changelog 应缺省，实际 %v", out2["latest_changelog"])
 	}
 }

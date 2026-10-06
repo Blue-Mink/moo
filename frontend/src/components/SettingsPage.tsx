@@ -325,9 +325,24 @@ const AboutRow: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
   </div>
 );
 
-// 0.6.310：「最新更新日志」卡接入真实数据——取已安装 moo 目录条目的
-// changelog_entries（自索引源维护），优先展示当前运行版本的条目，
-// 找不到则回落到最新条目；源缺失/离线时整卡隐藏（0.6.308 演示数据移除）。
+// 0.6.311r：「最新更新日志」卡跟随最新版本——取「当前构建内嵌发布说明
+//（about.changelog，build.sh 从 moo.json 生成随包发布）」与「源
+// changelog_entries 条目」中版本号更大者：运行构建比源新（版本尚未
+// 发布/源未同步）时显示本构建自己的日志；源比运行版本新时预览最新版
+// 日志。两者都缺失/离线时整卡隐藏（0.6.308 演示数据移除）。
+
+// 0.6.311r：版本号数值比较（0.6.311 > 0.6.310；-r 后缀逐段按数字比较）
+const verCmp = (a: string, b: string): number => {
+  const pa = a.split(/[.-]/).map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(/[.-]/).map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
+};
 
 const AboutTab: React.FC = () => {
   const [info, setInfo] = React.useState<AboutInfo | null>(null);
@@ -349,11 +364,12 @@ const AboutTab: React.FC = () => {
   }, []);
 
   const logEntry = React.useMemo(() => {
-    if (!entries.length) return null;
-    return (
-      entries.find((e) => e.version && info?.version && e.version === info.version) ||
-      entries[0]
-    );
+    const cands: { version: string; text: string }[] = [];
+    if (info?.version && info.changelog) cands.push({ version: info.version, text: info.changelog });
+    for (const e of entries) if (e.version && e.text) cands.push({ version: e.version, text: e.text });
+    if (!cands.length) return null;
+    // 0.6.311r：跟随最新版本——版本号最大者（内嵌 vs 源条目）
+    return cands.reduce((a, b) => (verCmp(b.version, a.version) > 0 ? b : a));
   }, [entries, info]);
 
   return (
@@ -1469,7 +1485,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           - pan（壳平移）：聚焦期间整体隐藏兜底。 */}
       <DialogContent
         style={dialogKeyboardStyle}
-        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", // 0.6.306（用户定稿）：标准主题玻璃化（与详情页同款 /70+blur-2xl），
+        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", // 0.6.306（用户定稿）：标准主题玻璃化（与详情页同款 /70+blur-2xl），
 // 极光路径 aurora-1 不变。
 aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
         {/* 极光模式（0.6.297）：底板渐变 + 一层背景色玻璃遮罩把渐变压成
@@ -1486,10 +1502,11 @@ aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
         )}
         {/* 顶栏：← 返回 + 标题 */}
         <div className={cn("flex items-center gap-1 border-b border-border/60 px-2 py-2 shrink-0", aurora && "relative z-10")}>
+          {/* 0.6.311：网页端隐藏返回箭头（与右上角 × 重复；移动端无 ×，保留箭头） */}
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 sm:hidden"
             onClick={() => onOpenChange(false)}
             aria-label="返回"
             title="返回"
@@ -2694,6 +2711,10 @@ aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
                     当前版本 v{storeInfo?.current_version}。点击「立即更新」将下载并安装新版本，完成后 Moo 会自动重启。
                   </DialogDescription>
                 </DialogHeader>
+                {/* 0.6.311：最新版本更新日志（release 正文，后端探测已带出；兜底通道无值时不渲染） */}
+                {storeInfo?.latest_changelog && (
+                  <ReadmeRender readme={storeInfo.latest_changelog} appKey="moo" maxH="max-h-44" />
+                )}
                 <DialogFooter>
                   <Button variant="ghost" onClick={() => setStoreUpdateConfirm(false)}>
                     取消

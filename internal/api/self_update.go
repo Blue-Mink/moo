@@ -98,6 +98,7 @@ type selfUpdateProbe struct {
 	latestAssetURL string
 	latestAsset    string
 	latestShaURL   string // release 附带的 .sha256 资产 URL（可为空）
+	latestBody     string // 0.6.311：release 正文（更新日志；仅 API 主通道有值）
 	lastErr        error
 	lastNotified   string // 已推过 store_update_available 的版本（防重复）
 	ratelimitUntil time.Time // 0.6.299：GitHub 403 限流解除时刻（之前不打 API）
@@ -138,11 +139,13 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 	p.mu.Unlock()
 
 	var rlUntil time.Time
-	tag, assetURL, asset, shaURL, rlUntil, err = p.srv.doProbe()
+	var body string
+	tag, assetURL, asset, shaURL, body, rlUntil, err = p.srv.doProbe()
 
 	p.mu.Lock()
 	p.checkedAt = time.Now()
 	p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.lastErr = tag, assetURL, asset, shaURL, err
+	p.latestBody = body
 	if !rlUntil.IsZero() {
 		p.ratelimitUntil = rlUntil
 	}
@@ -179,7 +182,9 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 // 构造，无 .sha256 侧车 → 降级结构校验（既有路径）。
 // 返回值 rateLimitUntil：403 且响应带 x-ratelimit-reset 时为其时刻（+1min
 // 余量），调用方在此之前不再打 API。
-func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil time.Time, err error) {
+// body = release 正文（更新日志，0.6.311：设置页更新确认弹窗展示）；
+// 仅 API 主通道有值，web/FnDepot 兜底通道为空（调用方优雅降级）。
+func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimitUntil time.Time, err error) {
 	apiURL := selfUpdateAPIBase + "/repos/" + selfUpdateRepo + "/releases/latest"
 
 	client := netx.NewClient(selfDlTimeout)
@@ -202,6 +207,7 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil 
 	} else {
 		var rel struct {
 			TagName string `json:"tag_name"`
+			Body    string `json:"body"`
 			Assets  []struct {
 				Name string `json:"name"`
 				URL  string `json:"browser_download_url"`
@@ -210,14 +216,14 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil 
 		data, rerr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		resp.Body.Close()
 		if rerr != nil {
-			return "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", rerr)
+			return "", "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", rerr)
 		}
 		if uerr := json.Unmarshal(data, &rel); uerr != nil {
-			return "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", uerr)
+			return "", "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", uerr)
 		}
 		tag = strings.TrimPrefix(rel.TagName, "v")
 		if tag == "" {
-			return "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
+			return "", "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
 		}
 		// 选 x86 FPK 资产（官方只发 x86；arm 资产出现时兜底选任意 fpk）
 		fallback := ""
@@ -243,7 +249,7 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil 
 				break
 			}
 		}
-		return tag, assetURL, asset, shaURL, rateLimitUntil, nil
+		return tag, assetURL, asset, shaURL, rel.Body, rateLimitUntil, nil
 	}
 
 	// 兜底 1：web 通道 302
@@ -252,7 +258,7 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil 
 		log.Printf("[selfupdate] API 通道失败（%v），web 兜底命中 v%s", apiErr, wtag)
 		return wtag,
 			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, wtag, wtag),
-			"moo_" + wtag + "_x86.fpk", "", rateLimitUntil, nil
+			"moo_" + wtag + "_x86.fpk", "", "", rateLimitUntil, nil
 	}
 	// 兜底 2：FnDepot 公开源版本号（raw CDN，不受 moo 仓负缓存 404 影响）
 	jtag, jerr := s.probeFnDepotLatest()
@@ -260,7 +266,7 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil 
 		log.Printf("[selfupdate] API/web 通道失败（%v / %v），FnDepot 源兜底命中 v%s", apiErr, werr, jtag)
 		return jtag,
 			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, jtag, jtag),
-			"moo_" + jtag + "_x86.fpk", "", rateLimitUntil, nil
+			"moo_" + jtag + "_x86.fpk", "", "", rateLimitUntil, nil
 	}
 	// 兜底 3（0.6.300）：FnDepot 源经用户 GitHub 加速镜像。国内 NAS 直连
 	// GitHub 常整体断流（API 403 + web/raw 超时，0.6.299 实测），而 gh-proxy
@@ -271,9 +277,9 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil 
 		log.Printf("[selfupdate] API/web/FnDepot 直连全失败（%v / %v / %v），镜像兜底命中 v%s", apiErr, werr, jerr, mtag)
 		return mtag,
 			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, mtag, mtag),
-			"moo_" + mtag + "_x86.fpk", "", rateLimitUntil, nil
+			"moo_" + mtag + "_x86.fpk", "", "", rateLimitUntil, nil
 	}
-	return "", "", "", "", rateLimitUntil,
+	return "", "", "", "", "", rateLimitUntil,
 		fmt.Errorf("%w（web 兜底: %v；FnDepot 源兜底: %v；镜像兜底: %v）", apiErr, werr, jerr, merr)
 }
 
@@ -513,6 +519,14 @@ func (s *Server) storeUpdateInfo(w http.ResponseWriter, r *http.Request) {
 		out["has_update"] = true
 		out["available_version"] = tag
 		_ = assetURL
+		// 0.6.311：更新确认弹窗展示最新版本更新日志（release 正文；
+		// 兜底通道无正文时字段缺省，前端不渲染该区块）。
+		p.mu.Lock()
+		latestBody := p.latestBody
+		p.mu.Unlock()
+		if latestBody != "" {
+			out["latest_changelog"] = latestBody
+		}
 	}
 	writeJSON(w, out)
 }

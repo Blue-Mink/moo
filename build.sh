@@ -36,6 +36,30 @@ APP_VERSION="${MOO_APP_VERSION:-$VERSION}"
 TARGET="${1:-x86}"
 info "Moo v$VERSION (target=$TARGET, app=$APP_VERSION)"
 
+# ── Step 0.5: 生成内嵌发布说明（0.6.311r：关于页卡片跟随最新版本日志）─────
+# 单一事实源 = moo.json 顶层 version/changelog（每次发版同步更新）；
+# 版本不匹配/文件缺失/解析失败 → 置空（卡片回落源条目，不阻塞构建）。
+if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/moo.json" ]; then
+    python3 - "$SCRIPT_DIR/moo.json" "$APP_VERSION" "$SCRIPT_DIR/internal/api/changelog_current.json" <<'PY'
+import json, sys
+src, ver, out = sys.argv[1], sys.argv[2], sys.argv[3]
+text = ""
+try:
+    with open(src, encoding="utf-8") as f:
+        m = json.load(f)["apps"]["moo"]
+    if m.get("version") == ver:
+        text = (m.get("changelog") or "").strip()
+except Exception:
+    text = ""
+with open(out, "w", encoding="utf-8") as f:
+    json.dump({"version": ver, "changelog": text}, f, ensure_ascii=False, indent=1)
+    f.write("\n")
+PY
+    info "内嵌当前版本发布说明 -> internal/api/changelog_current.json"
+else
+    warn "python3 或 moo.json 缺失，跳过内嵌发布说明（关于页卡片回落源条目）"
+fi
+
 # ── Step 1: 构建前端 ────────────────────────────────────────────────────────
 info "构建前端..."
 if [ -d "$SCRIPT_DIR/frontend" ] && [ -f "$SCRIPT_DIR/frontend/package.json" ]; then

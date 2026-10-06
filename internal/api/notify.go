@@ -905,6 +905,7 @@ func (s *Server) aboutGet(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"version":    s.Version,
+		"changelog":  changelogCurrentFor(s.Version), // 0.6.311r：当前构建内嵌发布说明（空=回落源条目）
 		"platform":   "fnos",
 		"arch":       runtime.GOARCH,
 		"go_version": runtime.Version(),

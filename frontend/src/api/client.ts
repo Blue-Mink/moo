@@ -1110,6 +1110,8 @@ export interface StoreUpdateInfo {
   /** 0.6.299：探测失败时后端回带——有 last_error 而 has_update=false = 探测失败，不是「已是最新」 */
   last_check?: number;
   last_error?: string;
+  /** 0.6.311：最新版本 release 正文（更新日志）；兜底探测通道无值时缺省 */
+  latest_changelog?: string;
 }
 
 export const fetchSettings = async (): Promise<Settings> => {
@@ -1462,6 +1464,8 @@ export const clearNotifyLog = async (): Promise<void> => {
 
 export interface AboutInfo {
   version: string;
+  /** 0.6.311r：当前构建内嵌的发布说明（构建时由 build.sh 从 moo.json 生成；空=回落源条目） */
+  changelog?: string;
   platform: string;
   arch: string;
   go_version?: string;
