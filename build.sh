@@ -50,9 +50,11 @@ fi
 
 # ── Step 2: 构建 Go 二进制（x86 + arm64，0.6.303 起 arm 适配）──────────────
 info "构建 Go 二进制 (x86)..."
-GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
+# -s -w：剥离符号表+DWARF（0.6.304 起 FPK 精简）：二进制 15.6M→11.1M，
+# 运行时行为零变化，panic 堆栈仍带函数名+文件:行（.gopclntab 不剥，已实测）。
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
 info "构建 Go 二进制 (arm64)..."
-GOOS=linux GOARCH=arm64 go build -ldflags "-X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
+GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
 info "Go 构建完成"
 
 # ── Step 3: 打包 FPK（pack_fpk <x86|arm>；arm 包 manifest platform=arm）────
@@ -72,9 +74,9 @@ pack_fpk() {
     sed -i "s/^platform[ \t]*=.*/platform        = $archline/" "$STAGING/manifest"
 
     cp "$BUILD_DIR/$server" "$STAGING/app/moo-server"
-    if [ -d "$SCRIPT_DIR/web" ]; then
-        cp -r "$SCRIPT_DIR/web" "$STAGING/app/web"
-    fi
+    # 0.6.304 起：不再把 web/ 打进 app.tgz。前端经 web/embed.go 的 go:embed
+    # 全量内嵌进二进制（server.go 无磁盘回退分支），FPK 里的 web/ 目录自 0.6.258
+    # 引入 embed 起即死重（运行态从未读取）。去掉后 app.tgz −1.2M、FPK −368KB。
 
     cd "$SCRIPT_DIR"
     "$FNPACK" build --directory "$STAGING"
