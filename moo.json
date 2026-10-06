@@ -11853,6 +11853,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.309": {
+     "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.309/moo_0.6.309_x86.fpk",
+       "size": 4654756,
+       "size_mb": 4.4,
+       "sha256": "8836f3dcad7c1a0d634f69dba80738dc98e2f4076fc7b86970074ac125a4983a"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.309/moo_0.6.309_arm.fpk",
+       "size": 4238679,
+       "size_mb": 4.0,
+       "sha256": "4eafacafc32ef6315b4bafc2730d2024fc6f6f47ef4f9333b78e5aa0d94a872e"
+      }
+     },
+     "updated_at": "2026-10-06T22:00:00+08:00"
+    },
     "0.6.308": {
      "changelog": "毛玻璃胶囊风格全面统一：分类胶囊/安装/打开/更新/下载 FPK/刷新页面/保存/更新策略等全部按钮与徽章统一为磨砂浅蓝胶囊语言；列表环境光背景、对话框玻璃化（45% 遮罩+景深）；关于页新增「最新更新日志」卡片（README 同款渲染、卡内滚动）；桌面分类胶囊冻结随滚动保持。",
      "packages": {
@@ -11888,27 +11906,9 @@
       }
      },
      "updated_at": "2026-10-06T14:05:00+08:00"
-    },
-    "0.6.303": {
-     "changelog": "移动端两修：下载 pill 恢复胶囊形态、极光模式详情渐变收边（四周不再溢出）；详情页新增「架构」行（x86 / arm），安装按本机架构自动选包（arm 设备选 arm 包）；release 新增 arm64 安装包。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.303/moo_0.6.303_x86.fpk",
-       "size": 8950495,
-       "size_mb": 8.5,
-       "sha256": "7546c3e97dd766ae1fc04ded50bfd5fab4f6a98835ba5cf63efd938eda35b299"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.303/moo_0.6.303_arm.fpk",
-       "size": 8211266,
-       "size_mb": 7.8,
-       "sha256": "58da62e894e6eb7a76ae9ab427519887880f47539ef8a948ac80a8c74bae8281"
-      }
-     },
-     "updated_at": "2026-10-06T12:20:50+08:00"
     }
    },
-   "sha256": "7c17a97c41219065539b9db8b03ca08d50730965ee3c9bd964c9f096d9f84cc1",
+   "sha256": "8836f3dcad7c1a0d634f69dba80738dc98e2f4076fc7b86970074ac125a4983a",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -11920,11 +11920,11 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-06T17:00:00+08:00",
-   "version": "0.6.308",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.308/moo_0.6.308_x86.fpk",
+   "updated_at": "2026-10-06T22:00:00+08:00",
+   "version": "0.6.309",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.309/moo_0.6.309_x86.fpk",
    "size": "4.4",
-   "changelog": "毛玻璃胶囊风格全面统一：分类胶囊/安装/打开/更新/下载 FPK/刷新页面/保存/更新策略等全部按钮与徽章统一为磨砂浅蓝胶囊语言；列表环境光背景、对话框玻璃化（45% 遮罩+景深）；关于页新增「最新更新日志」卡片（README 同款渲染、卡内滚动）；桌面分类胶囊冻结随滚动保持。",
+   "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
    "service_port": "38100"
   },
   "moontv": {
