@@ -11,7 +11,8 @@
    "display_name": "Moo 应用商店",
    "app_type": "native",
    "platform": [
-    "x86"
+    "x86",
+    "arm"
    ],
    "desc": "飞牛 NAS 上的第三方应用中心：1800+ 应用浏览 / 安装 / 更新 / 下载；三源同步（官方应用中心 / FnDepot / fnos-apps）、14 领域智能归类；30+ 事件 × 7 渠道通知推送；GitHub 加速与应用内自更新。",
    "author": "Blue-Mink",
@@ -19,6 +20,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.304": {
+     "changelog": "FPK 精简 −48%：app.tgz 去除冗余 web/ 目录（前端 go:embed 全量内嵌、零功能变化）+ 二进制剥离符号表（-s -w，运行时零变化）；x86 8.95M→4.4M / arm 7.8M→4.0M，界面与 0.6.303 逐字节一致。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.304/moo_0.6.304_x86.fpk",
+       "size": 4654527,
+       "size_mb": 4.4,
+       "sha256": "4c3c151b401602959ceead4367c73e9fa71419a8fb420136f959cf80a60bd95c"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.304/moo_0.6.304_arm.fpk",
+       "size": 4238356,
+       "size_mb": 4.0,
+       "sha256": "a0492042362db21c091d7748f3e16e8dc9b2cad662f53762fe1b22f4ac7f4f6e"
+      }
+     },
+     "updated_at": "2026-10-06T14:05:00+08:00"
+    },
     "0.6.303": {
      "changelog": "移动端两修：下载 pill 恢复胶囊形态、极光模式详情渐变收边（四周不再溢出）；详情页新增「架构」行（x86 / arm），安装按本机架构自动选包（arm 设备选 arm 包）；release 新增 arm64 安装包。",
      "packages": {
@@ -48,21 +67,9 @@
       }
      },
      "updated_at": "2026-10-06T04:08:09+08:00"
-    },
-    "0.6.283": {
-     "changelog": "直链源治本：GitHub 系 .json 直链源自动展开镜像与 jsDelivr 兜底候选（不再怕 raw 直连断流）；兜底竞速独立超时；源同步失败通知附具体原因。前端零改动。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.283/moo_0.6.283_x86.fpk",
-       "size": 8918203,
-       "size_mb": 8.5,
-       "sha256": "fccb76bf4c33714766153878a4340569ba8aeb11aeb2a7efdb2cb2a0025c3362"
-      }
-     },
-     "updated_at": "2026-10-05T18:06:48+08:00"
     }
    },
-   "sha256": "7546c3e97dd766ae1fc04ded50bfd5fab4f6a98835ba5cf63efd938eda35b299",
+   "sha256": "4c3c151b401602959ceead4367c73e9fa71419a8fb420136f959cf80a60bd95c",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -74,11 +81,11 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-06T12:20:50+08:00",
-   "version": "0.6.303",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.303/moo_0.6.303_x86.fpk",
-   "size": "8.5",
-   "changelog": "移动端下载 pill 恢复胶囊形态；极光模式详情页渐变收边不溢出；详情页新增架构行（x86 / arm），安装按本机架构自动选包；release 新增 arm64 安装包。",
+   "updated_at": "2026-10-06T14:05:00+08:00",
+   "version": "0.6.304",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.304/moo_0.6.304_x86.fpk",
+   "size": "4.4",
+   "changelog": "FPK 精简 −48%：app.tgz 去除冗余 web/ 目录 + 二进制剥离符号表；x86 8.95M→4.4M / arm 7.8M→4.0M，界面与 0.6.303 逐字节一致，零功能变化。",
    "service_port": "38100"
   }
  }
