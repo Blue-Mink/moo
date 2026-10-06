@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.310-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.311-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64%2Farm64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.310` · x86 `f6c22cf15dedecf8d8288db7f7c324545efb18fb26818ea81d62ea97a6fba5dd`（4.4MB） / arm `20f7959e1035308e0f103c2221e358841444373b969aa9781044a9572598b6a8`（4.0MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.311` · x86 `70302ef24bd1b9686a06f16f7079fb429b1fe064a536953466b26e7a86709c8f`（4.4MB） / arm `b148d1747808a5fd007e76252c9268070212265d79e3c0fcacbecf7bc463c920`（4.0MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -94,7 +94,7 @@
 | 平台架构 | 详情页显示源提供的全部架构（x86 / arm），安装按本机架构自动选包（arm 设备选 arm 包）；发布双架构 FPK（0.6.303） |
 | 分类胶囊冻结 | 桌面端分类胶囊行移入顶栏 sticky 冻结区，长列表滚动时分类常显可点（0.6.305） |
 | 毛玻璃胶囊风格 | 全页按钮/徽章（安装/打开/更新/下载 FPK/保存等）统一磨砂浅蓝胶囊语言；详情/设置对话框玻璃化（半透明底+背景虚化）+45% 遮罩景深；页面环境光背景（0.6.306→308） |
-| 关于页更新日志 | 设置 → 关于 tab 以卡片展示当前版本 Release 说明（README 同款渲染、卡内滚动；0.6.310 起接入自索引真实 changelog，源缺失时隐藏） |
+| 关于页更新日志 | 设置 → 关于 tab 以卡片展示最新更新日志（0.6.311 起跟随最新版本：当前构建内嵌发布说明与源条目取版本号更大者；README 同款渲染、卡内滚动） |
 | 备份与缓存 | 配置快照一键备份 / 周期自动备份；已下载 FPK 缓存自动清理 |
 | 下载中心 | aria2 高速下载 + 断点续传，任务状态全透明、可暂停 / 删除 |
 

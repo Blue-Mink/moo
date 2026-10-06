@@ -11853,6 +11853,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.311": {
+     "changelog": "网页端设置页面高度优化\n\nBlue-Mink祝大家国庆快乐，moo得烦恼",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.311/moo_0.6.311_x86.fpk",
+       "size": 4655365,
+       "size_mb": 4.4,
+       "sha256": "fd4f59199d4bae96248d477de0c0ced80ec94c08627321abc453a589e08c40dc"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.311/moo_0.6.311_arm.fpk",
+       "size": 4238972,
+       "size_mb": 4.0,
+       "sha256": "39c34073a2f62126998456a9118a7a79234083311dc9b7355793bdfaa2f59ed1"
+      }
+     },
+     "updated_at": "2026-10-06T22:35:00+08:00"
+    },
     "0.6.310": {
      "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
      "packages": {
@@ -11888,27 +11906,9 @@
       }
      },
      "updated_at": "2026-10-06T22:00:00+08:00"
-    },
-    "0.6.308": {
-     "changelog": "毛玻璃胶囊风格全面统一：分类胶囊/安装/打开/更新/下载 FPK/刷新页面/保存/更新策略等全部按钮与徽章统一为磨砂浅蓝胶囊语言；列表环境光背景、对话框玻璃化（45% 遮罩+景深）；关于页新增「最新更新日志」卡片（README 同款渲染、卡内滚动）；桌面分类胶囊冻结随滚动保持。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.308/moo_0.6.308_x86.fpk",
-       "size": 4654662,
-       "size_mb": 4.4,
-       "sha256": "7c17a97c41219065539b9db8b03ca08d50730965ee3c9bd964c9f096d9f84cc1"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.308/moo_0.6.308_arm.fpk",
-       "size": 4238186,
-       "size_mb": 4.0,
-       "sha256": "07b5537ce319b26f91165df2301492d3fb1ce71eae7b7daac4bd63b0676527da"
-      }
-     },
-     "updated_at": "2026-10-06T17:00:00+08:00"
     }
    },
-   "sha256": "f6c22cf15dedecf8d8288db7f7c324545efb18fb26818ea81d62ea97a6fba5dd",
+   "sha256": "fd4f59199d4bae96248d477de0c0ced80ec94c08627321abc453a589e08c40dc",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -11921,10 +11921,10 @@
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
    "updated_at": "2026-10-06T22:35:00+08:00",
-   "version": "0.6.310",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.310/moo_0.6.310_x86.fpk",
+   "version": "0.6.311",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.311/moo_0.6.311_x86.fpk",
    "size": "4.4",
-   "changelog": "上报错误日志弹窗修复\nBlue-Mink祝大家国庆快乐，moo得烦恼",
+   "changelog": "网页端设置页面高度优化\n\nBlue-Mink祝大家国庆快乐，moo得烦恼",
    "service_port": "38100"
   },
   "moontv": {
