@@ -299,8 +299,9 @@ func currentArch() string {
 }
 
 // bestRelease 从 releases 里按版本降序挑当前架构（回退 all）第一个带
-// download_url 的包，返回版本号与该包（download_url/sha256/size 等）。
-func bestRelease(rel map[string]any, arch string) (string, map[string]any) {
+// download_url 的包，返回版本号、命中的架构键与该包（download_url/sha256/size 等）。
+// 0.6.303：返回命中架构键（详情页展示 + 安装自动识别的依据）。
+func bestRelease(rel map[string]any, arch string) (string, string, map[string]any) {
 	versions := make([]string, 0, len(rel))
 	for v := range rel {
 		versions = append(versions, v)
@@ -311,11 +312,43 @@ func bestRelease(rel map[string]any, arch string) (string, map[string]any) {
 		pkgs, _ := rv["packages"].(map[string]any)
 		for _, k := range []string{arch, "all"} {
 			if p, ok := pkgs[k].(map[string]any); ok && strings.TrimSpace(str(p, "download_url")) != "" {
-				return v, p
+				return v, k, p
 			}
 		}
 	}
-	return "", nil
+	return "", "", nil
+}
+
+// archDisplayKeys 返回一组架构键的展示顺序（x86 → arm → all → 其余字母序），
+// 供详情页「架构」行稳定显示（0.6.303）。
+func archDisplayKeys(keys []string) []string {
+	rank := map[string]int{"x86": 0, "arm": 1, "all": 2}
+	sort.SliceStable(keys, func(i, j int) bool {
+		ri, oki := rank[keys[i]]
+		rj, okj := rank[keys[j]]
+		switch {
+		case oki && okj:
+			return ri < rj
+		case oki:
+			return true
+		case okj:
+			return false
+		default:
+			return keys[i] < keys[j]
+		}
+	})
+	return keys
+}
+
+// pkgsWithDownload 收集 packages 映射里所有带 download_url 的架构键（0.6.303）。
+func pkgsWithDownload(pkgs map[string]any) []string {
+	out := make([]string, 0, len(pkgs))
+	for k, pv := range pkgs {
+		if pm, ok := pv.(map[string]any); ok && strings.TrimSpace(str(pm, "download_url")) != "" {
+			out = append(out, k)
+		}
+	}
+	return archDisplayKeys(out)
 }
 
 // versionLess 报告版本 a 是否小于 b：去掉 v 前缀后按点分段数值比较，
@@ -438,12 +471,21 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 			}
 		}
 		if a.Version == "" || a.DownloadURL == "" {
-			if ver, pkg := bestRelease(rel, currentArch()); ver != "" {
+			if ver, hitArch, pkg := bestRelease(rel, currentArch()); ver != "" {
 				if a.Version == "" {
 					a.Version = ver
 				}
 				if a.DownloadURL == "" {
 					a.DownloadURL = str(pkg, "download_url")
+					// 0.6.303：架构信息——选中包架构 + 该版本完整架构清单
+					//（详情页「架构」行展示；arm 设备安装时 currentArch()=arm
+					// 自动选中 arm 包，x86→all 回退不变）
+					a.Arch = hitArch
+					if rm, ok := rel[ver].(map[string]any); ok {
+						if pkgs, ok2 := rm["packages"].(map[string]any); ok2 {
+							a.Archs = pkgsWithDownload(pkgs)
+						}
+					}
 				}
 				if s := str(pkg, "sha256"); s != "" {
 					a.Sha256 = s
@@ -481,6 +523,9 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 						if n := anyInt(p, "size"); n > 0 {
 							a.SizeBytes = int64(n)
 						}
+						// 0.6.303：选中架构 + 全架构清单
+						a.Arch = k
+						a.Archs = pkgsWithDownload(ad)
 						break
 					}
 				}

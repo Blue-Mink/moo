@@ -1,12 +1,16 @@
 import React from 'react';
 import type { AppInfo } from '../api/client';
 import { descriptionPlainText } from '../api/client';
+import { useCoarsePointer } from '../lib/hooks';
 import { cn } from '../lib/utils';
 import AppIcon from './AppIcon';
 
 /**
- * 0.6.293 网页端三种预览模式中的「极简」「极光」两套网格（仅桌面渲染）。
- * 交互统一：双击卡片进入应用详情（与标准模式双击卡面行为一致）；
+ * 0.6.293 网页端三种预览模式中的「极简」「极光」两套网格（0.6.301 起移动端同享）。
+ * 交互：细指针（鼠标）双击卡片进入应用详情（与标准模式双击卡面行为一致）；
+ * 触屏（hover:none+pointer:coarse）单击即开详情——iOS 的 dblclick 会被系统
+ * 「双击缩放」手势吞掉（viewport 可缩放时），触屏坚持双击 = 恒无反应。
+ * 卡片挂 touch-action: manipulation，iOS 在卡面上不触发双击缩放。
  * 状态文案按用户定稿 = 「安装」（已装）/「未安装」（未装），不显示下载量。
  */
 
@@ -25,7 +29,9 @@ const tagline = (app: AppInfo) => {
 const statusLabel = (app: AppInfo) => (app.installed ? '安装' : '未安装');
 
 /* ── 极简模式：App Store「热门应用」行卡同构 —— 只有图标 + 名称 + 状态 ── */
-export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => (
+export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
+  const coarse = useCoarsePointer();
+  return (
   <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-3 gap-y-6 justify-items-center text-center">
     {apps.map(app => (
       <div
@@ -33,9 +39,10 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => (
         role="button"
         tabIndex={0}
         title={app.display_name}
-        onDoubleClick={() => onDetail(app)}
+        onClick={coarse ? () => onDetail(app) : undefined}
+        onDoubleClick={coarse ? undefined : () => onDetail(app)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDetail(app); }}
-        className="group w-full cursor-pointer focus-visible:outline-none"
+        className="group w-full cursor-pointer focus-visible:outline-none [touch-action:manipulation]"
       >
         <AppIcon
           app={app}
@@ -49,7 +56,8 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => (
       </div>
     ))}
   </div>
-);
+  );
+};
 
 /* ── 极光模式（0.6.294 返工定稿；0.6.296 色板按推荐卡方法学重写）：机制照抄
    发现页 HeroBanner——单条 135° 高饱和三色线性渐变整卡斜铺（.aurora-1..12，
@@ -67,20 +75,24 @@ export const auroraFor = (name: string) => {
   return AURORAS[Math.abs(h) % AURORAS.length];
 };
 
-export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail }) => (
+export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
+  const coarse = useCoarsePointer();
+  return (
   <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
     {apps.map(app => (
       <div
         key={app.key || app.appname}
         role="button"
         tabIndex={0}
-        title={`双击打开 ${app.display_name} 详情`}
-        onDoubleClick={() => onDetail(app)}
+        title={`${coarse ? '点按打开' : '双击打开'} ${app.display_name} 详情`}
+        onClick={coarse ? () => onDetail(app) : undefined}
+        onDoubleClick={coarse ? undefined : () => onDetail(app)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDetail(app); }}
         className={cn(
           'group relative cursor-pointer overflow-hidden rounded-[20px] p-5 text-left text-white',
           'transition-transform duration-200 hover:scale-[1.01]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
+          'touch-manipulation',
           auroraFor(app.appname || app.display_name),
         )}
       >
@@ -98,7 +110,8 @@ export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail }) => (
       </div>
     ))}
   </div>
-);
+  );
+};
 
 export const MinimalIconGridM = React.memo(MinimalIconGrid);
 export const AuroraGridM = React.memo(AuroraGrid);

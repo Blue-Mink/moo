@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.298-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.303-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
-  <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64-6f42c1?style=flat-square">
+  <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64%2Farm64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
 </p>
 
@@ -22,7 +22,7 @@
   <a href="https://github.com/Blue-Mink/moo/issues">反馈问题</a>
 </p>
 
-本仓库包含 Moo 的全部源码：Go 后端（单二进制，web embed）+ React / TypeScript 前端（Vite 构建后内嵌），发布产物为仅 x86_64 的单 FPK。应用目录数据来自三大平台——飞牛官方应用中心、FnDepot、fnos-apps（conversun），Moo 只负责聚合、归类与推送，不修改上游数据。仓库根部的 `moo.json` 是自索引——**本仓库本身就是一个 Moo 应用源**（见下方「作为 Moo 应用源」）。
+本仓库包含 Moo 的全部源码：Go 后端（单二进制，web embed）+ React / TypeScript 前端（Vite 构建后内嵌），发布产物为 x86_64 / arm64 双架构 FPK（0.6.303 起）。应用目录数据来自三大平台——飞牛官方应用中心、FnDepot、fnos-apps（conversun），Moo 只负责聚合、归类与推送，不修改上游数据。仓库根部的 `moo.json` 是自索引——**本仓库本身就是一个 Moo 应用源**（见下方「作为 Moo 应用源」）。
 
 <p align="center">
   <img src="docs/readme-mobile-1.png" width="100%" alt="移动端（暗黑模式）：主页 / 系统设置 / 加速源 / 发现"/><br/>
@@ -57,7 +57,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.298` · SHA256 `f7cd87407083f308fb9af97e97db8e1faecfe40effa158a4c1247301eb7a2c0f` |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.303` · x86 `7546c3e97dd766ae1fc04ded50bfd5fab4f6a98835ba5cf63efd938eda35b299` / arm `58da62e894e6eb7a76ae9ab427519887880f47539ef8a948ac80a8c74bae8281` |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -90,6 +90,7 @@
 | 深链现场恢复 | 详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复现场、无跳闪（0.6.282） |
 | 直链源韧性 | GitHub 系 `.json` 直链源自动展开镜像与 jsDelivr 兜底候选、兜底独立超时；同步失败通知附原因（0.6.283） |
 | 网页端三视图 | 极简 / 极光 / 标准三种浏览模式：极光色板 12 组三段渐变按应用稳定取色，详情与设置对话框底板同风格，宽屏一行四卡（0.6.284→298） |
+| 平台架构 | 详情页显示源提供的全部架构（x86 / arm），安装按本机架构自动选包（arm 设备选 arm 包）；发布双架构 FPK（0.6.303） |
 | 备份与缓存 | 配置快照一键备份 / 周期自动备份；已下载 FPK 缓存自动清理 |
 | 下载中心 | aria2 高速下载 + 断点续传，任务状态全透明、可暂停 / 删除 |
 

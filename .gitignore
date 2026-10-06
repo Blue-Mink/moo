@@ -36,3 +36,10 @@ GITEA_PUSH_259_TODO.md
 GITEA_PUSH_260_TODO.md
 GITEA_PUSH_262_TODO.md
 GITEA_PUSH_264_266_TODO.md
+
+# 会话临时（0.6.303 起通用规则）
+*_TODO.md
+.pushpack*
+chlog-*.png
+deep*-*.png
+*.py.bak

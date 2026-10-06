@@ -31,6 +31,10 @@ type App struct {
 	Sha256 string `json:"sha256,omitempty"`
 	// SizeBytes 包体积（字节，releases 条目提供；0=未提供，回退 SizeMB 解析）。
 	SizeBytes int64 `json:"size_bytes,omitempty"`
+	// Arch 当前选中安装包的架构（x86/arm/all；0.6.303：源未提供时为空）。
+	Arch string `json:"arch,omitempty"`
+	// Archs 源提供的全部架构（展示序 x86→arm→all）。
+	Archs []string `json:"archs,omitempty"`
 	// ReleaseChangelogs 来自 fnpack.json 的 releases 字段（版本 → 该版本说明），
 	// 比顶层 changelog 拼接串更干净；仅详情用，不进列表载荷。
 	ReleaseChangelogs map[string]string `json:"-"`

@@ -242,6 +242,26 @@ export function useKeyboardDock(
  * 用途：收藏区等共享区块按端渲染不同卡片（移动端瀑布流卡 / 桌面详情卡），
  * 用真分支避免两套卡片同时挂载（双份 DOM + 详情/README 请求浪费）。
  */
+/**
+ * 0.6.301：触屏/粗指针设备判定（手机/平板/触屏）。
+ * iOS 双击卡片 = 系统双击缩放手势（viewport 可缩放时 dblclick 常被吞），
+ * 触屏设备统一用「单击/点按开详情」替代桌面双击。
+ */
+export function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(hover: none) and (pointer: coarse)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(hover: none) and (pointer: coarse)');
+    const cb = (e: MediaQueryListEvent) => setCoarse(e.matches);
+    mq.addEventListener('change', cb);
+    return () => mq.removeEventListener('change', cb);
+  }, []);
+  return coarse;
+}
+
 export function useIsDesktop(): boolean {
   const [is, setIs] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,

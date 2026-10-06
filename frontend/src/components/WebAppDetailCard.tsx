@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { useCoarsePointer } from '@/lib/hooks';
 import { categoryLabel } from '@/lib/categories';
 import {
   BellOff, Download, ExternalLink, Globe, Loader2, Package,
@@ -108,11 +109,22 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
     onDetail?.(app);
   };
 
+  // 0.6.301：触屏（hover:none+coarse）单击卡面即开详情——iOS 的 dblclick 被
+  // 系统「双击缩放」手势吞掉（viewport 可缩放时），触屏坚持双击 = 恒无反应；
+  // 桌面细指针保持双击（0.6.293 用户定稿），交互区拦截规则与双击一致。
+  const coarse = useCoarsePointer();
+  const openIfSurfaceTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('button, a, input, select, [data-nodbl]')) return;
+    onDetail?.(app);
+  };
+
   return (
     <div
-      onDoubleClick={onRootDoubleClick}
-      title="双击打开应用详情"
-      className="h-[180px] flex flex-col overflow-hidden rounded-[18px] border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore transition-shadow duration-200 hover:shadow-appstore-hover"
+      onClick={coarse ? openIfSurfaceTap : undefined}
+      onDoubleClick={coarse ? undefined : onRootDoubleClick}
+      title={coarse ? '点按打开应用详情' : '双击打开应用详情'}
+      className="h-[180px] flex flex-col overflow-hidden rounded-[18px] border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore transition-shadow duration-200 hover:shadow-appstore-hover touch-manipulation"
     >
       {/* 头部行：图标 + 收藏星 + 名称列（名/appname/版本·下载） + GET 动作位（安装/打开，唯一卡面动作） */}
       <div className="flex-none flex items-center gap-2.5 px-3 pt-3">

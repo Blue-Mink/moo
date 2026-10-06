@@ -147,14 +147,40 @@ const App: React.FC = () => {
   // 0.6.284：桌面/移动真分支（收藏区两套卡片只挂载一套，见 useIsDesktop）
   const isDesktop = useIsDesktop();
 
-  // 0.6.293 网页端三种预览模式（用户定稿，仅桌面渲染）：
+  // 0.6.293 网页端三种预览模式（用户定稿）：
   //   minimal=极简（图标+名称+安装/未安装）| aurora=极光（底部极光渐变推荐卡）
-  //   | standard=标准（现 WebAppDetailCard）。localStorage 持久化，移动端无入口。
+  //   | standard=标准（现 WebAppDetailCard）。localStorage 持久化。
+  // 0.6.301：移动端同享三模式（发现页搜索框后的入口；其他 dock 页不显示按钮）。
   const [viewMode, setViewMode] = useState<'minimal' | 'aurora' | 'standard'>(() => {
     const v = localStorage.getItem('moo.web_view_mode');
     return v === 'minimal' || v === 'aurora' ? v : 'standard';
   });
   useEffect(() => { localStorage.setItem('moo.web_view_mode', viewMode); }, [viewMode]);
+
+  // 0.6.301：三模式切换组（桌面顶栏 / 移动端发现页共用同一份 JSX）
+  const viewModeSwitchGroup = (
+    <div className="flex items-center gap-0.5 rounded-full bg-muted/60 p-1" role="group" aria-label="预览模式">
+      {([
+        ['minimal', Grid2x2, '极简模式'],
+        ['aurora', Sparkles, '极光模式'],
+        ['standard', LayoutGrid, '标准模式'],
+      ] as const).map(([mode, Icon, label]) => (
+        <button
+          key={mode}
+          onClick={() => setViewMode(mode)}
+          title={label}
+          aria-label={label}
+          aria-pressed={viewMode === mode}
+          className={cn(
+            "h-7 w-7 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+            viewMode === mode ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Icon className="h-[15px] w-[15px]" />
+        </button>
+      ))}
+    </div>
+  );
 
   // 0.6.290：0.6.284 的滚动条「活动才显示」(.ui-active) 已撤——隐形时抓不住拖不到顶；
   // 样式改为常驻细竖条（见 index.css），此类切换逻辑随之删除
@@ -1458,8 +1484,9 @@ const App: React.FC = () => {
             searchExpanded && "shadow-lg border-b-transparent"
           )}>
             {searchExpanded ? (
-              /* 展开态：与原搜索框等长的全宽搜索框，悬浮在页面上方（sticky header + 阴影）；
-                 收起立即（无过渡，1.14.24 用户要求） */
+              <>
+              {/* 展开态：与原搜索框等长的全宽搜索框，悬浮在页面上方（sticky header + 阴影）；
+                 收起立即（无过渡，1.14.24 用户要求） */}
               <div className="search-expand-anim relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 <Input
@@ -1500,6 +1527,11 @@ const App: React.FC = () => {
                   收起
                 </button>
               </div>
+              {/* 0.6.301：展开态搜索框后同样给三模式入口（仅发现页） */}
+              {activeFilter === 'recommended' && (
+                <div className="flex items-center">{viewModeSwitchGroup}</div>
+              )}
+            </>
             ) : (
               /* 收起态：标题 + 紧凑搜索药丸 + 三个按钮（间距加大防误触） */
               <div className="flex items-center justify-between gap-2">
@@ -1538,6 +1570,11 @@ const App: React.FC = () => {
                   <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground" title="当前视图应用数">
                     {filteredApps.length} 个应用
                   </span>
+                )}
+                {/* 0.6.301（用户定稿）：移动端三模式按钮 = 发现页搜索框后常显；
+                    其他 dock 页（全部/已安装/有更新）不显示 */}
+                {activeFilter === 'recommended' && (
+                  <div className="shrink-0">{viewModeSwitchGroup}</div>
                 )}
                 <div className="flex items-center gap-3 shrink-0">
                   <Button
@@ -1730,10 +1767,10 @@ const App: React.FC = () => {
                 </div>
                 {favExpanded && (
                   favoriteApps.length > 0 ? (
-                    /* 0.6.295（用户定稿）：收藏区随三种预览模式切换（仅网页端） */
-                    isDesktop && viewMode === 'minimal' ? (
+                    /* 0.6.295（用户定稿）：收藏区随三种预览模式切换（0.6.301 移动端同享） */
+                    viewMode === 'minimal' ? (
                       <MinimalIconGridM apps={favoriteApps} onDetail={setDetailApp} />
-                    ) : isDesktop && viewMode === 'aurora' ? (
+                    ) : viewMode === 'aurora' ? (
                       <AuroraGridM apps={favoriteApps} onDetail={setDetailApp} />
                     ) : isDesktop ? (
                       /* 0.6.285：与主列表统一 —— 固定等高大卡网格（h-180）；
@@ -1810,11 +1847,11 @@ const App: React.FC = () => {
                 </div>
                 {ignoreExpanded && (
                   ignoredApps.length > 0 ? (
-                    /* 0.6.295（用户定稿）：忽略更新区随三种预览模式切换（仅网页端）；
+                    /* 0.6.295（用户定稿）：忽略更新区随三种预览模式切换（0.6.301 移动端同享）；
                        极简/极光形态下「取消忽略」经详情对话框完成 */
-                    isDesktop && viewMode === 'minimal' ? (
+                    viewMode === 'minimal' ? (
                       <MinimalIconGridM apps={ignoredApps} onDetail={setDetailApp} />
-                    ) : isDesktop && viewMode === 'aurora' ? (
+                    ) : viewMode === 'aurora' ? (
                       <AuroraGridM apps={ignoredApps} onDetail={setDetailApp} />
                     ) : (
                     <div className="bg-card rounded-[18px] overflow-hidden border border-border/20 shadow-appstore">
@@ -1888,15 +1925,15 @@ const App: React.FC = () => {
                 ))}
               </div>
 
-              {isDesktop ? (
-                <div>
-                {/* 0.6.293 三种预览模式（网页端）：极简/极光替换标准详情卡网格；
-                    双击卡片进入详情（与标准模式双击行为一致） */}
-                {viewMode === 'minimal' ? (
-                  <MinimalIconGridM apps={filteredApps} onDetail={setDetailApp} />
-                ) : viewMode === 'aurora' ? (
-                  <AuroraGridM apps={filteredApps} onDetail={setDetailApp} />
-                ) : (
+              {/* 0.6.301（用户定稿）：三种预览模式引入移动端 —— 极简/极光桌面移动
+                  共用同一网格（auto-fill/响应式列数已适配窄屏）；标准模式保持
+                  各自形态：桌面=卡网格 / 移动=行列表。交互：触屏单击开详情、
+                  鼠标双击（见各卡组件的 coarse 分支）。 */}
+              {viewMode === 'minimal' ? (
+                <MinimalIconGridM apps={filteredApps} onDetail={setDetailApp} />
+              ) : viewMode === 'aurora' ? (
+                <AuroraGridM apps={filteredApps} onDetail={setDetailApp} />
+              ) : isDesktop ? (
                 <AppList
                    apps={filteredApps}
                    loading={false}
@@ -1916,10 +1953,7 @@ const App: React.FC = () => {
                    favoriteSet={favoriteSet}
                    onToggleFavorite={handleToggleFavorite}
                 />
-                )}
-                </div>
               ) : (
-                <div>
                 <AppRowList
                   apps={filteredApps}
                   onInstall={handleInstall}
@@ -1938,7 +1972,6 @@ const App: React.FC = () => {
                   favoriteSet={favoriteSet}
                   onToggleFavorite={handleToggleFavorite}
                 />
-                </div>
               )}
             </>
           ) : loadStatus === 'loading' ? (
@@ -2090,7 +2123,7 @@ const App: React.FC = () => {
           initialTab={settingsTab ?? undefined}
           onTabChange={setSettingsTab}
           onStoreUpdate={handleStoreUpdate}
-          aurora={isDesktop && viewMode === 'aurora'}
+          aurora={viewMode === 'aurora'}
           onCatalogChanged={() => setTimeout(() => loadApps(), 2500)}
         />
       </Suspense>
@@ -2226,7 +2259,7 @@ const App: React.FC = () => {
           controlling={controlling}
           isFavorite={detailApp ? favoriteSet.has(detailApp.key || detailApp.appname) : false}
           onToggleFavorite={handleToggleFavorite}
-          aurora={isDesktop && viewMode === 'aurora'}
+          aurora={viewMode === 'aurora'}
         />
       </Suspense>
 

@@ -53,6 +53,7 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
   return (
   <nav
     // 静止：距底 10px + safe-area（与 PC Dock bottom-6 同一视觉节奏）。
+    // 0.6.302（用户定稿）：0.6.301 的贴底改动回退，恢复原间距。
     // bottom: -bottomOffset → 键盘弹出时 dock 下移键盘高度，钉在物理屏幕
     // 底边被键盘盖住；收起时 offset 归 0，dock 已在位（无回弹位移）
     style={bottomOffset > 0

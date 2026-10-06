@@ -41,6 +41,10 @@ export interface AppInfo {
   /** 已忽略且确有被压住的更新（0.6.197：dock「有更新」列表含它） */
   update_ignored_pending?: boolean;
   platform: string;
+  /** 当前选中安装包的架构（0.6.303：x86/arm/all；源未提供时为空）。 */
+  arch?: string;
+  /** 源提供的全部架构（展示序 x86→arm→all；如 ["x86","arm"]）。 */
+  archs?: string[];
   release_url: string;
   release_notes: string;
   /**
@@ -1103,6 +1107,9 @@ export interface StoreUpdateInfo {
   current_version: string;
   available_version?: string;
   has_update: boolean;
+  /** 0.6.299：探测失败时后端回带——有 last_error 而 has_update=false = 探测失败，不是「已是最新」 */
+  last_check?: number;
+  last_error?: string;
 }
 
 export const fetchSettings = async (): Promise<Settings> => {
@@ -1578,8 +1585,9 @@ export const fetchStatus = async (): Promise<StatusResponse> => {
   return response.json();
 };
 
-export const fetchStoreUpdate = async (): Promise<StoreUpdateInfo> => {
-  const response = await apiFetch(apiUrl('/api/store-update'));
+// 0.6.299：force=true → 后端强制重探（?force=1），用于版本 chip 告警态的手动重试
+export const fetchStoreUpdate = async (force = false): Promise<StoreUpdateInfo> => {
+  const response = await apiFetch(apiUrl('/api/store-update' + (force ? '?force=1' : '')));
   if (!response.ok) {
     throw new Error(`Failed to fetch store update info: ${response.statusText}`);
   }

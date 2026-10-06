@@ -1,5 +1,6 @@
 #!/bin/bash
-# Moo — 构建脚本（仅 x86_64，按用户偏好不出 arm 版）
+# Moo — 构建脚本（x86_64 / arm64 双架构；0.6.303 起 arm 适配：
+# 用法 bash build.sh [x86|arm|all]，默认 x86）
 set -e
 export COPYFILE_DISABLE=1
 
@@ -32,7 +33,8 @@ VERSION=$(awk -F'= *' '/^version[ \t]*=/ {gsub(/ /,"",$2); print $2; exit}' "$FN
 # 应用内版本可带线标签（如 0.6.207-panel），FPK 文件名/Go Version 随之；
 # 未设 MOO_APP_VERSION 时 = manifest 版本。
 APP_VERSION="${MOO_APP_VERSION:-$VERSION}"
-info "Moo v$VERSION (x86_64, app=$APP_VERSION)"
+TARGET="${1:-x86}"
+info "Moo v$VERSION (target=$TARGET, app=$APP_VERSION)"
 
 # ── Step 1: 构建前端 ────────────────────────────────────────────────────────
 info "构建前端..."
@@ -46,27 +48,45 @@ else
     warn "frontend/ 未就绪，跳过前端构建（web/ 使用现有产物或占位）"
 fi
 
-# ── Step 2: 构建 Go 二进制（仅 x86）────────────────────────────────────────
+# ── Step 2: 构建 Go 二进制（x86 + arm64，0.6.303 起 arm 适配）──────────────
 info "构建 Go 二进制 (x86)..."
 GOOS=linux GOARCH=amd64 go build -ldflags "-X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
+info "构建 Go 二进制 (arm64)..."
+GOOS=linux GOARCH=arm64 go build -ldflags "-X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
 info "Go 构建完成"
 
-# ── Step 3: 打包 x86 FPK ───────────────────────────────────────────────────
-info "打包 x86 fpk..."
-STAGING="$BUILD_DIR/tmp/fnos-x86"
-rm -rf "$STAGING"
-cp -a "$FNOS_DIR" "$STAGING"
+# ── Step 3: 打包 FPK（pack_fpk <x86|arm>；arm 包 manifest platform=arm）────
+TARGET="${1:-x86}"
+pack_fpk() {
+    local suffix="$1" server archline
+    if [ "$suffix" = "arm" ]; then
+        server="moo-server-arm"; archline="arm"
+    else
+        server="moo-server-x86"; archline="x86"
+    fi
+    info "打包 $suffix fpk (platform=$archline)..."
+    local STAGING="$BUILD_DIR/tmp/fnos-$suffix"
+    rm -rf "$STAGING"
+    cp -a "$FNOS_DIR" "$STAGING"
+    # manifest platform 单一事实源=x86；arm 包在 staging 里改写（不动源文件）
+    sed -i "s/^platform[ \t]*=.*/platform        = $archline/" "$STAGING/manifest"
 
-cp "$BUILD_DIR/moo-server-x86" "$STAGING/app/moo-server"
-if [ -d "$SCRIPT_DIR/web" ]; then
-    cp -r "$SCRIPT_DIR/web" "$STAGING/app/web"
-fi
+    cp "$BUILD_DIR/$server" "$STAGING/app/moo-server"
+    if [ -d "$SCRIPT_DIR/web" ]; then
+        cp -r "$SCRIPT_DIR/web" "$STAGING/app/web"
+    fi
 
-# fnpack 用法（与 New Store 验证过的一致）：build --directory <staging>，产物 <appname>.fpk 落在 CWD
-cd "$SCRIPT_DIR"
-"$FNPACK" build --directory "$STAGING"
-OUT_FPK="$SCRIPT_DIR/moo_${APP_VERSION}_x86.fpk"
-mv "$SCRIPT_DIR/moo.fpk" "$OUT_FPK" 2>/dev/null || true
-[ -f "$OUT_FPK" ] || error "FPK 未生成: $OUT_FPK"
-info "✅ 产物: $OUT_FPK ($(du -h "$OUT_FPK" | cut -f1))"
-sha256sum "$OUT_FPK"
+    cd "$SCRIPT_DIR"
+    "$FNPACK" build --directory "$STAGING"
+    local OUT_FPK="$SCRIPT_DIR/moo_${APP_VERSION}_${suffix}.fpk"
+    mv "$SCRIPT_DIR/moo.fpk" "$OUT_FPK" 2>/dev/null || true
+    [ -f "$OUT_FPK" ] || error "FPK 未生成: $OUT_FPK"
+    info "✅ 产物: $OUT_FPK ($(du -h "$OUT_FPK" | cut -f1))"
+    sha256sum "$OUT_FPK"
+}
+case "$TARGET" in
+    x86) pack_fpk x86 ;;
+    arm) pack_fpk arm ;;
+    all) pack_fpk x86; pack_fpk arm ;;
+    *)   error "未知构建目标: $TARGET（可选 x86 / arm / all）" ;;
+esac

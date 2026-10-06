@@ -118,7 +118,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
             // 防滚动条跳动）
             style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 96px' }}
             className={cn(
-              "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50",
+              // 0.6.301：touch-manipulation = iOS 在卡面不消费双击缩放手势
+              "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50 touch-manipulation",
               i > 0 && "border-t border-border/40"
             )}
             onClick={() => onDetail(app)}

@@ -86,7 +86,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
     )}>
       <div className="p-4 flex flex-col h-full gap-3">
 
-        <div className="flex items-start gap-3 cursor-pointer" onClick={() => onDetail?.(app)}>
+        <div className="flex items-start gap-3 cursor-pointer touch-manipulation" onClick={() => onDetail?.(app)}>
           <div className="shrink-0">
             <AppIcon app={app} className="w-14 h-14" />
           </div>

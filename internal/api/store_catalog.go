@@ -487,6 +487,8 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 		MinFnos:        a.MinFnos,
 		Wizard:         a.Wizard,
 		Sha256:         a.Sha256,
+		Arch:           a.Arch,
+		Archs:          a.Archs,
 		PreviewCount:   len(a.PreviewURLs),
 		PreviewURLs:    a.PreviewURLs,
 		HasReadme:      a.ReadmeURL != "",

@@ -24,7 +24,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -623,6 +623,26 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [fpkWizardName, setFpkWizardName] = useState<string | null>(null);
   const [fpkWizardDef, setFpkWizardDef] = useState<AppWizard | null>(null);
   const [storeInfo, setStoreInfo] = useState<StoreUpdateInfo | null>(null);
+  // 0.6.299：探测失败（last_error）≠ 无更新——chip 显示琥珀告警态，点击强制重探
+  const [probeRetrying, setProbeRetrying] = useState(false);
+  const retryStoreProbe = async () => {
+    setProbeRetrying(true);
+    try {
+      const store = await fetchStoreUpdate(true);
+      setStoreInfo(store);
+      if (store.has_update) {
+        toast.success(`发现新版本 v${store.available_version}，点旁边红色标签更新`);
+      } else if (store.last_error) {
+        toast.error(`版本检查失败：${store.last_error}`);
+      } else {
+        toast.info(`已是最新版本 v${store.current_version}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '版本检查失败，请稍后再试');
+    } finally {
+      setProbeRetrying(false);
+    }
+  };
   // 自更新确认弹窗（0.6.130 用户定稿：版本号有更新时点击先弹窗确认再更新）
   const [storeUpdateConfirm, setStoreUpdateConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1439,9 +1459,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           {/* 商店版本号：页头最右侧（原「商店版本」卡片 2026-09-26 起下线；
               有可用更新时旁边显示「更新到 vX」药丸，原卡片更新入口功能保留） */}
           <div className="ml-auto flex shrink-0 items-center gap-1.5 pr-1 sm:pr-12">
-            {/* 商店版本 chip（0.6.130 用户定稿）：
+            {/* 商店版本 chip（0.6.130 用户定稿；0.6.299 三态）：
                 有更新=红底「有更新 vX」→ 点击弹窗确认后应用内自更新；
-                无更新=灰「vX」→ 点击顶部通知「已是最新版本 vX」 */}
+                探测失败=琥珀「⚠ vX」→ 点击立即强制重探（此前失败被吞、
+                误报「已是最新版本」——GitHub 匿名 API 按出口 IP 限流 403 即中招）；
+                探测成功且无更新=灰「vX」→ 点击顶部通知「已是最新版本 vX」 */}
             {storeInfo?.has_update && onStoreUpdate ? (
               <button
                 onClick={() => setStoreUpdateConfirm(true)}
@@ -1449,6 +1471,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 title={`有更新 v${storeInfo.available_version}，点击确认更新`}
               >
                 有更新 v{storeInfo.available_version}
+              </button>
+            ) : storeInfo && !storeInfo.has_update && storeInfo.last_error ? (
+              <button
+                onClick={retryStoreProbe}
+                disabled={probeRetrying}
+                className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/90 px-2 py-0.5 text-[11px] font-medium tabular-nums text-black transition-colors hover:bg-amber-400 disabled:opacity-60"
+                title={`版本检查失败（${storeInfo.last_error}），点击重试；上次检查 ${storeInfo.last_check ? new Date(storeInfo.last_check * 1000).toLocaleString() : '未知'}`}
+              >
+                {probeRetrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertTriangle className="h-3 w-3" />}
+                v{storeInfo.current_version}
               </button>
             ) : (
               <button
@@ -2658,7 +2690,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 sm:px-6">
               {/* 0.6.221：不再做 translateY 上抬——对话框底边已等于可见底边
                   （见上方 dialogKeyboardStyle），再抬就会过冲：按钮浮在键盘上方、
-                  不像"固定在底部"（用户实报）。这里保持流式钉在对话框底边即可。 */}
+                  不像"固定在底部"（用户实报）。这里保持流式钉在对话框底边即可。
+                  0.6.302（用户定稿）：0.6.301 的卡框+贴底改动回退，恢复原胶囊按钮。 */}
               <div className="mx-auto w-full sm:w-72">
                 <Button
                   className="w-full h-11 rounded-2xl shadow-lg shadow-black/10"

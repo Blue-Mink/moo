@@ -17,11 +17,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"moo/internal/config"
 	"moo/internal/lang"
 	"moo/internal/netx"
 )
@@ -77,6 +79,16 @@ const (
 // selfUpdateSocketPath 飞牛应用中心 daemon 的内部 RPC socket（测试可覆写）。
 var selfUpdateSocketPath = "/var/run/com.trim.app.center.sock"
 
+// 探测入口（0.6.299：提为变量，httptest 可覆写）。
+var (
+	selfUpdateAPIBase = "https://api.github.com"
+	selfUpdateWebBase = "https://github.com"
+	// 第三兜底：FnDepot 公开源的 moo 条目版本号（该仓 2026-07 起公开、
+	// 各出口 raw CDN 缓存全热；moo 仓 10-05 才转公开，部分出口的中间层
+	// 还负缓存着私有时期的 404，github.com/releases/latest 会持续吐旧 404）
+	selfUpdateFnDepotURL = "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json"
+)
+
 type selfUpdateProbe struct {
 	srv *Server
 
@@ -88,6 +100,7 @@ type selfUpdateProbe struct {
 	latestShaURL   string // release 附带的 .sha256 资产 URL（可为空）
 	lastErr        error
 	lastNotified   string // 已推过 store_update_available 的版本（防重复）
+	ratelimitUntil time.Time // 0.6.299：GitHub 403 限流解除时刻（之前不打 API）
 }
 
 func (s *Server) selfUpdProbe() *selfUpdateProbe {
@@ -115,13 +128,24 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 		p.mu.Unlock()
 		return
 	}
+	// 0.6.299：GitHub 403 限流窗口内（x-ratelimit-reset 未到）不再空打 API，
+	// 直接回缓存——匿名配额 60/h 按出口 IP 计，国内 NAT 共享出口常被耗光。
+	if !force && p.ratelimitUntil.After(time.Now()) {
+		tag, assetURL, asset, shaURL, err = p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.lastErr
+		p.mu.Unlock()
+		return
+	}
 	p.mu.Unlock()
 
-	tag, assetURL, asset, shaURL, err = p.srv.doProbe()
+	var rlUntil time.Time
+	tag, assetURL, asset, shaURL, rlUntil, err = p.srv.doProbe()
 
 	p.mu.Lock()
 	p.checkedAt = time.Now()
 	p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.lastErr = tag, assetURL, asset, shaURL, err
+	if !rlUntil.IsZero() {
+		p.ratelimitUntil = rlUntil
+	}
 	notified := p.lastNotified
 	p.mu.Unlock()
 
@@ -139,65 +163,277 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 	return
 }
 
-// doProbe 探测 GitHub Releases API（0.6.207-panel D1：TLS 直连 only，
-// 不再经 HTTP 镜像候选）。release 附 <资产名>.sha256 时一并返回其 URL
-// （下载后验哈希用）；未附则 shaURL 为空，调用方降级结构校验并留日志。
-func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, err error) {
-	apiURL := "https://api.github.com/repos/" + selfUpdateRepo + "/releases/latest"
+// doProbe 探测 GitHub 最新版本。主通道 = Releases API（0.6.207-panel D1：
+// TLS 直连 only，不经 HTTP 镜像候选）；release 附 <资产名>.sha256 时一并
+// 返回其 URL（下载后验哈希用），未附则 shaURL 为空，调用方降级结构校验。
+//
+// 0.6.299/300 兜底链（均不消耗 API 匿名配额）：
+//  1. github.com web 通道（/releases/latest 的 302 Location 取 tag，
+//     官方域直连 TLS，D1 信任边界不变）；
+//  2. FnDepot 公开源 moo.json 的 apps.moo.version（raw CDN——moo 仓
+//     10-05 才转公开，部分出口中间层负缓存着私有时期的 404，web 通道
+//     会持续吐旧 404；FnDepot 仓 7 月起公开、全国客户端天天在拉）；
+//  3.（0.6.300）FnDepot 源经用户配置的 GitHub 加速镜像（gh-proxy 系与
+//     GitHub 非同网，直连断流时通常仍可达；镜像不代传 302，只用于 raw）。
+// 兜底通道只能拿到 tag → 资产 URL 按官方命名约定（moo_{ver}_x86.fpk）
+// 构造，无 .sha256 侧车 → 降级结构校验（既有路径）。
+// 返回值 rateLimitUntil：403 且响应带 x-ratelimit-reset 时为其时刻（+1min
+// 余量），调用方在此之前不再打 API。
+func (s *Server) doProbe() (tag, assetURL, asset, shaURL string, rateLimitUntil time.Time, err error) {
+	apiURL := selfUpdateAPIBase + "/repos/" + selfUpdateRepo + "/releases/latest"
 
 	client := netx.NewClient(selfDlTimeout)
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return "", "", "", "", fmt.Errorf("官方 release 探测失败: %w", err)
-	}
-	if resp.StatusCode != 200 {
+	resp, gerr := client.Get(apiURL)
+	var apiErr error
+	if gerr != nil {
+		apiErr = fmt.Errorf("官方 release 探测失败: %w", gerr)
+	} else if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusForbidden {
+			if rs := resp.Header.Get("x-ratelimit-reset"); rs != "" {
+				if u, perr := strconv.ParseInt(rs, 10, 64); perr == nil {
+					if until := time.Unix(u, 0); until.After(time.Now()) {
+						rateLimitUntil = until.Add(time.Minute)
+					}
+				}
+			}
+		}
 		resp.Body.Close()
-		return "", "", "", "", fmt.Errorf("官方 release 探测失败: HTTP %d", resp.StatusCode)
+		apiErr = fmt.Errorf("官方 release 探测失败: HTTP %d", resp.StatusCode)
+	} else {
+		var rel struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name string `json:"name"`
+				URL  string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		data, rerr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body.Close()
+		if rerr != nil {
+			return "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", rerr)
+		}
+		if uerr := json.Unmarshal(data, &rel); uerr != nil {
+			return "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", uerr)
+		}
+		tag = strings.TrimPrefix(rel.TagName, "v")
+		if tag == "" {
+			return "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
+		}
+		// 选 x86 FPK 资产（官方只发 x86；arm 资产出现时兜底选任意 fpk）
+		fallback := ""
+		for _, a := range rel.Assets {
+			if !strings.HasSuffix(a.Name, ".fpk") || a.URL == "" {
+				continue
+			}
+			if fallback == "" {
+				fallback = a.URL
+				assetURL, asset = a.URL, a.Name
+			}
+			if strings.Contains(a.Name, "_x86") {
+				assetURL, asset = a.URL, a.Name
+			}
+		}
+		if assetURL == "" {
+			assetURL, asset = fallback, ""
+		}
+		// D1：release 附 .sha256 资产（资产同名 + .sha256 后缀）→ 下载后验哈希
+		for _, a := range rel.Assets {
+			if a.URL != "" && a.Name == asset+".sha256" {
+				shaURL = a.URL
+				break
+			}
+		}
+		return tag, assetURL, asset, shaURL, rateLimitUntil, nil
 	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+
+	// 兜底 1：web 通道 302
+	wtag, werr := s.probeWebLatest()
+	if werr == nil {
+		log.Printf("[selfupdate] API 通道失败（%v），web 兜底命中 v%s", apiErr, wtag)
+		return wtag,
+			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, wtag, wtag),
+			"moo_" + wtag + "_x86.fpk", "", rateLimitUntil, nil
+	}
+	// 兜底 2：FnDepot 公开源版本号（raw CDN，不受 moo 仓负缓存 404 影响）
+	jtag, jerr := s.probeFnDepotLatest()
+	if jerr == nil {
+		log.Printf("[selfupdate] API/web 通道失败（%v / %v），FnDepot 源兜底命中 v%s", apiErr, werr, jtag)
+		return jtag,
+			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, jtag, jtag),
+			"moo_" + jtag + "_x86.fpk", "", rateLimitUntil, nil
+	}
+	// 兜底 3（0.6.300）：FnDepot 源经用户 GitHub 加速镜像。国内 NAS 直连
+	// GitHub 常整体断流（API 403 + web/raw 超时，0.6.299 实测），而 gh-proxy
+	// 系镜像与 GitHub 非同网、通常可达。镜像不代传 releases/latest 的 302
+	// （内部跟随返回 200 HTML），故只用于 raw 文件（FnDepot moo.json）。
+	mtag, merr := s.probeFnDepotMirrorLatest()
+	if merr == nil {
+		log.Printf("[selfupdate] API/web/FnDepot 直连全失败（%v / %v / %v），镜像兜底命中 v%s", apiErr, werr, jerr, mtag)
+		return mtag,
+			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, mtag, mtag),
+			"moo_" + mtag + "_x86.fpk", "", rateLimitUntil, nil
+	}
+	return "", "", "", "", rateLimitUntil,
+		fmt.Errorf("%w（web 兜底: %v；FnDepot 源兜底: %v；镜像兜底: %v）", apiErr, werr, jerr, merr)
+}
+
+// probeWebLatest 经 github.com web 通道的 302 重定向取最新 release tag：
+// GET https://github.com/{repo}/releases/latest → /releases/tag/vX.Y.Z。
+// 国内 NAS 出口偶发分钟级断流（0.6.299 主 NAS 实测），网络类错误重试一次。
+func (s *Server) probeWebLatest() (string, error) {
+	c := netx.NewClient(selfDlTimeout)
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := c.Get(selfUpdateWebBase + "/" + selfUpdateRepo + "/releases/latest")
+	if err != nil {
+		time.Sleep(1500 * time.Millisecond)
+		if resp2, err2 := c.Get(selfUpdateWebBase + "/" + selfUpdateRepo + "/releases/latest"); err2 == nil {
+			resp = resp2
+		} else {
+			return "", fmt.Errorf("web 探测失败: %w", err2)
+		}
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusMovedPermanently {
+		return "", fmt.Errorf("web 探测失败: HTTP %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	segs := strings.Split(strings.TrimRight(loc, "/"), "/")
+	if len(segs) < 2 {
+		return "", errors.New("web 探测: 重定向目标无效")
+	}
+	tag := strings.TrimPrefix(segs[len(segs)-1], "v")
+	if tag == "" {
+		return "", errors.New("web 探测: 重定向目标无版本号")
+	}
+	return tag, nil
+}
+
+// probeFnDepotLatest 第三兜底：读 FnDepot 公开源 moo.json（V2 结构）的
+// apps.moo.version 字段。发版时与 GitHub release 同步更新（gen-repo-moo-json）。
+func (s *Server) probeFnDepotLatest() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), selfDlTimeout)
+	defer cancel()
+	return s.fetchFnDepotVersion(ctx, selfUpdateFnDepotURL)
+}
+
+// fetchFnDepotVersion 从给定完整 URL（直连 raw 或 镜像前缀+raw）拉取 moo.json
+// 并解析 apps.moo.version。探测链各层共用。
+func (s *Server) fetchFnDepotVersion(ctx context.Context, fullURL string) (string, error) {
+	c := netx.NewClient(selfDlTimeout)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("FnDepot 源探测失败: %w", err)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("FnDepot 源探测失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("FnDepot 源探测失败: HTTP %d", resp.StatusCode)
 	}
 	data, rerr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	resp.Body.Close()
 	if rerr != nil {
-		return "", "", "", "", fmt.Errorf("官方 release 探测失败: %w", rerr)
+		return "", fmt.Errorf("FnDepot 源探测失败: %w", rerr)
 	}
-	if uerr := json.Unmarshal(data, &rel); uerr != nil {
-		return "", "", "", "", fmt.Errorf("官方 release 探测失败: %w", uerr)
+	var idx struct {
+		Apps map[string]struct {
+			Version string `json:"version"`
+		} `json:"apps"`
 	}
-	tag = strings.TrimPrefix(rel.TagName, "v")
+	if uerr := json.Unmarshal(data, &idx); uerr != nil {
+		return "", fmt.Errorf("FnDepot 源探测失败: %w", uerr)
+	}
+	ver := idx.Apps["moo"].Version
+	tag := strings.TrimPrefix(strings.TrimSpace(ver), "v")
 	if tag == "" {
-		return "", "", "", "", errors.New("release 无版本号")
+		return "", errors.New("FnDepot 源无 moo 版本号")
 	}
-	// 选 x86 FPK 资产（官方只发 x86；arm 资产出现时兜底选任意 fpk）
-	fallback := ""
-	for _, a := range rel.Assets {
-		if !strings.HasSuffix(a.Name, ".fpk") || a.URL == "" {
-			continue
-		}
-		if fallback == "" {
-			fallback = a.URL
-			assetURL, asset = a.URL, a.Name
-		}
-		if strings.Contains(a.Name, "_x86") {
-			assetURL, asset = a.URL, a.Name
-		}
+	return tag, nil
+}
+
+// 0.6.300：镜像兜底层用的 GitHub 加速前缀来源（httptest 可覆写）。
+var selfUpdateMirrorPrefixes = defaultMirrorPrefixes
+
+// defaultMirrorPrefixes 返回 GitHub 加速镜像 URL 前缀（含尾斜杠）：
+// 有健康数据 = ok 镜像按吞吐降序；无数据 = 声明顺序静态回退（config 注释约定）。
+// conversun 仅代理 conversun 仓库，拉 Blue-Mink 源恒 404，排除。
+func defaultMirrorPrefixes(s *Server) []string {
+	if s == nil || s.Mirrors == nil {
+		return nil
 	}
-	if assetURL == "" {
-		assetURL, asset = fallback, ""
-	}
-	// D1：release 附 .sha256 资产（资产同名 + .sha256 后缀）→ 下载后验哈希
-	for _, a := range rel.Assets {
-		if a.URL != "" && a.Name == asset+".sha256" {
-			shaURL = a.URL
+	stats := s.Mirrors.gh()
+	var keys []string
+	hasHealth := false
+	for _, st := range stats {
+		if st.Status != "" {
+			hasHealth = true
 			break
 		}
 	}
-	return tag, assetURL, asset, shaURL, nil
+	if hasHealth {
+		keys = topSpeedKeys(stats)
+	} else {
+		for _, opt := range config.GitHubMirrorOptions() {
+			if opt.URL != "" {
+				keys = append(keys, opt.Key)
+			}
+		}
+	}
+	var out []string
+	for _, k := range keys {
+		if k == "conversun" {
+			continue
+		}
+		if p := mirrorURLByKey(k); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// probeFnDepotMirrorLatest 第四兜底：FnDepot moo.json 经用户配置的 GitHub
+// 加速镜像拉取。取吞吐前 4 的健康镜像并发竞速，任一命中即返回。
+func (s *Server) probeFnDepotMirrorLatest() (string, error) {
+	prefixes := selfUpdateMirrorPrefixes(s)
+	if len(prefixes) > 4 {
+		prefixes = prefixes[:4]
+	}
+	if len(prefixes) == 0 {
+		return "", errors.New("无可用加速镜像")
+	}
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		done bool
+		tag  string
+		errs []string
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), selfDlTimeout)
+	defer cancel()
+	for _, p := range prefixes {
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			t, err := s.fetchFnDepotVersion(ctx, p+selfUpdateFnDepotURL)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, p+" → "+err.Error())
+				return
+			}
+			if !done {
+				done = true
+				tag = t
+			}
+		}(p)
+	}
+	wg.Wait()
+	if done {
+		return tag, nil
+	}
+	return "", errors.New(strings.Join(errs, " | "))
 }
 
 // cmpVersions 点分数字版本比较（返回 -1/0/1）。非数字段按 0 处理。
@@ -255,7 +491,9 @@ func (s *Server) storeUpdateInfo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, out) // 官方只发 x86 FPK，非 amd64 不提供自更新
 		return
 	}
-	tag, assetURL, _, _, err := s.selfUpdProbe().probe(false)
+	// 0.6.299：?force=1 强制重探（设置页版本 chip 告警态的点击重试入口）
+	force := r.URL.Query().Get("force") == "1"
+	tag, assetURL, _, _, err := s.selfUpdProbe().probe(force)
 	p := s.selfUpdProbe()
 	p.mu.Lock()
 	lastCheck := p.checkedAt

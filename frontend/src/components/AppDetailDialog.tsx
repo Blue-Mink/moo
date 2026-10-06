@@ -6,6 +6,7 @@ import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../a
 import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc } from '../api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useIsDesktop } from '@/lib/hooks';
 import {
   Dialog,
   DialogContent,
@@ -48,6 +49,7 @@ import {
   Star,
   ShieldCheck,
   CalendarClock,
+  Cpu,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -248,6 +250,10 @@ export const formatDownloads = (n?: number): string => {
 // javascript: 数据 URL，只保留展示型标签。
 
 const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onUninstall, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
+  // 0.6.301：打开时刻记录 —— 配合 DialogContent 的 400ms 外点免疫窗
+  //（触屏双击卡片：第一下开详情，第二下落在遮罩上会秒关 = 用户观感仍「没反应」）
+  const openedAtRef = useRef(0);
+  useEffect(() => { if (open) openedAtRef.current = Date.now(); }, [open]);
   // 列表载荷瘦身：changelog/homepage/release_url/sha256 与外部源 icon_url
   // 不在列表里，打开详情后由 /api/apps/{key} 补齐（LAN 内几 KB 瞬时）。
   // 接口未回前先以列表条目兜底渲染，回包后无缝升级为完整字段。
@@ -289,6 +295,12 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 面板底 = 该应用极光卡同款渐变（同应用恒同色）；内容元素一律不改样式，
   // 靠一层 bg-background/65+blur 玻璃遮罩把渐变压成可读底色染色。
   const aBg = aurora && app ? auroraFor(app.appname || app.display_name) : '';
+  // 0.6.303（用户实抓）：移动端极光渐变此前铺满全屏对话框，内卡四周露出
+  // 渐变「溢出一圈」——与网页端（渐变=对话框底板、四周是页面背景）观感
+  // 不一致。移动端改法：渐变只给 12px 内缩的玻璃层面板（圆角收边），
+  // 全屏对话框回普通底色；内卡毛玻璃罩在渐变上 = 与网页端同款柔和染色。
+  const isDesktop = useIsDesktop();
+  const mobileAuroraPanel = !isDesktop && aBg !== '';
   // 安装/更新/卸载完成（operation 从有值变无值）后重拉一次详情，同步已装状态、
   // 版本与主操作行——detailApp 是打开时的静态快照，不重拉的话头部 GET 位与
   // 底部操作区会停留在装前状态（与「装完即变」不符）。
@@ -703,12 +715,26 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* 移动端 = 整页展示（左上角返回按钮退回应用列表，App Store 同构）；
           桌面端保持居中对话框 */}
-      <DialogContent className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(90vh,920px)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden", aBg || "bg-background")}>
+      <DialogContent
+        onInteractOutside={(e) => {
+          // 0.6.301：打开后 400ms 免疫窗——忽略外点/遮罩点击（双击第二下防秒关）
+          if (Date.now() - openedAtRef.current < 400) e.preventDefault();
+        }}
+        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(90vh,920px)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden", isDesktop ? (aBg || "bg-background") : "bg-background")}>
         {/* 列布局：头部行冻结在顶部（不随内容滚动），下方内容区独立滚动。
             移动端整体包一张圆角内边框卡（与列表同款）；桌面端卡片透明化。 */}
         {/* 0.6.298：玻璃层自带圆角——带 backdrop-filter 的子元素会提升合成层
             逃逸父级 rounded+overflow-hidden 裁剪，四角方角底色外溢（用户实抓） */}
-        <div className={cn("flex-1 min-h-0 flex flex-col px-3 pt-3 sm:px-0 sm:pt-0", aBg && "bg-background/70 backdrop-blur-2xl sm:rounded-[18px]")}>
+        <div className={cn(
+          "flex-1 min-h-0 flex flex-col sm:px-0 sm:pt-0",
+          // 移动端无极光：原 12px 内缩内容区
+          !mobileAuroraPanel && "px-3 pt-3",
+          // 移动端极光：玻璃层 = 12px 内缩的圆角极光渐变面板（overflow-hidden
+          // 裁掉子元素四角外溢），四周露出页面普通底色 = 与网页端一致
+          mobileAuroraPanel && cn("m-3 mb-0 rounded-[18px] overflow-hidden", aBg),
+          // 桌面端极光：原方案——整卡渐变 + 70% 玻璃罩
+          isDesktop && aBg && "bg-background/70 backdrop-blur-2xl sm:rounded-[18px]",
+        )}>
         <div className="flex-1 min-h-0 flex flex-col bg-card/60 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore overflow-hidden sm:bg-transparent sm:rounded-none sm:border-0 sm:shadow-none">
         {/* 头部行：冻结（应用信息 + 动作胶囊组）。
             0.6.217：底色改透明（原 bg-background 在暗色主题 = 纯黑 #000，
@@ -1041,6 +1067,18 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             </div>
           </DetailRow>
 
+          {/* 0.6.303（arm 适配准备）：平台架构——源提供的全部架构（x86 / arm，
+              展示序 x86 在前）；单架构源只显示一个。安装/下载由后端按本机
+              架构自动选包（arm 设备选中 arm 包，x86→all 回退），此行=依据。
+              源未提供架构信息（平铺单链接）时不显示该行。 */}
+          {(app.archs?.length || app.arch) && (
+            <DetailRow icon={Cpu} label="架构">
+              {app.archs?.length
+                ? app.archs.map(v => (v === 'all' ? '通用' : v)).join(' / ')
+                : (app.arch === 'all' ? '通用' : app.arch)}
+            </DetailRow>
+          )}
+
           {app.service_port ? (
             <DetailRow icon={Network} label="服务端口">
               {app.service_port}
@@ -1245,6 +1283,7 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             ② 「下载 fpk」= 最长一条全宽悬浮条（与设置页「保存」同款磨砂条 + 主色按钮）。
             0.6.217：底色改透明（原 bg-background 暗色主题 = 纯黑，
             按钮行/下载条四周露出大黑框——用户实锤，之前版本无）。 */}
+        {/* 0.6.302（用户定稿）：0.6.301 的贴底改动回退，恢复原 12px+safe 间距 */}
         {(actionRow || downloadFpkVisible) && (
           <div className="flex-none border-t border-border/60 px-4 py-3 sm:px-5 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
             {/* 次要操作（忽略/取消忽略更新）：居中 ghost 小药丸 */}
@@ -1286,6 +1325,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
                 WebView GPU 吃紧时会把整个对话框的滚动/触摸反馈拖慢
                 （New Store 同款动作区就是实心底）。用近实色底+阴影
                 保留悬浮感，视觉差异极小。 */}
+            {/* 0.6.303（用户实抓）：0.6.301 残留的 rounded-b-none/border-b-0/pb-safe
+                未在 0.6.302 回退干净——移动端 pill 底部无圆角+无下边框+多 12px
+                padding = 阴影拖长、不成胶囊。恢复 0.6.283 定稿形态。 */}
             {downloadFpkVisible && (
               <div className={cn("rounded-2xl border border-border/40 bg-card/95 p-2 shadow-2xl shadow-black/10", actionRow && "mt-2")}>
                 <button

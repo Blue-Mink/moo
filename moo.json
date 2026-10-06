@@ -19,6 +19,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.303": {
+     "changelog": "移动端两修：下载 pill 恢复胶囊形态、极光模式详情渐变收边（四周不再溢出）；详情页新增「架构」行（x86 / arm），安装按本机架构自动选包（arm 设备选 arm 包）；release 新增 arm64 安装包。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.303/moo_0.6.303_x86.fpk",
+       "size": 8950495,
+       "size_mb": 8.5,
+       "sha256": "7546c3e97dd766ae1fc04ded50bfd5fab4f6a98835ba5cf63efd938eda35b299"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.303/moo_0.6.303_arm.fpk",
+       "size": 8211266,
+       "size_mb": 7.8,
+       "sha256": "58da62e894e6eb7a76ae9ab427519887880f47539ef8a948ac80a8c74bae8281"
+      }
+     },
+     "updated_at": "2026-10-06T12:20:50+08:00"
+    },
     "0.6.298": {
      "changelog": "网页端极光模式定稿：12 组三段式渐变色板按应用稳定取色，收藏/忽略更新区跟随三模式；详情与设置对话框底板同风格渐变（圆角收边）、大屏极光卡一行 4 个；另含 284-293 批次桌面/移动真分支与安装按钮、毛玻璃等多处 UI 细节修复。",
      "packages": {
@@ -42,21 +60,9 @@
       }
      },
      "updated_at": "2026-10-05T18:06:48+08:00"
-    },
-    "0.6.282": {
-     "changelog": "深链现场恢复：详情/设置页（含所选 tab）写入 URL，外链返回与 F5 刷新同帧恢复、无跳闪（新增恢复门）；设置页深链 #settings=<tab>；Go 后端零改动。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.282/moo_0.6.282_x86.fpk",
-       "size": 8910109,
-       "size_mb": 8.5,
-       "sha256": "9f631a3b9451fa096f681a9a8c2e84a83318dd3c2bfeb4eb638d86b4ba88f7e4"
-      }
-     },
-     "updated_at": "2026-10-05T14:30:00+08:00"
     }
    },
-   "sha256": "fccb76bf4c33714766153878a4340569ba8aeb11aeb2a7efdb2cb2a0025c3362",
+   "sha256": "7546c3e97dd766ae1fc04ded50bfd5fab4f6a98835ba5cf63efd938eda35b299",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -68,11 +74,11 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-06T04:08:09+08:00",
-   "version": "0.6.298",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.283/moo_0.6.283_x86.fpk",
+   "updated_at": "2026-10-06T12:20:50+08:00",
+   "version": "0.6.303",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.303/moo_0.6.303_x86.fpk",
    "size": "8.5",
-   "changelog": "直链源治本：GitHub 系 .json 直链源自动展开镜像与 jsDelivr 兜底候选（不再怕 raw 直连断流）；兜底竞速独立超时；源同步失败通知附具体原因。前端零改动。",
+   "changelog": "移动端下载 pill 恢复胶囊形态；极光模式详情页渐变收边不溢出；详情页新增架构行（x86 / arm），安装按本机架构自动选包；release 新增 arm64 安装包。",
    "service_port": "38100"
   }
  }

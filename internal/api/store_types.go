@@ -38,6 +38,11 @@ type AppInfo struct {
 	//（行上带「已忽略」标记）；已忽略且已最新的 app 不计入。
 	UpdateIgnoredPending bool   `json:"update_ignored_pending,omitempty"`
 	Platform             string `json:"platform,omitempty"`
+	// Arch 当前选中安装包的架构（fnpack 约定 x86/arm/all；0.6.303：
+	// 源未提供架构信息时为空。arm 设备上 bestRelease 按 currentArch()=arm
+	// 自动选中 arm 包（x86→all 回退），此字段=实际会装的包架构）。
+	Arch  string   `json:"arch,omitempty"`
+	Archs []string `json:"archs,omitempty"` // 源提供的全部架构（x86/arm/all，展示序）
 	ReleaseURL           string `json:"release_url,omitempty"`
 	ReleaseNotes         string `json:"release_notes,omitempty"`
 	Status               string `json:"status,omitempty"`

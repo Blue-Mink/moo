@@ -1,172 +1,91 @@
 /**
- * 亮/暗主题「圆形展开」过渡 —— 参考开源 fn-knock（kci-lnk/fn-knock-turborepo）
- * 的 View Transitions 实现（packages/ui-vue/.../theme-toggle/useThemeMode.ts）。
+ * 亮/暗主题切换过渡 —— 0.6.302 起全引擎统一「即时切换 + 单层遮罩交叉淡切」。
  *
- * 切换时调用 document.startViewTransition() 对切前后两帧做过渡：
- * 新主题帧用圆形遮罩从屏幕中心向外展开（mask-size 0 → 200vmax），
- * 时长 1s，expo-out 自定义曲线（linear() 分段），旧帧不淡出、垫在下方
- * —— 视觉效果与 fn-knock 控制台一致。
+ * 演进史：
+ *   0.6.293  View Transitions 圆形展开（照抄 fn-knock）
+ *   0.6.301  WebKit（iOS/Mac Safari）改 150ms 全元素颜色淡切（绕开 VT 快照
+ *            在毛玻璃/fixed 层上的「卡半屏」缺陷）
+ *   0.6.302  两路都废弃，统一为遮罩淡切。原因（用户实报「卡顿/延迟/不丝滑」）：
+ *            ① VT 路（Chromium/安卓/桌面网页）：
+ *               a. 延迟——动画要等 applyTheme 回调 + 等 <html> 的 .dark 类
+ *                  落上（next-themes 在 React effect 里提交，几十 ms 起）
+ *                  才开始，点击后画面先「冻」一下；
+ *               b. 卡顿——对 1800 卡 + 毛玻璃重页拍「旧帧/新帧」两张全页
+ *                  快照本身就是昂贵的合成操作；
+ *               c. 不丝滑——1s expo-out 尾部 40% 时长只推进 2%，观感拖沓。
+ *            ② WebKit 淡切路（iOS）：对全部元素强制 150ms 颜色 transition，
+ *               数千节点同时做 paint 级属性动画 + backdrop-filter 毛玻璃层
+ *               每帧重模糊 → 掉帧 = 卡顿。
  *
- * 降级（以下任一情况直接切换、不做动画）：
- *   - 用户开启系统「减少动态效果」（prefers-reduced-motion: reduce）
- *   - 浏览器无 View Transitions API（Safari <18.2、旧 WebView）
+ * 0.6.302 方案（所有引擎一致）：
+ *   点击 → 主题即时切换（一次整页重绘，被不透明遮罩盖住、不可见）
+ *        → 单层全屏遮罩（背景=旧主题底色）opacity 1→0 约 200ms 淡出，
+ *          新主题在遮罩下逐渐显露 = 平滑交叉淡切。
+ *   全程只动画一个元素的 opacity = 纯合成器（GPU）动画，零 paint、
+ *   零快照、零等待 → 结构上不可能卡顿；无引擎差异、无快照缺陷。
+ *   prefers-reduced-motion = 直接即时切换（无遮罩）。
  *
- * 过渡期间临时挂 :root[data-theme-transitioning]，禁用页面其他
- * transition，避免各组件自带的颜色过渡干扰圆形展开。
- *
- * 注意：本模块只负责「怎么过渡」，主题状态本身仍由 next-themes 管理
- * （localStorage key=theme，.dark 类挂在 <html>），两者解耦。
+ * 主题状态仍由 next-themes 管理（localStorage key=theme，.dark 挂 <html>）。
  */
 
 export type ResolvedThemeMode = 'light' | 'dark';
 
-const STYLE_ID = 'new-store-theme-transition-style';
-const THEME_TRANSITION_DURATION = '1s';
-const THEME_TRANSITION_MASK =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='20' fill='white'/%3E%3C/svg%3E\")";
-
-type ViewTransitionLike = { finished: Promise<void> };
-
-type StartViewTransitionDocument = Document & {
-  startViewTransition?: (
-    updateCallback: () => void | Promise<void>,
-  ) => ViewTransitionLike;
-};
+const CROSSFADE_MS = 200;
 
 export const prefersReducedMotion = (): boolean =>
   typeof window !== 'undefined' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** 注入圆形展开过渡样式（幂等，仅首次生效）。 */
-export const ensureThemeTransitionStyles = (): void => {
-  if (typeof document === 'undefined') return;
-  if (document.getElementById(STYLE_ID)) return;
-
-  const style = document.createElement('style');
-  style.id = STYLE_ID;
-  style.textContent = `
-:root {
-  --new-store-theme-transition-duration: ${THEME_TRANSITION_DURATION};
-  --new-store-theme-transition-mask: ${THEME_TRANSITION_MASK};
-  --new-store-theme-expo-out: linear(
-    0 0%, 0.1684 2.66%, 0.3165 5.49%, 0.446 8.52%,
-    0.5581 11.78%, 0.6535 15.29%, 0.7341 19.11%,
-    0.8011 23.3%, 0.8557 27.93%, 0.8962 32.68%,
-    0.9283 38.01%, 0.9529 44.08%, 0.9711 51.14%,
-    0.9833 59.06%, 0.9915 68.74%, 1 100%
-  );
-}
-
-/* 移动端（飞牛 app 内嵌 WebView / 触屏 / 窄屏）：fn-knock 的 1s 节奏在手机上
-   拖尾偏慢，缩短到 0.45s 跟手性更好；桌面浏览器保持 1s。 */
-@media (max-width: 768px), (pointer: coarse) {
-  :root {
-    --new-store-theme-transition-duration: 0.45s;
+/** 取当前（切换前）页面底色：body → html → --background 变量 → 白。 */
+const currentBgColor = (): string => {
+  try {
+    const b = getComputedStyle(document.body).backgroundColor;
+    if (b && b !== 'rgba(0, 0, 0, 0)') return b;
+    const h = getComputedStyle(document.documentElement).backgroundColor;
+    if (h && h !== 'rgba(0, 0, 0, 0)') return h;
+    const v = getComputedStyle(document.documentElement)
+      .getPropertyValue('--background')
+      .trim();
+    if (v) return v;
+  } catch {
+    /* SSR/异常 → 兜底 */
   }
-}
-
-:root[data-theme-transitioning] *,
-:root[data-theme-transitioning] *::before,
-:root[data-theme-transitioning] *::after {
-  transition-property: none !important;
-}
-
-::view-transition-group(root) {
-  animation-timing-function: var(--new-store-theme-expo-out);
-}
-
-::view-transition-old(root),
-.dark::view-transition-old(root) {
-  animation: none;
-  animation-fill-mode: both;
-  z-index: -1;
-}
-
-::view-transition-new(root),
-.dark::view-transition-new(root) {
-  animation: new-store-theme-reveal var(--new-store-theme-transition-duration);
-  animation-fill-mode: both;
-  animation-timing-function: var(--new-store-theme-expo-out);
-  -webkit-mask: var(--new-store-theme-transition-mask) center / 0 no-repeat;
-  mask: var(--new-store-theme-transition-mask) center / 0 no-repeat;
-}
-
-@keyframes new-store-theme-reveal {
-  to {
-    -webkit-mask-size: 200vmax;
-    mask-size: 200vmax;
-  }
-}
-`;
-  document.head.appendChild(style);
+  return '#ffffff';
 };
 
 /**
- * 等待 <html> 的 .dark 类翻转到目标值（next-themes 在渲染副作用里
- * 落类，晚于 setTheme 调用；View Transition 必须等新帧 DOM 就位后
- * 再拍新快照，否则拍到的还是旧主题）。超时兜底，避免死等。
- */
-const waitForThemeClass = (
-  mode: ResolvedThemeMode,
-  timeoutMs = 800,
-): Promise<void> =>
-  new Promise((resolve) => {
-    if (typeof document === 'undefined') {
-      resolve();
-      return;
-    }
-    const started = Date.now();
-    const tick = () => {
-      const isDark = document.documentElement.classList.contains('dark');
-      if ((mode === 'dark') === isDark || Date.now() - started > timeoutMs) {
-        resolve();
-        return;
-      }
-      setTimeout(tick, 16);
-    };
-    setTimeout(tick, 16);
-  });
-
-/**
- * 执行一次带圆形展开过渡的主题切换。
- * @param next 目标主题（light/dark）
+ * 执行一次主题切换（0.6.302 遮罩交叉淡切）。
  * @param applyTheme 切换动作（通常是 next-themes 的 setTheme）
  */
-export const runThemeToggleTransition = async (
-  next: ResolvedThemeMode,
+export const runThemeToggleTransition = (
   applyTheme: () => void,
-): Promise<void> => {
-  const startViewTransition =
-    typeof document === 'undefined'
-      ? undefined
-      : (document as StartViewTransitionDocument).startViewTransition?.bind(
-          document,
-        );
-
-  if (typeof document === 'undefined' || prefersReducedMotion() || !startViewTransition) {
+): void => {
+  if (typeof document === 'undefined' || prefersReducedMotion()) {
     applyTheme();
     return;
   }
 
-  ensureThemeTransitionStyles();
-
   const root = document.documentElement;
-  root.dataset.themeTransition = next === 'dark' ? 'to-dark' : 'to-light';
-  root.dataset.themeTransitioning = '';
+  const ov = document.createElement('div');
+  ov.setAttribute('data-theme-overlay', '');
+  ov.style.cssText =
+    'position:fixed;inset:0;z-index:2147483000;pointer-events:none;' +
+    `background:${currentBgColor()};opacity:1;` +
+    `transition:opacity ${CROSSFADE_MS}ms ease-out;`;
+  root.appendChild(ov);
 
-  try {
-    const transition = startViewTransition(async () => {
-      applyTheme();
-      await waitForThemeClass(next);
-    });
-    await transition.finished.catch(() => undefined);
-  } finally {
-    delete root.dataset.themeTransition;
-    delete root.dataset.themeTransitioning;
-  }
+  // 即时切换（重绘被不透明遮罩盖住，用户不可见）
+  applyTheme();
+
+  // 等重绘完成（双 rAF + 60ms 预算，吸收整页重绘的掉帧）再开始淡出，
+  // 淡出期间零 paint（只有合成器 opacity 动画）= 丝滑
+  window.setTimeout(() => {
+    ov.style.opacity = '0';
+    window.setTimeout(() => ov.remove(), CROSSFADE_MS + 100);
+  }, 60);
 };
 
-/** 进行中的一次切换（防止连点触发重叠过渡；同 fn-knock 的 activeThemeTransition）。 */
+/** 进行中的一次切换（防止连点触发重叠；同 fn-knock 的 activeThemeTransition）。 */
 let activeThemeTransition: Promise<void> | null = null;
 
 /**
@@ -183,9 +102,13 @@ export const toggleThemeWithTransition = (
     return activeThemeTransition;
   }
 
-  activeThemeTransition = runThemeToggleTransition(next, () =>
-    setTheme(next),
-  ).finally(() => {
+  activeThemeTransition = (async () => {
+    runThemeToggleTransition(() => setTheme(next));
+    // 淡切总时长 ≈ 60ms 等待 + 200ms 淡出，锁 320ms 防连点
+    await new Promise((r) => setTimeout(r, 320));
+  })();
+
+  activeThemeTransition.finally(() => {
     activeThemeTransition = null;
   });
 
