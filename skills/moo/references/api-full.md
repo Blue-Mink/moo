@@ -192,7 +192,7 @@ Docker 组同构（`/api/mirrors/docker/health`）。
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `catalog_language`, `update_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -291,6 +291,15 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 ```
 把仓库根 / raw 前缀 / 路径 / v1v2 索引 / CDN 镜像等形式归一到 `github.com/owner/repo`（或 fndepot JSON 索引键）。
 
+### 6.6 `GET /api/dedup`（公开）
+去重展示策略当前值 + 三档可见卡数（首页去重胶囊预览）。
+```json
+{"policy": "all", "total": 2556, "merged": 1812, "one": 923}
+```
+`policy` ∈ `all`（默认，全部卡片）/ `merge`（同名组内同宗簇留一代表）/
+`one`（每个 appname 留一张代表卡）。`total`/`merged`/`one` 分别为三档下
+列表可见卡数。策略由 `PUT /api/settings` 的 `dedup_policy` 字段设置。
+
 ---
 
 ## 7. 安装 / 更新 / 卸载 / 下载
@@ -384,6 +393,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 - 数值字段（`gh_probe_hours`…、`cache_clean_days`…）：越界整单拒绝。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
 - `update_policy`（0.6.272 跨源更新策略）：仅接受 `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
+- `dedup_policy`（0.6.312 B2 列表去重展示策略）：仅接受 `all`（默认，零变化）/ `merge`（同名组内同宗簇留一代表）/ `one`（每 appname 一张代表卡），其余整单拒绝；变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回三档可见数。
 
 常用片段示例：
 
