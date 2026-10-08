@@ -57,8 +57,11 @@ jobs:
           while IFS= read -r pat; do
             case "$pat" in '' | \#*) continue ;; esac
             # -e 防止以 - 开头的模式（PEM 块）被当成 git 选项；
-            # rc>1（git grep 自身异常）判 fail-closed，防静默漏扫
-            m=$(git grep -I -n -E -e "$pat" -- . ':(exclude).github/sanitize-patterns.txt' 2>&1); rc=$?
+            # rc>1（git grep 自身异常）判 fail-closed，防静默漏扫；
+            # 「|| rc=$?」写法：git grep 无匹配=exit 1，CI 包装器带 errexit，
+            # 直接赋值会被当场杀死（canary 首跑实锤），必须 || 兜住
+            rc=0
+            m=$(git grep -I -n -E -e "$pat" -- . ':(exclude).github/sanitize-patterns.txt' 2>&1) || rc=$?
             if [ $rc -gt 1 ]; then
               echo "::error::git grep 异常（rc=$rc）模式: $pat —— 按失败处理（fail-closed）"
               echo "$m"
