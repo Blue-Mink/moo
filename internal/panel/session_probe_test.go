@@ -10,6 +10,7 @@ import (
 
 // TestDumpSession 临时探针：完整登录链 + ost cookie 有效期 + app-center 目录调用。
 // 用于评估「会话复用」改造（0.6.253 候选）：登录一次后 cookie 能用多久。
+// 探针性质：无面板（CI/干净机）或假凭据登录失败 → skip，不阻塞 go test 全绿（Release 门依赖）。
 func TestDumpSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -18,7 +19,7 @@ func TestDumpSession(t *testing.T) {
 
 	ticket, err := wsLogin(ctx, c.BaseURL, c.Username, c.Password)
 	if err != nil {
-		t.Fatalf("wsLogin: %v", err)
+		t.Skipf("探针跳过（无面板或登录失败，非回归）: %v", err)
 	}
 	t.Logf("ticket=%s", ticket)
 

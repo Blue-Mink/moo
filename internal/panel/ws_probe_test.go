@@ -16,6 +16,7 @@ import (
 )
 
 // rawWSProbe 临时探针（会话复用研究）：
+// 探针性质：无面板（CI/干净机）dial 失败 → skip，不阻塞 go test 全绿（Release 门依赖）。
 // 1) 裸 WS user.login，dump 完整响应（找 token 字段）
 // 2) 保持 WS 不断开，用 Authorization: trim <token> 调 /app-center 目录
 // 3) 60s 内观察会话是否存活
@@ -25,7 +26,7 @@ func rawWSProbe(t *testing.T, keepAlive bool) (string, bool) {
 	base := "http://127.0.0.1:5666"
 	conn, err := net.DialTimeout("tcp", "127.0.0.1:5666", 10*time.Second)
 	if err != nil {
-		t.Fatalf("dial: %v", err)
+		t.Skipf("探针跳过（无面板或不可达，非回归）: dial: %v", err)
 	}
 	if keepAlive {
 		// 不关连接

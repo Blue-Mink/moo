@@ -5,23 +5,117 @@ on:
     tags:
       - 'v*'
 
+# 同一 tag 的发布流程串行去重（force-push 重触发不会双跑）；不同 tag 并行
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+# 最小权限默认 read；只有 build-and-release 的 gh release 步骤需要 write
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+  # ── 质量门（借鉴 fn-knock 门禁哲学：发布硬依赖 + 定量断言）─────────────
+  # 任一检查失败 → 后续 build-and-release 不执行，tag 不会产出 release。
+  gate:
+    name: Gate (sanitize/vet/test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
+        with:
+          persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # web 包 go:embed all:dist 依赖前端产物；dist 未入库（.gitignore），
+      # 先构建前端，vet/test 才能编译全模块（含 embed 包）
+      - name: Setup Node.js (前端产物供 go:embed 编译)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v4
         with:
           node-version: 22
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Sanitize scan (整树；公开模式 .github/sanitize-patterns.txt + 密文扩展 secrets.SANITIZE_EXTRA_PATTERNS)
+        shell: bash
+        env:
+          EXTRA_PATTERNS: ${{ secrets.SANITIZE_EXTRA_PATTERNS }}
+        run: |
+          set -uo pipefail
+          PATS=.github/sanitize-patterns.txt
+          if [ -n "${EXTRA_PATTERNS:-}" ]; then
+            PATS="$(mktemp)"
+            cat .github/sanitize-patterns.txt > "$PATS"
+            printf '\n%s\n' "$EXTRA_PATTERNS" >> "$PATS"
+          fi
+          fails=0
+          while IFS= read -r pat; do
+            case "$pat" in '' | \#*) continue ;; esac
+            # -e 防止以 - 开头的模式（PEM 块）被当成 git 选项；
+            # rc>1（git grep 自身异常）判 fail-closed，防静默漏扫
+            m=$(git grep -I -n -E -e "$pat" -- . ':(exclude).github/sanitize-patterns.txt' 2>&1); rc=$?
+            if [ $rc -gt 1 ]; then
+              echo "::error::git grep 异常（rc=$rc）模式: $pat —— 按失败处理（fail-closed）"
+              echo "$m"
+              exit 1
+            fi
+            if [ $rc -eq 0 ] && [ -n "$m" ]; then
+              echo "::error title=脱敏命中::模式: $pat"
+              echo "$m"
+              fails=$((fails+1))
+            fi
+          done < "$PATS"
+          if [ "$fails" -gt 0 ]; then
+            echo "::error::共 $fails 个敏感模式命中，发布流程终止（公开模式 .github/sanitize-patterns.txt + 密文扩展）"
+            exit 1
+          fi
+          echo "sanitize: 0 命中 ✓"
+
+      - name: Build Frontend (web/dist，go:embed 编译依赖)
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # vet/test 已完成全模块类型检查与编译，不再单列 go build；
+      # node_modules 在 npm ci 后位于模块内，显式排除避免把依赖库当门对象
+      - name: go vet
+        run: |
+          PKGS=$(go list ./... | grep -v node_modules)
+          echo "vet $(echo "$PKGS" | wc -l) packages"
+          go vet $PKGS
+
+      - name: go test
+        run: |
+          PKGS=$(go list ./... | grep -v node_modules)
+          go test $PKGS
+
+  # ── 构建与发布（原流程保持不变：前端构建 + 二进制 + release upsert）──
+  build-and-release:
+    name: Build & Release
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v4
+        with:
+          node-version: 22
+
+      - name: Setup Go
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
         with:
           go-version-file: 'go.mod'
 
@@ -35,7 +129,9 @@ jobs:
 
       # 仅 x86_64（Moo 按用户偏好不出 arm 版）
       - name: Build Linux amd64
-        run: GOOS=linux GOARCH=amd64 go build -o moo-server-linux-amd64 ./cmd/server/
+        # -s -w 剥离符号表：与 FPK 内二进制同规格（0.6.304 起 FPK 已 strip，
+        # CI 二进制此前未 strip 14.2M vs 11.1M，属已知遗留，本次收口）
+        run: GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o moo-server-linux-amd64 ./cmd/server/
 
       - name: Create Release
         run: |
