@@ -1,9 +1,10 @@
-# moo release 脱敏模式（每行一个 ERE；# 开头为注释，空行忽略）
+﻿# moo release 脱敏模式（每行一个 ERE；# 开头为注释，空行忽略）
 # Release 门对 tag 整树扫描：命中任一模式即拒绝发布。
 # 本文件不参与自身扫描（workflow 用 :exclude 排除），模式字面量可安全在列。
 # 注意：真实凭据（口令/token/邮箱等）绝不写入本公开文件——
-# 那等于把凭据本身重新放进公开仓。实际凭据模式走仓库密文
-# secrets.SANITIZE_EXTRA_PATTERNS（多行 ERE，Web UI 可热更，无需推代码）。
+# 那等于把凭据本身重新放进公开仓。实际凭据模式走仓库变量
+# vars.SANITIZE_EXTRA_PATTERNS（多行 ERE，Web UI 可热更，无需推代码；
+# secrets API 写被账号企业策略 404 拦截，故用 vars）。
 # 凭据轮换时：旧凭据模式必须保留在密文里（防旧凭据再次入库）。
 
 # GitHub / GitHub OAuth PAT

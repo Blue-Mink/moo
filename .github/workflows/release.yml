@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+    # main 分支级门禁：每次 main 推送也跑 gate（只跑门，不跑发布）
+    branches:
+      - main
 
 # 同一 tag 的发布流程串行去重（force-push 重触发不会双跑）；不同 tag 并行
 concurrency:
@@ -41,10 +44,12 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Sanitize scan (整树；公开模式 .github/sanitize-patterns.txt + 密文扩展 secrets.SANITIZE_EXTRA_PATTERNS)
+      # 注：secrets API 写被账号企业策略 404 拦截（主 NAS/.2 双出口实锤），
+      # 扩展模式走 vars.SANITIZE_EXTRA_PATTERNS（Web UI 可热更）
+      - name: Sanitize scan (整树；公开模式 .github/sanitize-patterns.txt + 扩展 vars.SANITIZE_EXTRA_PATTERNS)
         shell: bash
         env:
-          EXTRA_PATTERNS: ${{ secrets.SANITIZE_EXTRA_PATTERNS }}
+          EXTRA_PATTERNS: ${{ vars.SANITIZE_EXTRA_PATTERNS }}
         run: |
           set -uo pipefail
           PATS=.github/sanitize-patterns.txt
@@ -53,6 +58,7 @@ jobs:
             cat .github/sanitize-patterns.txt > "$PATS"
             printf '\n%s\n' "$EXTRA_PATTERNS" >> "$PATS"
           fi
+          echo "sanitize: $(grep -Ev '^[[:space:]]*(#|$)' "$PATS" | wc -l) 条模式（公开 + 扩展）"
           fails=0
           while IFS= read -r pat; do
             case "$pat" in '' | \#*) continue ;; esac
@@ -102,6 +108,8 @@ jobs:
   build-and-release:
     name: Build & Release
     needs: gate
+    # main 分支推送（分支级门禁）只跑门不发布；仅 tag 触发构建与 release
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
