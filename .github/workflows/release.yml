@@ -45,11 +45,11 @@ jobs:
           go-version-file: 'go.mod'
 
       # 注：secrets API 写被账号企业策略 404 拦截（主 NAS/.2 双出口实锤），
-      # 扩展模式走 vars.SANITIZE_EXTRA_PATTERNS（Web UI 可热更）
-      - name: Sanitize scan (整树；公开模式 .github/sanitize-patterns.txt + 扩展 vars.SANITIZE_EXTRA_PATTERNS)
+      # 扩展模式存于 secrets.SANITIZE_EXTRA_PATTERNS（用户在 Web UI 手动创建，热更也走 Web UI）
+      - name: Sanitize scan (整树；公开模式 .github/sanitize-patterns.txt + 扩展 secrets.SANITIZE_EXTRA_PATTERNS)
         shell: bash
         env:
-          EXTRA_PATTERNS: ${{ vars.SANITIZE_EXTRA_PATTERNS }}
+          EXTRA_PATTERNS: ${{ secrets.SANITIZE_EXTRA_PATTERNS }}
         run: |
           set -uo pipefail
           PATS=.github/sanitize-patterns.txt
