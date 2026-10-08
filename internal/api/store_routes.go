@@ -24,6 +24,7 @@ import (
 	"moo/internal/notify"
 	"moo/internal/operation"
 	"moo/internal/platform"
+	"moo/internal/reco"
 	"moo/internal/source"
 	"moo/internal/task"
 )
@@ -34,13 +35,26 @@ import (
 // 对标 FnDepot「首开从本地库秒开」的 HTTP 层等价物：目录未变时客户端
 // （fn connect / WebView 的 HTTP 缓存）带 If-None-Match 重校验→304 空响应，
 // 二次打开从「重传 1.5MB」变成「一次小头往返」。
+// 0.6.313 B4：无 source 参数的全量响应（前端唯一热路径）走 body 缓存——
+// marshal 字节 + ETag 重建时各算一次；有 source 参数的罕见路径照旧现算。
 func (s *Server) appsWithEtag(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("source") == "" {
+		if body, etag, ok := s.cachedAppsBody(r); ok {
+			s.writeAppsBody(w, r, body, etag)
+			return
+		}
+	}
 	body, err := json.Marshal(s.appsResponse(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	etag := `"` + fmt.Sprintf("%x", md5.Sum(body)) + `"`
+	s.writeAppsBody(w, r, body, etag)
+}
+
+// writeAppsBody 统一的列表响应写出（ETag 重校验→304 / 否则 200 + body）。
+func (s *Server) writeAppsBody(w http.ResponseWriter, r *http.Request, body []byte, etag string) {
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-cache") // 强制重校验：新鲜不牺牲
 	if etagMatch(r.Header.Get("If-None-Match"), etag) {
@@ -49,6 +63,27 @@ func (s *Server) appsWithEtag(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_, _ = w.Write(body)
+}
+
+// cachedAppsBody 返回 /api/apps 全量响应（无 source 参数）的缓存字节 +
+// ETag；ok=false 表示未命中（刚失效 / 首次 / marshal 失败）。未命中时
+// 现建：复用 appsResponse（内部走 cachedCatalog，SWR + 失效钩子保证构建
+// 频率受控），marshal 与 md5 各算一次后入缓存返回。缓存字节多请求
+// 只读共享（writeAppsBody 永不修改它）。
+func (s *Server) cachedAppsBody(r *http.Request) ([]byte, string, bool) {
+	s.catalogBodyMu.Lock()
+	defer s.catalogBodyMu.Unlock()
+	if s.catalogBody != nil {
+		return s.catalogBody, s.catalogBodyETag, true
+	}
+	body, err := json.Marshal(s.appsResponse(r))
+	if err != nil {
+		return nil, "", false
+	}
+	etag := `"` + fmt.Sprintf("%x", md5.Sum(body)) + `"`
+	s.catalogBody = body
+	s.catalogBodyETag = etag
+	return body, etag, true
 }
 
 // etagMatch 匹配 If-None-Match（兼容 W/ 弱标记与多值列表）。
@@ -83,6 +118,16 @@ func (s *Server) appsResponse(r *http.Request) AppsResponse {
 			}
 		}
 		catalog = filtered
+	} else {
+		// 去重展示层（0.6.312 B2）：无源过滤时隐藏非代表卡（按源浏览=
+		// 显式上下文，不隐藏；详情按 key 永远可达=逃生门）。
+		filtered := catalog[:0]
+		for _, a := range catalog {
+			if !a.Hidden {
+				filtered = append(filtered, a)
+			}
+		}
+		catalog = filtered
 	}
 	if catalog == nil {
 		catalog = []AppInfo{}
@@ -97,6 +142,7 @@ func (s *Server) appsResponse(r *http.Request) AppsResponse {
 		a.Homepage = ""
 		a.Sha256 = ""
 		a.ReleaseURL = ""
+		a.SameName = nil // 候选表仅详情下发（列表留 SameNameCount 角标）
 	}
 	return AppsResponse{Apps: catalog, LastCheck: s.lastCheckStamp(), UpgradeAllowed: true}
 }
@@ -119,40 +165,244 @@ func (s *Server) lastCheckStamp() string {
 func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 	// 目录缓存命中（读-only）——详情点击不再触发全量重建（ListInstalled
 	// RPC + 1700+ 条目合并），打开详情对话框的骨架屏闪烁由此消除。
-	for _, a := range s.cachedCatalog(lang.From(r.Context())) {
-		if a.Key == r.PathValue("key") {
+	catalog := s.cachedCatalog(lang.From(r.Context()))
+	foundIdx := -1
+	for i := range catalog {
+		if catalog[i].Key == r.PathValue("key") {
+			foundIdx = i
+			break
+		}
+	}
+	if foundIdx < 0 {
+		// 0.6.314 C：固定推荐快照回落——源被删/抓取失败后，三个固定推荐
+		// 应用（fnos-apps-store / fndepot / fn-knock）的详情页保持完整可达：
+		// 返回与实时条目字段形态一致的快照条目（前端零改动渲染）。key 匹配
+		// 取 appname 段（大小写不敏感），兼容深链 hash 携带的旧 @源名 形态。
+		if snap := snapshotForKey(r.PathValue("key")); snap != nil {
+			a := snapshotAppInfo(snap)
+			a.Key = r.PathValue("key") // 回显请求 key（图标/资源端点按同 key 取）
 			writeJSON(w, a)
 			return
 		}
+		writeErr(w, http.StatusNotFound, errors.New("应用不存在"))
+		return
 	}
-	writeErr(w, http.StatusNotFound, errors.New("应用不存在"))
+	a := catalog[foundIdx] // 浅拷贝——组信息/冲突字段不落共享目录元素
+	// 0.6.312 B3/F8（源缓存两级）：changelog 全文/releases 明细不再常驻
+	// 目录内存，详情打开时按「源+应用+版本」从详情磁盘层懒载（readme_store
+	// 同款：内存命中零开销、磁盘命中首载几十 ms，用户实测无感）。
+	if p, ok := s.detailStore().Get(detailKey(a.Source, a.AppName, a.LatestVersion)); ok {
+		if p.Cl != "" {
+			a.Changelog = p.Cl
+			a.ReleaseNotes = p.Cl
+		}
+		if len(p.Entries) > 0 {
+			a.ChangelogEntries = p.Entries
+		}
+	}
+	// 过渡期回落：升级后尚未重新同步的源，changelog 仍在内存（旧快照
+	// 恢复的 App 未剥离）而磁盘层暂无条目 → 现解析一次补齐（F7② 把解析
+	// 移出重建热路径后，这里是唯一的非预解析入口）。
+	if len(a.ChangelogEntries) == 0 && a.Changelog != "" {
+		a.ChangelogEntries = parseChangelogEntries(a.Changelog, a.LatestVersion, nil)
+	}
+	// 0.6.312 B2：候选表 + 安装冲突对组内任意卡现算（含被去重隐藏的卡——
+	// 显式引用/候选表跳转打开的正是它们）。
+	if entries := buildSameNameGroup(catalog, a.Key); len(entries) > 1 {
+		a.SameName = entries
+		a.SameNameCount = len(entries)
+		a.InstallConflict = installConflictOf(&a, entries)
+	}
+	writeJSON(w, a)
 }
 
-// recommended GET /api/recommended：随机 3 个（优先有图标的）。
+// buildSameNameGroup 收集目标卡的同名组（目录序，含目标卡自身）。
+// IsRep = 该卡当前策略下是否在列表可见（!Hidden）。
+func buildSameNameGroup(catalog []AppInfo, key string) []SameNameEntry {
+	self := -1
+	for i := range catalog {
+		if catalog[i].Key == key {
+			self = i
+			break
+		}
+	}
+	if self < 0 || catalog[self].AppName == "" {
+		return nil
+	}
+	name := catalog[self].AppName
+	entries := make([]SameNameEntry, 0, 4)
+	for i := range catalog {
+		c := &catalog[i]
+		if c.AppName != name {
+			continue
+		}
+		entries = append(entries, SameNameEntry{
+			Key:         c.Key,
+			Source:      c.Source,
+			DisplayName: c.DisplayName,
+			Version:     c.LatestVersion,
+			Arch:        c.Arch,
+			Installed:   c.Installed,
+			IsRep:       !c.Hidden,
+			Origin:      releaseOrigin(c.ReleaseURL),
+			Sha256:      c.Sha256,
+		})
+	}
+	return entries
+}
+
+// installConflictOf 目标卡点「安装」时的冲突分支（0.6.312 B2）：
+// official=已装卡为官方平台应用（平台管理，到面板操作）；
+// same=同源同版本（已装相同版本）；lineage=可验证同宗（同仓库或同版本同 sha，
+// 直接就地升级保留 @appdata）；different=不同源不同构建（显式裁决）。
+func installConflictOf(self *AppInfo, group []SameNameEntry) string {
+	if len(group) < 2 || self.Installed {
+		return ""
+	}
+	inst := -1
+	for i := range group {
+		if group[i].Installed {
+			inst = i
+			break
+		}
+	}
+	if inst < 0 {
+		return ""
+	}
+	e := group[inst]
+	if e.Source == OfficialSourceID {
+		return "official"
+	}
+	if self.Source == e.Source && self.LatestVersion != "" && self.LatestVersion == e.Version {
+		return "same"
+	}
+	so := releaseOrigin(self.ReleaseURL)
+	if (so != "" && so == e.Origin) ||
+		(self.Sha256 != "" && self.Sha256 == e.Sha256 && self.LatestVersion == e.Version) {
+		return "lineage"
+	}
+	return "different"
+}
+
+// recommended GET /api/recommended：固定前三 + 其余随机（0.6.314 C）。
+//
+// 前三固定位（上→下，用户定稿、不随机）：fnos-apps-store / fndepot /
+// fn-knock。每位每请求按当前目录判定（不粘性）：源在目录里=实时条目；
+// 源被删/抓取失败=回落内嵌完整元数据快照（internal/reco）。源恢复后
+// 自动切回实时。SWR 说明：目录过期有旧时（最长 TTL 默认 60s），「源刚
+// 删」最多多 60s 仍显示实时卡，下一轮重建后回落快照——可接受。
+//
+// 总位数 >3（?count=N，3≤N≤12）时其余位置维持既有随机逻辑（优先有
+// 图标、同名只取一张、Hidden 卡不参与），且不得重复出现前三 key。
 func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 	catalog := s.cachedCatalog(lang.From(r.Context()))
+	want := 3
+	if n, err := strconv.Atoi(r.URL.Query().Get("count")); err == nil && n > 3 && n <= 12 {
+		want = n
+	}
+	out := make([]AppInfo, 0, want)
+	used := map[string]bool{} // appname 归一（前三 + 已选随机卡），防重复
+	for _, appName := range reco.FixedOrder() {
+		if len(out) >= want {
+			break
+		}
+		var ai AppInfo
+		var ok bool
+		if live, lOK := fixedSlotLive(catalog, appName); lOK {
+			ai, ok = live, true
+		} else if snap := reco.Lookup(appName); snap != nil {
+			ai, ok = snapshotAppInfo(snap), true
+		}
+		if !ok {
+			continue
+		}
+		out = append(out, ai)
+		used[reco.NormAppName(ai.AppName)] = true
+	}
+	if len(out) >= want {
+		writeJSON(w, map[string]any{"apps": out})
+		return
+	}
+	// 其余位置：既有随机逻辑（优先有图标），排除前三 key（归一 appname）
 	withIcon := make([]AppInfo, 0)
 	rest := make([]AppInfo, 0)
+	// 0.6.312 B2：同名应用只取一张（去重档未开启时也能保证发现页不推
+	// 两张同应用）；Hidden 卡不参与。
+	seen := map[string]bool{}
 	for _, a := range catalog {
+		if a.Hidden || seen[a.AppName] {
+			continue
+		}
+		seen[a.AppName] = true
+		if used[reco.NormAppName(a.AppName)] {
+			continue
+		}
 		if a.IconURL != "" {
 			withIcon = append(withIcon, a)
 		} else {
 			rest = append(rest, a)
 		}
 	}
+	need := want - len(out)
 	pool := withIcon
-	if len(pool) < 3 {
+	if len(pool) < need {
 		pool = append(withIcon, rest...)
 	}
-	if len(pool) > 3 {
+	if len(pool) > need {
 		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
-		pool = pool[:3]
+		pool = pool[:need]
 	}
-	writeJSON(w, map[string]any{"apps": pool})
+	out = append(out, pool...)
+	writeJSON(w, map[string]any{"apps": out})
+}
+
+// dedupSummary GET /api/dedup：当前去重策略 + 三档可见数（首页胶囊预览：
+// 「默认 N / 标准 M / 去重 K」，0.6.313 文案；键 all/merge/one 不变）。计数在副本上现算（不污染目录缓存；
+// 组内并查集对 ~2500 卡是亚毫秒级，只在胶囊展开/策略切换时调用）。
+func (s *Server) dedupSummary(w http.ResponseWriter, r *http.Request) {
+	catalog := s.cachedCatalogCopy(lang.From(r.Context()))
+	probe := make([]AppInfo, len(catalog))
+	copy(probe, catalog)
+	merged, one := applyDedupPolicy(probe, "merge")
+	writeJSON(w, map[string]any{
+		"policy": orAll(s.Cfg.DedupPolicy),
+		"total":  len(catalog), // all 档可见数 = 全量卡数
+		"merged": merged,
+		"one":    one,
+	})
 }
 
 // checkUpdates POST /api/check：刷新各源后统计可更新数。
 func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
+	// 0.6.312 B1/F4（刷新 single-flight）：后台刷新轮正在进行时不再开第二轮
+	// 全量刷新（双轮 157 源并发=实测峰值 CPU 的最差形态），等后台轮结束
+	// （上限 90s）后直接返回其成果；等待超时则返回当前目录统计、不开新轮。
+	// 前端只消费 HTTP 200 + 随后的 loadApps，两种返回同形。
+	if s.refreshInflight.Load() {
+		deadline := time.Now().Add(90 * time.Second)
+		for s.refreshInflight.Load() && time.Now().Before(deadline) {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+		updates := 0
+		for _, a := range s.cachedCatalog(lang.From(r.Context())) {
+			if a.Installed && a.HasUpdate {
+				updates++
+			}
+		}
+		writeJSON(w, map[string]any{
+			"status":            "ok",
+			"checked_sources":   0, // 0 = 本轮未新开刷新（复用/让位进行中轮次）
+			"failed_sources":    0,
+			"updates_available": updates,
+		})
+		return
+	}
+	s.refreshInflight.Store(true)
+	defer s.refreshInflight.Store(false)
 	// 并发刷新（并发 8）：120 源串行最坏 24 分钟卡死请求，并发后通常 1-2 分钟
 	var updated, failed int
 	names := s.enabledSourceNames()
@@ -192,11 +442,58 @@ func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// autoRefreshBudget 0.6.312 B3/F5（源轮转预算）：每轮非优先级源最多补刷
+// 的个数。157 源里巨族长尾（59 个同源镜像仓库）按 1h/40 源拉平到 ~6h/源——
+// 社区源发布频率天级，单源可见延迟 ≤6h 无感知；峰值刷新负载降 60-70%。
+const autoRefreshBudget = 40
+
+// prioritySourceNames F5 优先级集：收藏源 + 已装应用所在源（保持小时级
+// 全刷）。官方目录不走源刷新（面板通道自同步），这里不含 OfficialSourceID。
+func (s *Server) prioritySourceNames() []string {
+	set := map[string]bool{}
+	for _, f := range s.Cfg.FavoriteSources {
+		if f != "" {
+			set[f] = true
+		}
+	}
+	// 已装应用所在源：取目录里已装卡（含官方合并后 Source=fnos-official 的
+	// 卡——其真实源在候选组里，一并计入）
+	catalog := s.cachedCatalog(s.bgLang())
+	for i := range catalog {
+		c := &catalog[i]
+		if !c.Installed {
+			continue
+		}
+		if c.Source != "" && c.Source != OfficialSourceID {
+			set[c.Source] = true
+		}
+		if c.Source == OfficialSourceID {
+			// 官方合并卡：原社区源 = 同名组里任一社区卡
+			for j := range catalog {
+				if catalog[j].AppName == c.AppName && catalog[j].Source != "" &&
+					catalog[j].Source != OfficialSourceID {
+					set[catalog[j].Source] = true
+				}
+			}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for n := range set {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // StartSourceAutoRefresh 后台自动源刷新（由 main 启动一个 goroutine 调用）：
-//  1. 启动 10s 后并发全量刷新一次——修「重启后社区目录空着，直到用户手动
+//  1. 启动 10s 后并发刷新一次——修「重启后社区目录空着，直到用户手动
 //     检查」（源目录是内存态，此前没有任何自动刷新机制）；
 //  2. 之后按 check_interval_hours 周期刷新（该设置此前是纯摆设：前端有
 //     输入框、后端存字段，但没有任何 ticker 执行）。
+//
+// 0.6.312 B3/F5（源轮转预算）：周期轮次不再全量刷 157 源——优先级集
+// （收藏+已装应用所在源）保持小时级，其余源按新鲜度升序只补刷最久未刷
+// 的 autoRefreshBudget 个。手动 /api/check 与 reload/sync-all 仍全量。
 func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 	s.autoRefreshMu.Lock()
 	defer s.autoRefreshMu.Unlock()
@@ -209,32 +506,41 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		start := time.Now()
-		sts := s.Src.RefreshAllConcurrent(8)
-		ok, fail := 0, 0
-		for _, st := range sts {
-			if st.Error != "" {
-				fail++
-			} else {
-				ok++
+		// 0.6.312 B1/F4：手动「检查更新」正在刷新一轮时跳过本轮（single-flight），
+		// 下个小时再轮。自动更新 pass 也随之跳过（手动操作进行中本就该让位）。
+		if s.refreshInflight.Load() {
+			log.Printf("[auto-refresh] 刷新进行中（手动检查），本轮跳过")
+		} else {
+			s.refreshInflight.Store(true)
+			start := time.Now()
+			// 0.6.312 B3/F5：轮转预算轮次（优先级集必刷 + 最久未刷补刷 40 源）
+			sts := s.Src.RefreshBudgeted(s.prioritySourceNames(), autoRefreshBudget)
+			ok, fail := 0, 0
+			for _, st := range sts {
+				if st.Error != "" {
+					fail++
+				} else {
+					ok++
+				}
 			}
-		}
-		log.Printf("[auto-refresh] 源刷新完成: %d 成功 / %d 失败, 耗时 %s", ok, fail, time.Since(start).Round(time.Second))
-		// 「应用源自动监测」：连续 5 次刷新无应用的源自动停用 + 空源沉底
-		//（策略关闭或无动作时为 nil）。变更落在共享 cfg 上，落盘 + 失效缓存。
-		if acts := s.Src.AutoCarePass(sts); len(acts) > 0 {
-			for _, a := range acts {
-				log.Printf("[auto-care] %s", a)
+			log.Printf("[auto-refresh] 源刷新完成（预算轮 %d 源）: %d 成功 / %d 失败, 耗时 %s", len(sts), ok, fail, time.Since(start).Round(time.Second))
+			// 「应用源自动监测」：连续 5 次刷新无应用的源自动停用 + 空源沉底
+			//（策略关闭或无动作时为 nil）。变更落在共享 cfg 上，落盘 + 失效缓存。
+			if acts := s.Src.AutoCarePass(sts); len(acts) > 0 {
+				for _, a := range acts {
+					log.Printf("[auto-care] %s", a)
+				}
+				_ = s.Cfg.Save(dataDirOf(s))
 			}
-			_ = s.Cfg.Save(dataDirOf(s))
-		}
-		// 通知轮次：源同步失败摘要/恢复/目录异常下跌 + 收藏应用有更新（0.6.121）
-		s.sourceRoundNotify(sts)
-		s.invalidateCatalog()
-		// 预热目录缓存：首个用户请求（详情点击/列表打开）不再撞上
-		// 冷启动全量重建（实测 ~750ms）。
-		if ctx.Err() == nil {
-			go s.cachedCatalog(s.bgLang())
+			// 通知轮次：源同步失败摘要/恢复/目录异常下跌 + 收藏应用有更新（0.6.121）
+			s.sourceRoundNotify(sts)
+			s.invalidateCatalog()
+			s.refreshInflight.Store(false)
+			// 预热目录缓存：首个用户请求（详情点击/列表打开）不再撞上
+			// 冷启动全量重建（实测 ~750ms）。
+			if ctx.Err() == nil {
+				go s.cachedCatalog(s.bgLang())
+			}
 		}
 		// 「自动更新应用」开启时，源刷新后顺势跑一轮自动更新（同一周期）。
 		if ctx.Err() == nil {
@@ -312,23 +618,33 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// 0.6.312 B1/F1：自动更新也走操作队列——与手动操作全局互斥（此前
+		// autoUpdatePass 直调管线，手动更新撞上时同一应用会双管线并发、
+		// 无 UI 提示）。手动操作进行中则整轮让位（留在「有更新」列表，
+		// 下轮重试），不再逐条记失败。
+		if cur := s.Ops.Current(); cur != nil && cur.State == operation.StateRunning {
+			log.Printf("[auto-update] 手动操作进行中（%s %s），跳过本轮自动更新", cur.Kind, cur.Target)
+			return
+		}
 		log.Printf("[auto-update] %s → v%s（%s）开始…", j.appName, j.target, j.source)
 		var err error
 		if j.official {
-			err = s.runOfficialUpgrade(ctx, j.appName, nil, func(string, float64) {})
+			_, err = s.Ops.StartSync(ctx, "update", j.appName, func(c context.Context, p func(string, float64)) error {
+				return s.runOfficialUpgrade(c, j.appName, nil, p)
+			})
 		} else {
-			srcName, a, rerr := s.resolveKey(j.key)
-			if rerr != nil {
-				err = rerr
-			} else {
+			_, err = s.Ops.StartSync(ctx, "update", j.appName, func(c context.Context, p func(string, float64)) error {
+				srcName, a, rerr := s.resolveKey(j.key)
+				if rerr != nil {
+					return rerr
+				}
 				// 0.6.272：跨源同宗更新从同宗源安装（目标包在那里，
 				// 用规范源会取到旧版被版本交叉校验挡住）
 				if srcName, a, rerr = s.resolveInstallEntry(j.key, srcName, a); rerr != nil {
-					err = rerr
-				} else {
-					err = s.Pipe.InstallWithParams(ctx, srcName, a.Name, nil, func(string, float64) {})
+					return rerr
 				}
-			}
+				return s.Pipe.InstallWithParams(c, srcName, a.Name, nil, p)
+			})
 		}
 		if err != nil {
 			failed++
@@ -439,7 +755,19 @@ func (s *Server) StartGHStatsRefresh(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// 0.6.312 B3/F6（活性门控）：不活跃（>30min 无 UI）时 GHStats 间隔
+		// 30→120min——tick 保持 30min 不变（醒来后无需等满 120min 即恢复
+		// 30min 节奏），仅跳过「距上轮不足 120min」的不活跃 tick。
+		if s.uiInactive() && time.Since(s.ghStatsLastRound()) < ghStatsIdleGap {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Minute):
+			}
+			continue
+		}
 		s.ghStatsRound(ctx)
+		s.lastGHStatsRound.Store(time.Now().Unix())
 		select {
 		case <-ctx.Done():
 			return
@@ -884,10 +1212,11 @@ type sourceRestoreResult struct {
 //     （组内有官方源保官方，否则保列表顺序第一个）；
 //  2. 重抓内置社区源列表补齐被删/缺失的默认源（只增不删用户自加源）。
 func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
-	// 0.6.247：以内置默认源集为基准（156 源、全带协议、= 验收过的
-	// 备用测试机全量源，与首装默认同一集合）——误删的源可一键找回，
-	// 离线可用。此前依赖外部 repo_list.txt（118 条），基准小于在用
-	// 全量集，列表外的源恢复不回来。
+	// 0.6.247：以内置默认源集为基准（0.6.314 起 157 源、全带协议、= 验收过的
+	// 备用测试机全量源+fn-knock 官方源，与首装默认同一集合）——误删的源可
+	// 一键找回，离线可用。此前依赖外部 repo_list.txt（118 条），基准小于在用
+	// 全量集，列表外的源恢复不回来。取源方式=同一嵌入清单 BundledDefaultSources
+	// （default_sources.txt），加源只需改清单，本函数与首装填充自动跟随。
 	urls := source.BundledDefaultSources()
 	res := sourceRestoreResult{Fetched: len(urls)}
 
@@ -1107,6 +1436,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		AutoUpdate:          s.Cfg.AutoUpdate,
 		CatalogLanguage:     orAuto(s.Cfg.CatalogLanguage),
 		UpdatePolicy:        orStrict(s.Cfg.UpdatePolicy),
+		DedupPolicy:         orAll(s.Cfg.DedupPolicy),
 		BackupDir:           s.Cfg.BackupDir,
 		BackupAuto:          s.Cfg.BackupAuto,
 		BackupIntervalDays:  s.backupIntervalDaysOf(),
@@ -1195,6 +1525,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 跨源更新策略（0.6.272）：nil = 未提交不改动；
 		// strict（默认）/ origin / lineage，其余值整单拒绝。
 		UpdatePolicy *string `json:"update_policy"`
+		// 列表去重展示策略（0.6.312 B2）：nil = 未提交不改动；
+		// all（默认）/ merge / one，其余值整单拒绝。
+		DedupPolicy *string `json:"dedup_policy"`
 		// FPK 下载目录（选择器给出的绝对路径；空 = 不改动）。
 		DownloadDir string `json:"download_dir"`
 		// 备份设置（备份设置 tab）：
@@ -1280,6 +1613,22 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		if s.Cfg.UpdatePolicy != v {
 			s.Cfg.UpdatePolicy = v
 			s.invalidateCatalog() // 策略变化 → 目录更新判定重建（下次 /api/apps）
+		}
+	}
+	// 列表去重展示策略（0.6.312 B2）：nil = 未提交不改动；白名单外值整单拒绝。
+	// 策略变化只影响展示层 → 失效目录缓存（Hidden 标记随下次构建重算）。
+	if in.DedupPolicy != nil {
+		v := strings.TrimSpace(*in.DedupPolicy)
+		if v != "all" && v != "merge" && v != "one" {
+			writeErr(w, http.StatusBadRequest, errors.New("去重策略仅支持 all / merge / one"))
+			return
+		}
+		if orAll(s.Cfg.DedupPolicy) != v {
+			s.Cfg.DedupPolicy = v
+			s.invalidateCatalog()
+			// 0.6.312 B3/F9：档位切换改变可见集 → 触发一轮增量预热
+			//（切「默认」回补此前隐藏卡；切「去重」（one，原「一卡」）缩小后续轮范围）
+			go s.warmVisibleNow()
 		}
 	}
 	// 加速源自动测速间隔（0.6.148）：越界整单拒绝（齿轮只产出 0-23/0-59，
@@ -1658,6 +2007,13 @@ func orAuto(m string) string {
 func orStrict(p string) string {
 	if p == "" {
 		return "strict"
+	}
+	return p
+}
+
+func orAll(p string) string {
+	if p == "" {
+		return "all"
 	}
 	return p
 }

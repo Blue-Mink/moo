@@ -137,6 +137,49 @@ func (q *Queue) Start(kind, target string, fn RunFn) (View, error) {
 	return op.View(), nil
 }
 
+// StartSync 是 Start 的同步版（0.6.312 B1/F1）：操作体在调用方 goroutine
+// 内阻塞执行，供后台批次（自动更新）逐条执行并统计结果。互斥语义与 Start
+// 相同——已有活动操作（手动或另一自动项）时拒绝；每操作 25 分钟超时与
+// Start 一致。完成后同样入 history（前端任务条可见「更新 X」进行中）。
+func (q *Queue) StartSync(ctx context.Context, kind, target string, fn RunFn) (View, error) {
+	q.mu.Lock()
+	if q.current != nil {
+		cur := q.current.View()
+		if cur.State == StateRunning {
+			q.mu.Unlock()
+			return View{}, fmt.Errorf("已有操作正在进行: %s %s", cur.Kind, cur.Target)
+		}
+	}
+	op := newOp(kind, target)
+	q.current = op
+	q.mu.Unlock()
+	defer func() {
+		q.mu.Lock()
+		if q.current == op {
+			q.current = nil
+		}
+		q.history = append([]View{op.View()}, q.history...)
+		if len(q.history) > 20 {
+			q.history = q.history[:20]
+		}
+		q.mu.Unlock()
+	}()
+	cctx, cancel := context.WithTimeout(ctx, 25*time.Minute)
+	defer cancel()
+	err := fn(cctx, func(msg string, pct float64) { op.update(msg, pct) })
+	if err == nil && cctx.Err() == context.DeadlineExceeded {
+		err = fmt.Errorf("操作超时（25 分钟）")
+	}
+	if err != nil {
+		op.setErr(err.Error())
+	} else {
+		op.setDone()
+	}
+	// 同步契约：操作体错误直接返回（视图/history 同步记录终态，供任务条
+	// 事后查看）；ctx 取消同样以错误返回（批次循环按 ctx.Err() 退出）。
+	return op.View(), err
+}
+
 // Current 返回当前活动操作视图（无则 nil）。
 func (q *Queue) Current() *View {
 	q.mu.Lock()

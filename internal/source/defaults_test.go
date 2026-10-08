@@ -6,11 +6,21 @@ import (
 )
 
 // TestBundledDefaultSources 0.6.247：内置默认源集完整且规范——
-// 156 条、全部带协议、去重后唯一、无回环/空地址。
+// 0.6.314 起 157 条、全部带协议、去重后唯一、无回环/空地址、
+// 含 fn-knock 官方源（kci-lnk/fn-knock-turborepo）。
 func TestBundledDefaultSources(t *testing.T) {
 	urls := BundledDefaultSources()
-	if len(urls) != 156 {
-		t.Fatalf("内置默认源应为 156 条，实际 %d", len(urls))
+	if len(urls) != 157 {
+		t.Fatalf("内置默认源应为 157 条，实际 %d", len(urls))
+	}
+	hasKnock := false
+	for _, u := range urls {
+		if u == "https://github.com/kci-lnk/fn-knock-turborepo" {
+			hasKnock = true
+		}
+	}
+	if !hasKnock {
+		t.Fatal("内置默认源应含 fn-knock 官方源（kci-lnk/fn-knock-turborepo）")
 	}
 	seen := map[string]bool{}
 	for _, u := range urls {

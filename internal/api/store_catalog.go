@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"log"
+	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,23 +16,108 @@ import (
 	"moo/internal/source"
 )
 
-// cachedCatalog 返回目录缓存（共享只读切片，5s 内复用；过期自动重建）。
+// catalogRebuildWait 0.6.313 B4/F11：重建进行中时并发请求的等待上限——
+// 超时也返回旧数据，绝不阻塞请求（重建本身不受影响，完成后自然换上新数据）。
+const catalogRebuildWait = 2 * time.Second
+
+// cachedCatalog 返回目录缓存（共享只读切片）。
+// 0.6.313 B4/F11：锁内只判新鲜度；重建在锁外（singleflight：原子标志 +
+// done channel，无第三方库）+ stale-while-revalidate：
+//   - 新鲜（TTL 内，默认 60s，env MOO_CATALOG_TTL 可覆盖）→ 返回缓存；
+//   - 过期且有旧数据 → **立即返回旧数据**（不阻塞），锁外触发后台重建；
+//     并发调用方等 done channel（等待上限 2s，超时也返回旧数据不阻塞）；
+//   - 过期且 catalogData==nil（刚失效）→ 同步重建（失效后无旧数据可给，
+//     保安装/更新/档位切换反馈即时）。
+// 重建（ListInstalled unix socket RPC + 1700+ 条目合并，实测 200-750ms）
+// 在锁外跑，其他目录端点（详情/dedup/recommended）不再排队等它。
 // l = 目录语言（0.6.269）：请求路径传 lang.From(r.Context())，
 // 后台路径传 s.bgLang()。只读约束：调用方不得修改元素字段
 //（列表瘦身等写操作先 cachedCatalogCopy）。
 func (s *Server) cachedCatalog(l string) []AppInfo {
 	s.catalogMu.Lock()
-	defer s.catalogMu.Unlock()
-	ttl := s.catalogTTL
-	if ttl <= 0 {
-		ttl = 5 * time.Second
-	}
+	ttl := s.catalogTTLValueLocked()
 	if s.catalogData != nil && time.Since(s.catalogAt) < ttl {
-		return s.catalogData
+		data := s.catalogData
+		s.catalogMu.Unlock()
+		return data // 新鲜：直接返回
 	}
-	s.catalogData = s.buildCatalog(l)
-	s.catalogAt = time.Now()
+	stale := s.catalogData
+	if s.catalogBuilding {
+		// 重建已在进行（SWR 后台或同步路径）：有上限等待
+		done := s.catalogRebuildDone
+		s.catalogMu.Unlock()
+		select {
+		case <-done:
+		case <-time.After(catalogRebuildWait): // 超时不阻塞
+		}
+		s.catalogMu.Lock()
+		defer s.catalogMu.Unlock()
+		if s.catalogData != nil {
+			return s.catalogData // 重建已完成（原子交换）
+		}
+		if stale != nil {
+			return stale // 超时/重建未完成：给旧数据
+		}
+		// 极端情况（重建 >2s 且刚失效无旧数据）：自己重建，保证响应不空。
+		// 并发双重建在此角落可接受（buildCatalog 幂等，结果一致）。
+		s.catalogMu.Unlock()
+		data := s.buildCatalog(l)
+		s.catalogMu.Lock()
+		s.catalogData = data
+		s.catalogAt = time.Now()
+		return data
+	}
+	// 本调用方是唯一构建者：标记进行中，锁外重建。
+	s.catalogBuilding = true
+	done := make(chan struct{})
+	s.catalogRebuildDone = done
+	s.catalogMu.Unlock()
+	if stale != nil {
+		// SWR：立即返回旧数据，后台重建（并发调用方在 done 上等待）。
+		go s.finishCatalogRebuild(l, done)
+		return stale
+	}
+	// 刚失效/首次构建：同步重建（安装/更新/档位切换的即时反馈）。
+	s.finishCatalogRebuild(l, done)
+	s.catalogMu.Lock()
+	defer s.catalogMu.Unlock()
 	return s.catalogData
+}
+
+// finishCatalogRebuild 锁外执行重建，完成后锁内原子交换结果
+//（building 标志 + done channel 统一在此收尾）。buildCatalog 自身不取
+// catalogMu，锁外调用安全。
+func (s *Server) finishCatalogRebuild(l string, done chan struct{}) {
+	defer close(done)
+	data := s.buildCatalog(l)
+	s.catalogMu.Lock()
+	s.catalogData = data
+	s.catalogAt = time.Now()
+	s.catalogBuilding = false
+	s.catalogMu.Unlock()
+}
+
+// catalogTTLValueLocked 返回生效的目录 TTL（调用方须持有 s.catalogMu）。
+// 优先级：显式设置 s.catalogTTL（测试用）> env MOO_CATALOG_TTL（逃生阀：
+// 设 "5s" 即回到 0.6.312 行为）> 默认 60s。env 只解析一次并记忆化；
+// 非法值 log 警告并回退 60s。
+func (s *Server) catalogTTLValueLocked() time.Duration {
+	if s.catalogTTL > 0 {
+		return s.catalogTTL
+	}
+	if s.catalogTTLMemo > 0 {
+		return s.catalogTTLMemo
+	}
+	d := 60 * time.Second // 0.6.313 B4：5s → 60s（事件驱动失效，见 invalidateCatalog 纪律）
+	if v := os.Getenv("MOO_CATALOG_TTL"); v != "" {
+		if p, err := time.ParseDuration(v); err == nil && p > 0 {
+			d = p
+		} else {
+			log.Printf("[catalog] MOO_CATALOG_TTL=%q 非法（应为 90s/1m/60s 等 duration），用默认 60s", v)
+		}
+	}
+	s.catalogTTLMemo = d
+	return d
 }
 
 // cachedCatalogCopy 返回可安全修改的副本（1700+ 结构体浅拷贝，约百微秒）。
@@ -41,11 +129,23 @@ func (s *Server) cachedCatalogCopy(l string) []AppInfo {
 }
 
 // invalidateCatalog 安装/更新/卸载/启停/源同步等改变目录内容的操作后调用。
+// 纪律（0.6.313 B4）：任何改变目录内容/已装状态/官方卡的新写入口必须调
+// 本函数（含官方 OAuth 授权完成/登出）——漏调 = 目录 + body 缓存最长
+// TTL（默认 60s）陈旧。
 func (s *Server) invalidateCatalog() {
 	s.catalogMu.Lock()
 	s.catalogData = nil
 	s.catalogAt = time.Time{}
+	// F11：若重建正进行，置回未构建态；在途的 finishCatalogRebuild 随后
+	// 会写入新数据（比失效点更新，直接覆盖无害）。
+	s.catalogBuilding = false
+	s.catalogRebuildDone = nil
 	s.catalogMu.Unlock()
+	// 0.6.313 B4：body 缓存与目录缓存同一钩子一并失效。
+	s.catalogBodyMu.Lock()
+	s.catalogBody = nil
+	s.catalogBodyETag = ""
+	s.catalogBodyMu.Unlock()
 }
 
 // buildCatalog 合并应用源元数据与 daemon 安装状态，生成前端 AppInfo 列表。
@@ -197,76 +297,11 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	// Apps 返回空列表 + 错误，下方 len>0 守卫自然跳过）：
 	// - 已装但无源 → 补官方源信息（可更新判断/官方徽章）
 	// - 社区源也有 → 跨源取最高版本（官方版本更高时更新 has_update）
+	// 0.6.312 B3/F7：O(官方×目录) 嵌套扫描 → O(n) map 查找（388×2556≈100 万次比较 → 数千次 hash）。
 	if s.Panel != nil {
 		// 0.6.269：官方目录条目按请求/配置语言取名称与简介
 		if official, _ := s.Panel.Apps(lang.WithContext(context.Background(), l)); len(official) > 0 {
-			for _, oa := range official {
-				idx := -1
-				for i := range out {
-					if out[i].AppName == oa.AppName {
-						idx = i
-						break
-					}
-				}
-				if idx < 0 {
-					if seen[oa.AppName] {
-						continue
-					}
-					seen[oa.AppName] = true
-					out = append(out, oa)
-					continue
-				}
-				e := &out[idx]
-				if e.Source == "" {
-					// 已装无源 → 采用官方条目元数据（保留已装状态）
-					e.Category = oa.Category
-					e.AppType = oa.AppType
-					e.DownloadCount = oa.DownloadCount
-					if e.LatestVersion == "" {
-						e.LatestVersion = oa.LatestVersion
-					}
-				}
-				// 应用存在于官方目录 → 源徽章统一「飞牛应用中心源」：
-				// 官方版本已并入本卡作为更新目标，卡片代表官方应用，
-				// 不能顶着社区源的徽章（1Panel/OpenList 等官方重名应用）
-				e.Source = OfficialSourceID
-				// 官方下载量是面板权威统计，有则覆盖（社区源无此数据或不准）
-				if oa.DownloadCount != nil {
-					e.DownloadCount = oa.DownloadCount
-				}
-				// 官方详情回填（ensureBackfill 预热）：目录条目缺简介/归属时
-				// 用官方条目补齐——否则官方应用（如 1Panel）列表里永远没有简介
-				if e.Description == "" {
-					e.Description = oa.Description
-				}
-				// 开发者/发布者以官方为准（官方值非空时覆盖社区值）；
-				// 回填预热完成前官方值为空则保留社区值
-				if oa.Maintainer != "" {
-					e.Maintainer = oa.Maintainer
-					if oa.MaintainerURL != "" {
-						e.MaintainerURL = oa.MaintainerURL
-					}
-				}
-				if oa.Distributor != "" {
-					e.Distributor = oa.Distributor
-					if oa.DistributorURL != "" {
-						e.DistributorURL = oa.DistributorURL
-					}
-				}
-				if e.Installed && oa.LatestVersion != "" {
-					// 已装官方应用：卡片即官方应用，更新判定只认官方目录版本。
-					// 社区源同名条目的更高版本不构成「更新」——官方应用中心
-					// 不显示更新时 Moo 也不能显示，更不能用社区包冒充官方
-					// 应用的更新目标（实测 nodejs_v22/python312 等 5 个官方
-					// 应用被社区同名条目污染出假更新，更新目标还是社区包）。
-					applyOfficialUpdateForInstalled(e, oa)
-				} else if !e.Installed {
-					// 未安装卡：跨源取最高版本（保留既有行为）
-					if oa.LatestVersion != "" && compareVersions(oa.LatestVersion, e.LatestVersion) > 0 {
-						e.LatestVersion = oa.LatestVersion
-					}
-				}
-			}
+			out = mergeOfficialCards(out, official, seen)
 		}
 	}
 
@@ -385,6 +420,90 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 		}
 		return out[i].AppName < out[j].AppName
 	})
+
+	// 去重展示层（0.6.312 B2）：在确定性排序之后（代表卡阶梯的「slice
+	// 顺序」步要稳定）；只标 Hidden + 填同名组信息，不改版本/更新判定。
+	applyDedupPolicy(out, s.Cfg.DedupPolicy)
+	return out
+}
+
+// mergeOfficialCards 0.6.312 B3/F7：官方应用中心目录并入 catalog
+// （自 buildCatalog 内联循环抽出；合并逻辑逐行保持原样）。
+//
+// 性能：原实现每个官方条目线性扫全目录（388×2556≈100 万次比较/次重建）；
+// 现按 AppName 建 map（O(n)）——查找语义与嵌套循环**严格等价**：
+//   - 每个官方条目取**首个**同名卡（map 只记首现下标）；
+//   - 官方目录重名条目追加新卡后立即登记 map——后续同名官方条目命中刚
+//     追加的卡，等价于原循环「扫描 out（含本轮新追加）取首个」。
+func mergeOfficialCards(out []AppInfo, official []AppInfo, seen map[string]bool) []AppInfo {
+	idxByApp := make(map[string]int, len(out))
+	for i := range out {
+		if _, ok := idxByApp[out[i].AppName]; !ok {
+			idxByApp[out[i].AppName] = i // 首现优先（与嵌套循环取首个一致）
+		}
+	}
+	for _, oa := range official {
+		idx, ok := idxByApp[oa.AppName]
+		if !ok {
+			if seen[oa.AppName] {
+				continue
+			}
+			seen[oa.AppName] = true
+			out = append(out, oa)
+			idxByApp[oa.AppName] = len(out) - 1
+			continue
+		}
+		e := &out[idx]
+		if e.Source == "" {
+			// 已装无源 → 采用官方条目元数据（保留已装状态）
+			e.Category = oa.Category
+			e.AppType = oa.AppType
+			e.DownloadCount = oa.DownloadCount
+			if e.LatestVersion == "" {
+				e.LatestVersion = oa.LatestVersion
+			}
+		}
+		// 应用存在于官方目录 → 源徽章统一「飞牛应用中心源」：
+		// 官方版本已并入本卡作为更新目标，卡片代表官方应用，
+		// 不能顶着社区源的徽章（1Panel/OpenList 等官方重名应用）
+		e.Source = OfficialSourceID
+		// 官方下载量是面板权威统计，有则覆盖（社区源无此数据或不准）
+		if oa.DownloadCount != nil {
+			e.DownloadCount = oa.DownloadCount
+		}
+		// 官方详情回填（ensureBackfill 预热）：目录条目缺简介/归属时
+		// 用官方条目补齐——否则官方应用（如 1Panel）列表里永远没有简介
+		if e.Description == "" {
+			e.Description = oa.Description
+		}
+		// 开发者/发布者以官方为准（官方值非空时覆盖社区值）；
+		// 回填预热完成前官方值为空则保留社区值
+		if oa.Maintainer != "" {
+			e.Maintainer = oa.Maintainer
+			if oa.MaintainerURL != "" {
+				e.MaintainerURL = oa.MaintainerURL
+			}
+		}
+		if oa.Distributor != "" {
+			e.Distributor = oa.Distributor
+			if oa.DistributorURL != "" {
+				e.DistributorURL = oa.DistributorURL
+			}
+		}
+		if e.Installed && oa.LatestVersion != "" {
+			// 已装官方应用：卡片即官方应用，更新判定只认官方目录版本。
+			// 社区源同名条目的更高版本不构成「更新」——官方应用中心
+			// 不显示更新时 Moo 也不能显示，更不能用社区包冒充官方
+			// 应用的更新目标（实测 nodejs_v22/python312 等 5 个官方
+			// 应用被社区同名条目污染出假更新，更新目标还是社区包）。
+			applyOfficialUpdateForInstalled(e, oa)
+		} else if !e.Installed {
+			// 未安装卡：跨源取最高版本（保留既有行为）
+			if oa.LatestVersion != "" && compareVersions(oa.LatestVersion, e.LatestVersion) > 0 {
+				e.LatestVersion = oa.LatestVersion
+			}
+		}
+	}
 	return out
 }
 
@@ -497,7 +616,10 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 	if dlCount > 0 {
 		ai.DownloadCount = &dlCount
 	}
-	ai.ChangelogEntries = parseChangelogEntries(a.Changelog, a.Version, a.ReleaseChangelogs)
+	// 0.6.312 B3/F7+F8：ChangelogEntries 不再每次目录重建（5s TTL 热路径）
+	// 逐卡正则解析——源同步时预解析一次（detailStoreSink 写入详情磁盘层，
+	// 同时把 changelog 全文/releases 明细移出常驻内存），详情对话框打开
+	// 时由 appDetail 懒载回填。
 	return ai
 }
 
@@ -1066,4 +1188,228 @@ func applyLineageUpdates(out []AppInfo, policy string, byName map[string]platfor
 		c.UpdatedAt = s.UpdatedAt
 		c.DownloadCount = s.DownloadCount
 	}
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 去重展示层（0.6.312 B2，首页胶囊；0.6.313 档位文案：默认 / 标准 / 去重，
+// 值 all/merge/one 不变——「标准」=同仓同构建组留一张代表，「去重」=每应用一张卡）
+//
+// 硬约束：
+//   - 只并展示身份，不并版本/更新判定：Hidden 卡的 LatestVersion/HasUpdate
+//     仍在数据层照常计算，更新角标/忽略更新/平台权威全不受影响；
+//   - 按精确 appname 分组（不做大小写/分隔符归一——那是两个 FPK）；
+//   - 已装规范卡（markInstalledCanonical 的 Installed 卡）永不隐藏；
+//   - 代表卡承载 SameName/SameNameCount（候选表数据源）；按 key 的详情
+//     不受 Hidden 影响（显式引用逃生门）。
+//
+// merge 档：组内「同宗」（仓库/作者，同 0.6.272 lineage 语义+否决规则）
+// 或「同版本+同 sha」的卡并簇，每簇留一张代表。
+// one 档：每个 appname 留一张代表。
+//
+// 代表卡阶梯（两档通用）：① 已装规范卡 → ② 官方目录卡 → ③ 本机可装卡
+//（archs 含当前架构/all；未提供架构信息不否决）→ ④ 最高版本 → ⑤ 下载量
+// → ⑥ slice 顺序（= 源顺序，确定性，ETag 稳定）。
+func applyDedupPolicy(out []AppInfo, policy string) (mergedVisible, oneVisible int) {
+	groupIdx := map[string][]int{}
+	var groupNames []string
+	for i := range out {
+		n := out[i].AppName
+		if n == "" {
+			continue
+		}
+		if _, ok := groupIdx[n]; !ok {
+			groupNames = append(groupNames, n)
+		}
+		groupIdx[n] = append(groupIdx[n], i)
+	}
+	arch := localArch()
+
+	// 并查集（组内小，局部实现；按卡下标分配，跨组安全）
+	parent := make([]int, len(out))
+	find := func(x int) int {
+		for parent[x] != x {
+			parent[x] = parent[parent[x]]
+			x = parent[x]
+		}
+		return x
+	}
+
+	for _, n := range groupNames {
+		idxs := groupIdx[n]
+		if len(idxs) == 1 {
+			oneVisible++
+			mergedVisible++
+			continue
+		}
+		oneVisible++
+
+		// ── 阶梯选代表 ──
+		better := func(cur, cand *AppInfo) bool { // cand 是否优于 cur
+			cn, dn := dedupRepClass(cur, arch), dedupRepClass(cand, arch)
+			if cn != dn {
+				return dn < cn
+			}
+			cv, dv := cur.LatestVersion, cand.LatestVersion
+			if cv != dv {
+				if cv == "" {
+					return true
+				}
+				if dv == "" {
+					return false
+				}
+				return compareVersions(dv, cv) > 0
+			}
+			cc, dc := 0, 0
+			if cur.DownloadCount != nil {
+				cc = *cur.DownloadCount
+			}
+			if cand.DownloadCount != nil {
+				dc = *cand.DownloadCount
+			}
+			return dc > cc
+		}
+		oneRep := idxs[0]
+		for _, j := range idxs[1:] {
+			if better(&out[oneRep], &out[j]) {
+				oneRep = j
+			}
+		}
+
+		// ── merge 簇（并查集：同宗 或 同版本同 sha）──
+		for _, j := range idxs {
+			parent[j] = j
+		}
+		union := func(a, b int) {
+			ra, rb := find(a), find(b)
+			if ra != rb {
+				parent[ra] = rb
+			}
+		}
+		for x := 0; x < len(idxs); x++ {
+			for y := x + 1; y < len(idxs); y++ {
+				a, b := idxs[x], idxs[y]
+				sameBuild := out[a].LatestVersion != "" &&
+					out[a].LatestVersion == out[b].LatestVersion &&
+					out[a].Sha256 != "" && out[a].Sha256 == out[b].Sha256
+				if sameBuild || dedupSameLineage(&out[a], &out[b]) {
+					union(a, b)
+				}
+			}
+		}
+		clusters := map[int]int{} // find(root) → 簇内代表卡
+		var clusterRoots []int
+		for _, j := range idxs {
+			r := find(j)
+			if cur, ok := clusters[r]; ok {
+				if better(&out[cur], &out[j]) {
+					clusters[r] = j
+				}
+			} else {
+				clusters[r] = j
+				clusterRoots = append(clusterRoots, r)
+			}
+		}
+		mergedVisible += len(clusterRoots)
+
+		// ── 隐藏判定（当前策略）──
+		repSet := map[int]bool{}
+		if policy == "one" {
+			repSet[oneRep] = true
+		} else if policy == "merge" {
+			for _, j := range clusters {
+				repSet[j] = true
+			}
+		}
+		// policy = all/""：repSet 空 = 不隐藏（oneRep 仍作候选表宿主）
+
+		// ── 同名组信息（候选表 + 角标）：宿主 = 当前策略的代表卡；
+		// all 档下 = 阶梯代表 ──
+		entries := make([]SameNameEntry, 0, len(idxs))
+		for _, j := range idxs {
+			a := &out[j]
+			entries = append(entries, SameNameEntry{
+				Key:         a.Key,
+				Source:      a.Source,
+				DisplayName: a.DisplayName,
+				Version:     a.LatestVersion,
+				Arch:        a.Arch,
+				Installed:   a.Installed,
+				IsRep:       repSet[j] || (policy != "one" && policy != "merge" && j == oneRep),
+				Origin:      releaseOrigin(a.ReleaseURL),
+				Sha256:      a.Sha256,
+			})
+		}
+		host := oneRep
+		if policy == "merge" {
+			// merge 档每簇一个宿主（组内可能多张代表卡都需候选表）
+			for _, j := range clusters {
+				out[j].SameNameCount = len(idxs)
+				out[j].SameName = entries
+			}
+		} else {
+			if !repSet[host] {
+				host = oneRep
+			}
+			out[host].SameNameCount = len(idxs)
+			out[host].SameName = entries
+		}
+		for _, j := range idxs {
+			if len(repSet) > 0 && !repSet[j] {
+				out[j].Hidden = true
+			}
+		}
+	}
+	return mergedVisible, oneVisible
+}
+
+// dedupRepClass 代表卡阶梯等级（小者胜）：0 已装规范 / 1 官方目录 /
+// 2 本机可装 / 3 本机不可装（archs 非空且不含当前架构/all）。
+func dedupRepClass(a *AppInfo, arch string) int {
+	if a.Installed {
+		return 0
+	}
+	if a.Source == OfficialSourceID {
+		return 1
+	}
+	if len(a.Archs) == 0 {
+		return 2
+	}
+	for _, x := range a.Archs {
+		if x == arch || x == "all" {
+			return 2
+		}
+	}
+	return 3
+}
+
+// dedupSameLineage 同宗判定（与 0.6.272 lineage 语义+否决规则一致）：
+// 显示名不同（同名不同应用）、双方 maintainer 均非空且不同且 distributor
+// 也不相等 → 否决；否则 maintainer/distributor 相等或发布仓库相同 → 同宗。
+func dedupSameLineage(a, b *AppInfo) bool {
+	if a.DisplayName != "" && b.DisplayName != "" &&
+		!strings.EqualFold(strings.TrimSpace(a.DisplayName), strings.TrimSpace(b.DisplayName)) {
+		return false
+	}
+	mt := a.Maintainer != "" && b.Maintainer != "" &&
+		strings.EqualFold(a.Maintainer, b.Maintainer)
+	di := a.Distributor != "" && b.Distributor != "" &&
+		strings.EqualFold(a.Distributor, b.Distributor)
+	if !mt && !di &&
+		a.Maintainer != "" && b.Maintainer != "" &&
+		!strings.EqualFold(a.Maintainer, b.Maintainer) {
+		return false // maintainer 明显不同且 distributor 不救
+	}
+	if mt || di {
+		return true
+	}
+	o1 := releaseOrigin(a.ReleaseURL)
+	return o1 != "" && o1 == releaseOrigin(b.ReleaseURL)
+}
+
+// localArch 本机架构（fnpack 约定 x86/arm，同 source.currentArch 语义）。
+func localArch() string {
+	if runtime.GOARCH == "arm64" || runtime.GOARCH == "arm" {
+		return "arm"
+	}
+	return "x86"
 }

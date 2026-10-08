@@ -701,6 +701,14 @@ func (s *Server) appAsset(w http.ResponseWriter, r *http.Request) {
 				writeIcon(w, data, "image/png")
 				return
 			}
+			// 0.6.314 C：固定推荐快照图标——源被删/抓取失败后推荐卡详情
+			// 仍完整渲染（内嵌 base64 图标，不依赖上游 URL 存活）。
+			if snap := snapshotForKey(key); snap != nil {
+				if data, ctype, iok := snap.Icon(); iok {
+					writeIcon(w, data, ctype)
+					return
+				}
+			}
 			writeErr(w, http.StatusNotFound, err)
 			return
 		}
@@ -718,6 +726,15 @@ func (s *Server) appAsset(w http.ResponseWriter, r *http.Request) {
 			a = ra
 		}
 		if a == nil || a.ReadmeURL == "" {
+			// 0.6.314 C：固定推荐快照 README（内嵌全文）——源被删后详情页
+			// README 区仍完整渲染，不再 404。
+			if snap := snapshotForKey(key); snap != nil {
+				if md := snap.ReadmeText(); md != "" {
+					w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+					_, _ = w.Write([]byte(md))
+					return
+				}
+			}
 			writeErr(w, http.StatusNotFound, errors.New("该应用没有 README"))
 			return
 		}
@@ -744,6 +761,13 @@ func (s *Server) appAsset(w http.ResponseWriter, r *http.Request) {
 		if len(urls) == 0 {
 			if _, a, err := s.resolveKey(key); err == nil {
 				urls = a.PreviewURLs
+			}
+		}
+		if len(urls) == 0 {
+			// 0.6.314 C：固定推荐快照预览（URL 直链，源删后上游仓库仍在，
+			// 与实时条目同一代理路径）。
+			if snap := snapshotForKey(key); snap != nil {
+				urls = snap.PreviewURLs
 			}
 		}
 		if idx >= len(urls) {

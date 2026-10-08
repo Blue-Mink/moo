@@ -16,6 +16,19 @@ export const apiFetch = (input: RequestInfo | URL, init?: RequestInit): Promise<
   return nativeFetch(input, init);
 };
 
+/** 0.6.312 B2：同名组条目（详情页候选表 + 安装冲突判定数据源）。 */
+export interface SameNameEntry {
+  key: string;
+  source: string;
+  display_name?: string;
+  version?: string;
+  arch?: string;
+  installed: boolean;
+  is_rep: boolean;
+  origin?: string;
+  sha256?: string;
+}
+
 export interface AppInfo {
   /** 注册表内部键（外部源应用为 appname@源名）；同名应用共存时用它做唯一标识。 */
   key: string;
@@ -90,6 +103,12 @@ export interface AppInfo {
   changelog?: string;
   /** changelog 解析后的版本化条目（最新在前）；无 changelog 时缺省。 */
   changelog_entries?: { version?: string; text: string }[];
+  /** 0.6.312 B2：同名组卡片数（>1 = 有重复，详情页出候选表） */
+  same_name_count?: number;
+  /** 0.6.312 B2：同名组全部卡片（仅详情下发；候选表 + 安装冲突判定） */
+  same_name?: SameNameEntry[];
+  /** 0.6.312 B2：安装冲突分支（仅详情下发）：same/lineage/different/official */
+  install_conflict?: string;
   size_bytes?: number;
   /** moo.json 扩展：应用运行方式/安装位置（root / 用户空间 / 系统空间） */
   install_type?: string;
@@ -246,18 +265,13 @@ export interface AppsResponse {
   upgrade_blocked_reason?: string;
 }
 
-export interface RecommendedApp {
-  name: string;
-  display_name: string;
-  description: string;
-  source_url: string;
-  github_repo?: string;
-  latest_version?: string;
-  updated_at?: string;
-}
+// 0.6.314（用户定稿）：发现页固定前三——后端 /api/recommended 返回 AppInfo 形态
+// 全量条目（源在=实时目录数据；源缺=内嵌快照回落，字段同构），前端把前三
+// 钉在发现页列表前三位（见 App.tsx displayApps）。旧最小字段定义废弃。
+export type RecommendedApp = AppInfo;
 
 export interface RecommendedAppsResponse {
-  apps: RecommendedApp[];
+  apps: AppInfo[];
 }
 
 export interface CheckResponse {
@@ -313,6 +327,22 @@ export const fetchRecommended = async (): Promise<RecommendedAppsResponse> => {
   const response = await apiFetch(apiUrl('/api/recommended'));
   if (!response.ok) {
     return { apps: [] };
+  }
+  return response.json();
+};
+
+/** 去重三档计数（0.6.312 B2，首页去重胶囊预览）。 */
+export interface DedupSummary {
+  policy: string;
+  total: number;
+  merged: number;
+  one: number;
+}
+
+export const fetchDedupSummary = async (): Promise<DedupSummary | null> => {
+  const response = await apiFetch(apiUrl('/api/dedup'));
+  if (!response.ok) {
+    return null;
   }
   return response.json();
 };
@@ -636,6 +666,8 @@ export interface Settings {
   catalog_language?: string;
   // 已装应用跨源更新判定策略（0.6.272）：strict（默认）/ origin / lineage
   update_policy?: string;
+  /** 列表去重展示策略（0.6.312 B2）：all（默认）/ merge / one */
+  dedup_policy?: string;
   // 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
   // panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
   // 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
@@ -1183,7 +1215,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {

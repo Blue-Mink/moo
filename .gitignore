@@ -43,3 +43,4 @@ GITEA_PUSH_264_266_TODO.md
 chlog-*.png
 deep*-*.png
 *.py.bak
+__pycache__

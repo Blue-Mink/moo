@@ -92,6 +92,32 @@ type AppInfo struct {
 	// 与 PreviewCount 配套，仅详情用（列表瘦身时若剔除不影响计数展示）。
 	PreviewURLs []string `json:"preview_urls,omitempty"`
 	HasReadme   bool     `json:"has_readme,omitempty"`
+	// ── 去重展示层（0.6.312 B2，仅展示；数据层全量卡不变）──
+	// Hidden：当前 dedup_policy 下非代表卡——列表（/api/apps 无源过滤时）
+	// 与推荐不展示；按 key 的详情/显式引用不受影响（逃生门）。
+	Hidden bool `json:"-"`
+	// SameNameCount：同名组卡片数（仅代表卡承载；>1 = 有重复，列表可加
+	// 小角标、详情页出候选表）。
+	SameNameCount int `json:"same_name_count,omitempty"`
+	// SameName：同名组全部卡片（仅详情下发；列表瘦身时剥离）。
+	SameName []SameNameEntry `json:"same_name,omitempty"`
+	// InstallConflict（0.6.312 B2）：详情卡与已装卡的安装冲突分支——
+	// ""=无冲突 / same=同源同版本 / lineage=可验证同宗 / different=不同源构建 /
+	// official=已装卡为官方平台应用。仅详情下发（组>1 且本卡未装时非空）。
+	InstallConflict string `json:"install_conflict,omitempty"`
+}
+
+// SameNameEntry 同名组条目（详情页候选表 + 安装冲突判定数据源）。
+type SameNameEntry struct {
+	Key         string `json:"key"`
+	Source      string `json:"source"`
+	DisplayName string `json:"display_name,omitempty"`
+	Version     string `json:"version,omitempty"` // 该卡最新可用版本
+	Arch        string `json:"arch,omitempty"`
+	Installed   bool   `json:"installed"`
+	IsRep       bool   `json:"is_rep"` // 当前代表卡（= 列表里显示的那张）
+	Origin      string `json:"origin,omitempty"` // 归一发布仓库（同宗判定）
+	Sha256      string `json:"sha256,omitempty"` // 最新包 sha（同构建判定）
 }
 
 // AppsResponse 是 GET /api/apps 的响应。
@@ -170,6 +196,9 @@ type Settings struct {
 	// lineage = origin 之外，author / distributor 相等也算同宗。
 	// 平台跟踪应用（sourceID 非空 / official）不受本策略影响。
 	UpdatePolicy string `json:"update_policy"`
+	// DedupPolicy 列表去重展示策略（0.6.312 B2，首页胶囊三选一）：
+	// all（默认，零变化）/ merge（同宗簇留一代表）/ one（每 appname 一张）。
+	DedupPolicy string `json:"dedup_policy"`
 	SourceAutoCareOff   bool                  `json:"source_auto_care_disabled"`
 	SourceListURL       string                `json:"source_list_url,omitempty"`
 	SourceListOff       bool                  `json:"source_list_disabled"`

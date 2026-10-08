@@ -8,14 +8,19 @@ package main
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof" // 0.6.312 B1/F3：性能端点（注册到默认 mux，见下方监听）
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -38,6 +43,56 @@ var Version = "dev"
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+
+	// 0.6.312 B1/F2：GOMAXPROCS 限定 4——Moo 的并发由信号量限死（源刷新 8、
+	// 图标预热 3、操作队列 1），16 核机器上多出的 worker 只是 parked 线程
+	// + 更多 GC 扫描对象（74 线程 / 454MB 峰值的主因之一）。env 可覆盖。
+	if n := os.Getenv("MOO_GOMAXPROCS"); n != "" {
+		if v, perr := strconv.Atoi(n); perr == nil && v > 0 {
+			runtime.GOMAXPROCS(v)
+		}
+	} else {
+		if prev := runtime.GOMAXPROCS(4); prev != 4 {
+			log.Printf("[perf] GOMAXPROCS %d → 4（并发由信号量限死，多核无收益）", prev)
+		}
+	}
+
+	// 0.6.313 B4/F10：Go 堆软限额 + GOGC 逃生阀。
+	// 走 debug.SetMemoryLimit（语义=GOMEMLIMIT），**不用** runtime 原生 GOMEMLIMIT
+	// env——双来源（代码 MOO_GOMEMLIMIT + env GOMEMLIMIT）部署时易混乱，只走代码
+	// 调用（调用优先），FPK 的 start_daemon 也不注入 GOMEMLIMIT。
+	// 默认 256MB 依据 .2 实测（2118 应用）：空闲堆 ~100MB / 活动峰 274MB；
+	// 应用规模 5000+ 的机器 env 调 512MB（限额是天花板不是配额）；0/负数=不设
+	// （回到 0.6.312 行为，逃生阀）。软限语义：持续高压分配下 GC 追不上会
+	// 超发（非硬 kill；不改善冷启动 VmPeak 突发，只削保留堆的尾部）。
+	memLimit := int64(256 << 20)
+	if v := os.Getenv("MOO_GOMEMLIMIT"); v != "" {
+		if n, perr := parseMemLimit(v); perr != nil {
+			log.Printf("[perf] MOO_GOMEMLIMIT=%q 非法（支持裸字节或 数字+KB/MB/GB，如 256MB），用默认 256MB", v)
+		} else if n == 0 {
+			memLimit = 0
+		} else {
+			memLimit = n
+		}
+	}
+	if memLimit > 0 {
+		debug.SetMemoryLimit(memLimit)
+	}
+	// MOO_GOGC：仅显式设置且为正整数时应用（逃生阀；平时不动 GC 频率）。
+	gogcNote := "未改（runtime 默认）"
+	if g := os.Getenv("MOO_GOGC"); g != "" {
+		if n, perr := strconv.Atoi(g); perr == nil && n > 0 {
+			debug.SetGCPercent(n)
+			gogcNote = strconv.Itoa(n)
+		} else {
+			log.Printf("[perf] MOO_GOGC=%q 非法（正整数），不应用", g)
+		}
+	}
+	if memLimit > 0 {
+		log.Printf("[perf] F10 内存限额生效: 堆软限 %d 字节（%.0fMB），GOGC=%s", memLimit, float64(memLimit)/(1<<20), gogcNote)
+	} else {
+		log.Printf("[perf] F10 内存限额生效: 堆软限未设置（MOO_GOMEMLIMIT=0），GOGC=%s", gogcNote)
+	}
 
 	dataDir := config.DataDir()
 	// 0.6.220（方案 X）：敏感字段落盘加密——注入加解密器后再 Load，
@@ -71,16 +126,16 @@ func main() {
 	if removed := api.CleanResidualCredentials(dataDir); len(removed) > 0 {
 		log.Printf("[security] 启动清理历史凭据残留 %d 个: %v", len(removed), removed)
 	}
-	// 0.6.247：首装自动填充内置默认源全集（156 源，基准=验收过的
-	// 备用测试机全量源）。全新安装即带全部默认源，离线可用；
-	// 「恢复默认源」按钮以同一集合为基准（误删可一键找回）。
+	// 0.6.247：首装自动填充内置默认源全集（0.6.314 起 157 源，基准=验收
+	// 过的备用测试机全量源+fn-knock 官方源）。全新安装即带全部默认源，
+	// 离线可用；「恢复默认源」按钮以同一集合为基准（误删可一键找回）。
 	if _, serr := os.Stat(config.Path(dataDir)); os.IsNotExist(serr) {
 		if urls := source.BundledDefaultSources(); len(urls) > 0 {
 			var seeded []config.SourceRef
 			// 0.6.248：按名去重——基准集含 7 组同 owner 双仓库（owner 命名
 			// 会重名），旧逻辑生成重名 SourceRef，落盘后按名折叠丢 7 条。
 			// 冲突方改用 UniqueSourceName（owner-repo 归一名，如
-			// tzi-shue-fndepot），156 条全部唯一入库。
+			// tzi-shue-fndepot），157 条全部唯一入库。
 			taken := make(map[string]bool, len(urls))
 			for _, u := range urls {
 				name := source.UniqueSourceName(u, taken)
@@ -184,6 +239,10 @@ func main() {
 	// 0.6.253：OAuth 免登录通道接线（有效会话优先，失败回退面板通道）
 	api.WireOfficialOAuth(srv)
 
+	// 0.6.312 B3/F8（源缓存两级）：源同步时把 changelog 全文/releases 明细
+	// 移入详情磁盘层、从常驻内存剥离（详情打开时懒载，readme_store 同款）
+	srcMgr.OnFetched = srv.DetailStoreSink
+
 	// 出站抓取安全策略（2026-09-27 代码审核）：源数据驱动的 URL
 	// （readme/preview/icon/download）只放行公共地址，防 SSRF。
 	srv.SetupNetguard()
@@ -220,6 +279,25 @@ func main() {
 	// 图标预热：目录就绪后 6 并发拉取缺失图标进两级缓存（内存 10min +
 	// 磁盘 7 天）——对齐 New Store 的加载架构，消除「图标冷瀑布」
 	go srv.StartIconWarm(ctx)
+
+	// 0.6.312 B1/F3：pprof 性能端点——只绑 127.0.0.1（不出本机，零 LAN
+	// 暴露），供内存/CPU 热点分析（此前最大盲区=无量具）。MOO_PPROF_PORT
+	// 可改端口，=0 关闭。
+	go func() {
+		port := "38101"
+		if v := os.Getenv("MOO_PPROF_PORT"); v != "" && v != "0" {
+			port = v
+		} else if os.Getenv("MOO_PPROF_PORT") == "0" {
+			return // 显式关闭
+		}
+		ln, lerr := net.Listen("tcp", "127.0.0.1:"+port)
+		if lerr != nil {
+			log.Printf("[pprof] 监听 127.0.0.1:%s 失败: %v", port, lerr)
+			return
+		}
+		log.Printf("[pprof] 性能端点就绪（仅本机）: http://127.0.0.1:%s/debug/pprof/", port)
+		_ = http.Serve(ln, nil) // 默认 mux：net/http/pprof 的 index/heap/...
+	}()
 
 	// ---- 主入口：unix socket（统一网关） ----
 	var unixSrv *http.Server // 网关入口服务器（下方赋值，退出时一并优雅关闭）
@@ -268,8 +346,9 @@ func main() {
 	}
 	go func() {
 		<-ctx.Done()
-		srv.StopIcons()       // 图标两级缓存收尾落盘
-		srv.StopReadmeStore() // README 两级缓存收尾落盘
+		srv.StopIcons()        // 图标两级缓存收尾落盘
+		srv.StopReadmeStore()  // README 两级缓存收尾落盘
+		srv.StopDetailStore() // 0.6.312 B3/F8：详情两级缓存收尾落盘
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if unixSrv != nil {
@@ -280,4 +359,42 @@ func main() {
 	if err := httpSrv.Serve(tcpLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Printf("TCP 服务异常: %v", err)
 	}
+}
+
+// parseMemLimit 解析 MOO_GOMEMLIMIT：裸字节数（"268435456"）或 数字+单位
+// （KB/MB/GB/B，大小写不敏感，如 "256MB"/"512mb"）。
+// 空串 / "0" / 负数 → (0, nil) = 不设限额；无法解析 → error（调用方落默认值）。
+func parseMemLimit(v string) (int64, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, nil
+	}
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if n < 0 {
+			return 0, nil
+		}
+		return n, nil
+	}
+	upper := strings.ToUpper(v)
+	for _, u := range []struct {
+		suf  string
+		mult int64
+	}{
+		{"GB", 1 << 30},
+		{"MB", 1 << 20},
+		{"KB", 1 << 10},
+		{"B", 1},
+	} {
+		if strings.HasSuffix(upper, u.suf) {
+			n, err := strconv.ParseInt(strings.TrimSpace(upper[:len(upper)-len(u.suf)]), 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("invalid memory limit %q", v)
+			}
+			if n < 0 {
+				return 0, nil
+			}
+			return n * u.mult, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid memory limit %q", v)
 }

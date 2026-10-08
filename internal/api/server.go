@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"moo/internal/config"
@@ -49,24 +50,123 @@ type Server struct {
 	OfficialStore *officialStore
 
 	iconStoreOnce sync.Once
-	iconStoreV    *iconStore // 图标两级缓存（内存 10min + 磁盘 7 天 + 负缓存 30min）
+	iconStoreV    *iconStore // 图标两级缓存（内存 1h，容量 env MOO_ICON_MEM_MAX 默认 256/0=禁用 + 磁盘 7 天 + 负缓存 30min）
 
 	readmeStoreOnce sync.Once
 	readmeStoreV    *readmeStore // README 两级缓存（内存 1h + 磁盘 7 天 + 负缓存 30min）
 
+	detailStoreOnce sync.Once
+	detailStoreV    *detailStore // 应用详情两级缓存（0.6.312 B3/F8：changelog 全文/releases 明细，内存 1h + 磁盘 7 天）
+
 	autoRefreshMu sync.Mutex // 自动源刷新协程互斥（防 main 重复启动）
+
+	// 刷新 single-flight（0.6.312 B1/F4）：后台刷新轮与手动「检查更新」
+	// 互斥——同一时刻最多一轮 157 源全量刷新（双轮并发=峰值 CPU 最差形态）。
+	refreshInflight atomic.Bool
 
 	// 目录缓存：buildCatalog 每次要 ListInstalled daemon RPC + 1700+ 条目
 	// 合并/模糊匹配（O(n²) 热点修复前实测 50-287ms）——列表轮询与详情点击
 	// 都走它，不缓存则每次打开详情对话框都有可感知的骨架屏闪烁。
-	// 5s TTL 兜底 + 写操作（安装/更新/卸载/启停/源同步）显式失效。
+	// 0.6.313 B4：默认 TTL 5s → 60s（事件驱动失效：写操作/官方 OAuth
+	// 授权走 invalidateCatalog，env MOO_CATALOG_TTL 可回落 5s）+ F11
+	// 重建移出锁（singleflight + SWR：过期立即给旧数据+后台重建；
+	// 刚失效 catalogData=nil 时同步重建保安装/更新反馈即时）。
 	catalogMu   sync.Mutex
 	catalogData []AppInfo
 	catalogAt   time.Time
-	catalogTTL  time.Duration // 默认 5s，测试可缩
+	catalogTTL  time.Duration // 显式设置（测试用）；0 = 默认 60s（env MOO_CATALOG_TTL 可覆盖）
+	// 0.6.313 B4/F11：锁外重建 singleflight（原子标志 + done channel，
+	// 无第三方库）。catalogBuilding=true 表示重建进行中；重建完成时
+	// catalogRebuildDone 被 close（并发调用方等它，等待上限
+	// catalogRebuildWait，超时也返回旧数据不阻塞请求）。
+	catalogBuilding    bool
+	catalogRebuildDone chan struct{}
+	// 0.6.313 B4：生效 TTL 记忆化（env 只解析一次；catalogTTL>0 时优先）。
+	catalogTTLMemo time.Duration
+
+	// 0.6.313 B4：GET /api/apps body 缓存——只缓存**无 source 参数**的
+	// 全量响应（前端 fetchApps 唯一热路径，不带 query 参数）marshal 后的
+	// 字节 + 预计算 ETag（md5 在重建时算一次，不再每请求对 ~600KB 重算）。
+	// 有 source 参数的请求不走本缓存（罕见路径：cachedCatalogCopy 重过滤
+	// + 重 marshal，不读写这两个字段）。失效与目录缓存同一钩子：
+	// invalidateCatalog 一并清空（陈旧 ≤ TTL，风险面与目录缓存相同）。
+	// catalogBody 字节序列只读共享（多请求并发读，永不修改）。
+	catalogBodyMu   sync.Mutex
+	catalogBody     []byte
+	catalogBodyETag string
 
 	selfUpdOnce sync.Once
 	selfUpd     *selfUpdateProbe // 官方 release 探测缓存（自更新）
+
+	// UI 活性门控（0.6.312 B3/F6）：最近一次 HTTP 请求时间戳（unix 秒）。
+	// 所有请求（两通道、/api 与静态）经 Handler 最外层 touch；pprof 端口
+	// 是独立 listener（http.Serve(ln, nil)），天然不计入。
+	// 无 UI 访问 >30min 时「展示性」后台轮次降级：图标/readme 预热跳过、
+	// GHStats 30→120min、镜像探针 5→15min；核心轮次（源刷新/自监控/
+	// 备份/日志轮转）不受影响。UI 一访问立即恢复。
+	lastUIRequest    atomic.Int64
+	lastGHStatsRound atomic.Int64 // 上一轮 GHStats 完成时间（F6 降级判定）
+	lastProbeGh      atomic.Int64 // gh 组上次探测时间（F6）
+	lastProbeDk      atomic.Int64 // dk 组上次探测时间（F6）
+}
+
+// 0.6.312 B3/F6（客户端活性门控）阈值：
+const (
+	uiInactiveGate     = 30 * time.Minute // 无 UI 访问超过 30 分钟 = 不活跃
+	ghStatsIdleGap     = 120 * time.Minute // 不活跃时 GHStats 最多每 120min 一轮（活跃=30min tick）
+	mirrorProbeIdleGap = 15 * time.Minute  // 不活跃时镜像探针最多每 15min 一次（活跃=配置间隔）
+)
+
+// touchUI 0.6.312 B3/F6：更新最近一次 UI 请求时间戳（每请求一次，原子写）。
+func (s *Server) touchUI() {
+	s.lastUIRequest.Store(time.Now().Unix())
+}
+
+// uiInactive 0.6.312 B3/F6：距最近一次 UI 请求是否已超过 30 分钟。
+// 从未有请求时以进程启动时刻为基线——刚启动算活跃（保证冷启动首轮预热
+// 照跑，30 分钟无人访问才开始降级）。
+func (s *Server) uiInactive() bool {
+	last := s.lastUIRequest.Load()
+	if last == 0 {
+		base := s.StartedAt
+		if base.IsZero() {
+			base = time.Now()
+		}
+		last = base.Unix()
+	}
+	return time.Since(time.Unix(last, 0)) > uiInactiveGate
+}
+
+// ghStatsLastRound / probeGhLast / probeDkLast：F6 降级判定用，
+// 从未跑过 = 视为已到期（返回足够旧的时间点）。
+func (s *Server) ghStatsLastRound() time.Time {
+	if v := s.lastGHStatsRound.Load(); v != 0 {
+		return time.Unix(v, 0)
+	}
+	return time.Unix(0, 0)
+}
+
+func (s *Server) probeGhLast() time.Time {
+	if v := s.lastProbeGh.Load(); v != 0 {
+		return time.Unix(v, 0)
+	}
+	return time.Unix(0, 0)
+}
+
+func (s *Server) probeDkLast() time.Time {
+	if v := s.lastProbeDk.Load(); v != 0 {
+		return time.Unix(v, 0)
+	}
+	return time.Unix(0, 0)
+}
+
+// withUITouch 0.6.312 B3/F6：最外层中间件——每个 HTTP 请求更新最近 UI
+// 请求时间戳（活性门控基线）。
+func withUITouch(s *Server, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.touchUI()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // User 是请求的用户上下文。
@@ -121,6 +221,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 		writeJSON(w, map[string]any{"v": s.lastCheckStamp()})
 	})
 	mux.HandleFunc("GET /api/recommended", s.recommended)
+	// 去重三档计数（0.6.312 B2，首页胶囊预览）
+	mux.HandleFunc("GET /api/dedup", s.dedupSummary)
 	mux.HandleFunc("POST /api/check", s.requireAdmin(s.checkUpdates))
 	mux.HandleFunc("POST /api/apps/reload", s.requireAdmin(s.reloadSSE))
 	mux.HandleFunc("GET /api/store-update", s.storeUpdateInfo)
@@ -228,10 +330,11 @@ func (s *Server) Handler(trust bool) http.Handler {
 	// 都能取到语言（显式配置 > Accept-Language > 默认 zh-CN）。
 	core = s.langMiddleware(core)
 
+	// 0.6.312 B3/F6：最外层记录 UI 活性（所有请求，含静态资源）
 	if trust {
-		return http.StripPrefix(GatewayPrefix, withUser(true, core))
+		return withUITouch(s, http.StripPrefix(GatewayPrefix, withUser(true, core)))
 	}
-	return withUser(false, core)
+	return withUITouch(s, withUser(false, core))
 }
 
 // ---- 身份中间件 ----

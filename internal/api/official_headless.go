@@ -87,6 +87,8 @@ func (s *Server) headlessAuthorize(w http.ResponseWriter, r *http.Request) {
 			}
 			s.Panel.resetFailState()
 			s.officialStoreV().invalidate()
+			// 0.6.313 B4：面板兜底连接建立 = 官方卡数据变化 → 失效目录缓存。
+			s.invalidateCatalog()
 			writeJSON(w, map[string]any{
 				"ok":      true,
 				"mode":    "panel",
@@ -113,6 +115,8 @@ func (s *Server) headlessAuthorize(w http.ResponseWriter, r *http.Request) {
 	// 授权成功 → 清失败退避 + 失效目录缓存（同 /callback 路径）。
 	s.Panel.resetFailState()
 	s.officialStoreV().invalidate()
+	// 0.6.313 B4：无头授权完成 = 官方卡数据变化 → 失效目录 + body 缓存。
+	s.invalidateCatalog()
 	writeJSON(w, map[string]any{"ok": true})
 }
 

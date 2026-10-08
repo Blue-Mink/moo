@@ -142,7 +142,10 @@ func (m *Manager) Status(now time.Time) map[string]any {
 	m.mu.Unlock()
 	st := map[string]any{"authorized": false}
 	if s != nil {
-		st["authorized"] = s.Valid(now)
+		// 0.6.312：过期但可续期（refresh_token 在）仍算已连接——与
+		// hasOAuthSession 同口径，Do 内联自动刷新；无 refresh_token 才
+		// 需要重新授权。
+		st["authorized"] = s.Valid(now) || s.RefreshToken != ""
 		st["expired"] = s.ExpiresAt <= now.UnixMilli()
 		st["expires_at"] = s.ExpiresAt
 		st["scopes"] = s.Scopes

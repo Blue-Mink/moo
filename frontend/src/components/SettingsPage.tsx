@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
-import { ReadmeRender } from './AppDetailDialog';
+import { ChangelogPager } from './ChangelogPager';
 import { useKeyboardDock } from '../lib/hooks';
 import {
   Dialog,
@@ -413,7 +413,8 @@ const AboutTab: React.FC = () => {
             <span className="text-sm font-medium">最新更新日志</span>
             <Badge variant="outline" className="text-xs tabular-nums">v{logEntry.version}</Badge>
           </div>
-          <ReadmeRender readme={logEntry.text} appKey="moo" maxH="max-h-[110px]" />
+          {/* 0.6.314r2（用户定稿）：日志内容分页显示（短日志=单页零变化） */}
+          <ChangelogPager text={logEntry.text} appKey="moo" maxH="max-h-[110px]" />
         </div>
       )}
 
@@ -764,13 +765,35 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // （收起键盘即见可点）。这样布局零重排，按钮位置与键盘无关。
   // 若拿不到基线（异常）→ 不套用内联样式（退回自然布局，不劣化）。
   const narrowViewport = typeof window !== 'undefined' && window.innerWidth < 640;
-  // 0.6.226：不再等键盘弹出才写内联几何——只要拿到基线就常驻写入。
-  // 这样键盘弹出那一刻 **DOM 不发生变化**（基线未变），减少一次重绘/重排，
-  // 进一步降低"开关滑钮丢一帧"（真机录屏实锤 0.63s 那一帧）的概率。
+  // 0.6.313 A1（飞牛 app WebView 毛玻璃修复，WEBVIEW_SETTINGS_BUG.md §6 候选 A）：
+  // 条件加 kbOpen——**键盘未开时不写内联 px**，回落到类 inset-0（fixed inset-0
+  // 恒等于当前布局视口，无基线）。0.6.226「常驻写入」已废止。
+  // 0.6.313r（用户实测报「飞牛 app 设置页不居中、很长」）三档分流：
+  // a) 真键盘实锤才写 px 基线——Android virtualKeyboard API 报非空
+  //    boundingClientRect = 系统键盘真开；无 API/报空 = 无真键盘（含
+  //    useKeyboardDock 误判 kbOpen 的壳时序场景），不写陈旧 kbBaseH。
+  // b) 兜底：窄屏且无真键盘 → 显式钉 top/left/right + height=visualViewport
+  //    高 → 即使壳报的布局视口比可视区大，对话框也恒等于可视区（根治
+  //    「很长/偏移」类几何漂移，替代裸 inset-0 对异常壳的裸奔）。
+  // c) 真键盘开（API 实锤）→ 保留 0.6.225 定稿行为（height=开键盘前基线
+  //    kbBaseH，按钮物理底边原地、键盘盖住底边）。
+  const vkbRealOpen = (() => {
+    try {
+      const vk = (navigator as unknown as { virtualKeyboard?: { boundingClientRect?: DOMRect } }).virtualKeyboard;
+      const r = vk?.boundingClientRect;
+      return !!r && r.height > 0;
+    } catch {
+      return false;
+    }
+  })();
   const dialogKeyboardStyle: React.CSSProperties | undefined =
-    narrowViewport && kbBaseH > 240
-      ? { top: 0, height: kbBaseH, bottom: 'auto' }
-      : undefined;
+    !narrowViewport
+      ? undefined
+      : kbOpen && kbBaseH > 240 && vkbRealOpen
+        ? { top: 0, height: kbBaseH, bottom: 'auto' }
+        : kbVvHeight > 240
+          ? { top: 0, left: 0, right: 0, bottom: 'auto', height: kbVvHeight }
+          : undefined;
 
   // 0.6.222：键盘几何调试浮层（**长按顶部版本号 chip** 切换显示）。
   // 用于真机排查「保存按钮位置」类问题：一张截图即可拿到 innerHeight /
@@ -1274,6 +1297,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 记住最后一次非 direct 选择，切回 ON 时恢复
   const prevMirrorRef = useRef<string>('gh-proxy');
   const prevDockerMirrorRef = useRef<string>('daocloud');
+  // 0.6.312：记住服务端当前的 update_policy——保存时若变化，更新判定（has_update
+  // 的候选源）会变，须触发主列表重拉，否则「有更新」badge 停在旧策略算出的结果
+  const loadedUpdatePolicyRef = useRef<string>('strict');
 
   const githubEnabled = mirror !== 'direct';
   const dockerEnabled = dockerMirror !== 'direct';
@@ -1309,6 +1335,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setVolumeOptions(settings.volume_options || []);
         setAutoUpdate(!!settings.auto_update);
         setUpdatePolicy(settings.update_policy || 'strict');
+        loadedUpdatePolicyRef.current = settings.update_policy || 'strict';
         // 0.6.255：面板账号加载行已移除（设置不再下发 panel_* 字段）
         setBackupDir(settings.backup_dir || '');
         setBackupAuto(!!settings.backup_auto);
@@ -1427,6 +1454,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       });
       toast.success('设置已保存');
       loadFpkFiles();
+      // 0.6.312：更新策略变化 → 目录里每张卡的 has_update/候选源按新策略重算，
+      // 触发主列表重拉（App 侧 onCatalogChanged 带 2.5s 延迟，给后端重算留时间）
+      if (updatePolicy !== loadedUpdatePolicyRef.current) {
+        loadedUpdatePolicyRef.current = updatePolicy;
+        onCatalogChanged?.();
+      }
       // 保存后停留原地（2026-09-24 用户反馈：点保存不应自动退出设置界面）
     } catch (error) {
       console.error('Failed to save settings:', error);
@@ -1487,12 +1520,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         style={dialogKeyboardStyle}
         className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", // 0.6.306（用户定稿）：标准主题玻璃化（与详情页同款 /70+blur-2xl），
 // 极光路径 aurora-1 不变。
-aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
+// 0.6.313 A2（飞牛 app WebView 毛玻璃修复，WEBVIEW_SETTINGS_BUG.md §6）：
+// 移动端（<640）玻璃层移到下方内层 absolute 子层——backdrop-filter 不再
+// 作用于含内容的整屏 fixed 层本体（WebView GPU 合成异常经典绕法，零行为
+// 变化）；桌面（sm+）本体保留玻璃（sm: 前缀），桌面分支零改动。
+aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
         {/* 极光模式（0.6.297）：底板渐变 + 一层背景色玻璃遮罩把渐变压成
             温润底色染色；上方元素全部保持原样式。Radix 自带的右上关闭钮
             (button.absolute) 在遮罩之后渲染，不受影响。 */}
         {aurora && (
           <div aria-hidden className="pointer-events-none absolute inset-0 bg-background/70 backdrop-blur-2xl rounded-none sm:rounded-[18px]" />
+        )}
+        {/* 0.6.313 A2：标准主题玻璃层移入内层 absolute 子层（仅移动端渲染，
+            sm:hidden）——blur 不再挂在含内容的整屏 fixed 层本体上。层级：
+            本层 z-0 → 内容子元素 max-sm:relative max-sm:z-10 压其上；
+            Radix 关闭钮（button.absolute，dialog.tsx 在 children 之后渲染为
+            DialogContent 直接子元素）移动端本就隐藏（[&>button.absolute]:hidden），
+            桌面玻璃仍在本体、不受影响。 */}
+        {!aurora && (
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-background/70 backdrop-blur-2xl sm:hidden" />
         )}
         {/* 键盘几何调试浮层（**长按版本 chip** 才显示；真机排查用，默认不打扰） */}
         {kbDebug && (
@@ -1500,8 +1546,10 @@ aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
             {kbDebugText}
           </div>
         )}
-        {/* 顶栏：← 返回 + 标题 */}
-        <div className={cn("flex items-center gap-1 border-b border-border/60 px-2 py-2 shrink-0", aurora && "relative z-10")}>
+        {/* 顶栏：← 返回 + 标题
+            0.6.313 A2：标准主题移动端压到玻璃层（z-0）之上（max-sm 限定，
+            桌面 sm+ 零改动）；极光分支保持原 aurora 抬升。 */}
+        <div className={cn("flex items-center gap-1 border-b border-border/60 px-2 py-2 shrink-0", aurora ? "relative z-10" : "max-sm:relative max-sm:z-10")}>
           {/* 0.6.311：网页端隐藏返回箭头（与右上角 × 重复；移动端无 ×，保留箭头） */}
           <Button
             variant="ghost"
@@ -1562,7 +1610,9 @@ aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
           </div>
         </div>
 
-        <div className={cn("flex-1 min-h-0 flex flex-col", aurora && "relative z-10")}>
+        {/* 0.6.313 A2：中列（tab 行 + 内容区 + 保存 dock）标准主题移动端
+            同样抬到玻璃层之上（max-sm 限定，桌面零改动）。 */}
+        <div className={cn("flex-1 min-h-0 flex flex-col", aurora ? "relative z-10" : "max-sm:relative max-sm:z-10")}>
           {/* 顶部 tab：与首页分类胶囊、底部 Dock 完全同款语言（0.6.306 用户定稿）——
               选中=Dock 款 bg-primary/15 蓝字+primary/40 描边（原实心蓝 0.6.287 定稿，
               0.6.306 用户要求与 Dock 选中色对齐、不要太蓝）/ 未选=Dock 毛玻璃胶囊
@@ -2711,9 +2761,10 @@ aurora ? "aurora-1" : "bg-background/70 backdrop-blur-2xl")}>
                     当前版本 v{storeInfo?.current_version}。点击「立即更新」将下载并安装新版本，完成后 Moo 会自动重启。
                   </DialogDescription>
                 </DialogHeader>
-                {/* 0.6.311：最新版本更新日志（release 正文，后端探测已带出；兜底通道无值时不渲染） */}
+                {/* 0.6.311：最新版本更新日志（release 正文，后端探测已带出；兜底通道无值时不渲染）
+                    0.6.314r2（用户定稿）：日志内容分页显示（短日志=单页零变化） */}
                 {storeInfo?.latest_changelog && (
-                  <ReadmeRender readme={storeInfo.latest_changelog} appKey="moo" maxH="max-h-44" />
+                  <ChangelogPager text={storeInfo.latest_changelog} appKey="moo" maxH="max-h-44" />
                 )}
                 <DialogFooter>
                   <Button variant="ghost" onClick={() => setStoreUpdateConfirm(false)}>

@@ -126,22 +126,25 @@ export function ReportFailureDialog({ open, onClose, app, step, errorMessage }: 
             </div>
           ) : data?.report ? (
             <div className="space-y-4 text-sm">
+              {/* 0.6.312：grid 列 min-width:auto——长连续串（多候选 URL 拼接的
+                  错误信息）会撑宽列、溢出卡片右缘（同 0.6.308 pre bug 机理）。
+                  error_message 加 break-all 根治；其余值 span 加 break-words 兜底 */}
               <div className="grid grid-cols-2 gap-2">
-                <div>
+                <div className="min-w-0">
                   <span className="text-muted-foreground">应用: </span>
-                  <span className="font-medium">{data.report.display_name} {data.report.version ? `v${data.report.version}` : ''}</span>
+                  <span className="break-words font-medium">{data.report.display_name} {data.report.version ? `v${data.report.version}` : ''}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <span className="text-muted-foreground">架构: </span>
-                  <span className="font-medium">{data.report.arch}</span>
+                  <span className="break-words font-medium">{data.report.arch}</span>
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-2 min-w-0">
                   <span className="text-muted-foreground">失败步骤: </span>
-                  <span className="font-medium">{stepTranslations[data.report.failed_step] || data.report.failed_step}</span>
+                  <span className="break-words font-medium">{stepTranslations[data.report.failed_step] || data.report.failed_step}</span>
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-2 min-w-0">
                   <span className="text-muted-foreground">错误信息: </span>
-                  <span className="font-medium text-destructive">{data.report.error_message}</span>
+                  <span className="break-all font-medium text-destructive">{data.report.error_message}</span>
                 </div>
               </div>
               

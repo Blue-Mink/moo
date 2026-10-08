@@ -21,6 +21,8 @@ func injectCatalog(t *testing.T, s *Server, apps []AppInfo) {
 
 // TestBuildSourceSummary（0.6.143）：文案「个应用」、总数含多源重复、
 // 紧凑版无逐源明细、完整版含明细。
+// 0.6.312 B3/F5 起签名 = (sts 本轮刷新, all 全量当前状态, …)：旧全量轮
+// 语义下 all 与 sts 同源（失败源在状态视图里无 Error、按旧计数展示为 0）。
 func TestBuildSourceSummary(t *testing.T) {
 	sts := []source.SourceStatus{
 		{Name: "big", Count: 100},
@@ -28,7 +30,13 @@ func TestBuildSourceSummary(t *testing.T) {
 		{Name: "tiny", Count: 3},
 		{Name: "broken", Count: 0, Error: "boom"},
 	}
-	compact, full := buildSourceSummary(sts, 153, 2, 1)
+	all := []source.SourceStatus{
+		{Name: "big", Count: 100},
+		{Name: "mid", Count: 50},
+		{Name: "tiny", Count: 3},
+		{Name: "broken", Count: 0},
+	}
+	compact, full := buildSourceSummary(sts, all, 153, 2, 1)
 	for _, want := range []string{
 		"- big：100 个应用", "- tiny：3 个应用", "- broken：同步失败",
 		"应用总数 153（含多源重复）· 关注源 1 · 收藏 2 个",

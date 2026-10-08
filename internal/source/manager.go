@@ -20,6 +20,12 @@ type Manager struct {
 	// 自动监测：source name → 连续「刷新成功但 0 应用」轮数（成功有应用清零；
 	// 刷新失败不计）。进程内计数，重启归零（连续 5 轮按默认 24h 间隔约 5 天）。
 	careEmpty map[string]int
+
+	// OnFetched 0.6.312 B3/F8：源抓取成功回调（调用方设置，如 api 层把
+	// changelog 全文/releases 明细写入详情磁盘层并从 App 常驻内存移除）。
+	// 在 Refresh 内、缓存赋值前同步调用；可修改 apps 内容（未发布前的新
+	// map，读方仍持有旧 map，无并发问题）。nil = 不启用（测试友好）。
+	OnFetched func(name string, apps map[string]*App)
 }
 
 // NewManager 用给定配置创建管理器（不触发网络）。
@@ -59,6 +65,10 @@ func (m *Manager) Refresh(name string) error {
 	apps, err := NewSource(name, ref.URL).Fetch()
 	if err != nil {
 		return err
+	}
+	// 0.6.312 B3/F8：缓存赋值前的后处理钩子（详情磁盘层写入 + 重字段剥离）
+	if m.OnFetched != nil {
+		m.OnFetched(name, apps)
 	}
 	m.mu.Lock()
 	m.cache[name] = apps
@@ -134,8 +144,113 @@ func (m *Manager) RefreshAllConcurrent(n int) []SourceStatus {
 	return out
 }
 
-// AutoCarePass 一轮「应用源自动监测」策略，在**全量刷新轮**结束后调用
-// （sts 来自 RefreshAll / RefreshAllConcurrent；单源手动同步不计数）。
+// FreshTimes 返回各源上次成功拉取时间的快照（F5 轮转预算/测试用）。
+// 从未拉取（含重启后快照无时间戳）的源不在 map 里 = 视为最陈旧。
+func (m *Manager) FreshTimes() map[string]time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]time.Time, len(m.fresh))
+	for k, v := range m.fresh {
+		out[k] = v
+	}
+	return out
+}
+
+// SelectBudgetedRefresh 0.6.312 B3/F5（源轮转预算）本轮刷新选源：
+//  1. 优先级集（官方/收藏/已装应用所在源，由调用方传入）保持小时级——
+//     每轮必刷；
+//  2. 其余已启用源按新鲜度升序（从未拉取=最旧）只补刷最久未刷的前 budget 个——
+//     59 源巨族长尾按 1h/40 源拉平到 ~6h/源；
+//  3. 手动 /api/check、reload、sync-all 仍走全量（RefreshAllConcurrent），
+//     用户显式动作不受预算限制。
+//
+// 返回（本轮刷新的源名列表，确定性排序：优先级集在前保持配置序，
+// 补刷集按新鲜度升序+名称决胜）。budget<=0 时只刷优先级集。
+func (m *Manager) SelectBudgetedRefresh(priority []string, budget int) []string {
+	if budget < 0 {
+		budget = 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	pr := make(map[string]bool, len(priority))
+	for _, n := range priority {
+		if n != "" {
+			pr[n] = true
+		}
+	}
+	var prio, rest []string
+	for _, s := range m.cfg.Sources {
+		if !s.IsEnabled() {
+			continue
+		}
+		if pr[s.Name] {
+			prio = append(prio, s.Name)
+		} else {
+			rest = append(rest, s.Name)
+		}
+	}
+	// 补刷集：新鲜度升序（零值=从未拉取，排最前）；同新鲜度按名称决胜（确定性）
+	sort.SliceStable(rest, func(i, j int) bool {
+		ti, tiOk := m.fresh[rest[i]]
+		tj, tjOk := m.fresh[rest[j]]
+		if tiOk != tjOk {
+			return !tiOk // 未拉取在前
+		}
+		if tiOk && !ti.Equal(tj) {
+			return ti.Before(tj)
+		}
+		return rest[i] < rest[j]
+	})
+	if len(rest) > budget {
+		rest = rest[:budget]
+	}
+	return append(append([]string{}, prio...), rest...)
+}
+
+// RefreshNames 并发刷新指定源（并发数 n；单源失败不影响其他）。
+// 与 RefreshAllConcurrent 同核，供 F5 轮转预算轮次按选定的名单刷新。
+func (m *Manager) RefreshNames(names []string, n int) []SourceStatus {
+	if n <= 0 {
+		n = 8
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	out := make([]SourceStatus, 0, len(names))
+	sem := make(chan struct{}, n)
+	for _, nm := range names {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(name string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			st := SourceStatus{Name: name}
+			if err := m.Refresh(name); err != nil {
+				st.Error = err.Error()
+			} else {
+				m.mu.RLock()
+				st.Count = len(m.cache[name])
+				m.mu.RUnlock()
+			}
+			mu.Lock()
+			out = append(out, st)
+			mu.Unlock()
+		}(nm)
+	}
+	wg.Wait()
+	return out
+}
+
+// RefreshBudgeted 0.6.312 B3/F5：优先级集必刷 + 其余源新鲜度升序补刷
+// budget 个（1 小时一轮时巨族源拉平 ~6h/源）。见 SelectBudgetedRefresh。
+func (m *Manager) RefreshBudgeted(priority []string, budget int) []SourceStatus {
+	names := m.SelectBudgetedRefresh(priority, budget)
+	return m.RefreshNames(names, 8)
+}
+
+// AutoCarePass 一轮「应用源自动监测」策略，在后台刷新轮结束后调用
+// （sts 来自 RefreshAll / RefreshAllConcurrent / RefreshBudgeted 等；
+// 单源手动同步不计数）。0.6.312 B3/F5 轮转预算后 sts 只含本轮实际刷新
+// 的源：未排到的源计数不变（不递增也不清零），语义与全量轮一致。
 //
 //  1. 刷新成功但 0 应用、连续达 AutoCareThreshold 轮 → 自动停用该源
 //  2. 本轮刷新成功的空源在源列表沉底（稳定分区：两组内部保序，

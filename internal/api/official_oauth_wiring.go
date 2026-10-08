@@ -84,11 +84,21 @@ func WireOfficialOAuth(s *Server) {
 	log.Printf("官方应用中心：OAuth 免登录通道已接线（0.6.259：无 OAuth 时面板账号兜底）")
 }
 
-// hasOAuthSession 会话存在且 access token 未过期（快速路径判断；
-// 临期未过期的 token 由 Manager.Do 内部自动刷新，不算无效）。
+// hasOAuthSession 会话存在且可用：access 未过期（快速路径），或 access 已过期
+// 但 refresh_token 仍在（Manager.Do 会内联自动刷新）。
+//
+// 0.6.312 修复：旧实现要求 access 未过期——过期 token 永远到不了 Do 的刷新分支，
+// 官方源在授权后约 1 小时（access 有效期）必然转「未连接」，用户被迫反复重新
+// 授权（refresh_token 明明有效却用不上）。
 func (s *officialStore) hasOAuthSession() bool {
 	sess := s.mgr.Session()
-	return sess != nil && sess.Valid(time.Now())
+	if sess == nil || sess.AccessToken == "" {
+		return false
+	}
+	if sess.Valid(time.Now()) {
+		return true
+	}
+	return sess.RefreshToken != ""
 }
 
 // oauthPanelApps 从 OAuth 通道拉全量官方目录并转成 panel.PanelApp。

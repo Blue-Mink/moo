@@ -115,10 +115,17 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 		// 按新会话拉取（否则退避窗口会压住授权后的首次刷新）。
 		s.Panel.resetFailState()
 		store.invalidate()
+		// 0.6.313 B4：授权成功改变官方卡数据（buildCatalog 的
+		// mergeOfficialCards 会并入官方目录条目，已装/更新判定随之变化）
+		// → 失效目录 + body 缓存，/api/apps 立即反映新会话的官方卡。
+		s.invalidateCatalog()
 		writeJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("POST /api/official/logout", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		store.mgr.Logout()
+		// 0.6.313 B4：登出移除官方卡（官方源转「未连接」，同一数据面的
+		// 反向变化）→ 同样失效目录 + body 缓存。
+		s.invalidateCatalog()
 		writeJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("GET /api/official/apps", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {

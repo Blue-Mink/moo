@@ -56,9 +56,11 @@ type Panel struct {
 }
 
 // detailEntry 区分"取过且有数据"与"取过但失败/为空"：失败条目下次回填时重试。
+// 0.6.313 B4：at = 写入时刻（detailCacheTTL 过期当 miss，见 detailGet）。
 type detailEntry struct {
 	detail panel.PanelDetail
 	ok     bool
+	at     time.Time
 }
 
 type iconEntry struct {
@@ -68,6 +70,11 @@ type iconEntry struct {
 }
 
 const iconCacheTTL = 24 * time.Hour
+
+// detailCacheTTL 0.6.313 B4：官方详情缓存 TTL（照 iconCacheTTL 的 24h 风格）。
+// 此前 detailCache 无 TTL 无上限只增不减（~388 官方应用 × 详情 1-3MB 常驻，
+// 仅进程重启才清）；现在过期当 miss（触发重取）+ 写入时顺手清理过期条目。
+const detailCacheTTL = 24 * time.Hour
 
 // NewPanel 从配置构造。
 //
@@ -267,6 +274,7 @@ func (p *Panel) enrichOfficial(apps []AppInfo) {
 }
 
 // detailGet 查官方应用详情缓存（失败/未取的条目视为不存在）。
+// 0.6.313 B4：超过 detailCacheTTL（24h）的条目当 miss（触发重取）。
 func (p *Panel) detailGet(appName string) (panel.PanelDetail, bool) {
 	if p == nil {
 		return panel.PanelDetail{}, false
@@ -274,20 +282,34 @@ func (p *Panel) detailGet(appName string) (panel.PanelDetail, bool) {
 	p.detailMu.Lock()
 	defer p.detailMu.Unlock()
 	e, ok := p.detailCache[appName]
-	if !ok || !e.ok {
+	if !ok || !e.ok || time.Since(e.at) > detailCacheTTL {
 		return panel.PanelDetail{}, false
 	}
 	return e.detail, true
 }
 
 // detailSet 写官方详情进常驻缓存（与 ensureBackfill 同格式）。
+// 0.6.313 B4：记录写入时刻 + 顺手清理过期条目。
 func (p *Panel) detailSet(appName string, d panel.PanelDetail) {
 	if p == nil {
 		return
 	}
 	p.detailMu.Lock()
-	p.detailCache[appName] = detailEntry{detail: d, ok: true}
+	p.purgeExpiredDetailsLocked()
+	p.detailCache[appName] = detailEntry{detail: d, ok: true, at: time.Now()}
 	p.detailMu.Unlock()
+}
+
+// purgeExpiredDetailsLocked 0.6.313 B4：清掉超过 detailCacheTTL 的
+// detailCache 条目（写入时顺手清理——缓存规模 ~388 条，写时刻清理足够；
+// 失败条目同样过期，重取时重新记录）。调用方须持有 detailMu。
+func (p *Panel) purgeExpiredDetailsLocked() {
+	now := time.Now()
+	for k, e := range p.detailCache {
+		if now.Sub(e.at) > detailCacheTTL {
+			delete(p.detailCache, k)
+		}
+	}
 }
 
 // ensureBackfill 异步回填官方应用详情：面板 app/list 不带描述字段，
@@ -359,11 +381,13 @@ func (p *Panel) ensureBackfill() {
 				defer cancel()
 				d, err := dfn(cctx, name)
 				p.detailMu.Lock()
+				// 0.6.313 B4：写入记时刻 + 顺手清理过期条目
+				p.purgeExpiredDetailsLocked()
 				if err == nil && d != nil {
-					p.detailCache[name] = detailEntry{detail: *d, ok: true}
+					p.detailCache[name] = detailEntry{detail: *d, ok: true, at: time.Now()}
 				} else if _, done := p.detailCache[name]; !done {
 					// 仅首记失败（ok=false），保留下一轮重试机会
-					p.detailCache[name] = detailEntry{detail: panel.PanelDetail{AppName: name}, ok: false}
+					p.detailCache[name] = detailEntry{detail: panel.PanelDetail{AppName: name}, ok: false, at: time.Now()}
 				}
 				p.detailMu.Unlock()
 			}(n)

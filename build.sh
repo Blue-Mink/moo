@@ -72,6 +72,21 @@ else
     warn "frontend/ 未就绪，跳过前端构建（web/ 使用现有产物或占位）"
 fi
 
+# ── Step 1.5: 刷新固定推荐快照（0.6.314 C，构建期抓取）─────────────────────
+# gen_reco_snapshots.py 从三源（raw 主 + jsDelivr 备）抓取固定前三推荐
+# （fnos-apps-store / fndepot / fn-knock）完整元数据 + README 全文 +
+# 图标 base64 → internal/reco/snapshots.json（go:embed，必须早于 Step 2）。
+# 离线 / 网络失败 / python3 缺失 → 保留仓库已有快照，不阻塞构建。
+if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/gen_reco_snapshots.py" ]; then
+    if python3 "$SCRIPT_DIR/gen_reco_snapshots.py" --out "$SCRIPT_DIR/internal/reco/snapshots.json"; then
+        info "固定推荐快照已刷新 -> internal/reco/snapshots.json"
+    else
+        warn "固定推荐快照刷新失败（保留仓库已有文件）——见上方脚本输出"
+    fi
+else
+    warn "python3 或 gen_reco_snapshots.py 缺失，跳过固定推荐快照刷新"
+fi
+
 # ── Step 2: 构建 Go 二进制（x86 + arm64，0.6.303 起 arm 适配）──────────────
 info "构建 Go 二进制 (x86)..."
 # -s -w：剥离符号表+DWARF（0.6.304 起 FPK 精简）：二进制 15.6M→11.1M，

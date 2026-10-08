@@ -117,6 +117,12 @@ type Config struct {
 	// lineage = origin 之外 maintainer / distributor 相等也算同宗。
 	// 平台跟踪应用（sourceID 非空 / official）不受影响。
 	UpdatePolicy string `json:"update_policy,omitempty"`
+	// DedupPolicy 列表去重展示策略（0.6.312 B2，首页胶囊三选一，仅展示层）：
+	// ""/all = 全部卡片照旧（默认，零变化）；
+	// merge = 同名组内同宗卡（同仓库/同作者/同版本同 sha）每簇留一张代表；
+	// one = 每个 appname 只留一张代表卡。
+	// 只并展示身份，不动版本/更新判定（数据层全量卡仍在，详情按 key 可达）。
+	DedupPolicy string `json:"dedup_policy,omitempty"`
 	// 本机安装次数（appname → 经 moo 安装/更新的累计次数）。
 	// 第三方源应用无全局下载量数据，列表/详情用「本机 N 次」回退展示。
 	LocalInstalls map[string]int `json:"local_installs,omitempty"`
@@ -291,7 +297,7 @@ func Default() *Config {
 	return &Config{
 		WebPort:     "38100",
 		DownloadDir: "downloads",
-		// 0.6.247：首装实际填充内置默认源全集（见 main.go，156 源）；
+		// 0.6.247：首装实际填充内置默认源全集（见 main.go，0.6.314 起 157 源）；
 		// 这两个种子仅作内置列表缺失时的兜底，地址必须带协议。
 		Sources: []SourceRef{
 			{Name: "Blue-Mink", URL: "https://github.com/Blue-Mink/FnDepot"},

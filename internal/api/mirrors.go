@@ -588,7 +588,13 @@ func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 			return
 		case <-time.After(time.Duration(mins) * time.Minute):
 		}
+		// 0.6.312 B3/F6（活性门控）：不活跃（>30min 无 UI）时探针 5→15min——
+		// tick 按配置间隔不变，仅跳过「距上次探测不足 15min」的不活跃 tick。
+		if s.uiInactive() && time.Since(s.probeGhLast()) < mirrorProbeIdleGap {
+			continue
+		}
 		s.Mirrors.probeGh()
+		s.lastProbeGh.Store(time.Now().Unix())
 		// 0.6.187：每齿轮周期评估优选切换（生效源变化 → 通知，30min 冷却防抖）
 		s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
 		s.mirrorsAllFailedCheck() // D3：全部镜像+直连失败 = 网络层异常（30min 冷却）
@@ -607,7 +613,12 @@ func (s *Server) mirrorProbeLoopDk(ctx context.Context) {
 			return
 		case <-time.After(time.Duration(mins) * time.Minute):
 		}
+		// 0.6.312 B3/F6（活性门控）：同 gh 组，dk 组独立计时
+		if s.uiInactive() && time.Since(s.probeDkLast()) < mirrorProbeIdleGap {
+			continue
+		}
 		s.Mirrors.probeDk()
+		s.lastProbeDk.Store(time.Now().Unix())
 		// 0.6.187：每齿轮周期评估优选切换（同 gh，独立组）
 		s.evaluateMirror(orAuto(cfgDockerMirror(s)), "dk", s.Mirrors.dk())
 		// 0.6.188：dk 组全挂/恢复监测（与 gh 组对偶）

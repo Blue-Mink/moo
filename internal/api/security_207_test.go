@@ -17,7 +17,8 @@ import (
 
 // ── 0.6.207-panel 安全修复单测（D1 sha256 / D2 头校验 / D4 body 上限 / 残留清理）──
 
-// TestCleanResidualCredentials 四类模式删除 + 备份边界（明文删/密文留/无字段留/坏 JSON 留）。
+// TestCleanResidualCredentials 模式删除 + 备份边界（明文删/密文留/无字段留/坏 JSON 留）。
+// 0.6.312：official_session.json 是现役 OAuth 会话文件，断言从「应删」改为「应留」。
 func TestCleanResidualCredentials(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, content string) {
@@ -49,18 +50,19 @@ func TestCleanResidualCredentials(t *testing.T) {
 	}
 	for _, want := range []string{
 		"config.json.bak-old", "dc_session.json.bak-removed",
-		"official_session.json", "official_session.json.bak",
 		"moo-backup-flat.json", "moo-backup-nested.json",
 	} {
 		if !got[want] {
 			t.Errorf("应删除 %s, removed=%v", want, removed)
 		}
 	}
-	if len(removed) != 6 {
-		t.Errorf("应恰好删 6 个, got %d: %v", len(removed), removed)
+	if len(removed) != 4 {
+		t.Errorf("应恰好删 4 个, got %d: %v", len(removed), removed)
 	}
 	for _, keep := range []string{
 		"config.json",
+		// 0.6.312：现役 OAuth 会话文件，启动清理不得误删
+		"official_session.json", "official_session.json.bak",
 		"backups/moo-backup-enc.json", "backups/moo-backup-empty.json", "backups/moo-backup-broken.json",
 		"downloads/keep.fpk", ".panel-key",
 	} {

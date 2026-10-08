@@ -13,8 +13,10 @@ import (
 var testPNG = append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, 64)...)
 
 // 内存层读写 + TTL
+// 0.6.313 B4：改用临时目录——磁盘层随 Put 直接写盘独立成立，测试不再
+// 依赖「dir 空=仅内存层」的旧构造（且对 MOO_ICON_MEM_MAX env 免疫）。
 func TestIconStore_MemRoundTrip(t *testing.T) {
-	st := newIconStore("")
+	st := newIconStore(t.TempDir())
 	st.Put("s@app", testPNG, "image/png")
 	b, ct, ok := st.Get("s@app")
 	if !ok || ct != "image/png" || len(b) != len(testPNG) {
@@ -45,7 +47,7 @@ func TestIconStore_DiskSurvivesRestart(t *testing.T) {
 
 // 负缓存
 func TestIconStore_Negative(t *testing.T) {
-	st := newIconStore("")
+	st := newIconStore(t.TempDir()) // 0.6.313 B4：统一临时目录
 	if st.IsNegative("x") {
 		t.Fatal("初始不应为负")
 	}
@@ -77,16 +79,18 @@ func TestIconStore_CorruptDiskEntry(t *testing.T) {
 
 // 负缓存过期（直接改时间）
 func TestIconStore_NegativeExpiry(t *testing.T) {
-	st := newIconStore("")
+	st := newIconStore(t.TempDir()) // 0.6.313 B4：统一临时目录
 	st.neg["x"] = time.Now().Add(-time.Second)
 	if st.IsNegative("x") {
 		t.Fatal("过期负缓存应失效")
 	}
 }
 
-// 到顶淘汰：不清空全部，保留最近的 iconMemMax/2（用户热图标不被 warm 连锅端）
+// 到顶淘汰：不清空全部，保留最近的 memMax/2（用户热图标不被 warm 连锅端）
+// 0.6.313 B4：memMax 跟随 env（默认 iconMemMax=256）；改用临时目录
+//（mem 直接操作不受影响，Put 的磁盘写落临时目录）。
 func TestIconStore_EvictionKeepsRecent(t *testing.T) {
-	st := newIconStore("")
+	st := newIconStore(t.TempDir())
 	st.mem = map[string]iconMemEntry{}
 	for i := 0; i < iconMemMax; i++ {
 		st.mem[kvKey(i)] = iconMemEntry{data: testPNG, ctype: "image/png", expires: time.Now().Add(time.Minute)}

@@ -75,13 +75,26 @@ func TestCatalogCache(t *testing.T) {
 		t.Errorf("重建后内容应完整，DisplayName=%q", c3[i3].DisplayName)
 	}
 
-	// TTL 过期 → 重建
+	// TTL 过期 → 0.6.313 B4/F11 SWR：首次读取立即返回旧数据（不阻塞，
+	// 旧行为=持锁重建直接返回新切片），后台重建随后原子换入新切片
 	s.catalogTTL = 30 * time.Millisecond
 	time.Sleep(60 * time.Millisecond)
 	c4 := s.cachedCatalog("zh-CN")
 	i4 := findDemo(t, c4)
-	if &c4[i4] == &c3[i3] {
-		t.Error("TTL 过期后应重建新切片")
+	if &c4[i4] != &c3[i3] {
+		t.Error("TTL 过期且有旧数据时应立即返回旧数据（SWR）")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		c5 := s.cachedCatalog("zh-CN")
+		if i5 := findDemo(t, c5); &c5[i5] != &c3[i3] {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	c5 := s.cachedCatalog("zh-CN")
+	if i5 := findDemo(t, c5); &c5[i5] == &c3[i3] {
+		t.Error("后台重建完成后应换入新切片")
 	}
 }
 

@@ -140,3 +140,68 @@ func TestQueue_RemoveTerminalOp(t *testing.T) {
 		t.Error("未知 ID 应返回 removed=false")
 	}
 }
+
+// 0.6.312 B1/F1：StartSync 同步语义——①调用返回时操作已终态且 current
+// 已清空（阻塞式，供自动更新批次逐条统计）；②运行中拒绝新操作（与
+// Start 同互斥）；③失败操作终态 error 入 history 不阻塞下一项。
+func TestQueue_StartSyncBlockingAndMutex(t *testing.T) {
+	q := NewQueue()
+	done := make(chan struct{})
+	// 手动操作（异步 Start）先占住队列
+	if _, err := q.Start("update", "manual-app", func(ctx context.Context, progress func(string, float64)) error {
+		<-done
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// StartSync 应被拒绝（已有活动操作）
+	if _, err := q.StartSync(context.Background(), "update", "auto-app", func(ctx context.Context, progress func(string, float64)) error {
+		return nil
+	}); err == nil {
+		t.Fatal("活动操作存在时 StartSync 应拒绝")
+	}
+	close(done)
+	deadline := time.Now().Add(3 * time.Second)
+	for q.Current() != nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if q.Current() != nil {
+		t.Fatal("手动操作完成后 Current() 应为 nil")
+	}
+	// 空闲时 StartSync 阻塞执行：返回时已完成
+	started := time.Now()
+	v, err := q.StartSync(context.Background(), "update", "auto-app", func(ctx context.Context, progress func(string, float64)) error {
+		time.Sleep(50 * time.Millisecond)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(started) < 40*time.Millisecond {
+		t.Fatal("StartSync 应阻塞到操作完成（返回时已终态）")
+	}
+	if v.State != StateDone {
+		t.Fatalf("StartSync 返回视图应为 done，实际 %q", v.State)
+	}
+	if q.Current() != nil {
+		t.Fatal("StartSync 完成后 current 应清空")
+	}
+	hist := q.History()
+	if len(hist) != 2 || hist[0].State != StateDone || hist[0].Target != "auto-app" {
+		t.Fatalf("history 应为 [auto-app done, manual-app done]，实际 %+v", hist)
+	}
+	// 失败项：同步返回错误 + 终态 error 入 history，且不阻塞下一项
+	if _, err := q.StartSync(context.Background(), "update", "fail-app", func(ctx context.Context, progress func(string, float64)) error {
+		return fmt.Errorf("boom")
+	}); err == nil {
+		t.Fatal("操作体失败时 StartSync 应返回错误")
+	}
+	if cur := q.History(); len(cur) < 3 || cur[0].Target != "fail-app" || cur[0].State != StateError {
+		t.Fatalf("失败操作应入 history 且状态 error，实际 %+v", cur)
+	}
+	if _, err := q.StartSync(context.Background(), "update", "next-app", func(ctx context.Context, progress func(string, float64)) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("失败项不应阻塞后续: %v", err)
+	}
+}

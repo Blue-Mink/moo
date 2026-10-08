@@ -15,10 +15,12 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogCancel,
+  AlertDialogAction,
 } from "@/components/ui/alert-dialog"
 import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert, KeyRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { shouldWarnPlainHttp } from '@/lib/sourceWarnings'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import { toast } from 'sonner'
 import OfficialOAuthDialog from './OfficialOAuthDialog'
 
@@ -64,6 +66,9 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   // 一键复制全部源地址（短暂 ✓ 反馈）
   const [copiedAll, setCopiedAll] = useState(false);
   const copyAllTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 0.6.314 B：自动复制真实失败（剪贴板 API 不可用且 execCommand 兜底也失败）时，
+  // 弹出对话框展示完整文本供手动全选复制，不再假报「已复制」
+  const [copyFailText, setCopyFailText] = useState<string | null>(null);
   // 重命名应用源（⋯ 设置按钮 → 弹窗）
   const [renameSrc, setRenameSrc] = useState<SourceEntry | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -144,19 +149,11 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       return;
     }
     const text = urls.join('\n');
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch { /* 剪贴板不可用：下面仅提示 */ }
+    // 0.6.314 B：校验真实写入结果；两条路都失败 → 弹框展示文本供手动复制
+    const ok = await copyTextToClipboard(text);
+    if (!ok) {
+      setCopyFailText(text);
+      return;
     }
     setCopiedAll(true);
     toast.success(`已复制 ${urls.length} 个应用源地址（每行一个）`);
@@ -257,19 +254,11 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const handleCopyUrl = async (src: SourceEntry) => {
     // 0.6.141：无协议的存量地址（如早期的 Blue-Mink 源）复制时补 https://
     const fullUrl = (src.url as string).match(/^https?:\/\//i) ? src.url : `https://${src.url}`;
-    try {
-      await navigator.clipboard.writeText(fullUrl);
-    } catch {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = fullUrl;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch { /* 剪贴板不可用时仅提示 */ }
+    // 0.6.314 B：校验真实写入结果；两条路都失败 → 弹框展示文本供手动复制
+    const ok = await copyTextToClipboard(fullUrl);
+    if (!ok) {
+      setCopyFailText(fullUrl);
+      return;
     }
     setCopiedId(src.id);
     toast.success(`已复制应用源地址：${src.name}`);
@@ -991,6 +980,25 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               {removingId !== null && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               删除
             </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 0.6.314 B：自动复制失败（非 secure context / execCommand 兜底失败）
+          → 诚实提示，展开完整文本供手动全选复制，不再假报「已复制」 */}
+      <AlertDialog open={copyFailText !== null} onOpenChange={(v) => { if (!v) setCopyFailText(null); }}>
+        <AlertDialogContent className="sm:max-w-md rounded-[18px] border-border/20 shadow-appstore bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>自动复制失败</AlertDialogTitle>
+            <AlertDialogDescription>
+              当前环境无法写入剪贴板。已为你展开文本，请手动全选复制：
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <code className="block max-h-44 w-full select-text overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/70 p-3 text-xs leading-relaxed text-foreground">
+            {copyFailText}
+          </code>
+          <AlertDialogFooter>
+            <AlertDialogAction>知道了</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

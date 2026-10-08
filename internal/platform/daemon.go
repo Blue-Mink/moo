@@ -28,6 +28,13 @@ import (
 // 用 var 便于测试注入假 socket；生产代码不得重新赋值。
 var daemonSocket = "/var/run/com.trim.app.center.sock"
 
+// SetDaemonSocketForTest 0.6.314：供 api 包单测隔离真实 daemon（指向不存在
+// 的路径，装有 daemon 的机器上也不会把真实已装应用并入目录缓存）。
+// 仅限 _test 代码调用；生产代码不得调用。
+func SetDaemonSocketForTest(path string) {
+	daemonSocket = path
+}
+
 // Daemon 路由（1.2.05xx 实测）。
 const (
 	routeDownloadTask   = "/rpc/v1/download/task"

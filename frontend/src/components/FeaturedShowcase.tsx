@@ -8,6 +8,10 @@ import AppIcon from './AppIcon';
 interface FeaturedShowcaseProps {
   apps: AppInfo[];
   onDetail: (app: AppInfo) => void;
+  /** 0.6.314r（用户定稿）：发现页前三固定位（/api/recommended 前三，
+      顺序固定不随机；源缺时后端回落快照条目，AppInfo 同构形态）。
+      缺省/为空时退回旧行为（全目录随机 3 款）。 */
+  featured?: AppInfo[];
 }
 
 const GRADIENTS = ['hero-gradient-1', 'hero-gradient-2', 'hero-gradient-3'];
@@ -64,11 +68,11 @@ const RowCard: React.FC<{ app: AppInfo; onDetail: (a: AppInfo) => void }> = ({ a
  * 注意：应用名用 h3/p 而非可被 e2e 按 heading 命中的独立卡片结构，
  * 且容器不带 overflow-hidden，避免与 e2e 的 cardFor() 选择器冲突。
  */
-const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail }) => {
-  // 编辑推荐：从整个目录随机挑 3 款。图标统一由 AppIcon 渲染（外部源
-  // 经本地代理+磁盘缓存，缺失时占位兜底），不再按 icon_url 过滤候选。
-  // 同一份目录内结果保持稳定（useMemo 只依赖 apps），刷新后重新洗牌。
+const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, featured: featuredProp }) => {
+  // 0.6.314r：横幅前三=固定推荐位（featuredProp，顺序即 /api/recommended 序）；
+  // 未提供时退回旧行为=全目录随机 3 款（useMemo 只依赖 apps，刷新后重新洗牌）。
   const featured = useMemo(() => {
+    if (featuredProp && featuredProp.length > 0) return featuredProp.slice(0, 3);
     const arr = [...apps];
     const out: AppInfo[] = [];
     while (out.length < 3 && arr.length > 0) {
@@ -76,14 +80,27 @@ const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail }) =
       out.push(arr.splice(j, 1)[0]);
     }
     return out;
-  }, [apps]);
+  }, [apps, featuredProp]);
+  // 前三固定位的应用在热门/最近行里不再重复出现（0.6.314r：同名恰 1 张）
+  const featuredBaseKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of featured) {
+      const b = (a.key || a.appname || '').split('@')[0];
+      if (b) s.add(b);
+    }
+    return s;
+  }, [featured]);
   const popular = useMemo(
-    () => [...apps].sort((a, b) => (b.download_count ?? 0) - (a.download_count ?? 0)).slice(0, 12),
-    [apps]
+    () => [...apps]
+      .filter(a => !featuredBaseKeys.has((a.key || a.appname || '').split('@')[0]))
+      .sort((a, b) => (b.download_count ?? 0) - (a.download_count ?? 0)).slice(0, 12),
+    [apps, featuredBaseKeys]
   );
   const recent = useMemo(
-    () => [...apps].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 12),
-    [apps]
+    () => [...apps]
+      .filter(a => !featuredBaseKeys.has((a.key || a.appname || '').split('@')[0]))
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 12),
+    [apps, featuredBaseKeys]
   );
 
   if (featured.length === 0) return null;

@@ -40,16 +40,29 @@ func shortSyncErr(e string) string {
 }
 
 // sourceRoundNotify 源刷新轮次后的通知检查（调用方保证刷新已完成）。
+//
+// 0.6.312 B3/F5（源轮转预算）后 sts 只含**本轮实际刷新的源**（优先级集 +
+// 新鲜度补刷 40 个），因此三处口径必须与「本轮刷了几源」解耦：
+//   - D2 恢复判定：上轮失败的源须本轮**真的重新刷新且成功**才算恢复
+//     （未被排到的源不算——此前全量轮天然覆盖，预算轮会出假恢复）；
+//   - E1 目录下跌/NotifyPrevTotal：用全目录总数（len(Src.Apps)），不能用
+//     本轮刷新源的应用数之和（预算轮之和只是部分 → 恒假触发「异常下跌」）；
+//   - 源同步摘要：逐源明细用全量当前状态（指纹跨轮稳定），本轮失败/成功数
+//     才取 sts——全量轮时代两者等价，预算轮起分道。
 func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	// D1 源同步失败摘要
 	type failRow struct{ name, err string }
 	var failed []failRow
-	total := 0
 	for _, st := range sts {
-		total += st.Count
 		if st.Error != "" {
 			failed = append(failed, failRow{st.Name, st.Error})
 		}
+	}
+	// 全目录应用总数（含未排到的源；Src.Apps 聚合全部已启用源缓存）
+	fullTotal := len(s.Src.Apps("", ""))
+	refreshed := make(map[string]bool, len(sts))
+	for _, st := range sts {
+		refreshed[st.Name] = true
 	}
 	sort.Slice(failed, func(i, j int) bool { return failed[i].name < failed[j].name })
 	if len(failed) > 0 {
@@ -123,7 +136,8 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 		}
 		var recovered []string
 		for n := range s.Cfg.NotifyPrevFailed {
-			if !failedNow[n] {
+			// 0.6.312 B3/F5：须本轮真的刷新过且成功（未被预算排到的源不算）
+			if refreshed[n] && !failedNow[n] {
 				recovered = append(recovered, n)
 			}
 		}
@@ -145,28 +159,39 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 		}
 	}
 
-	// E1 目录数量异常下跌（>20%）
+	// E1 目录数量异常下跌（>20%）——0.6.312 B3/F5：用全目录总数（本轮刷新源
+	// 之和只是部分，预算轮下会恒假触发）
 	prevTotal := s.Cfg.NotifyPrevTotal
-	if prevTotal > 100 && total > 0 && total < prevTotal*4/5 {
+	if prevTotal > 100 && fullTotal > 0 && fullTotal < prevTotal*4/5 {
 		s.notifyEvent("catalog_drop", "目录数量异常下跌",
 			fmt.Sprintf("目录条目 %d → %d（跌幅 %d%%），上游源数据可能异常",
-				prevTotal, total, (prevTotal-total)*100/prevTotal), false)
+				prevTotal, fullTotal, (prevTotal-fullTotal)*100/prevTotal), false)
 	}
 
-	// 更新轮次状态
+	// 更新轮次状态。0.6.312 B3/F5：本轮轮转未排到的源**保留**上轮失败态
+	//（若直接丢弃，失败源在下轮真正重刷成功时「失败→成功」迁移已丢失，
+	// 恢复通知永不触发）——保留到其下次实际刷新：成功 → 上方 D2 已推恢复
+	// 并在此清除；失败 → 继续留在失败集。
 	notifyMu.Lock()
-	s.Cfg.NotifyPrevFailed = make(map[string]bool, len(failed))
-	for _, f := range failed {
-		s.Cfg.NotifyPrevFailed[f.name] = true
+	nextFailed := make(map[string]bool, len(failed))
+	for n := range s.Cfg.NotifyPrevFailed {
+		if !refreshed[n] {
+			nextFailed[n] = true
+		}
 	}
-	s.Cfg.NotifyPrevTotal = total
+	for _, f := range failed {
+		nextFailed[f.name] = true
+	}
+	s.Cfg.NotifyPrevFailed = nextFailed
+	s.Cfg.NotifyPrevTotal = fullTotal
 	_ = s.Cfg.Save(dataDirOf(s))
 	notifyMu.Unlock()
 
 	// B 收藏应用有更新（目录已刷新，同步构建一次拿版本信息）
 	s.favoriteUpdatePass()
 	// 0.6.133 源同步摘要（各源应用数 / 应用总数含重复 / 关注源 / 收藏数目，指纹去重）
-	s.sourceSummaryPass(sts, total)
+	// 0.6.312 B3/F5：total=全目录总数（非本轮刷新源之和）
+	s.sourceSummaryPass(sts, fullTotal)
 	// 0.6.143 关注源新增应用（源×应用只推一次）
 	s.favoriteSourcePass()
 	// 0.6.190 关注源报表（总数 + 全清单 + 本轮新增/移除，有变化才推）
@@ -175,25 +200,53 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	s.updatesAvailablePass()
 }
 
+// enabledSourceStates 0.6.312 B3/F5：全部已启用源的当前状态（名称 + 最新
+// 应用数）。供源同步摘要的逐源明细用——与「本轮实际刷了几源」解耦，
+// 预算轮下指纹跨轮稳定（数据不变不重推）。
+func (s *Server) enabledSourceStates() []source.SourceStatus {
+	enabled := make(map[string]bool, len(s.Cfg.Sources))
+	for _, sr := range s.Cfg.Sources {
+		if sr.IsEnabled() {
+			enabled[sr.Name] = true
+		}
+	}
+	var out []source.SourceStatus
+	for _, st := range s.Src.Sources() {
+		if enabled[st.Name] {
+			out = append(out, st)
+		}
+	}
+	return out
+}
+
 // buildSourceSummary（0.6.143）：构造源同步摘要两个版本。
 // compact = 外部渠道发（概况 + 应用数 Top5 + 失败源前 5，不刷屏）；
 // full = 应用内通知记录（完整逐源明细 + 总数，方格折叠卡展开看）。
 // 文案：逐源「N 个应用」；总数 = 各源原始条目数之和（含多源重复，不去重）。
-func buildSourceSummary(sts []source.SourceStatus, total, favN, favSrcN int) (compact, full string) {
+//
+// 0.6.312 B3/F5：逐源明细改从 **all**（全部已启用源当前状态，按名称确定性
+// 排序）取——旧版遍历 sts 的并发完成序（不确定），且预算轮 sts 只含部分源；
+// 本轮成功/失败数与失败名单仍取 sts（本轮实际刷新活动）。
+func buildSourceSummary(sts, all []source.SourceStatus, total, favN, favSrcN int) (compact, full string) {
 	okN, failedN := 0, 0
+	failedNow := make(map[string]bool, len(sts))
 	for _, st := range sts {
 		if st.Error == "" {
 			okN++
 		} else {
 			failedN++
+			failedNow[st.Name] = true
 		}
 	}
+	sorted := make([]source.SourceStatus, len(all))
+	copy(sorted, all)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
-	// 完整版（应用内记录，折叠卡展开）：逐源明细 + 总数
+	// 完整版（应用内记录，折叠卡展开）：逐源明细 + 总数（名称序，指纹稳定）
 	var fb strings.Builder
 	fb.WriteString("本轮源同步：\n\n")
-	for _, st := range sts {
-		if st.Error != "" {
+	for _, st := range sorted {
+		if failedNow[st.Name] {
 			fmt.Fprintf(&fb, "- %s：同步失败\n", st.Name)
 		} else {
 			fmt.Fprintf(&fb, "- %s：%d 个应用\n", st.Name, st.Count)
@@ -210,14 +263,19 @@ func buildSourceSummary(sts []source.SourceStatus, total, favN, favSrcN int) (co
 	}
 	var rows []row
 	var failed []string
-	for _, st := range sts {
-		if st.Error != "" {
+	for _, st := range sorted {
+		if failedNow[st.Name] {
 			failed = append(failed, st.Name)
 			continue
 		}
 		rows = append(rows, row{st.Name, st.Count})
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].count > rows[j].count })
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].count != rows[j].count {
+			return rows[i].count > rows[j].count
+		}
+		return rows[i].name < rows[j].name
+	})
 	top := make([]string, 0, 5)
 	for i, r := range rows {
 		if i >= 5 {
@@ -261,13 +319,15 @@ func buildSourceSummary(sts []source.SourceStatus, total, favN, favSrcN int) (co
 // 每轮源同步后聚合「各源应用数 / 应用总数（含多源重复，不去重）/ 关注源 / 收藏数目」。
 // 外部渠道发紧凑版（markdown_v2 渠道发表格版）；应用内记录存完整逐源明细；
 // 指纹不变不重复推。
+// 0.6.312 B3/F5：total=全目录总数；逐源明细取全量当前状态（指纹跨轮稳定）。
 func (s *Server) sourceSummaryPass(sts []source.SourceStatus, total int) {
 	if !s.IsNotifyEventOn("source_sync_summary") {
 		return
 	}
 	favN := len(s.Cfg.Favorites)
 	favSrcN := len(s.Cfg.FavoriteSources)
-	compact, fullC := buildSourceSummary(sts, total, favN, favSrcN)
+	all := s.enabledSourceStates()
+	compact, fullC := buildSourceSummary(sts, all, total, favN, favSrcN)
 	notifyMu.Lock()
 	changed := s.Cfg.NotifyPrevSummaryFP != fullC
 	if changed {
@@ -280,14 +340,16 @@ func (s *Server) sourceSummaryPass(sts []source.SourceStatus, total int) {
 	}
 	msg := newNotifyMsg("source_sync_summary", "源同步摘要", compact, true)
 	msg.Full = fullC
-	msg.Table, msg.Rows = buildSourceSummaryTable(sts, total, favN, favSrcN)
+	msg.Table, msg.Rows = buildSourceSummaryTable(sts, all, total, favN, favSrcN)
 	msg.EmphTitle = fmt.Sprintf("%d", total)
 	msg.EmphDesc = "应用总数（含多源重复）"
 	// 0.6.175 通知信息长度变体：简洁=只发两个总数；完整=全量逐源不截断。
 	// 0.6.178 简洁卡去重：大字强调已承载应用总数 → 两列行去掉「应用」行
 	//（此前同一总数在 副题/行/大字 三处重复）；副题改源成功/失败数
 	//（简洁卡中唯一不重复的信息）。
-	msg.ContentConcise = fmt.Sprintf("应用源 %d 个 | 应用 %d 个", len(sts), total)
+	// 0.6.312 B3/F5：「应用源 N 个」= 已启用源总数（len(all)），不是本轮
+	// 刷新的源数；成功/失败数 = 本轮实际刷新活动（sts）
+	msg.ContentConcise = fmt.Sprintf("应用源 %d 个 | 应用 %d 个", len(all), total)
 	okN, failedN := 0, 0
 	for _, st := range sts {
 		if st.Error == "" {
@@ -297,32 +359,43 @@ func (s *Server) sourceSummaryPass(sts []source.SourceStatus, total int) {
 		}
 	}
 	msg.RowsConcise = []notify.CardRow{
-		{Key: "应用源", Value: fmt.Sprintf("%d 个", len(sts))},
+		{Key: "应用源", Value: fmt.Sprintf("%d 个", len(all))},
 	}
 	msg.ConciseSub = fmt.Sprintf("%d 源成功 / %d 源失败", okN, failedN)
 	msg.ContentFull = fullC
-	msg.TableFull, msg.RowsFull = buildSourceSummaryTableFull(sts, total, favN, favSrcN)
+	msg.TableFull, msg.RowsFull = buildSourceSummaryTableFull(sts, all, total, favN, favSrcN)
 	writeNotifyLog(s.Cfg, msg, s.fanoutIfExternalOn(msg, "source_sync_summary"))
 }
 
 // buildSourceSummaryTableFull 完整详细模式（0.6.175）的 markdown_v2 表格 +
 // 卡片行：全部源逐行列出，无 Top5 截断；卡片行上限 8 行（企微卡片展示
 // 上限，超出部分应用内通知记录/详情页仍完整可查）。
-func buildSourceSummaryTableFull(sts []source.SourceStatus, total, favN, favSrcN int) (string, []notify.CardRow) {
+func buildSourceSummaryTableFull(sts, all []source.SourceStatus, total, favN, favSrcN int) (string, []notify.CardRow) {
 	type row struct {
 		name  string
 		count int
 	}
 	var rows []row
 	okN := 0
+	failedNow := map[string]bool{}
 	for _, st := range sts {
-		if st.Error != "" {
-			continue
+		if st.Error == "" {
+			okN++
+		} else {
+			failedNow[st.Name] = true
 		}
-		okN++
-		rows = append(rows, row{st.Name, st.Count})
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].count > rows[j].count })
+	for _, st := range all {
+		if !failedNow[st.Name] {
+			rows = append(rows, row{st.Name, st.Count})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].count != rows[j].count {
+			return rows[i].count > rows[j].count
+		}
+		return rows[i].name < rows[j].name
+	})
 	var b strings.Builder
 	fmt.Fprintf(&b, "源同步：%d 源成功 / %d 源失败\n\n| 源 | 应用数 |\n| :-- | --: |\n", okN, len(sts)-okN)
 	cardRows := make([]notify.CardRow, 0, 8)
@@ -338,21 +411,32 @@ func buildSourceSummaryTableFull(sts []source.SourceStatus, total, favN, favSrcN
 
 // buildSourceSummaryTable 源同步摘要的 markdown_v2 表格版（0.6.144）：
 // Top5 源 × 应用数 + 总量行。同时返回卡片两列列表行（Top5）。
-func buildSourceSummaryTable(sts []source.SourceStatus, total, favN, favSrcN int) (string, []notify.CardRow) {
+func buildSourceSummaryTable(sts, all []source.SourceStatus, total, favN, favSrcN int) (string, []notify.CardRow) {
 	type row struct {
 		name  string
 		count int
 	}
 	var rows []row
 	okN := 0
+	failedNow := map[string]bool{}
 	for _, st := range sts {
-		if st.Error != "" {
-			continue
+		if st.Error == "" {
+			okN++
+		} else {
+			failedNow[st.Name] = true
 		}
-		okN++
-		rows = append(rows, row{st.Name, st.Count})
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].count > rows[j].count })
+	for _, st := range all {
+		if !failedNow[st.Name] {
+			rows = append(rows, row{st.Name, st.Count})
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].count != rows[j].count {
+			return rows[i].count > rows[j].count
+		}
+		return rows[i].name < rows[j].name
+	})
 	var b strings.Builder
 	fmt.Fprintf(&b, "源同步：%d 源成功 / %d 源失败\n\n| 源 | 应用数 |\n| :-- | --: |\n", okN, len(sts)-okN)
 	cardRows := make([]notify.CardRow, 0, 5)
@@ -656,7 +740,7 @@ func splitDispVer(disp string) (label, ver string) {
 
 // pushFavSourceReport 推送单个关注源的报表（0.6.194）：
 // 友好 md = 加粗标题 + 总数/增减 + 新增/移除/全部清单分节 + 源地址独立行
-//（长 URL 不再挤在标题行里换行）；md_v2 = 单表「应用|版本|状态」（新增/移除
+// （长 URL 不再挤在标题行里换行）；md_v2 = 单表「应用|版本|状态」（新增/移除
 // 置顶）；卡片 = 概览行 + 新增应用行（≤6 行，企微卡片上限）。
 func (s *Server) pushFavSourceReport(r favSrcRep) {
 	addN, remN := len(r.added), len(r.removed)
@@ -781,7 +865,6 @@ func (s *Server) pushFavSourceReport(r favSrcRep) {
 			RowsFull:       rowsFull,
 		})
 }
-
 
 // updatesAvailablePass 应用更新摘要（0.6.133 用户定稿）：目录比对后收集
 // 「已装且有更新」的应用集合；集合（应用×版本指纹）变化且非空才推送——
@@ -1055,13 +1138,13 @@ func (s *Server) favoriteUpdatePass() {
 // ---------- 自监控（C3 资源 / C4 健康） ----------
 
 type selfMonitorState struct {
-	mu            sync.Mutex
-	memAlertSince time.Time // 持续超阈值起点（零 = 未超）
-	cpuAlertSince time.Time
-	memNotifiedAt time.Time // 30min 冷却
-	cpuNotifiedAt time.Time
-	healthDown    bool
-	diskAlerting  bool      // 0.6.133：磁盘告警中（>90%）
+	mu             sync.Mutex
+	memAlertSince  time.Time // 持续超阈值起点（零 = 未超）
+	cpuAlertSince  time.Time
+	memNotifiedAt  time.Time // 30min 冷却
+	cpuNotifiedAt  time.Time
+	healthDown     bool
+	diskAlerting   bool      // 0.6.133：磁盘告警中（>90%）
 	diskNotifiedAt time.Time // 30min 冷却
 }
 

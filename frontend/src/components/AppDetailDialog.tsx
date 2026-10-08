@@ -162,6 +162,7 @@ interface AppDetailDialogProps {
   app: AppInfo | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 0.6.312 B2：候选表行点击 → 打开该源卡的详情（显式引用逃生门）。 */
   onInstall: (app: AppInfo) => void;
   onUpdate: (app: AppInfo) => void;
   onIgnoreUpdate?: (app: AppInfo) => void;
@@ -726,13 +727,29 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
 // 背后 45% 黑遮罩下的列表隐约可见并被真实模糊（iOS 景深）；
 // 极光路径（aBg 渐变）不变。背景在对话框打开时静止（body 滚动锁定），
 // backdrop-filter 无逐帧重算成本。
-isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "bg-background/70 backdrop-blur-2xl")}>
+// 0.6.313 A2（与设置页同构缺陷域，WEBVIEW_SETTINGS_BUG.md §6 点名同批）：
+// 移动端（!isDesktop）玻璃层移到下方内层 absolute 子层——backdrop-filter
+// 不再作用于含内容的整屏 fixed 层本体（WebView GPU 合成异常经典绕法）；
+// 桌面分支（isDesktop）本体玻璃/极光渐变原样保留，零改动。
+isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "")}>
+        {/* 0.6.313 A2：移动端玻璃层移入内层 absolute 子层（JS 分支与本体
+            玻璃同用 isDesktop，640–768px 带=居中卡形态，玻璃自带 sm:rounded
+            防四角方角外溢——0.6.298 教训：带 backdrop-filter 的子元素提升
+            合成层会逃逸父级 rounded+overflow-hidden 裁剪）。层级：本层 z-0
+            → 列布局 div relative z-10 压其上；Radix 关闭钮（button.absolute，
+            dialog.tsx 在 children 之后渲染）本页恒隐藏（[&>button.absolute]:hidden，
+            移动端用返回箭头、桌面用内容内关闭钮），不受玻璃层影响。 */}
+        {!isDesktop && (
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-background/70 backdrop-blur-2xl sm:rounded-[18px]" />
+        )}
         {/* 列布局：头部行冻结在顶部（不随内容滚动），下方内容区独立滚动。
             移动端整体包一张圆角内边框卡（与列表同款）；桌面端卡片透明化。 */}
         {/* 0.6.298：玻璃层自带圆角——带 backdrop-filter 的子元素会提升合成层
             逃逸父级 rounded+overflow-hidden 裁剪，四角方角底色外溢（用户实抓） */}
         <div className={cn(
           "flex-1 min-h-0 flex flex-col sm:px-0 sm:pt-0",
+          // 0.6.313 A2：移动端（标准+极光）抬到玻璃层（z-0）之上；桌面零改动
+          !isDesktop && "relative z-10",
           // 移动端无极光：原 12px 内缩内容区
           !mobileAuroraPanel && "px-3 pt-3",
           // 移动端极光：玻璃层 = 12px 内缩的圆角极光渐变面板（overflow-hidden
@@ -1086,6 +1103,8 @@ isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "bg-background/70 ba
             </DetailRow>
           )}
 
+          {/* 0.6.312：同名候选表按用户要求整体移除（后端 same_name 字段保留，
+              冲突处理仍走列表页冲突对话框；显式引用逃生门不再需要）。 */}
           {app.service_port ? (
             <DetailRow icon={Network} label="服务端口">
               {app.service_port}

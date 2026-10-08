@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, Check, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -21,7 +21,7 @@ import ThemeToggle from './components/ThemeToggle';
 import MobileDock from './components/MobileDock';
 import AppRowList from './components/AppRowList';
 import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
-import { fetchApps, triggerCheck, installApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys } from './api/client';
+import { fetchApps, triggerCheck, installApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
@@ -79,6 +79,20 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'name', label: '名称' },
   { value: 'updated', label: '最近更新' },
 ];
+
+// 0.6.312 B2：列表去重三档（首页胶囊，「全部」与「AI」之间）。只并展示
+// 身份，不动版本/更新判定；代表卡详情仍有候选表 + 显式引用逃生门。
+// 0.6.312c（用户定稿）：菜单三档文案 上→下 = 默认 / 去重 / 一卡；
+// 0.6.313（用户定稿）：三档改名、档位值不变，上→下 = 默认 / 标准 / 去重
+// （all=默认 / merge=标准 / one=去重；后端 /api/dedup 键值体系零改动）
+const DEDUP_OPTIONS: { value: string; label: string; sub: string }[] = [
+  { value: 'all', label: '默认', sub: '所有源卡片照旧' },
+  { value: 'merge', label: '标准', sub: '同仓/同构建组留一张代表' },
+  { value: 'one', label: '去重', sub: '每个应用只留一张卡' },
+];
+
+// 0.6.312 B2：安装冲突分支（后端 install_conflict 字段，与详情页同源）。
+type InstallConflictBranch = 'same' | 'lineage' | 'different' | 'official';
 
 // 0.6.282：解析深链 hash（0.6.281 的 #app=<key>，扩展为 #app=<key>&settings[=<tab>]）。
 // 参数顺序不敏感；app 名经 encodeURIComponent 后取值内不会出现裸 & / =。
@@ -287,6 +301,8 @@ const App: React.FC = () => {
   );
   const [activeCategory, setActiveCategory] = useState<CategoryKey | null>(null);
   const [pendingUninstallApp, setPendingUninstallApp] = useState<AppInfo | null>(null);
+  // 0.6.312 B2：安装冲突对话框（同名组已有已装卡时点「安装」→ 四分支裁决）。
+  const [installConflict, setInstallConflict] = useState<{ app: AppInfo; branch: InstallConflictBranch } | null>(null);
   // Apps can declare an install-time form (fnos/wizard/install). When one
   // exists we ask first, then install with the answers — matching what the
   // native App Center does. Previously the store silently accepted defaults,
@@ -453,7 +469,11 @@ const App: React.FC = () => {
   const [ignoreExpanded, setIgnoreExpanded] = useState(false);
   // 排序菜单位置：pill 行是 overflow-x-auto 滚动容器（会同时裁剪 y 轴），
   // 菜单必须 fixed 定位逃出裁剪，坐标在打开时按触发钮实测位置计算。
-  const [sortMenuPos, setSortMenuPos] = useState<{ left: number; top: number } | null>(null);
+  const [sortMenuPos, setSortMenuPos] = useState<{ left: number; top: number; w: number } | null>(null);
+  // 0.6.312 B2：去重胶囊（「全部」与「AI」之间）——策略 + 菜单开合。
+  const [dedupPolicy, setDedupPolicy] = useState<string>('all');
+  const [dedupMenuOpen, setDedupMenuOpen] = useState(false);
+  const [dedupMenuPos, setDedupMenuPos] = useState<{ left: number; top: number; w: number } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     localStorage.getItem('sidebar-collapsed') === 'true'
   );
@@ -584,6 +604,15 @@ const App: React.FC = () => {
       }
   };
 
+  // 0.6.312 B2：去重策略同步（GET /api/dedup）——随每次列表刷新对齐服务端真值
+  //（applyDedup 后回读；三档计数展示已按用户要求从菜单移除，仅保留策略回读）。
+  const loadDedup = async () => {
+    try {
+      const d = await fetchDedupSummary();
+      if (d) setDedupPolicy(d.policy);
+    } catch { /* 端点不可用（旧版本）时静默 */ }
+  };
+
   const loadApps = async (autoReload = true) => {
     try {
       const data = await fetchApps();
@@ -593,6 +622,7 @@ const App: React.FC = () => {
       setShuffleTick(t => t + 1); // 新数据 → 重新洗牌（随机展示）
       setUpgradeAllowed(data.upgrade_allowed !== false);
       setLastCheck(data.last_check);
+      loadDedup(); // 目录变了 → 三档计数同步
       if (data.apps.length > 0) {
         setLoadStatus('loaded');
       } else if (!data.last_check && autoReload) {
@@ -843,10 +873,18 @@ const App: React.FC = () => {
     }
   };
 
-  const runInstall = useCallback(async (app: AppInfo, wizard?: WizardParam[], panel?: PanelInstallParams) => {
+  const runInstall = useCallback(async (app: AppInfo, wizard?: WizardParam[], panel?: PanelInstallParams, bypassConflict = false) => {
     const appname = app.appname;
     // Guard: prevent double-trigger overwriting an in-flight operation's cancel handle.
     if (appOperationsRef.current.has(appname)) return;
+
+    // 0.6.312 B2：安装冲突（同名组已有已装卡）→ 四分支对话框显式裁决
+    //（bypassConflict = 用户在对话框里已裁决「仍要安装」）。
+    const conflict = app.install_conflict;
+    if (conflict && !bypassConflict) {
+      setInstallConflict({ app, branch: conflict as InstallConflictBranch });
+      return;
+    }
 
     const handler = createSSEHandler(app, 'install');
     const handle = installApp(appname, handler, wizard, panel);
@@ -878,6 +916,9 @@ const App: React.FC = () => {
           onClick: () => setReportTarget({ app: app.appname, step: 'request', error: error instanceof Error ? error.message : String(error) })
         }
       });
+      // 0.6.312：同 handleUpdate——即时失败时 finally 的 ref 检查会跳过
+      // loadApps，这里补一次确定性重拉（badge/目录状态自愈）
+      loadApps();
     } finally {
       const hadOperation = appOperationsRef.current.has(appname);
       setAppOperations(prev => {
@@ -921,6 +962,16 @@ const App: React.FC = () => {
     pendingSourceParamsRef.current = [];
     void runInstall(app, pending.length ? pending : undefined);
   }, [runInstall]);
+
+  // 0.6.312 B2：冲突对话框「仍要安装」——bypass 裁决重入安装流
+  //（向导参数沿用 continueInstall 暂存值，若已收集）。
+  const proceedConflictInstall = useCallback(() => {
+    if (!installConflict) return;
+    const app = installConflict.app;
+    const pending = pendingSourceParamsRef.current;
+    setInstallConflict(null);
+    void runInstall(app, pending && pending.length ? pending : undefined, undefined, true);
+  }, [installConflict, runInstall]);
 
   const handleInstall = useCallback(async (app: AppInfo) => {
     if (appOperationsRef.current.has(app.appname)) return;
@@ -984,6 +1035,10 @@ const App: React.FC = () => {
           onClick: () => setReportTarget({ app: app.appname, step: 'request', error: error instanceof Error ? error.message : String(error) })
         }
       });
+      // 0.6.312：409「没有可更新的更高版本」等即时失败——finally 的
+      // loadApps 依赖 appOperationsRef（render 才同步），快失败时 ref 还是
+      // 旧值被跳过 → badge 残留，用户循环点击。这里补一次确定性重拉。
+      loadApps();
     } finally {
       const hadOperation = appOperationsRef.current.has(appname);
       setAppOperations(prev => {
@@ -1177,7 +1232,8 @@ const App: React.FC = () => {
     if (activeFilter === 'installed' && !app.installed) return false;
     // 0.6.197：已忽略但有被压住更新的应用也列入「有更新」（行上带
     // 「已忽略」徽章标记；纯已最新的忽略 app 不进列表）
-    if (activeFilter === 'update_available' && !app.has_update && !app.update_ignored_pending) return false;
+    // 0.6.312：忽略后彻底不再出现（update_ignored_pending 仅由发现页忽略区展示）
+    if (activeFilter === 'update_available' && !app.has_update) return false;
     if (activeCategory && app.category !== activeCategory) return false;
     if (searchQuery.trim()) {
       // 多词条 AND：搜索框里的每个空格分隔词条都必须命中（徽章词条叠加多选即走这里）
@@ -1235,11 +1291,37 @@ const App: React.FC = () => {
     }
   }), [apps, activeFilter, activeCategory, searchQuery, sortBy, shuffledRank, sourceKeyMap]);
 
+  // 0.6.314r（用户定稿）：发现页前三固定——fnOS Apps → FnDepot → 敲门knock
+  //（顺序由后端 /api/recommended 决定，固定不随机）。无论选中哪种排序都恒定
+  // 钉在发现页前三位；其余列表剔除这三个（按 base key 去重，不在后面再出现）。
+  // 源缺失时后端给快照条目（AppInfo 同构形态），卡/图标/详情/安装全走后端
+  // 回落（appDetail/appAsset 三 key 快照）。仅发现页且无搜索词/分类过滤时
+  // 生效（发现页结构上即无此二态，双保险防状态残留）。
+  const displayApps = useMemo(() => {
+    if (activeFilter !== 'recommended' || recommendedApps.length < 3 || searchQuery.trim() || activeCategory) {
+      return filteredApps;
+    }
+    const pinned: AppInfo[] = [];
+    const baseKeys = new Set<string>();
+    for (const rec of recommendedApps.slice(0, 3)) {
+      const base = (rec.key || rec.appname || '').split('@')[0];
+      const hit = apps.find(a => (a.key || a.appname || '').split('@')[0] === base && base !== '');
+      pinned.push(hit ?? rec);
+      if (base) baseKeys.add(base);
+    }
+    const rest = filteredApps.filter(a => {
+      const b = (a.key || a.appname || '').split('@')[0];
+      return !b || !baseKeys.has(b);
+    });
+    return [...pinned, ...rest];
+  }, [activeFilter, recommendedApps, filteredApps, apps, searchQuery, activeCategory]);
+
   const counts = useMemo(() => ({
       all: apps.length,
       installed: apps.filter(a => a.installed).length,
       // 0.6.197：计数含「已忽略但有被压住更新」的应用（与列表一致）
-      update_available: apps.filter(a => a.has_update || a.update_ignored_pending).length,
+      // 0.6.312：与列表过滤同口径——忽略 pending 不再计入「有更新」
+      update_available: apps.filter(a => a.has_update).length,
       recommended: recommendedApps.length
   }), [apps, recommendedApps]);
 
@@ -1248,7 +1330,8 @@ const App: React.FC = () => {
     return acc;
   }, {} as Record<string, number>), [apps]);
 
-  // 「全部」复合 pill：pill 主体 = 选择全部分类；右侧 ▾ = 排序菜单（折叠在全部里）
+  // 排序 pill：pill 主体 = 选择全部分类（不变）；右侧 ▾ = 排序菜单（折叠在胶囊里）
+  // 0.6.313（用户定稿）：胶囊内「全部」二字删除，pill 只显示当前排序名（随机/A-Z/…）
   const allCategoryPill = (
     // z-50：菜单打开时固定覆盖层（z-40）挡住页面其余部分，但 pill 本体要
     // 保持在覆盖层之上，用户才能再点 pill/▾ 收起菜单。
@@ -1257,11 +1340,17 @@ const App: React.FC = () => {
         onClick={() => setActiveCategory(null)}
         className={cn(
           // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
-          activeCategory === null ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
+          // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
+          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap"
         )}
       >
-        全部
+        {/* 0.6.312c（用户定稿）：当前排序名直接显示在胶囊里（切哪种显哪种）；
+            0.6.313（用户定稿）：「全部」二字删除，胶囊只显排序名；
+            0.6.313r（用户定稿）：字体与去重胶囊统一（去 font-normal/muted，
+            继承胶囊本体 13px/medium/foreground，两胶囊观感一致） */}
+        <span>
+          {SORT_OPTIONS.find(o => o.value === sortBy)?.label ?? '随机'}
+        </span>
         <span
           role="button"
           aria-label="排序"
@@ -1273,12 +1362,15 @@ const App: React.FC = () => {
               return;
             }
             // 菜单左缘与「全部」pill 左缘对齐（不用 ▾ 的位置）
+            // 0.6.312：宽度 = max(胶囊实测宽, 内容自然宽)——「最近更新」5 字比胶囊略宽，
+            // 取自然宽防裁切；去重菜单标签全 ≤2 字，实际就是胶囊宽
             const r = ((e.currentTarget as HTMLElement).parentElement as HTMLElement).getBoundingClientRect();
-            const menuW = 160;
+            const contentW = Math.max(...SORT_OPTIONS.map(o => [...o.label].length * 13)) + 16 + 8 + 2;
+            const menuW = Math.max(r.width, contentW);
             const menuH = 190;
             const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
             const top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - menuH - 8));
-            setSortMenuPos({ left, top });
+            setSortMenuPos({ left, top, w: Math.round(menuW) });
             setSortMenuOpen(true);
           }}
           className={cn("flex items-center justify-center h-6 w-6 rounded-full transition-colors", sortMenuOpen && "bg-black/10")}
@@ -1290,18 +1382,95 @@ const App: React.FC = () => {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
           <div
-            className="fixed z-50 w-40 rounded-xl border border-border bg-popover p-1 shadow-lg"
-            style={{ left: sortMenuPos.left, top: sortMenuPos.top }}
+            className="fixed z-50 rounded-xl border border-border bg-popover p-1 shadow-lg"
+            style={{ left: sortMenuPos.left, top: sortMenuPos.top, width: sortMenuPos.w }}
           >
-            <p className="px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">排序</p>
+            {/* 0.6.312c（用户定稿）：删除菜单顶部「排序」两个字，当前排序已显在胶囊里 */}
             {SORT_OPTIONS.map(o => (
               <button
                 key={o.value}
                 onClick={() => { setSortBy(o.value); setSortMenuOpen(false); }}
-                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[13px] hover:bg-muted"
+                className={cn(
+                  "block w-full whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-muted",
+                  sortBy === o.value ? "font-medium text-primary" : "text-foreground"
+                )}
               >
                 {o.label}
-                {sortBy === o.value && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // 0.6.312 B2：切换去重策略——乐观更新胶囊色，后端白名单校验失败则回读真值。
+  const applyDedup = async (v: string) => {
+    setDedupMenuOpen(false);
+    if (v === dedupPolicy) return;
+    setDedupPolicy(v);
+    try {
+      await updateSettings({ dedup_policy: v });
+      await loadApps(); // 服务端失效目录缓存 → 列表按新策略重建
+      await loadDedup();
+    } catch (error) {
+      console.error('Dedup policy change failed:', error);
+      toast.error('去重策略切换失败');
+      await loadDedup(); // 回读服务端真值
+    }
+  };
+
+  // 去重胶囊（用户定稿位置：分类行「全部」与「AI」之间）——与「全部」排序
+  // 同款材质/展开折叠；点胶囊开合菜单，选档即时生效（仅展示层）。
+  const dedupPill = (
+    <div className="relative z-50 shrink-0">
+      <button
+        type="button"
+        title="列表去重（只并展示，不改更新判定）"
+        onClick={(e) => {
+          if (dedupMenuOpen) {
+            setDedupMenuOpen(false);
+            return;
+          }
+          // 0.6.312：弹出框宽度 = 「去重」胶囊自身实测宽度，左缘与胶囊对齐
+          const r = e.currentTarget.getBoundingClientRect();
+          const menuW = r.width;
+          const menuH = 116; // 3 项估算高，仅用于视口内 clamp
+          const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
+          const top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - menuH - 8));
+          setDedupMenuPos({ left, top, w: Math.round(menuW) });
+          setDedupMenuOpen(true);
+        }}
+        className={cn(
+          // 0.6.284 同款 Dock 毛玻璃材质
+          // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何档位胶囊都保持原色
+          //（与排序胶囊同款材质/字体，两胶囊观感一致）
+          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap transition-colors"
+        )}
+      >
+        {/* 0.6.312c（用户定稿）：胶囊标签=当前档位名，切哪种去重显哪种 */}
+        {DEDUP_OPTIONS.find(o => o.value === dedupPolicy)?.label ?? '默认'}
+        <span className={cn("flex items-center justify-center h-6 w-6 rounded-full transition-colors", dedupMenuOpen && "bg-black/10")}>
+          <ChevronsUpDown className="h-3.5 w-3.5" />
+        </span>
+      </button>
+      {dedupMenuOpen && dedupMenuPos && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setDedupMenuOpen(false)} />
+          <div
+            className="fixed z-50 rounded-xl border border-border bg-popover p-1 shadow-lg"
+            style={{ left: dedupMenuPos.left, top: dedupMenuPos.top, width: dedupMenuPos.w }}
+          >
+            {DEDUP_OPTIONS.map(o => (
+              <button
+                key={o.value}
+                onClick={() => applyDedup(o.value)}
+                className={cn(
+                  "block w-full whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-muted",
+                  dedupPolicy === o.value ? "font-medium text-primary" : "text-foreground"
+                )}
+              >
+                {o.label}
               </button>
             ))}
           </div>
@@ -1615,8 +1784,10 @@ const App: React.FC = () => {
             {activeFilter !== 'recommended' && (
               // 0.6.292：触屏保持隐藏滑条（移动端布局不变）；鼠标设备（含缩小窗口的
               // 网页端）溢出时显示全局同款极简横向细条，可用鼠标拖动切换类别
+              // 0.6.312c（用户定稿）：移动端取消「排序/去重」两胶囊左冻结，恢复随滑条一起横滑
               <div className="flex gap-2 overflow-x-auto pill-bar">
                 {allCategoryPill}
+                {dedupPill}
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
@@ -1746,22 +1917,28 @@ const App: React.FC = () => {
                模式——移动端分类条本就在 sticky 头里）：滚列表时类别常顶，不用回顶换类。
                发现页（recommended）与移动端同款不显示。 */}
            {activeFilter !== 'recommended' && (
-             <div className="flex items-center gap-2 overflow-x-auto pill-bar">
-               {allCategoryPill}
-               {CATEGORIES.map(cat => (
-                 <button
-                   key={cat.key}
-                   onClick={() => setActiveCategory(cat.key)}
-                   className={cn(
-                     // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
-                     "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
-                     activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground hover:bg-card/80"
-                   )}
-                 >
-                   {cat.label}
-                   <span className="ml-1 text-xs opacity-60 tabular-nums">{categoryCounts[cat.key] ?? 0}</span>
-                 </button>
-               ))}
+             <div className="flex items-center gap-2">
+               {/* 0.6.312：冻结组——横滑类别时「排序」「去重」两胶囊不随滑条移动（0.6.313 起排序胶囊不显「全部」） */}
+               <div className="flex items-center gap-2 shrink-0">
+                 {allCategoryPill}
+                 {dedupPill}
+               </div>
+               <div className="flex items-center gap-2 overflow-x-auto pill-bar flex-1 min-w-0">
+                 {CATEGORIES.map(cat => (
+                   <button
+                     key={cat.key}
+                     onClick={() => setActiveCategory(cat.key)}
+                     className={cn(
+                       // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
+                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
+                       activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground hover:bg-card/80"
+                     )}
+                   >
+                     {cat.label}
+                     <span className="ml-1 text-xs opacity-60 tabular-nums">{categoryCounts[cat.key] ?? 0}</span>
+                   </button>
+                 ))}
+               </div>
              </div>
            )}
         </header>
@@ -1770,8 +1947,10 @@ const App: React.FC = () => {
         <main className="flex-grow p-4 pb-28 md:p-8 md:pb-36 overflow-y-auto">
           {activeFilter === 'recommended' ? (
             <div className="space-y-10">
+              {/* 0.6.314r（用户定稿）：发现页前三=固定推荐位（/api/recommended
+                  前三，顺序固定不随机；源缺=后端快照条目回落） */}
               {apps.length > 0 && (
-                <FeaturedShowcase apps={apps} onDetail={setDetailApp} />
+                <FeaturedShowcase apps={apps} featured={recommendedApps.slice(0, 3)} onDetail={setDetailApp} />
               )}
               {/* 收藏列表（原「探索推荐」位）：收藏的应用按收藏先后呈现；
                   保留折叠按钮（默认折叠）；空态给收藏入口提示。 */}
@@ -1939,12 +2118,12 @@ const App: React.FC = () => {
                   各自形态：桌面=卡网格 / 移动=行列表。交互：触屏单击开详情、
                   鼠标双击（见各卡组件的 coarse 分支）。 */}
               {viewMode === 'minimal' ? (
-                <MinimalIconGridM apps={filteredApps} onDetail={setDetailApp} />
+                <MinimalIconGridM apps={displayApps} onDetail={setDetailApp} />
               ) : viewMode === 'aurora' ? (
-                <AuroraGridM apps={filteredApps} onDetail={setDetailApp} />
+                <AuroraGridM apps={displayApps} onDetail={setDetailApp} />
               ) : isDesktop ? (
                 <AppList
-                   apps={filteredApps}
+                   apps={displayApps}
                    loading={false}
                    onInstall={handleInstall}
                    onUpdate={handleUpdate}
@@ -1964,7 +2143,7 @@ const App: React.FC = () => {
                 />
               ) : (
                 <AppRowList
-                  apps={filteredApps}
+                  apps={displayApps}
                   onInstall={handleInstall}
                   onUpdate={handleUpdate}
                   onDetail={setDetailApp}
@@ -2244,6 +2423,47 @@ const App: React.FC = () => {
             <AlertDialogAction onClick={confirmUninstall}>
               确认卸载
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 0.6.312 B2：安装冲突四分支对话框（同名组已有已装卡时点「安装」）。 */}
+      <AlertDialog open={!!installConflict} onOpenChange={(open) => !open && setInstallConflict(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {installConflict?.branch === 'same' && '已安装相同版本'}
+              {installConflict?.branch === 'lineage' && '已安装同宗版本'}
+              {installConflict?.branch === 'different' && '与已装版本来源不同'}
+              {installConflict?.branch === 'official' && '官方应用由平台管理'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {installConflict?.branch === 'same' &&
+                `「${installConflict.app.display_name}」已安装相同版本（同来源 v${installConflict.app.latest_version || '-'}），无需重复安装。`}
+              {installConflict?.branch === 'lineage' &&
+                `「${installConflict.app.display_name}」已装版本与本卡可验证同宗（同发布仓库或同构建）。直接安装=就地升级，保留 @appdata 数据目录。`}
+              {installConflict?.branch === 'different' &&
+                `「${installConflict.app.display_name}」已装版本与本卡来自不同源、不同构建。覆盖安装保留数据目录，但跨构建兼容性无保证；建议先卸载已装版本再安装本卡。`}
+              {installConflict?.branch === 'official' &&
+                `「${installConflict.app.display_name}」已装版本为官方平台应用，更新/卸载请到 fnOS 面板（应用中心）操作。`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {installConflict?.branch === 'lineage' && (
+              <>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction onClick={proceedConflictInstall}>直接安装</AlertDialogAction>
+              </>
+            )}
+            {installConflict?.branch === 'different' && (
+              <>
+                <AlertDialogCancel>取消（先卸载已装版本）</AlertDialogCancel>
+                <AlertDialogAction onClick={proceedConflictInstall}>仍要覆盖安装</AlertDialogAction>
+              </>
+            )}
+            {(installConflict?.branch === 'same' || installConflict?.branch === 'official') && (
+              <AlertDialogAction onClick={() => setInstallConflict(null)}>知道了</AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

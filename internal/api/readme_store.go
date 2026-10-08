@@ -339,10 +339,11 @@ func (st *readmeStore) Preflight() {
 }
 
 // warmReadmesPass README 预热一轮（图标预热之后跑，3 并发、预算内）。
+// 0.6.312 B3/F9：范围 = 当前去重档位可见集（此前全目录）。
 func (s *Server) warmReadmesPass(ctx context.Context, budget time.Duration) {
 	st := s.readmeStore()
 	var pending []*appRef
-	for _, a := range s.Src.Apps("", "") {
+	for _, a := range s.visibleSourceApps() {
 		if a.ReadmeURL == "" {
 			continue
 		}
