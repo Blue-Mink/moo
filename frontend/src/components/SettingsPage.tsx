@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
-import { useKeyboardDock } from '../lib/hooks';
+import { useKeyboardDock, useMobileDesktopSim } from '../lib/hooks';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { AlertTriangle, ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -174,7 +174,7 @@ const MirrorHealthPanel: React.FC<{
   const failCount = rows.filter((r) => r.status === 'fail').length;
 
   return (
-    <div className="relative rounded-xl bg-card/55 backdrop-blur-xl border border-white/10 px-3 py-3">
+    <div className="relative rounded-xl bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl border border-white/10 px-3 py-3">
       {/* 0.6.150（用户定稿）：标题上移至「卡片最顶部 ↔ 齿轮最顶部」的正中——
           卡片外顶→齿轮顶 = 1(border) + 12(py-3) + 14(齿轮列顶部留白) = 27px，
           标题中心 = 距卡片顶 13.5px（绝对定位 -translate-y-1/2；
@@ -375,7 +375,7 @@ const AboutTab: React.FC = () => {
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
       {/* 应用信息 */}
-      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3.5">
+      <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3.5">
         <div className="flex items-center gap-3.5">
           <img src="./icon-192.png" alt="Moo" className="h-14 w-14 rounded-2xl border border-border/20 shrink-0" />
           <div className="flex-1 min-w-0">
@@ -408,7 +408,7 @@ const AboutTab: React.FC = () => {
           卡高限 ~3-4 行文字（max-h-[110px]），超出卡内滚动。
           0.6.310：内容=当前版本真实 changelog（自源 changelog_entries）。 */}
       {logEntry && (
-        <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+        <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium">最新更新日志</span>
             <Badge variant="outline" className="text-xs tabular-nums">v{logEntry.version}</Badge>
@@ -419,7 +419,7 @@ const AboutTab: React.FC = () => {
       )}
 
       {/* 版本信息 */}
-      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+      <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
         <div className="text-sm font-medium">版本信息</div>
         <div className="space-y-2.5">
           <AboutRow k="当前版本" v={info ? `v${info.version}` : '—'} />
@@ -435,7 +435,7 @@ const AboutTab: React.FC = () => {
           血缘收敛去功能宣传 /「反编译」柔化为「参考实现」/ fn-knock 参考范围补全
           （通知事件中心形式 + 设置备份模型）/ 补 GitHub 加速镜像维护者 /
           补人机协作开发一句（不带版本号）/ 末尾补许可声明 */}
-      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+      <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
         <div className="text-base font-semibold text-center">Moo is more</div>
         <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
           <p className="py-0.5 text-center text-[13px] font-medium tracking-wide text-foreground/80">致谢</p>
@@ -759,6 +759,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   //   改由对话框高度 open 期间切 100dvh 跟随可视视口、底边停在键盘上方；
   //   pan（壳平移）              → 聚焦期间整体隐藏。
   const { open: kbOpen, hidden: kbDockHidden, vvTop: kbVvTop, vvHeight: kbVvHeight, baseHeight: kbBaseH } = useKeyboardDock();
+  // 0.6.316 ①：手机桌面模拟（飞牛 app 桌面模式）→ 对话框挂 .mds-sim 去玻璃
+  const mdsSim = useMobileDesktopSim();
   // 0.6.225（用户 2026-10-01 定稿）：「保存按钮**不管键盘有没有弹出都一直在底部**，
   // 不要贴键盘上沿」。做法＝键盘弹出时**不改对话框高度**，保持键盘弹出前的整屏高度
   // （baseHeight）→ 对话框底边 = **物理屏幕底边**，按钮待在原地不动；键盘只是盖住它
@@ -1251,6 +1253,52 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [runManualSpeedTest]);
   // KSpeeder 独立应用状态：列表行探测 127.0.0.1:5443（ok=运行中）
   const kspeederRunning = (dockerMirrorHealth?.mirrors || []).find((m) => m.key === 'kspeeder')?.status === 'ok';
+  // 0.6.316b：运行中/已停止可点击互切（点击「运行中」=停止，点击「已停止」=启动）。
+  // ksInstalled null=首查未回（显示检测中）；daemon status 瞬态（starting/stopping）
+  // 禁用按钮防连点撞操作队列 409。
+  const [ksInstalled, setKsInstalled] = useState<boolean | null>(null);
+  const [ksStatus, setKsStatus] = useState('');
+  const [ksToggling, setKsToggling] = useState(false);
+  const refreshKsApp = useCallback(async () => {
+    try {
+      const list = await fetchApps();
+      const self = list.apps.find((a) => a.appname === 'kspeeder');
+      setKsInstalled(Boolean(self?.installed));
+      setKsStatus(self?.status || '');
+    } catch { /* ignore */ }
+  }, []);
+  // 0.6.317 修复：启停后强制同步重探收敛（绕开 runManualSpeedTest 60s 快路径 +
+  // 服务端 5min mirror 缓存），否则按钮（5443 探测态）最长 5 分钟停留旧值
+  // （.2 实测：停止后探测已 fail，UI 却恒「运行中」）。
+  // stop 等探测 ≠ ok（daemon 实亡，实测 <5s）；start 等 = ok（5443 就绪）；
+  // 3s 间隔、20s 上限、每轮即时刷 UI；超时即止，后续 5s 轮询自然收敛。
+  const settleKsHealth = useCallback(async (wantOk: boolean) => {
+    const deadline = Date.now() + 20000;
+    for (;;) {
+      let h: MirrorHealth;
+      try { h = await fetchDockerMirrorHealth(true); } catch { return; }
+      setDockerMirrorHealth(h);
+      const st = (h.mirrors || []).find((m) => m.key === 'kspeeder')?.status;
+      if ((wantOk && st === 'ok') || (!wantOk && st !== 'ok')) return;
+      if (Date.now() > deadline) return;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }, []);
+  const handleToggleKSpeeder = useCallback(async () => {
+    if (ksToggling) return;
+    const stopping = kspeederRunning;
+    setKsToggling(true);
+    try {
+      await controlApp('kspeeder', stopping ? 'stop' : 'start');
+      toast.success(stopping ? 'KSpeeder 已停止' : 'KSpeeder 已启动，本地镜像缓存生效中');
+      await settleKsHealth(!stopping);
+      refreshKsApp();
+    } catch (e) {
+      toast.error((stopping ? '停止' : '启动') + ' KSpeeder 失败：' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setKsToggling(false);
+    }
+  }, [ksToggling, kspeederRunning, settleKsHealth, refreshKsApp]);
   const [ksInstalling, setKsInstalling] = useState(false);
   const handleInstallKSpeeder = useCallback(() => {
     if (ksInstalling) return;
@@ -1265,6 +1313,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         toast.success('KSpeeder 已安装，本地镜像缓存生效中');
         setKsInstalling(false);
         refreshDkHealth();
+        refreshKsApp();
       }
     };
     installApp('kspeeder', handler).promise
@@ -1272,11 +1321,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         toast.error('安装 KSpeeder 失败：' + (e instanceof Error ? e.message : String(e)));
       })
       .finally(() => setKsInstalling(false));
-  }, [ksInstalling, refreshDkHealth]);
+  }, [ksInstalling, refreshDkHealth, refreshKsApp]);
 
   useEffect(() => {
     if (!open || tab !== 'accel') return;
     let cancelled = false;
+    refreshKsApp();
     const load = async () => {
       try {
         const h = await fetchDockerMirrorHealth();
@@ -1286,7 +1336,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     load();
     const t = window.setInterval(load, 5000);
     return () => { cancelled = true; window.clearInterval(t); };
-  }, [open, tab]);
+  }, [open, tab, refreshKsApp]);
 
   // 测速状态 —— GitHub / Docker 各自独立
   const [ghChecking, setGhChecking] = useState(false);
@@ -1524,12 +1574,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 // 移动端（<640）玻璃层移到下方内层 absolute 子层——backdrop-filter 不再
 // 作用于含内容的整屏 fixed 层本体（WebView GPU 合成异常经典绕法，零行为
 // 变化）；桌面（sm+）本体保留玻璃（sm: 前缀），桌面分支零改动。
-aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
+aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl",
+// 0.6.316 ①：手机桌面模拟命中 → 去 backdrop-filter + 玻璃底提 /95（index.css .mds-sim）
+mdsSim && "mds-sim")}>
         {/* 极光模式（0.6.297）：底板渐变 + 一层背景色玻璃遮罩把渐变压成
             温润底色染色；上方元素全部保持原样式。Radix 自带的右上关闭钮
             (button.absolute) 在遮罩之后渲染，不受影响。 */}
         {aurora && (
-          <div aria-hidden className="pointer-events-none absolute inset-0 bg-background/70 backdrop-blur-2xl rounded-none sm:rounded-[18px]" />
+          // 0.6.315（iOS 真机修复）：移动端去掉 backdrop-filter（WKWebView GPU
+          // 合成异常：玻璃层出得来、其上的内容不出→「只出毛玻璃」）；桌面
+          // （sm+）保持原玻璃（sm:bg/70+sm:blur-2xl 与 0.6.306 定稿逐字一致）。
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-background/75 sm:bg-background/70 sm:backdrop-blur-2xl rounded-none sm:rounded-[18px]" />
         )}
         {/* 0.6.313 A2：标准主题玻璃层移入内层 absolute 子层（仅移动端渲染，
             sm:hidden）——blur 不再挂在含内容的整屏 fixed 层本体上。层级：
@@ -1538,7 +1593,10 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
             DialogContent 直接子元素）移动端本就隐藏（[&>button.absolute]:hidden），
             桌面玻璃仍在本体、不受影响。 */}
         {!aurora && (
-          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-background/70 backdrop-blur-2xl sm:hidden" />
+          // 0.6.315（iOS 真机修复）：移动端玻璃层去 backdrop-filter、底色提至
+          // /95 近实心（WEBVIEW_SETTINGS_BUG.md §6 候选 B 止血版）——0.6.313 A2
+          // 的「内层玻璃」绕法已被用户真机证伪不够，直接归零合成面。
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-background/95 sm:hidden" />
         )}
         {/* 键盘几何调试浮层（**长按版本 chip** 才显示；真机排查用，默认不打扰） */}
         {kbDebug && (
@@ -1626,7 +1684,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                   aria-selected={tab === key}
                   onClick={() => { setTab(key); onTabChange?.(key); }}
                   className={cn(
-                    "h-8 rounded-full px-3.5 flex items-center gap-1.5 border border-white/10 backdrop-blur-xl text-[13px] font-medium transition-colors focus:outline-none shrink-0 whitespace-nowrap",
+                    "h-8 rounded-full px-3.5 flex items-center gap-1.5 border border-white/10 sm:backdrop-blur-xl text-[13px] font-medium transition-colors focus:outline-none shrink-0 whitespace-nowrap",
                     tab === key
                       ? "bg-primary/15 text-primary border-primary/40"
                       : "bg-card/55 text-foreground hover:bg-card/80"
@@ -1644,7 +1702,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
             {tab === 'backup' ? (
               <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* 设置备份 */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <Archive className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">设置备份</span>
@@ -1787,7 +1845,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                 </div>
 
                 {/* Moo 应用缓存清理（只动 app 自身缓存，不碰已下载 FPK） */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <HardDrive className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">Moo 应用缓存</span>
@@ -1888,7 +1946,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
               ) : (
                 <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* 下载加速 */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-5">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-5">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -2109,11 +2167,38 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                           独立应用（127.0.0.1:5443）；实际生效需系统镜像源指向 127.0.0.1:5443
                         </p>
                       </div>
-                      {kspeederRunning ? (
-                        <Badge className="shrink-0 gap-1.5 text-[11px]">
+                      {ksToggling || ksStatus === 'starting' || ksStatus === 'stopping' ? (
+                        <Button size="sm" variant="secondary" className="shrink-0 h-8" disabled>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          处理中…
+                        </Button>
+                      ) : kspeederRunning ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="shrink-0 h-8 gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20"
+                          onClick={handleToggleKSpeeder}
+                          title="点击停止 KSpeeder"
+                        >
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           运行中
-                        </Badge>
+                        </Button>
+                      ) : ksInstalled ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="shrink-0 h-8"
+                          onClick={handleToggleKSpeeder}
+                          title="点击启动 KSpeeder"
+                        >
+                          <Power className="h-3.5 w-3.5" />
+                          已停止
+                        </Button>
+                      ) : ksInstalled === null ? (
+                        <Button size="sm" variant="secondary" className="shrink-0 h-8" disabled>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          检测中…
+                        </Button>
                       ) : (
                         <Button
                           size="sm"
@@ -2149,7 +2234,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                   </div>
                 </div>
                 {/* 科学加速（0.6.206）：本机代理，仅 GitHub 域名改道 */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="text-sm font-medium">科学加速</div>
@@ -2203,7 +2288,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
               <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* Dock 栏排序（0.6.122）：移动端底部主导航，长按进入拖动；
                     头部「恢复默认 + 折叠」与「应用源列表」同款（默认折叠，持久化） */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm font-medium leading-none">Dock 栏排序</div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -2235,7 +2320,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                 </div>
 
                 {/* 设置 tab 排序（0.6.122）：本页顶部 6 个 tab；头部按钮同上 */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="flex items-center justify-between gap-2">
                     <div className="text-sm font-medium leading-none">设置 tab 排序</div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -2267,7 +2352,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                 </div>
 
                 {/* 常规 */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-4">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none">
                       自动检查更新间隔
@@ -2330,7 +2415,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
 
                 {/* 自动更新应用（安装位置下方小卡片：周期检查时后台自动检测+安装，
                     无需打开应用；排除已忽略应用与商店自身） */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <label className="text-sm font-medium leading-none flex items-center gap-1.5">
@@ -2347,7 +2432,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
 
                 {/* 跨源更新策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
                     （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none flex items-center gap-1.5">
                       <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
@@ -2381,7 +2466,7 @@ aurora ? "aurora-1" : "sm:bg-background/70 sm:backdrop-blur-2xl")}>
                 </div>
 
                 {/* FPK 下载目录 + 已下载列表（独立卡片，不与常规设置混在一起） */}
-                <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none flex items-center gap-1.5">
                       <FolderDown className="h-3.5 w-3.5 text-muted-foreground" />

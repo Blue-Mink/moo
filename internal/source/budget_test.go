@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,7 +97,7 @@ func TestRefreshBudgeted_OnlySelected(t *testing.T) {
 	delete(m.fresh, "c")
 
 	beforeA := m.fresh["a"]
-	sts := m.RefreshBudgeted([]string{"p1"}, 2)
+	sts := m.RefreshBudgeted([]string{"p1"}, 2, 8)
 	names := map[string]bool{}
 	for _, st := range sts {
 		names[st.Name] = true
@@ -111,5 +112,74 @@ func TestRefreshBudgeted_OnlySelected(t *testing.T) {
 	}
 	if !m.fresh["a"].Equal(beforeA) {
 		t.Error("未被选中的源 fresh 不应变化")
+	}
+}
+
+// TestRefreshBudgeted_ConcurrencyParam 0.6.315 M2：n 参数透传到抓取工作池
+// （启动首轮错峰 4 并发、周期轮 8 并发）。gate 打开后 handler 阻塞在
+// release 上，测试读观测到的最大并发——n=2 生效时必恰好为 2；若 n 被忽略
+// （用 8），6 个源会冲到 6 并发而失败。注意：AddSource 会即时抓取，所以
+// gate 必须在全部 AddSource 完成后才打开（否则首个抓取被 gate 挡住超时）。
+func TestRefreshBudgeted_ConcurrencyParam(t *testing.T) {
+	var mu sync.Mutex
+	conc, maxConc := 0, 0
+	gate := false
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if gate {
+			conc++
+			if conc > maxConc {
+				maxConc = conc
+			}
+			mu.Unlock()
+			<-release
+			mu.Lock()
+			conc--
+			mu.Unlock()
+		} else {
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// AddSource 会即时抓取并拒绝空索引 → 返回一个最小非空 fnpack
+		_, _ = w.Write([]byte(`{"demo":{"version":"1.0.0","display_name":"演示","download_url":"https://example.com/demo.fpk"}}`))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	cfg := &config.Config{}
+	m := NewManager(cfg)
+	for i := 1; i <= 6; i++ {
+		nm := fmt.Sprintf("c%02d", i)
+		if _, err := m.AddSource(nm, ts.URL+"/"+nm+"/fnpack.json"); err != nil {
+			t.Fatalf("AddSource %s: %v", nm, err)
+		}
+	}
+	mu.Lock()
+	gate = true
+	mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		m.RefreshBudgeted(nil, 99, 2) // budget 覆盖全部 6 源，n=2
+		close(done)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := maxConc
+		mu.Unlock()
+		if got >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(release) // 放行全部阻塞 handler
+	<-done
+	mu.Lock()
+	got := maxConc
+	mu.Unlock()
+	if got != 2 {
+		t.Errorf("n=2 应把抓取并发限到 2，观测最大并发 = %d", got)
 	}
 }

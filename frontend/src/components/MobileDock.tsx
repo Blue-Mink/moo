@@ -52,18 +52,22 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
   const tabs = orderTabs(order);
   return (
   <nav
-    // 静止：距底 10px + safe-area（与 PC Dock bottom-6 同一视觉节奏）。
-    // 0.6.302（用户定稿）：0.6.301 的贴底改动回退，恢复原间距。
+    // 0.6.316r（用户红线复核定稿）：贴玻璃底边 —— bottom:0（viewport-fit=cover
+    // 下布局视口底边=屏幕物理底边，胶囊底边贴住红线/Home 指示条所在处）。
+    // 0.6.316 首版用 env(safe-area-inset-bottom) 把胶囊抬到指示条上方，
+    // 用户真机实测「还是没贴底」→ 红线=屏幕底边而非指示条上沿，改 0。
+    // 内容避让：pb 取 max(10px, 安全区)——胶囊底贴玻璃、标签不压 Home 条
+    //（无指示条设备=原 10px 观感零变化）。
     // bottom: -bottomOffset → 键盘弹出时 dock 下移键盘高度，钉在物理屏幕
     // 底边被键盘盖住；收起时 offset 归 0，dock 已在位（无回弹位移）
     style={bottomOffset > 0
       ? { bottom: `-${bottomOffset}px` }
-      : { bottom: 'calc(10px + env(safe-area-inset-bottom))' }}
+      : { bottom: 0 }}
     // 0.6.274（用户反馈「太短很拥挤」）：按钮 70px 加宽。
     // 0.6.275（用户仍反馈「不够长」）：胶囊改近全宽 —— w-[calc(100%-24px)]
     //（左右各留 12px）+ max-w-[380px] 防平板宽屏下胶囊过宽，
     // 按钮改 flex-1 均匀铺满胶囊（375px 屏 ≈75px/钮，<360px 小屏自动收缩防溢出）
-    className="md:hidden fixed left-1/2 -translate-x-1/2 z-30 flex w-[calc(100%-24px)] max-w-[380px] items-end rounded-[24px] border border-white/10 bg-card/55 px-3 py-2.5 shadow-2xl shadow-black/40 backdrop-blur-2xl"
+    className="md:hidden fixed left-1/2 -translate-x-1/2 z-30 flex w-[calc(100%-24px)] max-w-[380px] items-end rounded-[24px] border border-white/10 bg-card/55 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/40 backdrop-blur-2xl"
     aria-label="主导航"
   >
     <div className="flex w-full items-end gap-2">

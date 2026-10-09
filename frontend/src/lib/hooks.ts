@@ -274,3 +274,32 @@ export function useIsDesktop(): boolean {
   }, []);
   return is;
 }
+
+/**
+ * 0.6.316：「手机上的桌面模拟」判定（飞牛 app 桌面模式等壳）——
+ * 物理屏宽 <700 CSS px 且布局视口 ≥768px。
+ *
+ * 背景：飞牛 app「桌面模式」本质仍是手机里的 iOS WebView，只是把布局视口
+ * 撑到桌面宽度 + 桌面 UA。Moo 据此走整套桌面 CSS 分支，而桌面分支的
+ * backdrop-filter 玻璃层在 WKWebView GPU 合成异常下「玻璃出得来、其上
+ * 内容不出来」→ 设置/详情页整屏只剩毛玻璃（0.6.315 只修了移动分支）。
+ *
+ * 阈值依据：真桌面笔记本屏宽 ≥1366、iPad ≥1024，均 ≥700 不误判；
+ * 手机竖屏视口 <768 也不命中。命中时对话框挂 .mds-sim 类（index.css
+ * 去 backdrop-filter + 玻璃底提至 /95 近实心），真桌面浏览器零变化。
+ */
+export function useMobileDesktopSim(): boolean {
+  const calc = () =>
+    typeof window !== 'undefined' &&
+    window.screen &&
+    window.screen.width > 0 &&
+    window.screen.width < 700 &&
+    window.innerWidth >= 768;
+  const [sim, setSim] = useState<boolean>(calc);
+  useEffect(() => {
+    const onResize = () => setSim(calc());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return sim;
+}

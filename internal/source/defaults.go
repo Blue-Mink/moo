@@ -6,12 +6,11 @@ import (
 	"strings"
 )
 
-// bundledDefaultSources 0.6.247：内置默认应用源集（0.6.314 起 157 条，
-// 每行一个源地址，全部带协议）。基准 = 2026-10-02 备用测试机
-// （0.6.245-panel）在用的全部 156 个源（用户验收过的完整集，含 0.6.141
-// 修复后的规范地址）+ 0.6.314 新增 fn-knock 官方源
-// （kci-lnk/fn-knock-turborepo）；不含官方飞牛应用中心（它是面板账号
-// 派生条目，不属于 config.Sources）。
+// bundledDefaultSources 0.6.247 起：内置默认应用源集（0.6.316+ 起 20 条，
+// 每行一个源地址，全部带协议）。0.6.316 前 = 2026-10-02 备用测试机在用
+// 全量 156 源 + fn-knock 官方源（157 条）；0.6.316 起按用户指令收敛为
+// Blue-Mink 精选 20 源（与仓库根 repo_list.txt 同一清单），不含官方飞牛
+// 应用中心（它是面板账号派生条目，不属于 config.Sources）。
 //
 // 两处用途（同一基准，语义一致）：
 //  1. 首装自动填充——全新安装即带全部默认源（不再只有 2 个种子源，
@@ -22,11 +21,42 @@ import (
 //go:embed default_sources.txt
 var bundledDefaultSources string
 
+// bundledLegacyDefaultSources 0.6.318：0.6.316 之前的旧全量默认源清单
+//（157 条 = 156 社区源 + fn-knock 官方源），供「删除默认源」按钮一键清理
+//历史遗留的社区源。
+// 语义（用户 2026-10-09 定稿）：命中本清单的现有源一律可一键删除，
+// 不做官源保护——新 20 条精选官源中 19 条包含在本清单里，删除后由
+//「恢复官源」按钮（BundledDefaultSources）一键找回，构成
+//「删旧 157 默认 → 恢复 20 官源」的清单重置工作流。
+//
+//go:embed default_sources_legacy.txt
+var bundledLegacyDefaultSources string
+
 // BundledDefaultSources 返回内置默认源地址列表（去重、补协议）。
 func BundledDefaultSources() []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, line := range strings.Split(bundledDefaultSources, "\n") {
+		u := strings.TrimSpace(line)
+		if u == "" || strings.HasPrefix(u, "#") {
+			continue
+		}
+		u = ensureSourceScheme(u)
+		if k := NormalizeSourceURL(u); !seen[k] {
+			seen[k] = true
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// BundledLegacyDefaultSources 返回旧全量默认源清单（去重、补协议）。
+// 仅用于「删除默认源」：现有源地址归一后命中本清单即视为可一键删除的
+//历史默认源（含与新 20 条官源重叠的 19 条；官源可由「恢复官源」找回）。
+func BundledLegacyDefaultSources() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(bundledLegacyDefaultSources, "\n") {
 		u := strings.TrimSpace(line)
 		if u == "" || strings.HasPrefix(u, "#") {
 			continue

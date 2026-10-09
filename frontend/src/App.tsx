@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop } from './lib/hooks';
 import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles } from 'lucide-react';
 import { Button } from './components/ui/button';
@@ -1333,26 +1334,34 @@ const App: React.FC = () => {
   // 排序 pill：pill 主体 = 选择全部分类（不变）；右侧 ▾ = 排序菜单（折叠在胶囊里）
   // 0.6.313（用户定稿）：胶囊内「全部」二字删除，pill 只显示当前排序名（随机/A-Z/…）
   const allCategoryPill = (
-    // z-50：菜单打开时固定覆盖层（z-40）挡住页面其余部分，但 pill 本体要
-    // 保持在覆盖层之上，用户才能再点 pill/▾ 收起菜单。
+    // 0.6.315（iOS 真机修复，用户实报两胶囊点不开）：
+    // ① 拆嵌套——胶囊壳 button 改纯 div，正文=真按钮（选全部分类）、▾=真按钮（开合
+    //    菜单）。原 button>span[role=button] 嵌套在 iOS WebKit 触摸派生下会重定位，
+    //    内层 onClick 真机不触发；Chromium/WebKitGTK 不复现（引擎特定行为）。
+    // ② 菜单+遮罩 createPortal 到 document.body——fixed 链上不再有 sticky 头
+    //    （backdrop-blur-xl）/overflow-x-auto pill 栏祖先；iOS WebKit 对
+    //    「backdrop-filter 层内的 fixed 合成层」渲染异常（真机菜单合成不出来），
+    //    portal 到视口坐标系后全引擎一致。z-59 遮罩 / z-60 菜单，高于 sticky 头
+    //    （z-20），低于 Radix 对话框（z-50 之上无冲突：菜单只在列表态可用）。
     <div className="relative z-50 shrink-0">
-      <button
-        onClick={() => setActiveCategory(null)}
-        className={cn(
-          // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
-          // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap"
-        )}
-      >
+      <div className={cn(
+        // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
+        // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
+        "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap"
+      )}>
         {/* 0.6.312c（用户定稿）：当前排序名直接显示在胶囊里（切哪种显哪种）；
             0.6.313（用户定稿）：「全部」二字删除，胶囊只显排序名；
             0.6.313r（用户定稿）：字体与去重胶囊统一（去 font-normal/muted，
-            继承胶囊本体 13px/medium/foreground，两胶囊观感一致） */}
-        <span>
-          {SORT_OPTIONS.find(o => o.value === sortBy)?.label ?? '随机'}
-        </span>
-        <span
-          role="button"
+            继承胶囊壳 13px/medium/foreground，两胶囊观感一致） */}
+        <button
+          onClick={() => setActiveCategory(null)}
+          className="bg-transparent border-0 p-0 cursor-pointer text-inherit font-inherit"
+        >
+          <span>
+            {SORT_OPTIONS.find(o => o.value === sortBy)?.label ?? '随机'}
+          </span>
+        </button>
+        <button
           aria-label="排序"
           title="排序"
           onClick={(e) => {
@@ -1364,6 +1373,7 @@ const App: React.FC = () => {
             // 菜单左缘与「全部」pill 左缘对齐（不用 ▾ 的位置）
             // 0.6.312：宽度 = max(胶囊实测宽, 内容自然宽)——「最近更新」5 字比胶囊略宽，
             // 取自然宽防裁切；去重菜单标签全 ≤2 字，实际就是胶囊宽
+            // parentElement = 胶囊壳 div（0.6.315 拆嵌套后），取整胶囊矩形
             const r = ((e.currentTarget as HTMLElement).parentElement as HTMLElement).getBoundingClientRect();
             const contentW = Math.max(...SORT_OPTIONS.map(o => [...o.label].length * 13)) + 16 + 8 + 2;
             const menuW = Math.max(r.width, contentW);
@@ -1373,16 +1383,16 @@ const App: React.FC = () => {
             setSortMenuPos({ left, top, w: Math.round(menuW) });
             setSortMenuOpen(true);
           }}
-          className={cn("flex items-center justify-center h-6 w-6 rounded-full transition-colors", sortMenuOpen && "bg-black/10")}
+          className={cn("flex items-center justify-center h-6 w-6 rounded-full bg-transparent border-0 cursor-pointer transition-colors", sortMenuOpen && "bg-black/10")}
         >
           <ChevronsUpDown className="h-3.5 w-3.5" />
-        </span>
-      </button>
-      {sortMenuOpen && sortMenuPos && (
+        </button>
+      </div>
+      {sortMenuOpen && sortMenuPos && createPortal(
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setSortMenuOpen(false)} />
+          <div className="fixed inset-0 z-[59]" onClick={() => setSortMenuOpen(false)} />
           <div
-            className="fixed z-50 rounded-xl border border-border bg-popover p-1 shadow-lg"
+            className="fixed z-[60] rounded-xl border border-border bg-popover p-1 shadow-lg"
             style={{ left: sortMenuPos.left, top: sortMenuPos.top, width: sortMenuPos.w }}
           >
             {/* 0.6.312c（用户定稿）：删除菜单顶部「排序」两个字，当前排序已显在胶囊里 */}
@@ -1399,7 +1409,8 @@ const App: React.FC = () => {
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );
@@ -1454,11 +1465,14 @@ const App: React.FC = () => {
           <ChevronsUpDown className="h-3.5 w-3.5" />
         </span>
       </button>
-      {dedupMenuOpen && dedupMenuPos && (
+      {/* 0.6.315：菜单+遮罩 createPortal 到 document.body——与排序菜单同因
+          （iOS WebKit 对 backdrop-filter 层内 fixed 合成层渲染异常，真机两胶囊
+          同构同病）；portal 到视口坐标系后全引擎一致。胶囊本体（真 button）不动。 */}
+      {dedupMenuOpen && dedupMenuPos && createPortal(
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setDedupMenuOpen(false)} />
+          <div className="fixed inset-0 z-[59]" onClick={() => setDedupMenuOpen(false)} />
           <div
-            className="fixed z-50 rounded-xl border border-border bg-popover p-1 shadow-lg"
+            className="fixed z-[60] rounded-xl border border-border bg-popover p-1 shadow-lg"
             style={{ left: dedupMenuPos.left, top: dedupMenuPos.top, width: dedupMenuPos.w }}
           >
             {DEDUP_OPTIONS.map(o => (
@@ -1474,7 +1488,8 @@ const App: React.FC = () => {
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </div>
   );
@@ -2232,8 +2247,11 @@ const App: React.FC = () => {
           计数放 title 提示里（保持 Dock 干净，贴近 macOS 观感）。
           0.6.284（用户报「网页版排序不起作用+太小太短」）：
           ① 应用系统设置「Dock 栏排序」（此前桌面端固定顺序，设置只对移动端生效）；
-          ② 整体加大加宽：按钮 70→88px、图标 24→28px、字号 10→11px、留白全面加大。 */}
-      <nav className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-30 items-end gap-3 rounded-[26px] border border-white/10 bg-card/55 px-4 py-3 shadow-2xl shadow-black/40 backdrop-blur-2xl">
+          ② 整体加大加宽：按钮 70→88px、图标 24→28px、字号 10→11px、留白全面加大。
+          0.6.316（用户定稿「大一点、长一点」）：按钮 88→100px、图标 28→32px、
+          字号 11→12px、gap-3→gap-4、px-4 py-3→px-5 py-3.5、圆角 26→28px，
+          整体宽 ~530→~620px；移动端 Dock 不加尺寸（只贴底，见 MobileDock）。 */}
+      <nav className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-30 items-end gap-4 rounded-[28px] border border-white/10 bg-card/55 px-5 py-3.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
         {(() => {
           type DockKey = 'recommended' | 'all' | 'installed' | 'update_available';
           const items: { key: DockKey; label: string; icon: React.ElementType; count: number }[] = [
@@ -2261,12 +2279,12 @@ const App: React.FC = () => {
               onClick={() => switchFilter(key)}
               title={`${label}（${count}）`}
               className={cn(
-                'relative flex w-[88px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',
+                'relative flex w-[100px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',
                 active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
               )}
             >
-              <Icon className="h-7 w-7" strokeWidth={active ? 2.2 : 1.8} />
-              <span className={cn('text-[11px] leading-none', active && 'font-semibold')}>{label}</span>
+              <Icon className="h-8 w-8" strokeWidth={active ? 2.2 : 1.8} />
+              <span className={cn('text-[12px] leading-none', active && 'font-semibold')}>{label}</span>
               {key === 'update_available' && count > 0 && (
                 <span className="absolute right-3 top-1 h-2 w-2 rounded-full bg-destructive" />
               )}
@@ -2278,15 +2296,15 @@ const App: React.FC = () => {
           type="button"
           onClick={() => setSettingsVisible(true)}
           title="设置"
-          className="relative flex w-[88px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 text-muted-foreground transition-[background-color,color,transform] duration-100 hover:bg-white/5 hover:text-foreground active:scale-90"
+          className="relative flex w-[100px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 text-muted-foreground transition-[background-color,color,transform] duration-100 hover:bg-white/5 hover:text-foreground active:scale-90"
         >
           <div className="relative">
-            <Settings className="h-7 w-7" strokeWidth={1.8} />
+            <Settings className="h-8 w-8" strokeWidth={1.8} />
             {storeHasUpdate && (
               <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-destructive" />
             )}
           </div>
-          <span className="text-[11px] leading-none">设置</span>
+          <span className="text-[12px] leading-none">设置</span>
         </button>
       </nav>
 

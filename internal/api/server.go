@@ -237,6 +237,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/sources/reorder", s.requireAdmin(s.reorderSources))
 	mux.HandleFunc("POST /api/sources/sync-list", s.requireAdmin(s.syncList))
 	mux.HandleFunc("POST /api/sources/restore-defaults", s.requireAdmin(s.restoreDefaults)) // 0.6.172 一键恢复默认源列表（含去重）
+	mux.HandleFunc("POST /api/sources/delete-defaults", s.requireAdmin(s.deleteDefaults))  // 0.6.318 一键删除历史默认社区源（官源 20 条保护）
 	mux.HandleFunc("POST /api/sources/{id}/sync", s.requireAdmin(s.syncSource))
 	mux.HandleFunc("POST /api/sources/sync-all", s.requireAdmin(s.syncAllSources)) // 0.6.171 一键刷新所有源
 	mux.HandleFunc("POST /api/sources/{id}/toggle", s.requireAdmin(s.toggleSource))

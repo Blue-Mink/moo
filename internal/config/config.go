@@ -289,15 +289,18 @@ func (c *Config) IsNotifyEventOn(key string) bool {
 	return !ok || on
 }
 
-// DefaultSourceListURL 内置的社区 FnDepot 应用源列表（每行一个 GitHub 仓库地址）。
-const DefaultSourceListURL = "https://raw.githubusercontent.com/710850609/FnDepot/main/repo_list.txt"
+// DefaultSourceListURL 内置的应用源列表（每行一个 GitHub 仓库地址）。
+// 0.6.316+：弃用 710850609/FnDepot 的 repo_list.txt（117 条），改用 moo 仓
+// 自带的精选清单 repo_list.txt（20 条，Blue-Mink 维护），
+// 「立即同步源列表」只认这份清单。
+const DefaultSourceListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/repo_list.txt"
 
 // Default 返回默认配置（含默认社区源：首装即有可浏览目录）。
 func Default() *Config {
 	return &Config{
 		WebPort:     "38100",
 		DownloadDir: "downloads",
-		// 0.6.247：首装实际填充内置默认源全集（见 main.go，0.6.314 起 157 源）；
+		// 0.6.247：首装实际填充内置默认源全集（见 main.go，0.6.316 起 20 源）；
 		// 这两个种子仅作内置列表缺失时的兜底，地址必须带协议。
 		Sources: []SourceRef{
 			{Name: "Blue-Mink", URL: "https://github.com/Blue-Mink/FnDepot"},

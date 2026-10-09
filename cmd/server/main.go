@@ -61,14 +61,16 @@ func main() {
 	// 走 debug.SetMemoryLimit（语义=GOMEMLIMIT），**不用** runtime 原生 GOMEMLIMIT
 	// env——双来源（代码 MOO_GOMEMLIMIT + env GOMEMLIMIT）部署时易混乱，只走代码
 	// 调用（调用优先），FPK 的 start_daemon 也不注入 GOMEMLIMIT。
-	// 默认 256MB 依据 .2 实测（2118 应用）：空闲堆 ~100MB / 活动峰 274MB；
-	// 应用规模 5000+ 的机器 env 调 512MB（限额是天花板不是配额）；0/负数=不设
-	// （回到 0.6.312 行为，逃生阀）。软限语义：持续高压分配下 GC 追不上会
-	// 超发（非硬 kill；不改善冷启动 VmPeak 突发，只削保留堆的尾部）。
-	memLimit := int64(256 << 20)
+	// 0.6.315 分机校准：默认 256MB → 128MB。依据 .2 实测（2118 应用，B4 三件套
+	// 后）：空闲稳态 RSS 85.9MB / 活堆 15.5MB / 99 条 E2E 风暴峰 236MB（瞬态）；
+	// 128MB 软限下稳态保留堆进一步收紧（GC 更积极归页），瞬态峰由 GC 追赶消化。
+	// 应用规模 5000+ 的机器 env 调 256MB/512MB（限额是天花板不是配额）；
+	// 0/负数=不设（回到 0.6.312 行为，逃生阀）。软限语义：持续高压分配下 GC
+	// 追不上会超发（非硬 kill；不改善冷启动 VmPeak 突发，只削保留堆的尾部）。
+	memLimit := int64(128 << 20)
 	if v := os.Getenv("MOO_GOMEMLIMIT"); v != "" {
 		if n, perr := parseMemLimit(v); perr != nil {
-			log.Printf("[perf] MOO_GOMEMLIMIT=%q 非法（支持裸字节或 数字+KB/MB/GB，如 256MB），用默认 256MB", v)
+			log.Printf("[perf] MOO_GOMEMLIMIT=%q 非法（支持裸字节或 数字+KB/MB/GB，如 128MB），用默认 128MB", v)
 		} else if n == 0 {
 			memLimit = 0
 		} else {
@@ -126,16 +128,17 @@ func main() {
 	if removed := api.CleanResidualCredentials(dataDir); len(removed) > 0 {
 		log.Printf("[security] 启动清理历史凭据残留 %d 个: %v", len(removed), removed)
 	}
-	// 0.6.247：首装自动填充内置默认源全集（0.6.314 起 157 源，基准=验收
-	// 过的备用测试机全量源+fn-knock 官方源）。全新安装即带全部默认源，
-	// 离线可用；「恢复默认源」按钮以同一集合为基准（误删可一键找回）。
+	// 0.6.247：首装自动填充内置默认源全集（0.6.316 起 20 源，基准=Blue-Mink
+	// 精选清单；此前 0.6.314 起 157 源=验收过的备用测试机全量源+fn-knock
+	// 官方源，已废弃）。全新安装即带全部默认源，离线可用；「恢复默认源」
+	// 按钮以同一集合为基准（误删可一键找回）。
 	if _, serr := os.Stat(config.Path(dataDir)); os.IsNotExist(serr) {
 		if urls := source.BundledDefaultSources(); len(urls) > 0 {
 			var seeded []config.SourceRef
 			// 0.6.248：按名去重——基准集含 7 组同 owner 双仓库（owner 命名
 			// 会重名），旧逻辑生成重名 SourceRef，落盘后按名折叠丢 7 条。
 			// 冲突方改用 UniqueSourceName（owner-repo 归一名，如
-			// tzi-shue-fndepot），157 条全部唯一入库。
+			// tzi-shue-fndepot），清单内全部唯一入库（0.6.316 起 20 条）。
 			taken := make(map[string]bool, len(urls))
 			for _, u := range urls {
 				name := source.UniqueSourceName(u, taken)

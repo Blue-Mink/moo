@@ -942,6 +942,23 @@ export const restoreDefaultSources = async (): Promise<{
   return response.json();
 };
 
+/** 0.6.318：一键删除历史默认源（dryRun=true 只预检不落变更）。
+ *  范围=命中旧 157 条默认清单的现有源（含与 20 条官源重叠的 19 条，
+ *  删后可用「恢复官源」找回）；官方源与清单外自加源不受影响。 */
+export const deleteDefaultSources = async (dryRun: boolean): Promise<{
+  dry_run: boolean;
+  scanned: number;
+  deleted: number;
+  deleted_names?: string[];
+  errors?: string[];
+}> => {
+  const response = await apiFetch(apiUrl(`/api/sources/delete-defaults${dryRun ? '?dry_run=1' : ''}`), { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(await extractError(response, `删除默认源失败: ${response.statusText}`));
+  }
+  return response.json();
+};
+
 /** 同步内置源列表：自动发现并添加列表中未添加过的 FnDepot 应用源。 */
 export const syncSourceList = async (): Promise<SourceListSyncResult> => {
   const response = await apiFetch(apiUrl('/api/sources/sync-list'), { method: 'POST' });

@@ -6,7 +6,7 @@ import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../a
 import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc } from '../api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { useIsDesktop } from '@/lib/hooks';
+import { useIsDesktop, useMobileDesktopSim } from '@/lib/hooks';
 import {
   Dialog,
   DialogContent,
@@ -304,6 +304,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 全屏对话框回普通底色；内卡毛玻璃罩在渐变上 = 与网页端同款柔和染色。
   const isDesktop = useIsDesktop();
   const mobileAuroraPanel = !isDesktop && aBg !== '';
+  // 0.6.316 ①：手机桌面模拟（飞牛 app 桌面模式）→ 对话框挂 .mds-sim 去玻璃
+  const mdsSim = useMobileDesktopSim();
   // 安装/更新/卸载完成（operation 从有值变无值）后重拉一次详情，同步已装状态、
   // 版本与主操作行——detailApp 是打开时的静态快照，不重拉的话头部 GET 位与
   // 底部操作区会停留在装前状态（与「装完即变」不符）。
@@ -731,7 +733,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
 // 移动端（!isDesktop）玻璃层移到下方内层 absolute 子层——backdrop-filter
 // 不再作用于含内容的整屏 fixed 层本体（WebView GPU 合成异常经典绕法）；
 // 桌面分支（isDesktop）本体玻璃/极光渐变原样保留，零改动。
-isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "")}>
+isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "",
+// 0.6.316 ①：手机桌面模拟命中 → 去 backdrop-filter + 玻璃底提 /95（index.css .mds-sim）
+mdsSim && "mds-sim")}>
         {/* 0.6.313 A2：移动端玻璃层移入内层 absolute 子层（JS 分支与本体
             玻璃同用 isDesktop，640–768px 带=居中卡形态，玻璃自带 sm:rounded
             防四角方角外溢——0.6.298 教训：带 backdrop-filter 的子元素提升
@@ -740,7 +744,10 @@ isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "")}>
             dialog.tsx 在 children 之后渲染）本页恒隐藏（[&>button.absolute]:hidden，
             移动端用返回箭头、桌面用内容内关闭钮），不受玻璃层影响。 */}
         {!isDesktop && (
-          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-background/70 backdrop-blur-2xl sm:rounded-[18px]" />
+          // 0.6.315（iOS 真机修复，与设置页同构缺陷域）：移动端玻璃层去
+          // backdrop-filter、底色 /95 近实心——WKWebView GPU 合成异常下
+          // 「玻璃出得来、内容不出来」，归零合成面止血。
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-background/95 sm:rounded-[18px]" />
         )}
         {/* 列布局：头部行冻结在顶部（不随内容滚动），下方内容区独立滚动。
             移动端整体包一张圆角内边框卡（与列表同款）；桌面端卡片透明化。 */}
@@ -758,7 +765,9 @@ isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "")}>
           // 桌面端极光：原方案——整卡渐变 + 70% 玻璃罩
           isDesktop && aBg && "bg-background/70 backdrop-blur-2xl sm:rounded-[18px]",
         )}>
-        <div className="flex-1 min-h-0 flex flex-col bg-card/60 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore overflow-hidden sm:bg-transparent sm:rounded-none sm:border-0 sm:shadow-none">
+        {/* 0.6.315（iOS 真机修复）：移动端内容卡去 backdrop-filter、底色 /95
+            近实心；桌面（sm+）保持透明卡+磨砂玻璃原样（sm:backdrop-blur-xl）。 */}
+        <div className="flex-1 min-h-0 flex flex-col bg-card/95 rounded-[18px] border border-white/10 shadow-appstore overflow-hidden sm:bg-transparent sm:backdrop-blur-xl sm:rounded-none sm:border-0 sm:shadow-none">
         {/* 头部行：冻结（应用信息 + 动作胶囊组）。
             0.6.217：底色改透明（原 bg-background 在暗色主题 = 纯黑 #000，
             与卡片底 bg-card 形成黑框；滚动区是独立盒、内容不会滑过头部，
@@ -1397,7 +1406,9 @@ isDesktop ? (aBg || "bg-background/70 backdrop-blur-2xl") : "")}>
             必须放在 DialogContent 内部：Radix Dialog 会把对话框外的 DOM 置为
             inert（无法交互）；在内容同层堆叠上下文内 z-40 浮于内容之上。 */}
         <button
-          className={`back-wing sm:hidden fixed z-40 h-14 w-14 rounded-full backdrop-blur-xl border shadow-md flex items-center justify-center select-none touch-none transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out ${
+          // 0.6.315（iOS 真机修复）：悬浮返回钮去 backdrop-filter（移动端
+          // 专属元素，WKWebView 合成异常下小玻璃层同样不可信；底色半透白保留）
+          className={`back-wing sm:hidden fixed z-40 h-14 w-14 rounded-full border shadow-md flex items-center justify-center select-none touch-none transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out ${
             backDragging
               ? 'bg-background border-black/10 dark:border-white/20 shadow-lg text-foreground scale-105'
               : 'bg-white/75 dark:bg-white/10 border-black/5 dark:border-white/10 text-muted-foreground dark:text-white/70'

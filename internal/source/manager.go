@@ -242,9 +242,12 @@ func (m *Manager) RefreshNames(names []string, n int) []SourceStatus {
 
 // RefreshBudgeted 0.6.312 B3/F5：优先级集必刷 + 其余源新鲜度升序补刷
 // budget 个（1 小时一轮时巨族源拉平 ~6h/源）。见 SelectBudgetedRefresh。
-func (m *Manager) RefreshBudgeted(priority []string, budget int) []SourceStatus {
+// 0.6.315 M2：新增 n 并发参数（n<=0 回落 8，同 RefreshNames 约定）——启动首轮
+// 传小并发错峰，压低冷启动堆爆发（启动爆发是 B4 实测保留堆的根因，
+// pprof：156 源首刷+目录重建把堆撑大后 Go 保留不还）。
+func (m *Manager) RefreshBudgeted(priority []string, budget int, n int) []SourceStatus {
 	names := m.SelectBudgetedRefresh(priority, budget)
-	return m.RefreshNames(names, 8)
+	return m.RefreshNames(names, n)
 }
 
 // AutoCarePass 一轮「应用源自动监测」策略，在后台刷新轮结束后调用

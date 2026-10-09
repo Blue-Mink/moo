@@ -377,3 +377,51 @@ section[aria-label="Notifications alt+T"] [data-sonner-toast] {
     }
   }
 }
+
+/* 0.6.316 ①：手机桌面模拟（.mds-sim，由 useMobileDesktopSim 判定：
+   物理屏 <700 且视口 ≥768，如飞牛 app 桌面模式）——WKWebView 玻璃层
+   合成异常「玻璃出得来、内容不出来」→ 对话框内全部 backdrop-filter
+   归零 + 玻璃底提至 /95 近实心（与 0.6.315 移动端同一套止血方案）。
+   类只挂在命中的对话框根节点；真桌面（screen.width≥700）永不挂载。 */
+/* 后代选择器覆盖内容子层；.mds-sim 自身选择器覆盖对话框本体
+   （SettingsPage 本体 sm:bg/70+sm:blur-2xl / AppDetailDialog 本体 bg/70+blur-2xl，
+   类与 mds-sim 同挂一个元素，后代组合器够不着自己）。 */
+.mds-sim .backdrop-blur-xl,
+.mds-sim .sm\:backdrop-blur-xl,
+.mds-sim .backdrop-blur-2xl,
+.mds-sim .sm\:backdrop-blur-2xl,
+.mds-sim.backdrop-blur-xl,
+.mds-sim.sm\:backdrop-blur-xl,
+.mds-sim.backdrop-blur-2xl,
+.mds-sim.sm\:backdrop-blur-2xl {
+  backdrop-filter: none !important;
+}
+/* 旧 WebKit（≤Safari 17，只认 -webkit- 前缀）回退。必须拆独立 @supports 规则：
+   minifier 会把「标准+前缀」双声明折叠成仅前缀（按其 browserslist），而新版
+   Chromium 直接丢弃 -webkit- 声明 → 两条声明同规则=双输（0.6.316r 实锤：
+   CSSOM 里 blur 规则块空、Chromium 上 blur 残留）；@supports 隔离可防合并。
+   条件 = 「认前缀 且 不认标准」= 恰好命中旧 WebKit；现代引擎跳过本块。 */
+@supports (-webkit-backdrop-filter: none) and not (backdrop-filter: none) {
+  .mds-sim .backdrop-blur-xl,
+  .mds-sim .sm\:backdrop-blur-xl,
+  .mds-sim .backdrop-blur-2xl,
+  .mds-sim .sm\:backdrop-blur-2xl,
+  .mds-sim.backdrop-blur-xl,
+  .mds-sim.sm\:backdrop-blur-xl,
+  .mds-sim.backdrop-blur-2xl,
+  .mds-sim.sm\:backdrop-blur-2xl {
+    -webkit-backdrop-filter: none !important;
+  }
+}
+.mds-sim .bg-background\/70,
+.mds-sim .sm\:bg-background\/70,
+.mds-sim.bg-background\/70,
+.mds-sim.sm\:bg-background\/70 {
+  background-color: hsl(var(--background) / 0.95) !important;
+}
+.mds-sim .bg-card\/55,
+.mds-sim .sm\:bg-card\/55,
+.mds-sim.bg-card\/55,
+.mds-sim.sm\:bg-card\/55 {
+  background-color: hsl(var(--card) / 0.95) !important;
+}

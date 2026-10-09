@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchSources, addSourcesBatch, removeSource, renameSource, syncSource, syncAllSources, restoreDefaultSources, toggleSource, syncSourceList, fetchSettings, updateSettings, reorderSources, toggleSourceFavorite, type SourceEntry } from '../api/client';
+import { fetchSources, addSourcesBatch, removeSource, renameSource, syncSource, syncAllSources, restoreDefaultSources, deleteDefaultSources, toggleSource, syncSourceList, fetchSettings, updateSettings, reorderSources, toggleSourceFavorite, type SourceEntry } from '../api/client';
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -57,6 +57,9 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [listAuto, setListAuto] = useState(true);
   const [syncingList, setSyncingList] = useState(false);
   const [savingList, setSavingList] = useState(false);
+  // 0.6.318：删除默认源（dry_run 预检 → 确认弹窗 → 真删）
+  const [deletingDefaults, setDeletingDefaults] = useState(false);
+  const [delDefaultsPreview, setDelDefaultsPreview] = useState<{ deleted: number; scanned: number; deleted_names?: string[] } | null>(null);
   // 应用源自动监测（连续无应用自动关闭 + 空源沉底）
   const [autoCare, setAutoCare] = useState(true);
   const [savingCare, setSavingCare] = useState(false);
@@ -551,15 +554,50 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       const parts: string[] = [];
       if (r.restored > 0) parts.push(`恢复 ${r.restored} 个默认源`);
       if (r.deduped > 0) parts.push(`去重移除 ${r.deduped} 个重复源`);
-      if (parts.length === 0) toast.info('默认源列表已是完整状态，无缺失');
-      else toast.success(`默认源列表恢复完成：${parts.join('，')}`);
+      if (parts.length === 0) toast.info('官源列表已是完整状态，无缺失');
+      else toast.success(`官源列表恢复完成：${parts.join('，')}`);
       if (r.failed > 0) toast.warning(`${r.failed} 个源添加失败，可在下方查看`);
       await load();
       onCatalogChanged?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '恢复默认应用源失败');
+      toast.error(e instanceof Error ? e.message : '恢复官源失败');
     } finally {
       setRestoring(false);
+    }
+  };
+
+  // 0.6.318：「删除默认源」——先 dry_run 预检（拿将删清单），确认弹窗展示
+  // 数量后真删。范围=命中旧 157 条默认清单的现有源（含与 20 条官源重叠的
+  // 19 条，删后「恢复官源」可找回）；清单外源（官方源/自加源）不受影响。
+  const handleDeleteDefaultsClick = async () => {
+    if (deletingDefaults) return;
+    setDeletingDefaults(true);
+    try {
+      const p = await deleteDefaultSources(true);
+      if (p.deleted === 0) {
+        toast.info('没有可删除的默认源（现有源均未命中旧默认清单）');
+        return;
+      }
+      setDelDefaultsPreview(p);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '预检默认源失败');
+    } finally {
+      setDeletingDefaults(false);
+    }
+  };
+  const confirmDeleteDefaults = async () => {
+    setDelDefaultsPreview(null);
+    setDeletingDefaults(true);
+    try {
+      const r = await deleteDefaultSources(false);
+      if (r.errors?.length) toast.warning(`已删除 ${r.deleted} 个默认源，${r.errors.length} 个失败`);
+      else toast.success(`已删除 ${r.deleted} 个默认源`);
+      await load();
+      onCatalogChanged?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '删除默认源失败');
+    } finally {
+      setDeletingDefaults(false);
     }
   };
 
@@ -595,43 +633,6 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         </p>
       )}
 
-      {/* 源列表自动同步 */}
-      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
-            源列表自动同步
-          </div>
-          <Switch checked={listAuto} onCheckedChange={handleListAutoChange} disabled={savingList || syncingList} title="开启后每次目录检查自动添加列表中的新源" />
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            className="h-9 flex-1 gap-1.5 text-xs"
-            onClick={handleSyncList}
-            disabled={syncingList || savingList}
-            title="立即抓取内置社区源列表并自动添加新源"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${syncingList ? 'animate-spin text-primary' : ''}`} />
-            {syncingList ? '同步中…' : '立即同步源列表'}
-          </Button>
-          {/* 0.6.172：一键恢复默认应用源列表（防误删；恢复时相同源地址只保留一个） */}
-          <Button
-            variant="outline"
-            className="h-9 flex-1 gap-1.5 text-xs"
-            onClick={handleRestoreDefaults}
-            disabled={restoring || syncingList || savingList}
-            title="重抓内置社区源列表补齐被删的默认源；相同源地址只保留一个（官方源不受影响）"
-          >
-            <RotateCcw className={`h-3.5 w-3.5 shrink-0 ${restoring ? 'animate-spin text-primary' : ''}`} />
-            {restoring ? '恢复中…' : '恢复默认源列表'}
-          </Button>
-        </div>
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          从内置社区源列表自动发现并添加新应用源，只增不删。「恢复默认源列表」可找回误删的默认源，并把相同地址的重复源去重为 1 个。
-        </p>
-      </div>
-
       {/* 应用源自动监测（连续无应用自动关闭 + 空源沉底；列表折叠也放在这里） */}
       <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
         <div className="flex items-center justify-between gap-2">
@@ -644,10 +645,28 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               </span>
             )}
           </div>
+          <Switch
+            checked={autoCare}
+            onCheckedChange={handleCareChange}
+            disabled={savingCare}
+            title="开启后，应用源连续 5 次无应用将自动关闭，空源自动沉底"
+          />
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          持续探测各应用源可用性：连续 5 次无应用将自动关闭该源，空源自动沉底，减少无效抓取。
+        </p>
+      </div>
+
+      {/* 0.6.318：本卡从列表顶部移到「应用源自动监测」下方；三按钮依次
+          同步官源 → 删除默认源 → 恢复官源 */}
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+            <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
+            源列表自动同步
+          </div>
           <div className="flex items-center gap-2">
-            {/* 0.6.171 顺序（用户定稿）：一键复制 → 开启/关闭 → 一键刷新 → 折叠
-                （开关与工具按钮组 8px，两个工具按钮 4px） */}
-            {/* 一键复制全部应用源地址（不含官方应用中心；每行一个，可直接粘贴到别的 Moo） */}
+            {/* 0.6.318b（用户令）：复制/刷新/展开收起三钮从「应用源自动监测」卡挪到本卡 */}
             <Button
               variant="ghost"
               size="icon"
@@ -662,14 +681,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 <Copy className="h-3.5 w-3.5" />
               )}
             </Button>
-            <Switch
-              checked={autoCare}
-              onCheckedChange={handleCareChange}
-              disabled={savingCare}
-              title="开启后，应用源连续 5 次无应用将自动关闭，空源自动沉底"
-            />
             <div className="flex items-center gap-1">
-              {/* 0.6.171：一键刷新所有应用源（与源列表行内同步按钮同款圆形 RefreshCw） */}
               <Button
                 variant="ghost"
                 size="icon"
@@ -681,7 +693,6 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${syncingAll ? 'animate-spin text-primary' : ''}`} />
               </Button>
-              {/* 与加速源健康面板的折叠按钮同款（size=icon h-7 w-7 + ChevronDown 旋转） */}
               <Button
                 variant="ghost"
                 size="icon"
@@ -693,10 +704,45 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", collapsed && "-rotate-90")} />
               </Button>
             </div>
+            <Switch checked={listAuto} onCheckedChange={handleListAutoChange} disabled={savingList || syncingList || deletingDefaults} title="开启后每次目录检查自动添加官源列表中的新源" />
           </div>
         </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="h-9 flex-1 gap-1.5 text-xs"
+            onClick={handleSyncList}
+            disabled={syncingList || savingList || deletingDefaults || restoring}
+            title="立即抓取内置官源清单（20 条精选）并自动添加新源（只增不删）"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${syncingList ? 'animate-spin text-primary' : ''}`} />
+            {syncingList ? '同步中…' : '同步官源'}
+          </Button>
+          {/* 0.6.318：一键删除命中旧 157 条默认清单的源（预检→确认→删除） */}
+          <Button
+            variant="outline"
+            className="h-9 flex-1 gap-1.5 text-xs"
+            onClick={handleDeleteDefaultsClick}
+            disabled={deletingDefaults || syncingList || savingList || restoring}
+            title="一键删除默认清单（前 157 条）的历史源；其中的官源可再由「恢复官源」找回"
+          >
+            <Trash2 className={`h-3.5 w-3.5 shrink-0 ${deletingDefaults ? 'animate-pulse text-primary' : ''}`} />
+            {deletingDefaults ? '处理中…' : '删除默认源'}
+          </Button>
+          {/* 0.6.172：一键恢复官源（防误删；恢复时相同源地址只保留一个） */}
+          <Button
+            variant="outline"
+            className="h-9 flex-1 gap-1.5 text-xs"
+            onClick={handleRestoreDefaults}
+            disabled={restoring || syncingList || savingList || deletingDefaults}
+            title="补回误删的 20 条官源；相同源地址只保留一个（官方源不受影响）"
+          >
+            <RotateCcw className={`h-3.5 w-3.5 shrink-0 ${restoring ? 'animate-spin text-primary' : ''}`} />
+            {restoring ? '恢复中…' : '恢复官源'}
+          </Button>
+        </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          持续探测各应用源可用性：连续 5 次无应用将自动关闭该源，空源自动沉底，减少无效抓取。
+          「同步官源」从内置官源清单（20 条精选）自动发现并添加新应用源，只增不删；「删除默认源」一键删除默认清单（前 157 条）的历史源，其中包含的官源可再由「恢复官源」找回；并把相同地址的重复源去重为 1 个。
         </p>
       </div>
 
@@ -979,6 +1025,30 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             >
               {removingId !== null && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               删除
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 0.6.318：删除默认源确认（dry_run 预检数量；危险操作二次确认） */}
+      <AlertDialog open={!!delDefaultsPreview} onOpenChange={(v) => { if (!v && !deletingDefaults) setDelDefaultsPreview(null); }}>
+        <AlertDialogContent className="sm:max-w-md rounded-[18px] border-border/20 shadow-appstore bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除默认源</AlertDialogTitle>
+            <AlertDialogDescription>
+              预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中 0.6.316 前的旧默认清单）。
+              删除后，清单中包含的官源可再由「恢复官源」一键找回；清单外的源（官方源、自加源）不受影响。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingDefaults}>取消</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteDefaults}
+              disabled={deletingDefaults}
+            >
+              {deletingDefaults && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {deletingDefaults ? '删除中…' : `删除 ${delDefaultsPreview?.deleted ?? ''} 个源`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

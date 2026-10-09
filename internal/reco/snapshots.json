@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-08T01:45:19Z",
+ "generated_at": "2026-10-09T06:19:58Z",
  "generator": "gen_reco_snapshots.py (0.6.314 C)",
  "note": "发现页固定前三推荐完整元数据快照；源删除/抓取失败时回落，源恢复后自动切回实时（按当前目录每请求判定，非粘性）。",
  "apps": [
@@ -57,7 +57,7 @@
     }
    ],
    "latest_version": "1.9.8",
-   "index_url": "https://raw.githubusercontent.com/conversun/fnos-apps/main/apps.json"
+   "index_url": "https://raw.githubusercontent.com/conversun/fnos-apps/master/apps.json"
   },
   {
    "appname": "fndepot",

@@ -502,6 +502,17 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 		return
 	case <-time.After(10 * time.Second): // 等服务与 kspeeder 引擎安定
 	}
+	// 0.6.315 M2（启动错峰）：首轮源同步并发收敛——冷启动首刷是全进程最大的
+	// 堆爆发窗口（B4 pprof 实锤：首刷+目录重建把堆撑大后 Go 保留不还，RSS
+	// 大头即来源于此）。首轮 4 并发（周期轮/手动仍 8），把爆发摊平；
+	// MOO_STARTUP_SYNC_CONC 可覆盖（正整数；0/非法=4 默认）。
+	startupN := 4
+	if v := os.Getenv("MOO_STARTUP_SYNC_CONC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			startupN = n
+		}
+	}
+	first := true
 	for {
 		if ctx.Err() != nil {
 			return
@@ -514,7 +525,13 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 			s.refreshInflight.Store(true)
 			start := time.Now()
 			// 0.6.312 B3/F5：轮转预算轮次（优先级集必刷 + 最久未刷补刷 40 源）
-			sts := s.Src.RefreshBudgeted(s.prioritySourceNames(), autoRefreshBudget)
+			// 0.6.315 M2：启动首轮用 startupN 并发错峰（首刷=冷启动堆爆发窗口）
+			roundN := 8
+			if first {
+				roundN = startupN
+				first = false
+			}
+			sts := s.Src.RefreshBudgeted(s.prioritySourceNames(), autoRefreshBudget, roundN)
 			ok, fail := 0, 0
 			for _, st := range sts {
 				if st.Error != "" {
@@ -1212,11 +1229,11 @@ type sourceRestoreResult struct {
 //     （组内有官方源保官方，否则保列表顺序第一个）；
 //  2. 重抓内置社区源列表补齐被删/缺失的默认源（只增不删用户自加源）。
 func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
-	// 0.6.247：以内置默认源集为基准（0.6.314 起 157 源、全带协议、= 验收过的
-	// 备用测试机全量源+fn-knock 官方源，与首装默认同一集合）——误删的源可
-	// 一键找回，离线可用。此前依赖外部 repo_list.txt（118 条），基准小于在用
-	// 全量集，列表外的源恢复不回来。取源方式=同一嵌入清单 BundledDefaultSources
-	// （default_sources.txt），加源只需改清单，本函数与首装填充自动跟随。
+	// 0.6.247：以内置默认源集为基准（0.6.316 起 20 源、全带协议、= Blue-Mink
+	// 精选清单，与首装默认同一集合）——误删的源可一键找回，离线可用。
+	// 更早依赖外部 repo_list.txt（118 条）/0.6.314 前为 157 源全量集，均
+	// 已废弃。取源方式=同一嵌入清单 BundledDefaultSources（default_sources.txt），
+	// 加源只需改清单，本函数与首装填充自动跟随。
 	urls := source.BundledDefaultSources()
 	res := sourceRestoreResult{Fetched: len(urls)}
 
@@ -1261,6 +1278,59 @@ func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
 	res.Restored, res.Already, res.Failed, res.RestoredNames, res.Errors = s.addMissingSources(urls)
 	_ = s.Cfg.Save(dataDirOf(s))
 	s.invalidateCatalog()
+	writeJSON(w, res)
+}
+
+// deleteDefaults POST /api/sources/delete-defaults：一键删除历史默认源
+//（0.6.318，「源列表自动同步」卡的「删除默认源」按钮）。
+// 删除范围 = 现有源中地址归一后命中旧全量默认清单（157 条，0.6.316 前
+// 首装即带的默认源集）的条目，**不做官源保护**（用户 2026-10-09 定稿：
+// 只要在旧 157 清单里的都可一键删除）——与新 20 条官源重叠的 19 条会被
+// 一并删除，随后由「恢复官源」按钮一键找回，构成清单重置工作流。
+// 天然不受影响：官方源（面板 OAuth 条目，id=fnos-official，非 URL 源）、
+// 不在旧清单里的用户自加源、不在旧清单里的官源（如 Blue-Mink/moo）。
+//
+// ?dry_run=1 只返回将被删除的清单与计数，不落任何变更（前端确认弹窗用）。
+type sourceDeleteDefaultsResult struct {
+	DryRun       bool     `json:"dry_run"`
+	Scanned      int      `json:"scanned"`
+	Deleted      int      `json:"deleted"`
+	DeletedNames []string `json:"deleted_names,omitempty"`
+	Errors       []string `json:"errors,omitempty"`
+}
+
+func (s *Server) deleteDefaults(w http.ResponseWriter, r *http.Request) {
+	dry := r.URL.Query().Get("dry_run") == "1"
+	legacy := map[string]bool{}
+	for _, u := range source.BundledLegacyDefaultSources() {
+		legacy[source.NormalizeSourceURL(u)] = true
+	}
+	res := sourceDeleteDefaultsResult{DryRun: dry}
+	for _, st := range s.Src.Sources() {
+		if st.URL == "" || st.Name == OfficialSourceID {
+			continue
+		}
+		res.Scanned++
+		key := source.NormalizeSourceURL(st.URL)
+		if !legacy[key] {
+			continue
+		}
+		if dry {
+			res.Deleted++
+			res.DeletedNames = append(res.DeletedNames, st.Name)
+			continue
+		}
+		if err := s.Src.RemoveSource(st.Name); err != nil {
+			res.Errors = append(res.Errors, st.Name+": "+err.Error())
+			continue
+		}
+		res.Deleted++
+		res.DeletedNames = append(res.DeletedNames, st.Name)
+	}
+	if !dry && res.Deleted > 0 {
+		_ = s.Cfg.Save(dataDirOf(s)) // 落盘：RemoveSource 只改内存，漏存则重启后被删源复活（审计 ISSUE-1）
+		s.invalidateCatalog()
+	}
 	writeJSON(w, res)
 }
 
