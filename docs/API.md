@@ -359,6 +359,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | `POST /api/sources/reorder` | `{"order":["id1","id2",…]}` | 调整排序（须全量排列） |
 | `POST /api/sources/sync-list` | — | 按内置源列表地址同步源清单（开启自动同步时周期执行） |
 | `POST /api/sources/restore-defaults` | — | 一键恢复默认源列表（补齐缺失 + 同 URL 去重保一；官方源不删） |
+| `POST /api/sources/delete-defaults` | `?dry_run=1` | 一键删除历史默认源（地址归一后命中旧 157 条默认清单；官方 OAuth 源与自加源不受影响；`dry_run=1` 只预检不落变更） |
 | `POST /api/sources/{id}/sync` | — | 刷新单源 |
 | `POST /api/sources/sync-all` | — | 一键刷新所有**已启用**源（并发 8；手动触发，不计自动监测轮次） |
 | `POST /api/sources/{id}/toggle` | — | 启用/停用切换 |
