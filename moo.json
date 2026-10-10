@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（仅留 Moo 自索引）",
   "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-08T22:20:12+08:00"
+  "updated_at": "2026-10-10T11:50:53+08:00"
  },
  "apps": {
   "moo": {
@@ -31,7 +31,8 @@
        "size_mb": 4.7,
        "sha256": "5b6b3eccaf02103f8beec00dabd4947e3a52dafabc8b4252ad6a3541302378fe"
       }
-     }
+     },
+     "updated_at": "2026-10-10T11:35:00+08:00"
     },
     "0.6.318": {
      "changelog": "内存占用优化，剔除同步目录中的伪资产源链moo已加入严格的官源应用审核溯源机制，手动添加的源链不在审核列表内，请注意甄别\n！！！勿添加不受信任的HTTP明文源链（此为开发者测试通道）！！！\n欢迎发现新项目，提交issue\n感谢（大白聊技术、徐大大、 总是瞎折腾、科技姬）的推文",
@@ -81,7 +82,7 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-09T13:45:00+08:00",
+   "updated_at": "2026-10-10T11:50:53+08:00",
    "version": "0.6.319",
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.319/moo_0.6.319_x86.fpk",
    "size": 4.7,
