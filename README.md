@@ -172,7 +172,7 @@ go test ./...     # 单元测试
 
 - [conversun/fnos-apps](https://github.com/conversun/fnos-apps) —— 第三方应用目录数据源，Moo 由其发展而来
 - [FnDepot](https://github.com/EWEDLCM/FnDepot) 及其源开发者们 —— 第三方应用源生态
-- [fn-knock](https://github.com/Blue-Mink/fn-knock-turborepo) —— 通知事件中心模型与 UI 参考
+- [fn-knock](https://github.com/kci-lnk/fn-knock-turborepo) —— 通知事件中心与设置备份的形式参考、发布审计（CI 门禁）借鉴
 - [飞牛 fnOS](https://www.fnnas.com/) —— 友好的 NAS 操作系统
 - AI 模型 —— 开发全程协作伙伴
 
