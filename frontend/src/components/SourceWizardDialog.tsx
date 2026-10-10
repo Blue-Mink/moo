@@ -29,7 +29,7 @@ interface SourceWizardDialogProps {
 }
 
 /**
- * 源声明的安装向导（docs/MOO-PROTOCOL.md 示例 7）。
+ * 源声明的安装向导（docs/Moo应用源协议.md 示例 7）。
  *
  * 与 FPK 自带向导（WizardDialog，字段定义在包内 wizard/install）不同：
  * 这里的字段由**源作者在 moo.json 里声明**，键名由应用自身约定，

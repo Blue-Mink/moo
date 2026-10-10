@@ -44,7 +44,7 @@ type App struct {
 	// PreviewURLs 来自 fnpack.json 的 preview_urls 字段（详情页预览图灯箱）。
 	// 社区源多数不声明（对齐 New Store 行为：有则显示，无则隐藏该区）。
 	PreviewURLs []string `json:"-"`
-	// ── moo.json 扩展字段（0.6.269 起实现，见 docs/MOO-PROTOCOL.md §4.2/§4.5）──
+	// ── moo.json 扩展字段（0.6.269 起实现，见 docs/Moo应用源协议.md §4.2/§4.5）──
 	// DescHTML 富文本简介（详情页展示，Moo 消毒后渲染；缺省用纯文本 Desc）。
 	DescHTML string `json:"desc_html,omitempty"`
 	// License 许可协议（如 MIT），详情页展示。
@@ -56,7 +56,7 @@ type App struct {
 	Wizard *SourceWizard `json:"wizard,omitempty"`
 }
 
-// SourceWizard moo.json 里声明的安装向导（见 docs/MOO-PROTOCOL.md 示例 7）。
+// SourceWizard moo.json 里声明的安装向导（见 docs/Moo应用源协议.md 示例 7）。
 type SourceWizard struct {
 	Fields []SourceWizardField `json:"fields,omitempty"`
 }

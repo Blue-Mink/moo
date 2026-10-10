@@ -118,4 +118,4 @@ ssh root@<NAS> 'appcenter-cli stop <appname> && cp /tmp/<appname>-server <安装
 ## 九、下一步
 
 包与本地验证都过了 → 去写索引并发布：见 [publish-workflow.md](publish-workflow.md) 与
-[docs/MOO-PROTOCOL.md](moo-protocol.md)。
+[docs/Moo应用源协议.md](../../../docs/Moo应用源协议.md)。

@@ -78,7 +78,7 @@ type AppInfo struct {
 	// FirstReleaseAt 该应用最早发布时间（源提供时展示）。
 	FirstReleaseAt string `json:"first_release_at,omitempty"`
 	Sha256         string `json:"sha256,omitempty"`
-	// ── moo.json 扩展（0.6.269 起实现，见 docs/MOO-PROTOCOL.md §4.2/§4.5）──
+	// ── moo.json 扩展（0.6.269 起实现，见 docs/Moo应用源协议.md §4.2/§4.5）──
 	// DescHTML 富文本简介（详情页消毒后渲染）。
 	DescHTML string `json:"desc_html,omitempty"`
 	// License 许可协议（如 MIT）。

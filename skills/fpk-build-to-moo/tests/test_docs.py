@@ -39,9 +39,9 @@ class TestSkillDocs(unittest.TestCase):
             self.assertTrue((ROOT / target).exists(), f"路由链接失效: {target}")
 
     def test_protocol_reference_present(self):
-        # 仓库版：协议正文就是仓库里的 docs/MOO-PROTOCOL.md（不另存副本，避免漂移）
-        ref = ROOT.parents[1] / "docs" / "MOO-PROTOCOL.md"
-        self.assertTrue(ref.exists(), "缺少 docs/MOO-PROTOCOL.md")
+        # 仓库版：协议正文就是仓库里的 docs/Moo应用源协议.md（不另存副本，避免漂移）
+        ref = ROOT.parents[1] / "docs" / "Moo应用源协议.md"
+        self.assertTrue(ref.exists(), "缺少 docs/Moo应用源协议.md")
         body = ref.read_text(encoding="utf-8")
         self.assertIn('"schema_version": "moo"', body)
         self.assertIn("分类取值", body, "协议文档应含分类章节")

@@ -1,7 +1,7 @@
 # 操作流程：从构建到发布 Moo
 
 > 这是**主流程**：每一步都有「做完的判据」，没达到判据不要进下一步。
-> 协议细节见 [docs/MOO-PROTOCOL.md](moo-protocol.md)；构建细节见 [fpk-build.md](fpk-build.md)。
+> 协议细节见 [docs/Moo应用源协议.md](../../../docs/Moo应用源协议.md)；构建细节见 [fpk-build.md](fpk-build.md)。
 
 ## 0. 判断你要发布什么
 
@@ -100,5 +100,5 @@ Moo → 设置 → **应用源设置** → 添加应用源 → 粘同一链接�
 | 阶段 | 参考 |
 |---|---|
 | 构建 / 安装 / 运行时 | [fpk-build.md §八](fpk-build.md) + 姊妹技能 `fn-fpk-builder` |
-| 源不生效 / 搜不到 / 没图标 / 体积 0.0MB / 更新红点 | [docs/MOO-PROTOCOL.md §10 FAQ](moo-protocol.md#10-faq--排查手册) |
-| 版本比较与"谁是最新版" | [docs/MOO-PROTOCOL.md §5.3](moo-protocol.md#53-版本比较规则重要影响谁是最新版有没有更新) |
+| 源不生效 / 搜不到 / 没图标 / 体积 0.0MB / 更新红点 | [docs/Moo应用源协议.md §10 FAQ](../../../docs/Moo应用源协议.md#10-faq--排查手册) |
+| 版本比较与"谁是最新版" | [docs/Moo应用源协议.md §5.3](../../../docs/Moo应用源协议.md#53-版本比较规则重要影响谁是最新版有没有更新) |
