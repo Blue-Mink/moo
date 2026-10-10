@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（仅留 Moo 自索引）",
   "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-10T11:50:53+08:00"
+  "updated_at": "2026-10-10T21:19:02+08:00"
  },
  "apps": {
   "moo": {
@@ -22,6 +22,18 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.320": {
+     "changelog": "修复了一些已知问题",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.320/moo_0.6.320_x86.fpk",
+       "size": 4947159,
+       "size_mb": 4.7,
+       "sha256": "ab5a38cd187c039ac790f0df1b0df9fa46941181ab4ee073e1b2424236463d38"
+      }
+     },
+     "updated_at": "2026-10-10T21:19:02+08:00"
+    },
     "0.6.319": {
      "changelog": "UI界面的改动\n\n桌面端加入鼠标使用行为习惯的切换\n\n修复桌面端应用源无法复制的问题",
      "packages": {
@@ -50,27 +62,9 @@
        "sha256": "bfa6d81e867b9318f3eef281072df4664aad6b1fe14c0fac133bf8f68a52413a"
       }
      }
-    },
-    "0.6.314": {
-     "changelog": "内存占用优化，后台刷新更省资源\n\n应用源链接复制修复，应用源新增敲门knock",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.314/moo_0.6.314_x86.fpk",
-       "size": 4934525,
-       "size_mb": 4.7,
-       "sha256": "2fe14332fd3142d2008a0f542aca9875d6a03384e57dd873a98ceeb42e77d60b"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.314/moo_0.6.314_arm.fpk",
-       "size": 4496847,
-       "size_mb": 4.3,
-       "sha256": "fcd9c6ab12c8c8a7de5de81b098fa1672ddf2a6460b8c11ce2e0a947bae1207c"
-      }
-     },
-     "updated_at": "2026-10-08T11:05:00+08:00"
     }
    },
-   "sha256": "5b6b3eccaf02103f8beec00dabd4947e3a52dafabc8b4252ad6a3541302378fe",
+   "sha256": "ab5a38cd187c039ac790f0df1b0df9fa46941181ab4ee073e1b2424236463d38",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -82,12 +76,13 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-10T11:50:53+08:00",
-   "version": "0.6.319",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.319/moo_0.6.319_x86.fpk",
+   "updated_at": "2026-10-10T21:19:02+08:00",
+   "version": "0.6.320",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.320/moo_0.6.320_x86.fpk",
    "size": 4.7,
-   "changelog": "UI界面的改动\n\n桌面端加入鼠标使用行为习惯的切换\n\n修复桌面端应用源无法复制的问题",
-   "service_port": "38100"
+   "changelog": "修复了一些已知问题",
+   "service_port": "38100",
+   "size_mb": 4.7
   }
  }
 }
