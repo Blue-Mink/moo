@@ -11,12 +11,16 @@ import AppIcon from './AppIcon';
  * 触屏（hover:none+pointer:coarse）单击即开详情——iOS 的 dblclick 会被系统
  * 「双击缩放」手势吞掉（viewport 可缩放时），触屏坚持双击 = 恒无反应。
  * 卡片挂 touch-action: manipulation，iOS 在卡面上不触发双击缩放。
- * 状态文案按用户定稿 = 「安装」（已装）/「未安装」（未装），不显示下载量。
+ * 状态文案按用户定稿 = 「已安装」（已装）/「未安装」（未装），不显示下载量。
+ * 0.6.319F：细指针的打开方式受「鼠标操作习惯」开关控制（clickMode prop）：
+ * double=双击开详情（0.6.293 定稿，默认）/ single=单击；触屏恒单击不受控。
  */
 
 interface GridProps {
   apps: AppInfo[];
   onDetail: (app: AppInfo) => void;
+  /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
+  clickMode?: 'single' | 'double';
 }
 
 /** 取应用简介首行作为副标题（与 FeaturedShowcase 同规则） */
@@ -25,12 +29,14 @@ const tagline = (app: AppInfo) => {
   return line.length > 40 ? line.slice(0, 40) + '…' : line;
 };
 
-/** 状态文案（用户逐字定稿：安装 / 未安装） */
-const statusLabel = (app: AppInfo) => (app.installed ? '安装' : '未安装');
+// 0.6.319F（用户定稿）：「安装」→「已安装」（与未安装对仗，消除歧义）
+const statusLabel = (app: AppInfo) => (app.installed ? '已安装' : '未安装');
 
 /* ── 极简模式：App Store「热门应用」行卡同构 —— 只有图标 + 名称 + 状态 ── */
-export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
+export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double' }) => {
   const coarse = useCoarsePointer();
+  // 0.6.319F：细指针打开方式受习惯开关控制；触屏恒单击
+  const singleOpen = coarse || clickMode === 'single';
   return (
   <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-3 gap-y-6 justify-items-center text-center">
     {apps.map(app => (
@@ -39,8 +45,8 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
         role="button"
         tabIndex={0}
         title={app.display_name}
-        onClick={coarse ? () => onDetail(app) : undefined}
-        onDoubleClick={coarse ? undefined : () => onDetail(app)}
+        onClick={singleOpen ? () => onDetail(app) : undefined}
+        onDoubleClick={singleOpen ? undefined : () => onDetail(app)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDetail(app); }}
         className="group w-full cursor-pointer focus-visible:outline-none [touch-action:manipulation]"
       >
@@ -50,7 +56,8 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
           iconClassName="h-9 w-9"
         />
         <p className="mt-2 text-[13px] font-medium leading-tight truncate">{app.display_name}</p>
-        <p className={cn('mt-0.5 text-[11px] truncate', app.installed ? 'text-muted-foreground' : 'text-primary')}>
+        {/* 0.6.319n（用户令）：两态颜色对调——已安装=primary 蓝（突出「我有的」），未安装=灰 */}
+        <p className={cn('mt-0.5 text-[11px] truncate', app.installed ? 'text-primary' : 'text-muted-foreground')}>
           {statusLabel(app)}
         </p>
       </div>
@@ -75,8 +82,10 @@ export const auroraFor = (name: string) => {
   return AURORAS[Math.abs(h) % AURORAS.length];
 };
 
-export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
+export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double' }) => {
   const coarse = useCoarsePointer();
+  // 0.6.319F：细指针打开方式受习惯开关控制；触屏恒单击
+  const singleOpen = coarse || clickMode === 'single';
   return (
   <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
     {apps.map(app => (
@@ -84,9 +93,9 @@ export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail }) => {
         key={app.key || app.appname}
         role="button"
         tabIndex={0}
-        title={`${coarse ? '点按打开' : '双击打开'} ${app.display_name} 详情`}
-        onClick={coarse ? () => onDetail(app) : undefined}
-        onDoubleClick={coarse ? undefined : () => onDetail(app)}
+        title={`${singleOpen ? (coarse ? '点按' : '单击') : '双击'}打开 ${app.display_name} 详情`}
+        onClick={singleOpen ? () => onDetail(app) : undefined}
+        onDoubleClick={singleOpen ? undefined : () => onDetail(app)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDetail(app); }}
         className={cn(
           'group relative cursor-pointer overflow-hidden rounded-[20px] p-5 text-left text-white',

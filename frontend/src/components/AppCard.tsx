@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import AppIcon from "./AppIcon";
 import { DockerIcon } from "./DockerIcon";
 import { cn, formatSpeed, formatProgress } from "@/lib/utils";
+import { useCoarsePointer } from "@/lib/hooks";
 import { 
   Download, 
   RefreshCw, 
@@ -50,10 +51,14 @@ interface AppCardProps {
   isFavorite?: boolean;
   /** 切换收藏（列表/详情同端点） */
   onToggleFavorite?: (app: AppInfo) => void;
+  /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
+  clickMode?: 'single' | 'double';
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite, clickMode = 'double' }) => {
   const isInstalled = app.installed;
+  // 0.6.319F：细指针的「头部区/简介区 → 详情」打开方式受习惯开关控制；触屏恒单击
+  const singleOpen = useCoarsePointer() || clickMode === 'single';
   const canUpdate = isInstalled && app.has_update;
   const downloadLabel = appDownloadLabel(app);
   // "打开"目标：daemon appServiceInfo；无 Web 入口的应用不渲染按钮
@@ -86,7 +91,12 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
     )}>
       <div className="p-4 flex flex-col h-full gap-3">
 
-        <div className="flex items-start gap-3 cursor-pointer touch-manipulation" onClick={() => onDetail?.(app)}>
+        {/* 0.6.319F：头部区（图标+名称）打开详情=单击/双击受习惯开关控制 */}
+        <div
+          className="flex items-start gap-3 cursor-pointer touch-manipulation"
+          onClick={singleOpen ? () => onDetail?.(app) : undefined}
+          onDoubleClick={singleOpen ? undefined : () => onDetail?.(app)}
+        >
           <div className="shrink-0">
             <AppIcon app={app} className="w-14 h-14" />
           </div>
@@ -181,8 +191,10 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                 const aSrc = !!activeTerms && !!src && activeTerms.includes(src);
                 const aAuth = !!activeTerms && !!author && activeTerms.includes(author);
                 const aDist = !!activeTerms && !!dist && activeTerms.includes(dist);
-                const pillBase = "inline-flex items-start gap-1 rounded-full px-2 py-[3px] max-w-full text-xs leading-[17px] font-medium transition-colors";
-                const pillCls = (active: boolean) => cn(pillBase, active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary hover:bg-primary/20");
+                // 0.6.319b：与顶部分类胶囊同款语言——默认中性，筛选选中才变蓝
+                // 0.6.319d（用户定稿）：12px+regular+灰色，视觉退居简介之后
+                const pillBase = "inline-flex items-start gap-1 rounded-full border px-2 py-[3px] max-w-full text-xs leading-[17px] font-normal transition-colors";
+                const pillCls = (active: boolean) => cn(pillBase, active ? "bg-primary/15 text-primary border-primary/40" : "bg-muted/50 text-muted-foreground border-border/40 hover:bg-muted");
                 return (<>
                   {/* 所有应用都标注来源：官方→飞牛应用中心源、内置→fnos-store、外部源→显示名 */}
                   {src && onSourceFilter && (
@@ -228,10 +240,13 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
         {/* 简介行恒占位（两行高）：无简介的应用卡高与有简介的一致（网格行对齐） */}
         <div className="min-h-10">
           {app.description && (
+            // 0.6.319e（用户定稿）：16px 太大影响整体风格，回 14px 常规 + foreground/70
             <p
-              className="text-xs text-muted-foreground line-clamp-2 leading-relaxed cursor-pointer hover:text-foreground transition-colors"
-              onClick={() => onDetail?.(app)}
-              title="点击查看详情"
+              className="text-sm text-foreground/70 line-clamp-2 leading-relaxed cursor-pointer"
+              // 0.6.319F：简介区打开详情=单击/双击受习惯开关控制
+              onClick={singleOpen ? () => onDetail?.(app) : undefined}
+              onDoubleClick={singleOpen ? undefined : () => onDetail?.(app)}
+              title={singleOpen ? '单击查看详情' : '双击查看详情'}
             >
               {descriptionPlainText(app.description)}
             </p>

@@ -73,7 +73,9 @@ const AppRowList: React.FC<AppRowListProps> = ({
           setVisible((v) => Math.min(v + PAGE_SIZE, apps.length));
         }
       },
-      { rootMargin: '800px 0px' },
+      // 0.6.319：800px→200px，减少追加恰好落在 fling（惯性滚动）中段的概率
+      // （perf 对比实测：追加尖峰是 fling 最低 FPS 44.8 vs New Store 56.2 的来源）
+      { rootMargin: '200px 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -94,9 +96,12 @@ const AppRowList: React.FC<AppRowListProps> = ({
     );
   }
 
-  // 0.6.284：移动端列表容器与 Dock/详情卡统一毛玻璃材质（布局不变）
+  // 0.6.319：列表容器去毛玻璃（B 方向，用户真机反馈"不跟手"后定的视觉稿变体 B）。
+  // 根因：滚动容器自身 backdrop-blur = 每帧对背后区域重采样+重模糊，移动端 WebView
+  // 的 GPU 主瓶颈（PERF_MOO_VS_NEWSTORE.md：Moo 35 处 blur vs New Store 3 处）。
+  // 桌面 AppCard 网格与 MobileDock 的毛玻璃不受影响（各自独立）。
   return (
-    <div className="bg-card/55 backdrop-blur-xl rounded-[18px] overflow-hidden border border-white/10 shadow-appstore">
+    <div className="bg-card rounded-[18px] overflow-hidden border border-white/10 shadow-appstore">
       {shown.map((app, i) => {
         const operation = appOperations?.get(app.appname);
         const isInstalled = app.installed;
@@ -158,7 +163,9 @@ const AppRowList: React.FC<AppRowListProps> = ({
                   「已安装/未安装」状态到图标的距离统一，不再贴图标 */}
               <div className="min-h-9">
                 {app.description && (
-                  <p className="text-[13px] text-muted-foreground/80 leading-snug line-clamp-2 mt-0.5">
+                  // 0.6.319e（用户定稿）：16px 太大影响整体风格，回 14px 常规，
+                  // 颜色 foreground/70=比原 muted 灰提一点点亮色、不到应用名那么深
+                  <p className="text-sm text-foreground/70 leading-relaxed line-clamp-2 mt-0.5">
                     {descriptionPlainText(app.description)}
                   </p>
                 )}
@@ -190,8 +197,11 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 const aSrc = !!activeTerms && !!src && activeTerms.includes(src);
                 const aAuth = !!activeTerms && !!author && activeTerms.includes(author);
                 const aDist = !!activeTerms && !!dist && activeTerms.includes(dist);
-                const pillBase = "inline-flex items-start gap-1 rounded-full px-2 py-[3px] max-w-full text-xs leading-[17px] font-medium transition-colors";
-                const pillCls = (active: boolean) => cn(pillBase, active ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary hover:bg-primary/20");
+                // 0.6.319b：与顶部分类胶囊同款语言——默认中性，筛选选中才变蓝
+                // （不挂 backdrop-blur：行内徽章随列表滚动，模糊=每帧 GPU 成本）
+                // 0.6.319d（用户定稿）：12px+regular+灰色，视觉退居简介之后
+                const pillBase = "inline-flex items-start gap-1 rounded-full border px-2 py-[3px] max-w-full text-xs leading-[17px] font-normal transition-colors";
+                const pillCls = (active: boolean) => cn(pillBase, active ? "bg-primary/15 text-primary border-primary/40" : "bg-muted/50 text-muted-foreground border-border/40 hover:bg-muted");
                 return (
                   // min-h-6：无徽章的应用也预留一行徽章高度，行高与有徽章的一致
                   <div className="relative min-h-6 min-w-0">

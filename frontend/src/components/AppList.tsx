@@ -35,6 +35,8 @@ interface AppListProps {
   favoriteSet?: Set<string>;
   /** 切换收藏（卡片星标） */
   onToggleFavorite?: (app: AppInfo) => void;
+  /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
+  clickMode?: 'single' | 'double';
 }
 
 const getEmptyMessage = (filterType?: string) => {
@@ -48,7 +50,7 @@ const getEmptyMessage = (filterType?: string) => {
   }
 };
 
-const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite }) => {
+const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double' }) => {
   // 渐进渲染：apps 集合变化（搜索/筛选/刷新后首尾不同）时回到首批；
   // 内容相同的重复拉取（安装/启停后刷新）不重置，避免用户滚动位置被弹回。
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -133,6 +135,7 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
             onOpenApp={onOpenApp}
             isFavorite={favoriteSet?.has(app.key || app.appname)}
             onToggleFavorite={onToggleFavorite}
+            clickMode={clickMode}
           />
         </Suspense>
       ))}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { useDebouncedValue, useKeyboardDock, useIsDesktop } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles } from 'lucide-react';
+import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles, MousePointer2 } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -171,6 +171,41 @@ const App: React.FC = () => {
     return v === 'minimal' || v === 'aurora' ? v : 'standard';
   });
   useEffect(() => { localStorage.setItem('moo.web_view_mode', viewMode); }, [viewMode]);
+
+  // 0.6.319F（用户定稿）：鼠标操作习惯（网页端）——鼠标打开应用详情的点击方式。
+  // double=双击（0.6.293 定稿，默认）/ single=单击；localStorage 持久化。
+  // 只影响细指针（鼠标）路径；触屏恒单击开详情，且开关按钮隐藏（网页端专属）。
+  const coarse = useCoarsePointer();
+  const [clickMode, setClickMode] = useState<'single' | 'double'>(() =>
+    localStorage.getItem('moo.web_click_mode') === 'single' ? 'single' : 'double');
+  useEffect(() => { localStorage.setItem('moo.web_click_mode', clickMode); }, [clickMode]);
+
+  // 习惯开关钮（0.6.319F）：摆在三模式切换组左侧（用户指定位置），触屏不渲染。
+  // 0.6.319i（用户定稿）：右上角数字角标废除——图标本身表达当前模式：
+  // 单击=一个鼠标箭头；双击=两个平行、部分重叠的鼠标箭头（第二个右下错位
+  // 5/3px + opacity 70%，重叠区可见）。title 说明当前习惯与点击切换。
+  const clickHabitButton = coarse ? null : (
+    <button
+      type="button"
+      onClick={() => setClickMode(m => (m === 'double' ? 'single' : 'double'))}
+      title={clickMode === 'double' ? '打开详情：双击（点击切换为单击打开）' : '打开详情：单击（点击切换为双击打开）'}
+      aria-label="鼠标操作习惯：单击或双击打开详情"
+      aria-pressed={clickMode === 'single'}
+      className="h-7 w-7 shrink-0 rounded-full bg-muted/60 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 active:opacity-80"
+    >
+      {clickMode === 'single' ? (
+        <MousePointer2 className="h-[15px] w-[15px]" />
+      ) : (
+        // 双箭头：同向平行，第二个右下错位部分重叠（13px 双箭，包围盒 18×16）
+        <span className="relative block h-[16px] w-[18px]">
+          <MousePointer2 className="absolute left-0 top-0 h-[13px] w-[13px]" />
+          <MousePointer2 className="absolute left-[5px] top-[3px] h-[13px] w-[13px] opacity-70" />
+        </span>
+      )}
+    </button>
+  );
+  // 细指针=习惯开关说了算；触屏=恒单击（coarse 短路在前）
+  const singleOpen = coarse || clickMode === 'single';
 
   // 0.6.301：三模式切换组（桌面顶栏 / 移动端发现页共用同一份 JSX）
   const viewModeSwitchGroup = (
@@ -1667,8 +1702,13 @@ const App: React.FC = () => {
        </aside>
 
       <div className="flex-1 flex flex-col min-h-0 md:min-h-dvh min-w-0">
+        {/* 0.6.319j（用户令）：引入网页端「推挤」——列表下滑（window.scrollY>24，实测移动端
+            滚动容器同为 window）时头内边距/行距压缩（pt-4→pt-2 / pb-3→pb-2 / gap-3→gap-2），
+            整条头变薄上收，与网页端 py-4→py-2 同款手感；控件尺寸（h-9/h-8）不动保触摸目标。
+            玻璃底+描边移动端本就常显，故只压缩间距层。 */}
         <div className={cn(
-            "md:hidden bg-card/70 backdrop-blur-xl border-b border-border/50 px-4 pt-4 pb-3 sticky top-0 z-20 flex flex-col gap-3 transition-[box-shadow,border-color] duration-300",
+            "md:hidden bg-card/70 backdrop-blur-xl border-b border-border/50 px-4 sticky top-0 z-20 flex flex-col transition-[box-shadow,border-color,padding-top,padding-bottom,gap] duration-300",
+            mainScrolled ? "pt-2 pb-2 gap-2" : "pt-4 pb-3 gap-3",
             searchExpanded && "shadow-lg border-b-transparent"
           )}>
             {searchExpanded ? (
@@ -1715,9 +1755,10 @@ const App: React.FC = () => {
                   收起
                 </button>
               </div>
-              {/* 0.6.301：展开态搜索框后同样给三模式入口（仅发现页） */}
+              {/* 0.6.301：展开态搜索框后同样给三模式入口（仅发现页）；
+                  0.6.319F：习惯钮在模式组左侧（触屏 coarse 时为 null 不渲染） */}
               {activeFilter === 'recommended' && (
-                <div className="flex items-center">{viewModeSwitchGroup}</div>
+                <div className="flex items-center gap-1.5">{clickHabitButton}{viewModeSwitchGroup}</div>
               )}
             </>
             ) : (
@@ -1885,6 +1926,8 @@ const App: React.FC = () => {
                  </>
            </div>
            <div className="flex items-center gap-3 shrink-0">
+               {/* 0.6.319F：鼠标操作习惯钮=模式组左侧（触屏不渲染，网页端专属） */}
+               {clickHabitButton}
                {/* 0.6.293 预览模式切换（用户定位）：ThemeToggle 之前、与后面的
                    刷新按钮同组同 gap-3 间距。极简=Grid2x2 / 极光=Sparkles / 标准=LayoutGrid */}
                <div className="flex items-center gap-0.5 rounded-full bg-muted/60 p-1" role="group" aria-label="预览模式">
@@ -1909,10 +1952,12 @@ const App: React.FC = () => {
                  ))}
                </div>
                <ThemeToggle />
-               <Button 
-                 onClick={handleCheck} 
+               {/* 0.6.319j（用户令）：刷新页面钮不再用 default 蓝色选中态——中性玻璃胶囊
+                   （与左侧三视图组 bg-muted/60 同语言），twMerge 覆盖 default 变体蓝 */}
+               <Button
+                 onClick={handleCheck}
                  disabled={checking}
-                 className="rounded-full"
+                 className="rounded-full border-border/40 bg-muted/60 text-foreground hover:bg-muted hover:text-foreground"
                >
                  {checking ? (
                    <>
@@ -1992,9 +2037,9 @@ const App: React.FC = () => {
                   favoriteApps.length > 0 ? (
                     /* 0.6.295（用户定稿）：收藏区随三种预览模式切换（0.6.301 移动端同享） */
                     viewMode === 'minimal' ? (
-                      <MinimalIconGridM apps={favoriteApps} onDetail={setDetailApp} />
+                      <MinimalIconGridM apps={favoriteApps} onDetail={setDetailApp} clickMode={clickMode} />
                     ) : viewMode === 'aurora' ? (
-                      <AuroraGridM apps={favoriteApps} onDetail={setDetailApp} />
+                      <AuroraGridM apps={favoriteApps} onDetail={setDetailApp} clickMode={clickMode} />
                     ) : isDesktop ? (
                       /* 0.6.285：与主列表统一 —— 固定等高大卡网格（h-180）；
                          卡面动作只剩安装/打开；2xl 5 列 */
@@ -2012,6 +2057,7 @@ const App: React.FC = () => {
                               onOpenApp={handleOpenApp}
                               isFavorite={favoriteSet.has(app.key || app.appname)}
                               onToggleFavorite={handleToggleFavorite}
+                              clickMode={clickMode}
                             />
                           </Suspense>
                         ))}
@@ -2073,9 +2119,9 @@ const App: React.FC = () => {
                     /* 0.6.295（用户定稿）：忽略更新区随三种预览模式切换（0.6.301 移动端同享）；
                        极简/极光形态下「取消忽略」经详情对话框完成 */
                     viewMode === 'minimal' ? (
-                      <MinimalIconGridM apps={ignoredApps} onDetail={setDetailApp} />
+                      <MinimalIconGridM apps={ignoredApps} onDetail={setDetailApp} clickMode={clickMode} />
                     ) : viewMode === 'aurora' ? (
-                      <AuroraGridM apps={ignoredApps} onDetail={setDetailApp} />
+                      <AuroraGridM apps={ignoredApps} onDetail={setDetailApp} clickMode={clickMode} />
                     ) : (
                     <div className="bg-card rounded-[18px] overflow-hidden border border-border/20 shadow-appstore">
                       {ignoredApps.map((app, i) => (
@@ -2085,7 +2131,9 @@ const App: React.FC = () => {
                             "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50",
                             i > 0 && "border-t border-border/40"
                           )}
-                          onClick={() => setDetailApp(app)}
+                          // 0.6.319F：忽略更新行打开详情=单击/双击受习惯开关控制
+                          onClick={singleOpen ? () => setDetailApp(app) : undefined}
+                          onDoubleClick={singleOpen ? undefined : () => setDetailApp(app)}
                         >
                           <AppIcon app={app} className="w-11 h-11 shrink-0" />
                           <div className="flex-1 min-w-0">
@@ -2133,9 +2181,9 @@ const App: React.FC = () => {
                   各自形态：桌面=卡网格 / 移动=行列表。交互：触屏单击开详情、
                   鼠标双击（见各卡组件的 coarse 分支）。 */}
               {viewMode === 'minimal' ? (
-                <MinimalIconGridM apps={displayApps} onDetail={setDetailApp} />
+                <MinimalIconGridM apps={displayApps} onDetail={setDetailApp} clickMode={clickMode} />
               ) : viewMode === 'aurora' ? (
-                <AuroraGridM apps={displayApps} onDetail={setDetailApp} />
+                <AuroraGridM apps={displayApps} onDetail={setDetailApp} clickMode={clickMode} />
               ) : isDesktop ? (
                 <AppList
                    apps={displayApps}
@@ -2155,6 +2203,7 @@ const App: React.FC = () => {
                    onOpenApp={handleOpenApp}
                    favoriteSet={favoriteSet}
                    onToggleFavorite={handleToggleFavorite}
+                   clickMode={clickMode}
                 />
               ) : (
                 <AppRowList
@@ -2251,7 +2300,8 @@ const App: React.FC = () => {
           0.6.316（用户定稿「大一点、长一点」）：按钮 88→100px、图标 28→32px、
           字号 11→12px、gap-3→gap-4、px-4 py-3→px-5 py-3.5、圆角 26→28px，
           整体宽 ~530→~620px；移动端 Dock 不加尺寸（只贴底，见 MobileDock）。 */}
-      <nav className="hidden md:flex fixed bottom-6 left-1/2 -translate-x-1/2 z-30 items-end gap-4 rounded-[28px] border border-white/10 bg-card/55 px-5 py-3.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
+      {/* 0.6.319j（用户令）：Dock 再往下挪，距底边 24px→8px（bottom-6→bottom-2），挨着底边一点点距离 */}
+      <nav className="hidden md:flex fixed bottom-2 left-1/2 -translate-x-1/2 z-30 items-end gap-4 rounded-[28px] border border-white/10 bg-card/55 px-5 py-3.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
         {(() => {
           type DockKey = 'recommended' | 'all' | 'installed' | 'update_available';
           const items: { key: DockKey; label: string; icon: React.ElementType; count: number }[] = [

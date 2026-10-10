@@ -49,8 +49,39 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     }
     const ok = document.execCommand('copy') === true;
     document.body.removeChild(ta);
-    return ok;
+    if (ok) return true;
   } catch {
-    return false;
+    /* 落入 3) */
   }
+  // 3) 嵌入场景（如 fnOS 面板 iframe 内嵌网页端）：部分浏览器对嵌套窗口的剪贴板
+  //    写入施加额外策略，本窗口两条路全被拦时，若父窗口同源可达，改在**顶层窗口**
+  //    做隐藏 textarea 复制——顶层文档恒持有剪贴板权限（Permissions Policy 默认
+  //    allowlist=self 覆盖同源嵌套），且用户手势的 transient activation 会传播
+  //    到祖先窗口，execCommand 在父窗口合法。跨域（访问 window.top.document 抛
+  //    SecurityError）静默放弃。
+  try {
+    if (typeof window !== 'undefined' && window.top && window.top !== window) {
+      const topDoc = window.top.document; // 跨域访问即抛 → catch
+      const ta = topDoc.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '0';
+      ta.style.top = '0';
+      ta.style.opacity = '0';
+      ta.style.pointerEvents = 'none';
+      topDoc.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        ta.setSelectionRange(0, text.length);
+      } catch { /* 同上，select() 已尽力 */ }
+      const ok = topDoc.execCommand('copy') === true;
+      topDoc.body.removeChild(ta);
+      if (ok) return true;
+    }
+  } catch {
+    /* 跨域或异常 → 两条路+父窗口全失败 */
+  }
+  return false;
 }

@@ -759,6 +759,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   //   改由对话框高度 open 期间切 100dvh 跟随可视视口、底边停在键盘上方；
   //   pan（壳平移）              → 聚焦期间整体隐藏。
   const { open: kbOpen, hidden: kbDockHidden, vvTop: kbVvTop, vvHeight: kbVvHeight, baseHeight: kbBaseH } = useKeyboardDock();
+  // 0.6.319g（用户定稿）：底部保存 dock 改悬浮 overlay（与详情页下载胶囊同款）——
+  // 旧「冻结底栏」在按钮上方留死区：滚动框裁在按钮上方，文字在那条隐形线
+  // 「消失」，且死区挡滚轮/触摸。dock 高度实测（callback ref + ResizeObserver，
+  // 键盘态/显隐变化自动跟随），内容滚动框据此设 paddingBottom：文字可滚到
+  // 按钮下方穿过，滚到底静止时最后一行正好停在按钮上方不被遮。
+  const [saveDockH, setSaveDockH] = useState(0);
+  const saveDockRoRef = useRef<ResizeObserver | null>(null);
+  const onSaveDockRef = useCallback((el: HTMLDivElement | null) => {
+    saveDockRoRef.current?.disconnect();
+    saveDockRoRef.current = null;
+    if (!el) { setSaveDockH(0); return; }
+    const measure = () => setSaveDockH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    saveDockRoRef.current = ro;
+  }, []);
   // 0.6.316 ①：手机桌面模拟（飞牛 app 桌面模式）→ 对话框挂 .mds-sim 去玻璃
   const mdsSim = useMobileDesktopSim();
   // 0.6.225（用户 2026-10-01 定稿）：「保存按钮**不管键盘有没有弹出都一直在底部**，
@@ -1669,8 +1686,9 @@ mdsSim && "mds-sim")}>
         </div>
 
         {/* 0.6.313 A2：中列（tab 行 + 内容区 + 保存 dock）标准主题移动端
-            同样抬到玻璃层之上（max-sm 限定，桌面零改动）。 */}
-        <div className={cn("flex-1 min-h-0 flex flex-col", aurora ? "relative z-10" : "max-sm:relative max-sm:z-10")}>
+            同样抬到玻璃层之上（max-sm 限定，桌面零改动）。
+            0.6.319g：relative 全视口——保存 dock 改 absolute 悬浮定位基准。 */}
+        <div className={cn("relative flex-1 min-h-0 flex flex-col", aurora ? "relative z-10" : "max-sm:relative max-sm:z-10")}>
           {/* 顶部 tab：与首页分类胶囊、底部 Dock 完全同款语言（0.6.306 用户定稿）——
               选中=Dock 款 bg-primary/15 蓝字+primary/40 描边（原实心蓝 0.6.287 定稿，
               0.6.306 用户要求与 Dock 选中色对齐、不要太蓝）/ 未选=Dock 毛玻璃胶囊
@@ -1697,8 +1715,11 @@ mdsSim && "mds-sim")}>
             </div>
           </div>
 
-          {/* 内容区 */}
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain pt-3">
+          {/* 内容区
+              0.6.319g：滚动框贯穿到对话框最底（保存 dock 不再占 flex 段），
+              paddingBottom=dock 实测高度——文字滚到底正好停在按钮上方。 */}
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain pt-3"
+            style={saveDockH > 0 ? { paddingBottom: saveDockH } : undefined}>
             {tab === 'backup' ? (
               <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
                 {/* 设置备份 */}
@@ -2885,14 +2906,27 @@ mdsSim && "mds-sim")}>
                  收起键盘随视口扩张连续滑回、无跳变。
               外框与内容卡片同宽（px-3 / sm:px-6）。 */}
           {tab !== 'about' && !kbDockHidden && (
-            <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 sm:px-6">
+            // 0.6.319g（用户定稿）：absolute 悬浮 overlay（与详情页下载胶囊同款）。
+            // 内容滚动框贯穿到底，文字从按钮下方滚过（按钮=307 定稿浅蓝玻璃
+            // 半透）；按钮之外全 pointer-events-none=滚轮/触摸穿透。
+            // 键盘行为不变（0.6.225 定稿：键盘不改对话框高度，按钮恒在物理底边）。
+            // 0.6.319i-r2（用户定稿）：底 padding 走 .save-dock-pad（index.css）——
+            // 移动端按钮底边「挨着 home 线、留一点点距离」：安卓=安全区+8px、
+            // iOS=安全区-16px（319d「位置很好」位）；319i 的 pb-0（顶死屏底、
+            // 压 home 指示条=操作冲突）已废弃；桌面 sm+ 保持 8px。
+            <div
+              ref={onSaveDockRef}
+              className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pt-2 save-dock-pad sm:px-6"
+            >
               {/* 0.6.221：不再做 translateY 上抬——对话框底边已等于可见底边
                   （见上方 dialogKeyboardStyle），再抬就会过冲：按钮浮在键盘上方、
-                  不像"固定在底部"（用户实报）。这里保持流式钉在对话框底边即可。
-                  0.6.302（用户定稿）：0.6.301 的卡框+贴底改动回退，恢复原胶囊按钮。 */}
-              <div className="mx-auto w-full sm:w-72">
+                  不像"固定在底部"（用户实报）。absolute bottom-0 同样恒钉底边。
+                  0.6.302（用户定稿）：0.6.301 的卡框+贴底改动回退，恢复原胶囊按钮。
+                  0.6.319g（用户定稿）：shadow-lg 底阴影去掉——悬浮感改由内容
+                  从按钮下穿过体现（与详情页下载胶囊逐字同款语言）。 */}
+              <div className="pointer-events-auto mx-auto w-full sm:w-72">
                 <Button
-                  className="w-full h-11 rounded-2xl shadow-lg shadow-black/10"
+                  className="w-full h-11 rounded-2xl"
                   onClick={handleSave}
                   disabled={saving || loading}
                 >

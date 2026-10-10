@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { categoryLabel } from '@/lib/categories';
 import { installTypeRow } from '@/lib/appMeta';
@@ -63,10 +63,16 @@ import DOMPurify from 'dompurify';
  * 走 ReactMarkdown 会把原始标签当纯文本显示出来——那种必须走
  * innerHTML（先经 DOMPurify 消毒）渲染。
  */
-// 详情页与应用列表共用的"源/开发者/发布者"蓝框徽章样式（字号两端统一）
-// 0.6.307（用户定稿）：徽章=分类胶囊同款浅蓝玻璃语言（/15+primary/40 描边）；
-// 筛选选中态再深一档（bg-primary/25，见各处 pillCls(active) 覆盖）。
-export const META_PILL = "inline-flex items-start gap-1 rounded-full bg-primary/15 border border-primary/40 px-2 py-[2px] max-w-full text-xs leading-[17px] font-medium text-primary hover:bg-primary/25 transition-colors focus:outline-none focus-visible:outline-none";
+// 详情页与应用列表共用的"源/开发者/发布者"徽章样式（字号两端统一）
+// 0.6.319b（用户定稿）：与顶部应用分类胶囊同款语言——默认中性胶囊
+// （bg-muted/50 浅灰底+border/40 细描边，浅深主题下白卡上均可见），
+// 筛选选中才变蓝（bg-primary/15+primary/40 描边，见各处 pillCls(active)
+// 覆盖）。不挂 backdrop-blur：行内徽章随列表滚动，模糊是每帧 GPU 成本
+// （319 跟手优化同源教训）。
+// 0.6.319d（用户定稿）：徽章退居次要——字号 12px、字重 regular、灰色
+// （原 foreground 深色模式太白/浅色太黑、medium 太粗，抢了简介的阅读焦点）；
+// line-height 17px 不变，行高零变化。选中态仍变蓝（功能指示）。
+export const META_PILL = "inline-flex items-start gap-1 rounded-full bg-muted/50 border border-border/40 px-2 py-[2px] max-w-full text-xs leading-[17px] font-normal text-muted-foreground hover:bg-muted transition-colors focus:outline-none focus-visible:outline-none";
 
 /** 字节数 → 人类可读（下载按钮「总量未知」时显示已下载大小） */
 function formatBytes(n: number): string {
@@ -78,8 +84,9 @@ function formatBytes(n: number): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
-/** 描述富文本渲染样式（官方 desc / HTML 第三方 desc 共用；链接=主色+下划线） */
-export const DESC_RICH_CLS = "text-sm leading-relaxed [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-[13px] font-medium [&_p]:my-1.5 [&_b]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_img]:max-w-full [&_img]:rounded-lg [&_a]:text-primary [&_a]:underline";
+/** 描述富文本渲染样式（官方 desc / HTML 第三方 desc 共用；链接=主色+下划线）
+    0.6.319e（用户定稿）：基线=14px 常规 + foreground/70（与纯文本简介同款） */
+export const DESC_RICH_CLS = "text-sm leading-relaxed text-foreground/70 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-[13px] font-medium [&_p]:my-1.5 [&_b]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_img]:max-w-full [&_img]:rounded-lg [&_a]:text-primary [&_a]:underline";
 
 export const readmeLooksLikeHtml = (t: string): boolean => {
   const s = (t || '').trimStart();
@@ -196,7 +203,8 @@ export const DetailRow: React.FC<{ icon: React.ElementType; label: string; child
     <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
     <div className="flex-1 min-w-0">
       <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
-      <div className="text-sm text-foreground break-words">{children}</div>
+      {/* 0.6.319e（用户定稿）：回 14px 常规 + foreground/70（与简介同款，提一点点亮色） */}
+      <div className="text-sm text-foreground/70 break-words">{children}</div>
     </div>
   </div>
 );
@@ -351,6 +359,23 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 状态/SSE 必须按 appname 重归属，否则 A 的下载进度会串到 B 的按钮上
   // （表现：没下载的应用，按钮却显示「暂停/下载中」）。
   const dlOwnerRef = useRef<string>('');
+  // 0.6.319g（用户定稿）：底部悬浮动作区实测高度——内容滚动框据此设
+  // paddingBottom，滚到底时最后一行文字正好停在胶囊上方、不被遮挡；
+  // ResizeObserver 跟踪（忽略更新药丸/主操作行出现、下载条显隐都会变高）
+  const [dlAreaH, setDlAreaH] = useState(0);
+  const dlAreaRoRef = useRef<ResizeObserver | null>(null);
+  // callback ref（稳定身份）：Radix portal 内容挂载晚于本组件 effect，
+  // 用 ref 回调在节点真正挂上时建观察器，避免漏测（首帧 height=0）
+  const onDlAreaRef = useCallback((el: HTMLDivElement | null) => {
+    dlAreaRoRef.current?.disconnect();
+    dlAreaRoRef.current = null;
+    if (!el) { setDlAreaH(0); return; }
+    const measure = () => setDlAreaH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    dlAreaRoRef.current = ro;
+  }, []);
   const dlSSERef = useRef<SSEHandle | null>(null);
   const handleDownloadFpk = () => {
     if (dlBusy || dlPaused || !app) return;
@@ -631,7 +656,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
       onClick={() => { onOpenChange(false); onUninstall(app); }}
       disabled={!!operation || controlling !== null}
       aria-label={`卸载 ${app.display_name}`}
-      className={cn(actionBtnCls, "bg-destructive/10 text-destructive border border-destructive/40 hover:bg-destructive/15 disabled:opacity-50")}
+      // 0.6.319b（用户定稿）：卸载=中性胶囊（原红色调移除，颜色只留给主操作）
+      className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
     >
       <Trash2 className="h-3.5 w-3.5" />
       卸载
@@ -663,7 +689,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
         onClick={() => onControl?.(app, 'stop')}
         disabled={controlling !== null}
         aria-label={`停用 ${app.display_name}`}
-        className={cn(actionBtnCls, "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/40 hover:bg-amber-500/20 disabled:opacity-50")}
+        // 0.6.319b（用户定稿）：停用=中性胶囊（原琥珀色移除）
+        className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
       >
         <Square className="h-3 w-3 fill-current" />
         停用
@@ -767,7 +794,8 @@ mdsSim && "mds-sim")}>
         )}>
         {/* 0.6.315（iOS 真机修复）：移动端内容卡去 backdrop-filter、底色 /95
             近实心；桌面（sm+）保持透明卡+磨砂玻璃原样（sm:backdrop-blur-xl）。 */}
-        <div className="flex-1 min-h-0 flex flex-col bg-card/95 rounded-[18px] border border-white/10 shadow-appstore overflow-hidden sm:bg-transparent sm:backdrop-blur-xl sm:rounded-none sm:border-0 sm:shadow-none">
+        {/* 0.6.319g：relative——底部动作区改 absolute 悬浮 overlay，以此为定位基准 */}
+        <div className="relative flex-1 min-h-0 flex flex-col bg-card/95 rounded-[18px] border border-white/10 shadow-appstore overflow-hidden sm:bg-transparent sm:backdrop-blur-xl sm:rounded-none sm:border-0 sm:shadow-none">
         {/* 头部行：冻结（应用信息 + 动作胶囊组）。
             0.6.217：底色改透明（原 bg-background 在暗色主题 = 纯黑 #000，
             与卡片底 bg-card 形成黑框；滚动区是独立盒、内容不会滑过头部，
@@ -815,14 +843,13 @@ mdsSim && "mds-sim")}>
                 处理中
               </button>
             ) : !isInstalled ? (
+              // 0.6.319F（用户定稿）：安装/打开/下载 FPK 三胶囊去箭头图标，只留文字（网页端同款）
               <Button onClick={() => { onOpenChange(false); onInstall(app); }} className={cn(headerPillCls, "px-5 shadow-sm hover:opacity-90")}>
-                <Download className="h-3.5 w-3.5" />
                 安装
               </Button>
             ) : isInstalled && app.status === 'running' && onOpenApp && openUrl ? (
               /* 已装且运行中且有 Web 入口：安装完成后的主操作 = 打开（与安装同一 GET 位） */
               <Button onClick={() => onOpenApp(app)} className={cn(headerPillCls, "px-5 shadow-sm hover:opacity-90")}>
-                <ExternalLink className="h-3.5 w-3.5" />
                 打开
               </Button>
             ) : null}
@@ -863,7 +890,8 @@ mdsSim && "mds-sim")}>
               const aSrc = !!activeTerms && !!src && activeTerms.includes(src);
               const aAuth = !!activeTerms && !!author && activeTerms.includes(author);
               // 0.6.308：选中态=移动端行徽章同款实心蓝（网页端对齐）
-              const pillCls = (active: boolean) => cn(META_PILL, active && "bg-primary text-primary-foreground border-transparent");
+              // 0.6.319b：选中=分类胶囊同款蓝（原实心蓝过深）
+              const pillCls = (active: boolean) => cn(META_PILL, active && "bg-primary/15 text-primary border-primary/40");
               return (<>
                 {src && onSourceFilter && (
                   <button
@@ -889,7 +917,8 @@ mdsSim && "mds-sim")}>
                 )}
                 {/* 官方/无源已装应用的开发者同步自面板详情（后台批量回填前，惰性详情兜底） */}
                 {!author && hasPanelInfo && panelInfo?.app.appDetail?.maintainer && (
-                  <span className="inline-flex items-start gap-1 rounded-full bg-primary/10 px-2 py-[3px] max-w-full text-xs leading-[17px] font-medium text-primary">
+                  // 0.6.319d（用户定稿）：与其余徽章同款中性浅灰（12px regular，不抢眼）
+                  <span className="inline-flex items-start gap-1 rounded-full bg-muted/50 border border-border/40 px-2 py-[3px] max-w-full text-xs leading-[17px] font-normal text-muted-foreground">
                     <User className="h-3 w-3 mt-px shrink-0" />
                     <span className="min-w-0 break-words">{panelInfo.app.appDetail.maintainer}</span>
                   </span>
@@ -901,7 +930,7 @@ mdsSim && "mds-sim")}>
               return (
               <button
                 onClick={() => { if (onDistributorFilter) { onOpenChange(false); onDistributorFilter(app.distributor!); } }}
-                className={cn(META_PILL, aDist && "bg-primary text-primary-foreground border-transparent")}
+                className={cn(META_PILL, aDist && "bg-primary/15 text-primary border-primary/40")}
                 title={onDistributorFilter ? (aDist ? `正在筛选「${app.distributor}」· 点击清除` : `只看「${app.distributor}」发布的应用`) : `发布：${app.distributor}`}
               >
                 <Package className="h-3 w-3 mt-px shrink-0" />
@@ -939,8 +968,12 @@ mdsSim && "mds-sim")}>
           </div>
           </DialogHeader>
         </div>
-        {/* 内容区：独立滚动区（描述 / 预览 / 信息 / 更新说明 / README / 操作） */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
+        {/* 内容区：独立滚动区（描述 / 预览 / 信息 / 更新说明 / README / 操作）。
+            0.6.319g：滚动框延伸到对话框最底（底部动作区不再占 flex 段），
+            paddingBottom=动作区实测高度——文字可滚到胶囊下方穿过（胶囊浅蓝
+            玻璃半透可见），静止时最后内容正好停在胶囊上方、不被遮。 */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5"
+          style={dlAreaH > 0 ? { paddingBottom: dlAreaH } : undefined}>
         {!bodyReady ? (
           /* 同步加载骨架：详情完整字段 + 面板详情并行拉取，齐了再一次性渲染
              内容区（描述 3 行 / 预览 1 幅 / 信息 3 行，布局与正式内容大体对应，
@@ -1004,7 +1037,8 @@ mdsSim && "mds-sim")}>
             }
             return (
               <>
-                <DialogDescription className="text-sm leading-relaxed">
+                {/* 0.6.319e（用户定稿）：回 14px 常规 + foreground/70（提一点点亮色，不到应用名那么深） */}
+                <DialogDescription className="text-sm leading-relaxed text-foreground/70">
                   {descriptionPlainText(d)}
                 </DialogDescription>
                 <Separator />
@@ -1312,15 +1346,27 @@ mdsSim && "mds-sim")}>
 
         </div>
 
-        {/* 底部动作区：冻结在对话框最底部（与应用介绍多少无关、不随内容滚动；
-            对话框固定高度三段式：顶部头部冻结 / 中间内容滚动 / 底部冻结）。
+        {/* 底部动作区：0.6.319g（用户定稿）改 absolute 悬浮 overlay。
+            旧版「冻结底部」flex 段在胶囊上方留 20px 死区——滚动框底边裁在
+            胶囊上方 20px 处，滚动时文字在那条隐形线「消失」；且死区挡住
+            滚轮/触摸，鼠标悬停底部上下滑动时内容纹丝不动（用户实抓：
+            「底边框遮住文字内容」）。
+            改后：内容滚动框贯穿对话框最底，文字从胶囊下方滚过（胶囊浅蓝玻璃
+            半透、文字隐约可见）；胶囊本体之外全 pointer-events-none=
+            滚轮/触摸穿透，底部也能滑；胶囊位置与旧版逐像素一致
+            （319e dl-bottom 平台分支保留：Android=完整安全区 /
+            iOS=安全区-16px / 桌面=12px）。
             ① 主操作行——两个按钮各占一半（停用/卸载、启动/卸载、更新/卸载），单按钮占满；
-            ② 「下载 fpk」= 最长一条全宽悬浮条（与设置页「保存」同款磨砂条 + 主色按钮）。
-            0.6.217：底色改透明（原 bg-background 暗色主题 = 纯黑，
-            按钮行/下载条四周露出大黑框——用户实锤，之前版本无）。 */}
-        {/* 0.6.302（用户定稿）：0.6.301 的贴底改动回退，恢复原 12px+safe 间距 */}
-        {(actionRow || downloadFpkVisible) && (
-          <div className="flex-none border-t border-border/60 px-4 py-3 sm:px-5 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+            ② 「下载 fpk」= 最长一条全宽悬浮条（与设置页「保存」同款磨砂条 + 主色按钮）。 */}
+        <div
+          ref={onDlAreaRef}
+          className={cn(
+            "absolute inset-x-0 bottom-0 pointer-events-none",
+            (actionRow || downloadFpkVisible) && "dl-bottom px-4 py-3 sm:px-5",
+          )}
+        >
+          {(actionRow || downloadFpkVisible) && (
+          <div className="pointer-events-auto">
             {/* 次要操作（忽略/取消忽略更新）：居中 ghost 小药丸 */}
             {((app.update_ignored && onUnignoreUpdate) || (canUpdate && !app.update_ignored && onIgnoreUpdate)) && (
               <div className="flex flex-wrap justify-center gap-2 mb-2">
@@ -1366,12 +1412,15 @@ mdsSim && "mds-sim")}>
             {downloadFpkVisible && (
               // 0.6.308（用户定稿）：外框白条去掉——浅色主题下 card/55=白色半透圈
               // （浏览器实锤 computed bg=white/55），保留 p-2 间距即可，按钮直落玻璃底。
-              <div className={cn("p-2", actionRow && "mt-2")}>
+              // 0.6.319b：移动端去掉底部 8px 内衬（胶囊贴 home 线）；桌面保持
+              // 0.6.319g：wrapper 本身 pointer-events-none（间距区滚轮/触摸穿透
+              // 到底层滚动框），只有胶囊本体 pointer-events-auto（它才是按钮）
+              <div className={cn("pointer-events-none pl-2 pr-2 pt-2 pb-0 sm:p-2", actionRow && "mt-2")}>
                 <button
                   onClick={() => (dlPaused ? handleDlResume() : dlBusy ? handleDlPause() : handleDownloadFpk())}
                   title={dlBusy ? '暂停下载' : dlPaused ? '继续下载（断点续传）' : '下载 FPK 到本地缓存'}
-                  // 0.6.307：下载按钮=选中胶囊同款浅蓝玻璃（进度白条保留）
-                  className="relative w-full h-10 overflow-hidden rounded-xl bg-primary/15 text-primary border border-primary/40 text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:bg-primary/25 active:opacity-80 transition-colors"
+                  // 0.6.319d（用户定稿）：实心蓝与整体不搭，回退浅蓝玻璃（318 定稿款）
+                  className="pointer-events-auto relative w-full h-10 overflow-hidden rounded-xl bg-primary/15 text-primary border border-primary/40 text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:bg-primary/25 active:opacity-80 transition-colors"
                 >
                   {dlBusy && dlPct != null && (
                     <span
@@ -1389,14 +1438,16 @@ mdsSim && "mds-sim")}>
                     ) : dlPaused ? (
                       <><Play className="h-3.5 w-3.5" />继续</>
                     ) : (
-                      <><Download className="h-3.5 w-3.5" />下载 fpk</>
+                      // 0.6.319F（用户定稿）：idle 态去 Download 箭头只留文字（暂停/继续态图标非箭头，保留）
+                      <span>下载 fpk</span>
                     )}
                   </span>
                 </button>
               </div>
             )}
           </div>
-        )}
+          )}
+        </div>
         </div>
         </div>
         {/* 悬浮返回钮（移动端）：磨玻璃圆钮磁吸贴左缘半露出。

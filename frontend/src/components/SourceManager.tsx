@@ -72,6 +72,19 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   // 0.6.314 B：自动复制真实失败（剪贴板 API 不可用且 execCommand 兜底也失败）时，
   // 弹出对话框展示完整文本供手动全选复制，不再假报「已复制」
   const [copyFailText, setCopyFailText] = useState<string | null>(null);
+  // 0.6.319j：失败弹框 refs——单 URL=只读 input 自动聚焦+全选（一步 Ctrl+C）；
+  // 多行=code 块「全选」按钮（Range 选中整块）。旧版裸 URL 墙观感=用户报的「乱码」
+  const copyFailInputRef = React.useRef<HTMLInputElement>(null);
+  const copyFailCodeRef = React.useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (copyFailText === null || copyFailText.includes('\n')) return;
+    // Radix 打开后自动聚焦第一个可聚焦元素；再延迟一步确保选区落上
+    const t = setTimeout(() => {
+      const el = copyFailInputRef.current;
+      if (el) { el.focus(); el.select(); }
+    }, 60);
+    return () => clearTimeout(t);
+  }, [copyFailText]);
   // 重命名应用源（⋯ 设置按钮 → 弹窗）
   const [renameSrc, setRenameSrc] = useState<SourceEntry | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -554,13 +567,13 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       const parts: string[] = [];
       if (r.restored > 0) parts.push(`恢复 ${r.restored} 个默认源`);
       if (r.deduped > 0) parts.push(`去重移除 ${r.deduped} 个重复源`);
-      if (parts.length === 0) toast.info('官源列表已是完整状态，无缺失');
-      else toast.success(`官源列表恢复完成：${parts.join('，')}`);
+      if (parts.length === 0) toast.info('moo 默认源已是完整状态，无缺失');
+      else toast.success(`moo 源恢复完成：${parts.join('，')}`);
       if (r.failed > 0) toast.warning(`${r.failed} 个源添加失败，可在下方查看`);
       await load();
       onCatalogChanged?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '恢复官源失败');
+      toast.error(e instanceof Error ? e.message : '恢复源失败');
     } finally {
       setRestoring(false);
     }
@@ -595,7 +608,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       await load();
       onCatalogChanged?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '删除默认源失败');
+      toast.error(e instanceof Error ? e.message : '删除源失败');
     } finally {
       setDeletingDefaults(false);
     }
@@ -645,12 +658,17 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               </span>
             )}
           </div>
-          <Switch
-            checked={autoCare}
-            onCheckedChange={handleCareChange}
-            disabled={savingCare}
-            title="开启后，应用源连续 5 次无应用将自动关闭，空源自动沉底"
-          />
+          {/* 0.6.319k（用户令）：开关与下方「源列表自动同步」卡的开关垂直对齐
+              （该卡最右列=折叠/展开钮 w-7=28px + gap-1=4px，此处右侧留同款占位） */}
+          <div className="flex items-center gap-1">
+            <Switch
+              checked={autoCare}
+              onCheckedChange={handleCareChange}
+              disabled={savingCare}
+              title="开启后，应用源连续 5 次无应用将自动关闭，空源自动沉底"
+            />
+            <div className="w-7" aria-hidden="true" />
+          </div>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           持续探测各应用源可用性：连续 5 次无应用将自动关闭该源，空源自动沉底，减少无效抓取。
@@ -666,7 +684,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             源列表自动同步
           </div>
           <div className="flex items-center gap-2">
-            {/* 0.6.318b（用户令）：复制/刷新/展开收起三钮从「应用源自动监测」卡挪到本卡 */}
+            {/* 0.6.319k（用户令）：四项依次为 复制 → 刷新 → 开关(打开/关闭) → 折叠/展开 */}
             <Button
               variant="ghost"
               size="icon"
@@ -693,6 +711,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${syncingAll ? 'animate-spin text-primary' : ''}`} />
               </Button>
+              <Switch checked={listAuto} onCheckedChange={handleListAutoChange} disabled={savingList || syncingList || deletingDefaults} title="开启后每次目录检查自动添加官源列表中的新源" />
               <Button
                 variant="ghost"
                 size="icon"
@@ -704,19 +723,19 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", collapsed && "-rotate-90")} />
               </Button>
             </div>
-            <Switch checked={listAuto} onCheckedChange={handleListAutoChange} disabled={savingList || syncingList || deletingDefaults} title="开启后每次目录检查自动添加官源列表中的新源" />
           </div>
         </div>
         <div className="flex gap-2">
+          {/* 0.6.319m（用户令）：三钮再更名 同步源 / 删除源 / 恢复源（短名移动端单行放得下） */}
           <Button
             variant="outline"
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleSyncList}
             disabled={syncingList || savingList || deletingDefaults || restoring}
-            title="立即抓取内置官源清单（20 条精选）并自动添加新源（只增不删）"
+            title="从内置源清单自动发现并添加新应用源（只增不删）"
           >
             <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${syncingList ? 'animate-spin text-primary' : ''}`} />
-            {syncingList ? '同步中…' : '同步官源'}
+            {syncingList ? '同步中…' : '同步源'}
           </Button>
           {/* 0.6.318：一键删除命中旧 157 条默认清单的源（预检→确认→删除） */}
           <Button
@@ -724,10 +743,10 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleDeleteDefaultsClick}
             disabled={deletingDefaults || syncingList || savingList || restoring}
-            title="一键删除默认清单（前 157 条）的历史源；其中的官源可再由「恢复官源」找回"
+            title="一键删除默认清单（前 157 条）的历史源；「恢复源」仅可恢复默认 20 条"
           >
             <Trash2 className={`h-3.5 w-3.5 shrink-0 ${deletingDefaults ? 'animate-pulse text-primary' : ''}`} />
-            {deletingDefaults ? '处理中…' : '删除默认源'}
+            {deletingDefaults ? '处理中…' : '删除源'}
           </Button>
           {/* 0.6.172：一键恢复官源（防误删；恢复时相同源地址只保留一个） */}
           <Button
@@ -735,14 +754,14 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleRestoreDefaults}
             disabled={restoring || syncingList || savingList || deletingDefaults}
-            title="补回误删的 20 条官源；相同源地址只保留一个（官方源不受影响）"
+            title="仅恢复 moo 默认 20 条精选源；相同源地址只保留一个"
           >
             <RotateCcw className={`h-3.5 w-3.5 shrink-0 ${restoring ? 'animate-spin text-primary' : ''}`} />
-            {restoring ? '恢复中…' : '恢复官源'}
+            {restoring ? '恢复中…' : '恢复源'}
           </Button>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          「同步官源」从内置官源清单（20 条精选）自动发现并添加新应用源，只增不删；「删除默认源」一键删除默认清单（前 157 条）的历史源，其中包含的官源可再由「恢复官源」找回；并把相同地址的重复源去重为 1 个。
+          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单（前 157 条）的历史源，「恢复源」仅恢复moo默认20条精选源；并把相同地址的重复源去重为 1 个。
         </p>
       </div>
 
@@ -810,14 +829,26 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   )}
                 </div>
                 <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <button
-                    type="button"
-                    onClick={() => handleCopyUrl(src)}
-                    className="min-w-0 flex-1 cursor-pointer truncate text-left hover:text-foreground hover:underline"
-                    title="点击复制应用源地址"
-                  >
-                    {src.url}
-                  </button>
+                  {/* 0.6.319j：官方源行的 url 字段是中文说明文字（非真实地址），
+                      点击复制会得到无意义的 https:// 中文串（用户报「乱码」来源之一）
+                      → 改纯文本不可复制；其余源保持点击复制 */}
+                  {isOfficialSrc ? (
+                    <span
+                      className="min-w-0 flex-1 truncate text-left"
+                      title="官方应用中心：走本机面板通道，无需复制地址"
+                    >
+                      {src.url}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyUrl(src)}
+                      className="min-w-0 flex-1 cursor-pointer truncate text-left hover:text-foreground hover:underline"
+                      title="点击复制应用源地址"
+                    >
+                      {src.url}
+                    </button>
+                  )}
                   {/* 0.6.216 P1①：http 明文源警示（展示层，不影响下载逻辑）。
                       官方应用源（fnos-official）豁免：它是平台本机面板地址，属可信来源，
                       对它标「未加密」只会误导；其余 http 明文源（社区源/自建源）仍保留警示。 */}
@@ -846,8 +877,9 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   <div className="mt-0.5 truncate text-[11px] text-red-500">{src.error}</div>
                 )}
               </div>
-              {/* 右侧两组：[⋯ 设置 + 开关] 与 [同步 + 移除]，组内 6px、组间 12px，
-                  危险操作（移除）与日常操作（同步）视觉分离；抖动模式下控件隐藏（保留占位）。
+              {/* 右侧两组：[收藏 + ⋯ 设置] 与 [刷新 + 开关 + 删除]（0.6.319k 用户令：
+                  行按钮依次为 收藏 → 刷新 → 打开 → 删除），组内 6px、组间 12px；
+                  危险操作（删除）与日常操作（刷新/开关）视觉分离；抖动模式下控件隐藏（保留占位）。
                   .src-controls 供长按排序的守卫识别（长按控件不进入排序） */}
               <div className={`src-controls flex shrink-0 items-center gap-1.5 ${wiggle && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
                 {/* 0.6.253：官方源 OAuth 免登录连接（iframe 内嵌授权页 + 验证码输入） */}
@@ -888,13 +920,6 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 >
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
-                {/* 开/关（自动匹配：关后该源不参与同步，目录内已有应用保留可检索） */}
-                <Switch
-                  checked={src.enabled !== false}
-                  onCheckedChange={(v) => handleToggle(src, v)}
-                  disabled={isOfficialSrc}
-                  title={src.enabled === false ? '开启该应用源' : '关闭该应用源'}
-                />
               </div>
               <div className={`src-controls flex shrink-0 items-center gap-1.5 ${wiggle && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
                 {/* 手动同步 */}
@@ -909,6 +934,14 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${syncingId === src.id ? 'animate-spin text-primary' : ''}`} />
                 </Button>
+                {/* 开/关（0.6.319k 从第一组挪来，置于 刷新 与 删除 之间；
+                    自动匹配：关后该源不参与同步，目录内已有应用保留可检索） */}
+                <Switch
+                  checked={src.enabled !== false}
+                  onCheckedChange={(v) => handleToggle(src, v)}
+                  disabled={isOfficialSrc}
+                  title={src.enabled === false ? '开启该应用源' : '关闭该应用源'}
+                />
                 <Button
                   variant="ghost"
                   size="icon"
@@ -1030,14 +1063,15 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* 0.6.318：删除默认源确认（dry_run 预检数量；危险操作二次确认） */}
+      {/* 0.6.318：删除默认源确认（dry_run 预检数量；危险操作二次确认）
+          0.6.319m（用户令）：标题/文案随按钮更名 → 删除源；描述按用户定稿 */}
       <AlertDialog open={!!delDefaultsPreview} onOpenChange={(v) => { if (!v && !deletingDefaults) setDelDefaultsPreview(null); }}>
         <AlertDialogContent className="sm:max-w-md rounded-[18px] border-border/20 shadow-appstore bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle>删除默认源</AlertDialogTitle>
+            <AlertDialogTitle>删除源</AlertDialogTitle>
             <AlertDialogDescription>
-              预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中 0.6.316 前的旧默认清单）。
-              删除后，清单中包含的官源可再由「恢复官源」一键找回；清单外的源（官方源、自加源）不受影响。
+              预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中旧清单157条源）。
+              删除后通过「恢复源」仅可恢复默认20条；清单外的源（官方源、自加源）不受影响。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1055,18 +1089,53 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       </AlertDialog>
 
       {/* 0.6.314 B：自动复制失败（非 secure context / execCommand 兜底失败）
-          → 诚实提示，展开完整文本供手动全选复制，不再假报「已复制」 */}
+          → 诚实提示，展开完整文本供手动全选复制，不再假报「已复制」。
+          0.6.319j（用户报「复制时是一串乱码」）：旧版直接把原始 URL 墙倒进 code 块，
+          观感=乱码。重做为——单 URL=只读 input 自动聚焦+全选（一步 Ctrl/Cmd+C）；
+          多行（复制全部）=整洁列表+「全选」按钮（Range 选中后 Ctrl/Cmd+C）。 */}
       <AlertDialog open={copyFailText !== null} onOpenChange={(v) => { if (!v) setCopyFailText(null); }}>
         <AlertDialogContent className="sm:max-w-md rounded-[18px] border-border/20 shadow-appstore bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle>自动复制失败</AlertDialogTitle>
+            <AlertDialogTitle>自动复制未成功</AlertDialogTitle>
             <AlertDialogDescription>
-              当前环境无法写入剪贴板。已为你展开文本，请手动全选复制：
+              {copyFailText && copyFailText.includes('\n')
+                ? '当前环境不允许自动写入剪贴板。点下方「全选」选中全部地址，再复制（Ctrl+C / ⌘+C / 长按复制）：'
+                : '当前环境不允许自动写入剪贴板。下方地址已自动选中，直接复制即可（Ctrl+C / ⌘+C / 长按复制）：'}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <code className="block max-h-44 w-full select-text overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/70 p-3 text-xs leading-relaxed text-foreground">
-            {copyFailText}
-          </code>
+          {copyFailText && !copyFailText.includes('\n') ? (
+            <Input
+              ref={copyFailInputRef}
+              readOnly
+              value={copyFailText}
+              className="h-9 rounded-full border-border/40 bg-muted/60 px-4 font-mono text-xs"
+            />
+          ) : (
+            <div className="space-y-1.5">
+              <code
+                ref={copyFailCodeRef}
+                className="block max-h-44 w-full select-text overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/70 p-3 font-mono text-xs leading-relaxed text-foreground"
+              >
+                {copyFailText}
+              </code>
+              <Button
+                size="sm"
+                className="h-8 rounded-full border-border/40 bg-muted/60 text-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  const el = copyFailCodeRef.current;
+                  if (!el) return;
+                  const range = document.createRange();
+                  range.selectNodeContents(el);
+                  const sel = window.getSelection();
+                  if (!sel) return;
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                }}
+              >
+                全选
+              </Button>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogAction>知道了</AlertDialogAction>
           </AlertDialogFooter>

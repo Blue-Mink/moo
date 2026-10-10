@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { useCoarsePointer } from '@/lib/hooks';
 import { categoryLabel } from '@/lib/categories';
 import {
-  BellOff, Download, ExternalLink, Globe, Loader2, Package,
+  BellOff, Download, Globe, Loader2, Package,
   RefreshCw, Star, Tag, User, X,
 } from 'lucide-react';
 
@@ -41,6 +41,8 @@ interface WebAppDetailCardProps {
   onOpenApp?: (app: AppInfo) => void;
   isFavorite?: boolean;
   onToggleFavorite?: (app: AppInfo) => void;
+  /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
+  clickMode?: 'single' | 'double';
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -69,6 +71,7 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
   onSourceFilter, onAuthorFilter, onDistributorFilter,
   activeTerms, onOpenApp,
   isFavorite, onToggleFavorite,
+  clickMode = 'double',
 }) => {
   const isInstalled = app.installed;
   const canUpdate = isInstalled && app.has_update;
@@ -113,6 +116,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
   // 系统「双击缩放」手势吞掉（viewport 可缩放时），触屏坚持双击 = 恒无反应；
   // 桌面细指针保持双击（0.6.293 用户定稿），交互区拦截规则与双击一致。
   const coarse = useCoarsePointer();
+  // 0.6.319F：细指针打开方式受「鼠标操作习惯」开关控制；触屏恒单击
+  const singleOpen = coarse || clickMode === 'single';
   const openIfSurfaceTap = (e: React.MouseEvent<HTMLDivElement>) => {
     const t = e.target as HTMLElement;
     if (t.closest('button, a, input, select, [data-nodbl]')) return;
@@ -121,9 +126,9 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
 
   return (
     <div
-      onClick={coarse ? openIfSurfaceTap : undefined}
-      onDoubleClick={coarse ? undefined : onRootDoubleClick}
-      title={coarse ? '点按打开应用详情' : '双击打开应用详情'}
+      onClick={singleOpen ? openIfSurfaceTap : undefined}
+      onDoubleClick={singleOpen ? undefined : onRootDoubleClick}
+      title={singleOpen ? (coarse ? '点按打开应用详情' : '单击打开应用详情') : '双击打开应用详情'}
       className="h-[180px] flex flex-col overflow-hidden rounded-[18px] border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore transition-shadow duration-200 hover:shadow-appstore-hover touch-manipulation"
     >
       {/* 头部行：图标 + 收藏星 + 名称列（名/appname/版本·下载） + GET 动作位（安装/打开，唯一卡面动作） */}
@@ -172,8 +177,9 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
             <Loader2 className="h-3.5 w-3.5 animate-spin" />处理中
           </button>
         ) : !isInstalled ? (
-          <Button onClick={() => onInstall(app)} className="h-8 px-4 rounded-full text-[13px] font-semibold gap-1.5 shrink-0 shadow-sm hover:opacity-90">
-            <Download className="h-3.5 w-3.5" />安装
+          // 0.6.319F（用户定稿）：安装/打开胶囊去箭头图标，只留文字（与详情对话框同款）
+          <Button onClick={() => onInstall(app)} className="h-8 px-4 rounded-full text-[13px] font-semibold shrink-0 shadow-sm hover:opacity-90">
+            安装
           </Button>
         ) : canUpdate && onUpdate ? (
           // 0.6.288：有更新→直接给「更新」胶囊（描边主色，与移动端同款），
@@ -185,8 +191,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
             <RefreshCw className="h-3.5 w-3.5" />{upgradeAllowed ? '更新' : '需手动'}
           </Button>
         ) : canOpen ? (
-          <Button onClick={() => onOpenApp?.(app)} className="h-8 px-4 rounded-full text-[13px] font-semibold gap-1.5 shrink-0 shadow-sm hover:opacity-90">
-            <ExternalLink className="h-3.5 w-3.5" />打开
+          <Button onClick={() => onOpenApp?.(app)} className="h-8 px-4 rounded-full text-[13px] font-semibold shrink-0 shadow-sm hover:opacity-90">
+            打开
           </Button>
         ) : null}
       </div>
@@ -211,7 +217,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
             const aAuth = !!activeTerms && !!author && activeTerms.includes(author);
             const aDist = !!activeTerms && !!app.distributor && activeTerms.includes(app.distributor);
             // 0.6.308（用户定稿）：选中态=移动端行徽章同款实心蓝（用户实看满意，网页端对齐）
-const pill = (active: boolean) => cn(META_PILL, 'text-[11px] shrink-0', active && 'bg-primary text-primary-foreground border-transparent');
+// 0.6.319c（用户定稿）：胶囊字号统一=13px（原 11px 覆盖移除，line-height 17px 不变，行高零变化）
+const pill = (active: boolean) => cn(META_PILL, 'shrink-0', active && 'bg-primary/15 text-primary border-primary/40');
             return (<>
               {src && onSourceFilter && (
                 <button onClick={() => onSourceFilter(src)} className={pill(aSrc)} title={aSrc ? `正在筛选「${src}」源 · 点击清除` : `只看「${src}」源的应用`}>
@@ -229,7 +236,7 @@ const pill = (active: boolean) => cn(META_PILL, 'text-[11px] shrink-0', active &
                 </button>
               )}
               {app.category && (
-                <span className={cn(META_PILL, 'text-[11px] pointer-events-none shrink-0')} title={`分类：${categoryLabel(app.category)}`}>
+                <span className={cn(META_PILL, 'pointer-events-none shrink-0')} title={`分类：${categoryLabel(app.category)}`}>
                   <Tag className="h-3 w-3 mt-px shrink-0" /><span className="min-w-0 break-words">{categoryLabel(app.category)}</span>
                 </span>
               )}
@@ -248,7 +255,8 @@ const pill = (active: boolean) => cn(META_PILL, 'text-[11px] shrink-0', active &
           任何信息量下永远按整行截断（省略号由 clamp 自带）。 */}
       <div ref={descBoxRef} className="min-h-0 flex-1 overflow-hidden px-3 pt-2 pb-3">
         {app.description && (
-          <p ref={descTextRef} style={{ WebkitLineClamp: descLines, display: descLines === 0 ? 'none' : undefined }} className="text-xs text-muted-foreground line-clamp-3 leading-relaxed" title={descriptionPlainText(app.description)}>
+          // 0.6.319e（用户定稿）：16px 太大影响整体风格，回 14px 常规 + foreground/70
+          <p ref={descTextRef} style={{ WebkitLineClamp: descLines, display: descLines === 0 ? 'none' : undefined }} className="text-sm text-foreground/70 line-clamp-3 leading-relaxed" title={descriptionPlainText(app.description)}>
             {descriptionPlainText(app.description)}
           </p>
         )}

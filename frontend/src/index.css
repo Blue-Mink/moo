@@ -99,25 +99,32 @@
 
 :root {
   /* ---- Apple App Store 亮色 ---- */
-  /* 0.6.273 A档（对齐 dog-dev iOS 亮色）：背景 #f2f2f7 */
-  --background: 240 24% 96%;       /* #f2f2f7 */
+  /* 0.6.319n（用户实报「亮色不够柔和、太亮」）：表面明度整体降一档、去纯白，
+     层级关系不变（卡片>背景>次表面），设计语言不动——
+     背景 96%→93%（#f2f2f7→#ececed）、卡片/弹层纯白→99%（#fcfcfd）、
+     secondary/muted/accent 92%→90%（#e2e2e9，保住与卡片的区分度）。
+     0.6.319o 试了「加暖」（色相 28 暖灰），用户否掉：不要暖色、和之前一样。
+     0.6.319p（用户拍板）：色相回 240 冷灰（319n 色调），唯一变化=背景明度再降
+     一档 93→90%（#ececed→#e2e2e9）；次表面 90→87%（#e2e2e9→#dadade）随降一档
+     保「卡>背景>次表面」层级；卡/弹层/描边/文字全保持 319n 原值。 */
+  --background: 240 14% 90%;       /* #e2e2e9（319n #ececed 再深一档） */
   --foreground: 240 3% 11%;        /* #1d1d1f */
-  --card: 0 0% 100%;               /* #ffffff */
+  --card: 240 20% 99%;             /* #fcfcfd（319n 不变） */
   --card-foreground: 240 3% 11%;
-  --popover: 0 0% 100%;
+  --popover: 240 20% 99%;          /* 与卡同档 */
   --popover-foreground: 240 3% 11%;
   /* 0.6.273 A档（对齐 dog-dev iOS 蓝）：#0a84ff（hsl 210 100% 52% ≈ #0a85ff，G 通道差 1 不可见） */
   --primary: 210 100% 52%;         /* iOS 蓝 #0a84ff */
   --primary-foreground: 0 0% 100%;
-  --secondary: 240 16% 92%;        /* #e8e8ed */
+  --secondary: 240 12% 87%;        /* #dadade（随背景降一档，保层级区分） */
   --secondary-foreground: 240 3% 11%;
-  --muted: 240 16% 92%;
+  --muted: 240 12% 87%;
   --muted-foreground: 240 2% 53%;  /* #86868b */
-  --accent: 240 16% 92%;
+  --accent: 240 12% 87%;
   --accent-foreground: 240 3% 11%;
   --destructive: 4 100% 59%;       /* iOS 红 #ff3b30 */
   --destructive-foreground: 0 0% 98%;
-  --border: 240 4% 83%;            /* #d2d2d7 */
+  --border: 240 4% 83%;            /* #d2d2d7（319n 不变） */
   --input: 240 4% 83%;
   --ring: 210 100% 52%;
   --chart-1: 210 100% 52%;
@@ -424,4 +431,44 @@ section[aria-label="Notifications alt+T"] [data-sonner-toast] {
 .mds-sim.bg-card\/55,
 .mds-sim.sm\:bg-card\/55 {
   background-color: hsl(var(--card) / 0.95) !important;
+}
+
+/* 0.6.319i-r2（用户定稿）：下载 FPK 动作区底 padding——移动端按钮底边
+   「挨着 home 线、留一点点距离」（不顶死屏底：顶死会压住 home 指示条、
+   点按钮下沿触发上滑手势=操作冲突）。home 线在安全区里的相对位置按平台不同：
+   安卓(Blink)：home 线=手势条顶边=安全区边界 → 安全区+8px（小间隙，
+     319d/319e 实锤：-16 会把按钮推进手势条=触摸冲突）。
+   iOS(WebKit)：home 指示条在安全区内部（比安全区边界低 ~16px）→ 安全区-16px
+     （=按钮底边在 home 条上方 ~5px，319d 用户确认「位置很好」；8px 下限防 0）。
+   桌面 sm+(≥640px) 保持 12px 不变。 */
+.dl-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
+}
+@media (min-width: 640px) {
+  .dl-bottom { padding-bottom: 0.75rem; }
+}
+@supports (-webkit-touch-callout: none) {
+  .dl-bottom { padding-bottom: max(env(safe-area-inset-bottom) - 16px, 8px); }
+}
+@media (min-width: 640px) {
+  @supports (-webkit-touch-callout: none) {
+    .dl-bottom { padding-bottom: 0.75rem; }
+  }
+}
+
+/* 0.6.319i-r2：设置页保存钮底 padding——与 .dl-bottom 同款「挨着 home 线留间隙」，
+   仅桌面值不同（8px 非 12px，保持 319h 原值）。 */
+.save-dock-pad {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
+}
+@media (min-width: 640px) {
+  .save-dock-pad { padding-bottom: 0.5rem; }
+}
+@supports (-webkit-touch-callout: none) {
+  .save-dock-pad { padding-bottom: max(env(safe-area-inset-bottom) - 16px, 8px); }
+}
+@media (min-width: 640px) {
+  @supports (-webkit-touch-callout: none) {
+    .save-dock-pad { padding-bottom: 0.5rem; }
+  }
 }
