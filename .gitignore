@@ -44,3 +44,5 @@ chlog-*.png
 deep*-*.png
 *.py.bak
 __pycache__
+ROOTUPD_FIX_TODO.md
+ICON_FIX_TODO.md

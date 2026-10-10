@@ -4,6 +4,30 @@
 
 set -e
 
+# 0) 卸载向导选择（0.6.320r3，官方模式参照 trim.photos/1panel）：
+#    wizard_delete_data=true（用户在卸载向导选「删除应用数据」）→ 删数据目录；
+#    CLI uninstall / 无向导字段 = 默认 false = 保留数据（平台默认行为，不变）。
+#    安全：只删 glob 精确命中的 /volN/@app{data,conf,meta,home}/moo，
+#    绝不碰用户自选「下载目录」（config.json download_dir，可能含其他文件）。
+if [ "${wizard_delete_data:-false}" = "true" ]; then
+    _ud() {
+        echo "[uninstall-data] $*"
+        [ -n "${TRIM_TEMP_LOGFILE:-}" ] && echo "[uninstall-data] $*" >> "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
+    }
+    _lp="$(cat "${TRIM_PKGVAR:-/var/apps/moo/var}/.logpath" 2>/dev/null | tr -d '[:space:]')"
+    [ -n "${_lp}" ] && [ -f "${_lp}" ] && _ud "log -> ${_lp}" >/dev/null
+    for p in /vol*/@appdata/moo /vol*/@appconf/moo /vol*/@appmeta/moo /vol*/@apphome/moo; do
+        if [ -d "${p}" ]; then
+            if rm -rf "${p}" 2>/dev/null; then
+                _ud "removed ${p}"
+            else
+                _ud "WARN failed to remove ${p}"
+            fi
+        fi
+    done
+    _ud "data deletion done (download dir untouched)"
+fi
+
 # 1) 停掉 kspeeder 引擎（按 cachePath 特征匹配，避免误杀独立安装的 kspeeder 应用）
 for pid in $(pgrep -f "iStoreEnhance .*--cachePath /vol1/@appdata/moo/kspeeder" 2>/dev/null || true); do
     kill "$pid" 2>/dev/null || true

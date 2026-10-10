@@ -35,6 +35,9 @@ import (
 // appCenterDir 是飞牛应用中心程序目录（本地图标回退用）。
 const appCenterDir = "/vol1/@appcenter"
 
+// sysAppDir 是系统空间（root）应用目录（/var/apps，本地图标回退用）。
+const sysAppDir = "/var/apps"
+
 // resolveKey 把目录 key（appname 或 appname@源名）解析为源名 + 应用。
 func (s *Server) resolveKey(key string) (string, *source.App, error) {
 	a, err := s.Src.GetByKey(key)
@@ -1673,21 +1676,36 @@ func iconCandidates(appName, sourceBase string) []string {
 }
 
 // localAppIcon 读本机已装应用目录的图标（/vol1/@appcenter/<app>/ui/images/）。
+// localAppIcon 本机已装应用的 UI 图标（面板图标 404 或无源条目时兜底）：
+// ① 用户空间 /vol1/@appcenter/<app>/ui/images（FPK 标准布局）；
+// ② 0.6.320 补系统空间 /var/apps/<app>/——trim.* 等 15 个官方系统应用
+// 的图标地址是面板相对路径（/app-center-static/…），需 ost 登录态才能抓，
+// 0.6.255 面板账号通道移除（纯 OAuth）后恒 404，本地兜底是唯一来源
+// （系统空间布局：图标在应用根目录，部分也带 ui/images）。
 func localAppIcon(appName string) ([]byte, bool) {
+	return localAppIconFrom(appName, []string{
+		filepath.Join(appCenterDir, appName, "ui", "images"),
+		filepath.Join(sysAppDir, appName),
+		filepath.Join(sysAppDir, appName, "ui", "images"),
+	})
+}
+
+func localAppIconFrom(appName string, dirs []string) ([]byte, bool) {
 	// 安全（2026-09-27 审核）：appName 来自源数据，含路径分隔符时
 	// 拒读（防目录穿越探测）。
 	if appName == "" || strings.ContainsAny(appName, "/\\") || appName == "." || appName == ".." {
 		return nil, false
 	}
-	dir := filepath.Join(appCenterDir, appName, "ui", "images")
-	for _, f := range []string{
-		// ICON.PNG 是 fnOS FPK 应用的标准图标名，优先
-		"ICON.PNG", "ICON.png", "icon_256.png", "icon-256.png",
-		"icon_0_256.png", "icon_256.PNG", "icon.png", "icon_0.png",
-		"icon-64.png", "icon_64.png",
-	} {
-		if b, err := os.ReadFile(filepath.Join(dir, f)); err == nil && len(b) > 0 {
-			return b, true
+	for _, dir := range dirs {
+		for _, f := range []string{
+			// ICON.PNG 是 fnOS FPK 应用的标准图标名，优先
+			"ICON.PNG", "ICON.png", "icon_256.png", "icon-256.png",
+			"icon_0_256.png", "icon_256.PNG", "icon.png", "icon_0.png",
+			"icon-64.png", "icon_64.png",
+		} {
+			if b, err := os.ReadFile(filepath.Join(dir, f)); err == nil && len(b) > 0 {
+				return b, true
+			}
 		}
 	}
 	return nil, false

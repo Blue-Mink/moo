@@ -1,0 +1,33 @@
+[
+  {
+    "stepTitle": "卸载应用",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "卸载将停止并移除 Moo 程序本体。应用数据（配置、应用源、图标缓存、日志）默认保留在存储卷；「下载目录」中已下载的 FPK 文件不受影响。"
+      },
+      {
+        "type": "radio",
+        "field": "wizard_delete_data",
+        "label": "保留或删除应用数据",
+        "initValue": "false",
+        "options": [
+          {
+            "label": "仅卸载，保留数据（重新安装后配置与应用源自动恢复）",
+            "value": "false"
+          },
+          {
+            "label": "删除应用数据（配置、缓存、日志，不可恢复）",
+            "value": "true"
+          }
+        ],
+        "rules": [
+          {
+            "required": true,
+            "message": "请选择保留或删除应用数据"
+          }
+        ]
+      }
+    ]
+  }
+]

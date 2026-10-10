@@ -29,9 +29,17 @@ const AppIcon: React.FC<{
   const isExternal = !!app.source && app.source !== 'fnos-apps';
   // 版本戳：目录最新版优先，其次已装版本（已装无目录条目时兜底）
   const iconVer = app.latest_version || app.installed_version || '';
-  const src = isExternal
+  const iconUrl = app.icon_url || '';
+  // 应用中心安装的应用（无源条目）图标是面板相对路径
+  // （/app-center-static/icon/<app>/icon.png）：Moo 所在 origin 无面板
+  // 登录态，浏览器直载必 404 → 统一改走后端 asset 代理，后端回退读本机
+  // 已装应用目录图标（/vol1/@appcenter/<app>/ui/images/）。仅 http(s)
+  // 绝对直链（官方 CDN / 社区源外链）保持浏览器直载。
+  const isAbsoluteHttp = /^https?:\/\//i.test(iconUrl);
+  const useProxy = iconUrl !== '' && (isExternal || !isAbsoluteHttp);
+  const src = useProxy
     ? apiUrl(`/api/apps/${encodeURIComponent(app.key)}/asset?type=icon${iconVer ? `&v=${encodeURIComponent(iconVer)}` : ''}`)
-    : app.icon_url || '';
+    : iconUrl;
 
   if (!src || failed) {
     return (

@@ -286,6 +286,7 @@ type wizardInfo struct {
 	AppName           string          `json:"appName"`
 	Version           string          `json:"version"`
 	InstallType       string          `json:"installType"`
+	InstalledType     string          `json:"installedType"` // 已装实例的安装类型："root"=系统空间（/var/apps，卷号恒 0）
 	InstalledVolumeID int             `json:"installedVolumeID"`
 	HasWizard         bool            `json:"hasWizard"`
 	WizardContent     json.RawMessage `json:"wizardContent"`
@@ -526,7 +527,11 @@ func UpgradeFpk(ctx context.Context, staged *StagedPackage, params []WizardParam
 		return fmt.Errorf("升级前检查失败: %w", err)
 	}
 	volume := info.WizardInfo.InstalledVolumeID
-	if volume <= 0 {
+	// 0.6.320：系统空间（root）应用装在 /var/apps，平台对它的 installedVolumeID
+	// 恒为 0——0 是合法值而非"无法确定"（fnOS 1.2.06xx 实测 trim.preview：
+	// 应用中心 UI 携 INSTALL_VOLUME_ID=0 升级成功，平台 APP_UPDATED 事件同值）。
+	// 仅当已装实例不是系统空间却取不到卷号时才中止保护。
+	if volume <= 0 && info.WizardInfo.InstalledType != "root" {
 		return fmt.Errorf("无法确定 %s 当前所在存储卷，已中止升级以保护数据", staged.AppName)
 	}
 	if params == nil {
@@ -634,7 +639,9 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 		return fmt.Errorf("升级前检查失败: %w", err)
 	}
 	volume := info.WizardInfo.InstalledVolumeID
-	if volume <= 0 {
+	// 0.6.320：系统空间（root）应用卷号恒 0 属平台正常态（见 UpgradeFpk 同处注释），
+	// 照实传 0 给 update/task（与应用中心 UI 行为一致）；仅非 root 且卷号为 0 才中止。
+	if volume <= 0 && info.WizardInfo.InstalledType != "root" {
 		return fmt.Errorf("无法确定 %s 当前所在存储卷，已中止升级以保护数据", appName)
 	}
 	var task struct {

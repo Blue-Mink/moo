@@ -645,9 +645,10 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
 
   // 主操作行：放在内容区最底部（「下载 fpk」全宽条上方），图标行不再放动作按钮。
   //   未安装 = 安装（主色，占满）
-  //   有更新 = 更新 + 卸载（各占一半）
-  //   运行中 = 打开（有 Web 入口时）+ 停用（琥珀）+ 卸载（红）（均分）
-  //   已停止 = 启动（绿）+ 卸载（红）（各占一半）
+  //   有更新 = 更新（中性）+ 卸载（中性）（各占一半）
+  //   运行中 = 打开（有 Web 入口时，头部 GET 位）+ 停用（中性）+ 卸载（中性）
+  //   已停止 = 启动（中性）+ 卸载（中性）（各占一半）
+  //   0.6.320r2（用户定稿）：底部主操作行全中性胶囊不带色；颜色只留给头部 GET 位（安装/打开）
   const actionBtnCls = "h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5 flex-1 min-w-0";
   // 头部 GET 位胶囊（未安装=安装 / 安装中=转圈；已装应用的主操作在底部主操作行）
   const headerPillCls = "h-9 px-4 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1.5 shrink-0";
@@ -671,10 +672,15 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     </button>
   ) : canUpdate ? (
     <>
-      <Button onClick={() => { onOpenChange(false); onUpdate(app); }} className={cn(actionBtnCls, "hover:opacity-90")}>
+      {/* 0.6.320r2（用户定稿）：更新=中性胶囊，与「卸载」同款不带任何颜色 */}
+      <button
+        onClick={() => { onOpenChange(false); onUpdate(app); }}
+        aria-label={`更新 ${app.display_name}`}
+        className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
+      >
         <RefreshCw className="h-3.5 w-3.5" />
         更新
-      </Button>
+      </button>
       {uninstallBtn}
     </>
   ) : isInstalled && controlBusy ? (
@@ -699,11 +705,12 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     </>
   ) : isInstalled && canControl ? (
     <>
+      {/* 0.6.320r（用户定稿）：启动=中性胶囊，与「卸载」完全同款（原绿色、主色蓝都不要，不带任何颜色） */}
       <button
         onClick={() => onControl?.(app, 'start')}
         disabled={controlling !== null}
         aria-label={`启动 ${app.display_name}`}
-        className={cn(actionBtnCls, "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/20 disabled:opacity-50")}
+        className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
       >
         <Play className="h-3 w-3 fill-current" />
         启动
