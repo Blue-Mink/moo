@@ -5,8 +5,8 @@
   "homepage": "https://github.com/Blue-Mink/moo",
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（仅留 Moo 自索引）",
-  "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，2026-10-09 0.6.318 版本同步重新生成后再次移除。浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-09T18:34:01+08:00"
+  "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
+  "updated_at": "2026-10-08T22:20:12+08:00"
  },
  "apps": {
   "moo": {
@@ -22,6 +22,17 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.319": {
+     "changelog": "UI界面的改动\n\n桌面端加入鼠标使用行为习惯的切换\n\n修复桌面端应用源无法复制的问题",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.319/moo_0.6.319_x86.fpk",
+       "size": 4937720,
+       "size_mb": 4.7,
+       "sha256": "5b6b3eccaf02103f8beec00dabd4947e3a52dafabc8b4252ad6a3541302378fe"
+      }
+     }
+    },
     "0.6.318": {
      "changelog": "内存占用优化，剔除同步目录中的伪资产源链moo已加入严格的官源应用审核溯源机制，手动添加的源链不在审核列表内，请注意甄别\n！！！勿添加不受信任的HTTP明文源链（此为开发者测试通道）！！！\n欢迎发现新项目，提交issue\n感谢（大白聊技术、徐大大、 总是瞎折腾、科技姬）的推文",
      "packages": {
@@ -56,27 +67,9 @@
       }
      },
      "updated_at": "2026-10-08T11:05:00+08:00"
-    },
-    "0.6.311": {
-     "changelog": "网页端设置页面高度优化\n\nBlue-Mink祝大家国庆快乐，moo得烦恼",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.311/moo_0.6.311_x86.fpk",
-       "size": 4655365,
-       "size_mb": 4.4,
-       "sha256": "fd4f59199d4bae96248d477de0c0ced80ec94c08627321abc453a589e08c40dc"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.311/moo_0.6.311_arm.fpk",
-       "size": 4238972,
-       "size_mb": 4.0,
-       "sha256": "39c34073a2f62126998456a9118a7a79234083311dc9b7355793bdfaa2f59ed1"
-      }
-     },
-     "updated_at": "2026-10-06T22:35:00+08:00"
     }
    },
-   "sha256": "70408b8fecf5430592f6ae0ed994129f5b045ef855b09afaefc3aa0685a6e33d",
+   "sha256": "5b6b3eccaf02103f8beec00dabd4947e3a52dafabc8b4252ad6a3541302378fe",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -89,10 +82,10 @@
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
    "updated_at": "2026-10-09T13:45:00+08:00",
-   "version": "0.6.318",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.318/moo_0.6.318_x86.fpk",
+   "version": "0.6.319",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.319/moo_0.6.319_x86.fpk",
    "size": 4.7,
-   "changelog": "内存占用优化，剔除同步目录中的伪资产源链moo已加入严格的官源应用审核溯源机制，手动添加的源链不在审核列表内，请注意甄别\n！！！勿添加不受信任的HTTP明文源链（此为开发者测试通道）！！！\n欢迎发现新项目，提交issue\n感谢（大白聊技术、徐大大、 总是瞎折腾、科技姬）的推文",
+   "changelog": "UI界面的改动\n\n桌面端加入鼠标使用行为习惯的切换\n\n修复桌面端应用源无法复制的问题",
    "service_port": "38100"
   }
  }
