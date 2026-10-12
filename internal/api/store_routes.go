@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"crypto/md5"
+	crand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -349,11 +351,32 @@ func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 		pool = append(withIcon, rest...)
 	}
 	if len(pool) > need {
-		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
-		pool = pool[:need]
+		pool = pickWithDailySeed(pool, need)
 	}
 	out = append(out, pool...)
 	writeJSON(w, map[string]any{"apps": out})
+}
+
+// pickWithDailySeed 稳定随机选卡（321R7）：种子 = UTC 日期 → 同一天内
+// 候选池顺序恒定（刷新/重拉目录都换不了卡），跨天才换一批。
+// 旧实现 rand.Shuffle（全局自动种子）= 每次请求都重洗，用户反馈
+// 「随机顺序一直变」，安装完成刷新后推荐卡全换、找不到刚装的应用。
+// 注：候选池本身变化（源增删应用）仍会改变结果——属数据变化，非重洗。
+func pickWithDailySeed(pool []AppInfo, need int) []AppInfo {
+	day := time.Now().UTC().Format("2006-01-02")
+	rng := rand.New(rand.NewSource(daySeedInt("moo-reco:" + day)))
+	rng.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+	return pool[:need]
+}
+
+// daySeedInt 字符串 → 32 位混合种子（FNV-1a；仅用于展示随机序，非安全用途）。
+func daySeedInt(s string) int64 {
+	var h uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return int64(h)
 }
 
 // dedupSummary GET /api/dedup：当前去重策略 + 三档可见数（首页胶囊预览：
@@ -1282,7 +1305,7 @@ func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
 }
 
 // deleteDefaults POST /api/sources/delete-defaults：一键删除历史默认源
-//（0.6.318，「源列表自动同步」卡的「删除默认源」按钮）。
+// （0.6.318，「源列表自动同步」卡的「删除默认源」按钮）。
 // 删除范围 = 现有源中地址归一后命中旧全量默认清单（157 条，0.6.316 前
 // 首装即带的默认源集）的条目，**不做官源保护**（用户 2026-10-09 定稿：
 // 只要在旧 157 清单里的都可一键删除）——与新 20 条官源重叠的 19 条会被
@@ -1493,11 +1516,12 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		interval = 24 // 默认值（与前端默认一致）
 	}
 	set := Settings{
-		CheckIntervalHours:  interval,
-		Mirror:              s.Cfg.Mirror,
-		DockerMirror:        s.Cfg.DockerMirror,
-		InstallVolume:       s.Cfg.InstallVolume,
-		DownloadDir:         s.Cfg.DownloadDir,
+		CheckIntervalHours: interval,
+		Mirror:             s.Cfg.Mirror,
+		MirrorIncludeDirect: s.Cfg.MirrorIncludeDirect,
+		DockerMirror:       s.Cfg.DockerMirror,
+		InstallVolume:      s.Cfg.InstallVolume,
+		DownloadDir:        s.Cfg.DownloadDir,
 		// 0.6.255：面板账号已从设置中彻底移除（官方源 = 纯 OAuth，
 		// 授权时临时输入账号不落地）。以下字段不再下发：
 		// PanelEnabled / PanelUsername / PanelBaseURL / PanelHasPassword / PanelDecryptFailed
@@ -1574,6 +1598,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Mirror       string `json:"mirror"`
 		DockerMirror string `json:"docker_mirror"`
+		// 0.6.321 F7：「智能选源包含直连」开关（nil = 未提交不改动，
+		// 指针区分显式关与未提交；默认 false = 零行为变化）。
+		MirrorIncludeDirect *bool `json:"mirror_include_direct"`
 		// 指针区分「未提交」(nil=不改动) 与「提交空串」(=显式清除)：
 		// 此前字符串字段一律 `!= ""` 判断，用户清空后保存无效（旧值留存，
 		// 重开设置页又看到旧值 → 观感「保存没作用」）。
@@ -1584,8 +1611,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListURL      *string `json:"source_list_url"`
 		// 指针区分「未提交」与「显式开/关」：此前 `url != "" || disabled` 条件
 		// 在列表地址为空时无法把自动同步切回开启（false 被忽略）。
-		SourceListDisabled *bool   `json:"source_list_disabled"`
-		SourceAutoCareOff  *bool   `json:"source_auto_care_disabled"`
+		SourceListDisabled *bool `json:"source_list_disabled"`
+		SourceAutoCareOff  *bool `json:"source_auto_care_disabled"`
 		// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_password/
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
@@ -1662,6 +1689,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// 0.6.255：面板账号已彻底移除——不再接受/落盘 panel_* 字段。
 	if in.AutoUpdate != nil {
 		s.Cfg.AutoUpdate = *in.AutoUpdate
+	}
+	// 0.6.321 F7：「智能选源包含直连」（nil = 未提交不改动）。
+	// 只影响测速候选池，下一探测周期经 applyMirrorProbeFlags 自动生效。
+	if in.MirrorIncludeDirect != nil {
+		s.Cfg.MirrorIncludeDirect = *in.MirrorIncludeDirect
 	}
 	// 目录语言（0.6.269）：只接受白名单值，越界整单拒绝。
 	if in.CatalogLanguage != nil {
@@ -2041,6 +2073,7 @@ func copyFileFull(src, dst string) error {
 // mirrorHealth GET /api/mirrors/health：GitHub 加速源健康（5 分钟缓存）。
 // ?refresh=1 强制立即重探（面板「立即测速」按钮；阻塞至探测完成，上限 ~15s）。
 func (s *Server) mirrorHealth(w http.ResponseWriter, r *http.Request) {
+	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(r.URL.Query().Get("refresh") == "1")
 	writeJSON(w, s.healthOf(orAuto(s.Cfg.Mirror), "gh", s.Mirrors.gh()))
 }
@@ -2048,12 +2081,16 @@ func (s *Server) mirrorHealth(w http.ResponseWriter, r *http.Request) {
 // dockerMirrorHealth GET /api/mirrors/docker/health：Docker 镜像加速源健康。
 // ?refresh=1 强制立即重探（面板「立即测速」按钮；阻塞至探测完成，上限 ~15s）。
 func (s *Server) dockerMirrorHealth(w http.ResponseWriter, r *http.Request) {
+	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(r.URL.Query().Get("refresh") == "1")
 	writeJSON(w, s.healthOf(orAuto(s.Cfg.DockerMirror), "dk", s.Mirrors.dk()))
 }
 
 // mirrorsCheck POST /api/mirrors/check：强制全量测速。
 func (s *Server) mirrorsCheck(w http.ResponseWriter, r *http.Request) {
+	// 0.6.321 F7：与两个 health 端点一致——手动全量测速前应用开关
+	//（漏调则「立即测速」恒按上一周期标志跑，切换开关后点测速看不到 direct）。
+	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(true)
 	gh := make([]MirrorCheckResult, 0)
 	for _, st := range s.Mirrors.gh() {
@@ -2121,7 +2158,10 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 			AppName:   appName,
 			Installed: installed[appName],
 		}
-		if info, ok := fpkLocalInstance.Lookup(appName); ok {
+		// 321R8：改用按路径的 DisplayFor（直接解析「正在展示的这个文件」的
+		// manifest），不再按文件名派生 appname 做 Lookup——后者对版本化文件名
+		// （moo_0.6.321_x86 → moo06321x86 ≠ 包内 moo）永远匹配不上，display_name 恒空。
+		if info, ok := fpkLocalInstance.DisplayFor(filepath.Join(s.Pipe.Downloads, e.Name())); ok {
 			if info.DisplayName != "" {
 				f.DisplayName = info.DisplayName
 			}
@@ -2134,7 +2174,14 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 		}
 		files = append(files, f)
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	// 321R8：最近修改的排最前（mtime 倒序）；mtime 相同时按文件名升序兜底。
+	// （原按文件名字母序，新上传/新下载的 FPK 不会浮到顶部，用户反馈）
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].ModAt != files[j].ModAt {
+			return files[i].ModAt > files[j].ModAt
+		}
+		return files[i].Name < files[j].Name
+	})
 	writeJSON(w, map[string]any{"dir": s.Pipe.Downloads, "files": files})
 }
 
@@ -2149,6 +2196,106 @@ func (s *Server) removeDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// uploadFpkDownload POST /api/fpk-downloads/upload：321R7 E——上传本地
+// FPK 安装包（手机/电脑文件）到 FPK 下载目录，上传后即可在「已下载的
+// FPK」列表里直接安装（向导探测/daemon 本地安装全走既有管线）。
+//
+// 安全边界（与其余 fpk-downloads 端点同级）：
+//   - requireAdmin：面板网关管理员身份；非 GET 另强制 X-Moo-Admin 头（D2 CSRF）
+//   - 文件名取 filepath.Base 防路径穿越；仅 .fpk（大小写不敏感，归一小写）
+//   - 同目录临时文件 + rename 原子落盘（不会产生半成品）；同名覆盖
+//     （replaced=true，语义=重传同一文件）
+//   - 上限 512MB（现役最大包仅几十 MB，余量充足）
+func (s *Server) uploadFpkDownload(w http.ResponseWriter, r *http.Request) {
+	const maxUpload = 512 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload+4<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, errors.New("文件超过 512MB 上限"))
+			return
+		}
+		writeErr(w, http.StatusBadRequest, errors.New("表单解析失败: "+err.Error()))
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, errors.New("缺少上传文件（字段名 file）"))
+		return
+	}
+	defer file.Close()
+	name := filepath.Base(header.Filename)
+	if strings.ToLower(filepath.Ext(name)) != ".fpk" {
+		writeErr(w, http.StatusBadRequest, errors.New("仅支持 .fpk 安装包"))
+		return
+	}
+	// 扩展名归一小写（Windows 端常见 .FPK/.Fpk）
+	name = strings.TrimSuffix(name, filepath.Ext(name)) + ".fpk"
+	dst := filepath.Join(s.Pipe.Downloads, name)
+	replaced := false
+	if _, err := os.Stat(dst); err == nil {
+		replaced = true
+	}
+	// 322R4：随机后缀防并发同名上传竞争同一 tmp（os.Create 截断会互踩）；
+	// 后缀不以 .fpk 结尾 → isFpk 过滤，不会出现在「已下载的 FPK」列表。
+	rb := make([]byte, 4)
+	_, _ = crand.Read(rb)
+	tmp := fmt.Sprintf("%s.upload-%s.tmp", dst, hex.EncodeToString(rb))
+	f, err := os.Create(tmp)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, errors.New("创建临时文件失败: "+err.Error()))
+		return
+	}
+	n, err := io.Copy(f, file)
+	closeErr := f.Close()
+	if err != nil {
+		os.Remove(tmp)
+		writeErr(w, http.StatusInternalServerError, errors.New("写入失败: "+err.Error()))
+		return
+	}
+	if closeErr != nil {
+		os.Remove(tmp)
+		writeErr(w, http.StatusInternalServerError, errors.New("写入失败: "+closeErr.Error()))
+		return
+	}
+	if n == 0 {
+		os.Remove(tmp)
+		writeErr(w, http.StatusBadRequest, errors.New("空文件"))
+		return
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		writeErr(w, http.StatusInternalServerError, errors.New("落盘失败: "+err.Error()))
+		return
+	}
+	// 321R8：落盘后同步解析 manifest 写入本地 FPK 索引，使新上传的 FPK 在
+	// 「已下载的 FPK」列表立即有应用名（此前依赖后台全量扫描 + 10 分钟目录
+	// TTL，窗口内 display_name 恒空）。
+	fpkLocalInstance.NotePath(dst)
+	writeJSON(w, map[string]any{"name": name, "size": n, "replaced": replaced})
+}
+
+// CleanupUploadTmp 322R4：启动时清理上传残留临时文件——进程在 os.Create 与
+// os.Rename 之间崩溃会遗留 .upload-<hex>.tmp（旧版 .upload-tmp 一并清）。
+// 由 main 启动时同步调用一次；这类文件不以 .fpk 结尾，本就不进列表，清理只
+// 为回收磁盘。匹配规则：含 ".upload-" 且以 ".tmp" 结尾，或以 ".upload-tmp" 结尾。
+func (s *Server) CleanupUploadTmp() {
+	entries, err := os.ReadDir(s.Pipe.Downloads)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if (strings.Contains(n, ".upload-") && strings.HasSuffix(n, ".tmp")) ||
+			strings.HasSuffix(n, ".upload-tmp") {
+			os.Remove(filepath.Join(s.Pipe.Downloads, n))
+		}
+	}
 }
 
 // fpkDownloadWizard GET /api/fpk-downloads/{name}/wizard 返回已下载 FPK 的

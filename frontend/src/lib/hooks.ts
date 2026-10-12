@@ -200,7 +200,14 @@ export function useKeyboardDock(
         clearTimeout(modeProbeTimer);
         modeProbeTimer = setTimeout(() => {
           if (shellMode !== 'unknown') return;
-          shellMode = 'pan';
+          // 0.6.321r4：桌面 fine 指针（鼠标/触控板）永远不会弹键盘 → 视口
+          // 必然恒不变，此处恒误判 pan；而 pan 型下每次 input 聚焦
+          // hidden=true → 保存 dock 从 DOM 消失（0.6.321r3 E2E 实抓：设置里
+          // 聚焦输入框 1.5s 后「保存」钮消失）。pan 平移只存在于触屏壳；
+          // fine 指针回落 resize 分支（桌面 rawOffset 恒 0，行为零变化）。
+          shellMode = window.matchMedia('(hover: none) and (pointer: coarse)').matches
+            ? 'pan'
+            : 'resize';
           measure();
         }, 1500);
       }

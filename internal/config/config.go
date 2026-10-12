@@ -83,10 +83,14 @@ type Config struct {
 	DownloadDir   string      `json:"download_dir"`
 	InstallVolume int         `json:"install_volume,omitempty"`
 	// 加速源选择（auto/镜像key/direct/custom + 自定义地址）
-	Mirror             string `json:"mirror,omitempty"`
-	DockerMirror       string `json:"docker_mirror,omitempty"`
-	CustomGitHubMirror string `json:"custom_github_mirror,omitempty"`
-	CustomDockerMirror string `json:"custom_docker_mirror,omitempty"`
+	Mirror       string `json:"mirror,omitempty"`
+	DockerMirror string `json:"docker_mirror,omitempty"`
+	// MirrorIncludeDirect 0.6.321 F7：「智能选源包含直连」（#4 建议 #1 承接）。
+	// 开 = probeGh 追加 direct 合成候选（探同一 pinned 资产），bestKey 可返回
+	// direct = 直连参与排名；默认关 = 零行为变化（知情开启）。
+	MirrorIncludeDirect bool   `json:"mirror_include_direct,omitempty"`
+	CustomGitHubMirror  string `json:"custom_github_mirror,omitempty"`
+	CustomDockerMirror  string `json:"custom_docker_mirror,omitempty"`
 	// 加速源自动测速间隔（0.6.148，设置页双齿轮时间选择框）：
 	// Gh* = GitHub 加速组，Dk* = Docker 镜像组。0h0m（未设置）= 默认 5 分钟；
 	// 非法值（越界/总分钟 <1）解析为 5 分钟，上限 24 小时。
@@ -133,8 +137,8 @@ type Config struct {
 	PanelPassword string `json:"panel_password,omitempty"`
 	// 运行期状态（不落盘，0.6.220）：有凭据存在但解不开（换机/密钥文件丢失）
 	// → 已按「未设置」处理；设置页据此提示用户重填，而不是静默失效。
-	SecretDecryptFailed bool `json:"-"`
-	PanelBaseURL  string `json:"panel_base_url,omitempty"`
+	SecretDecryptFailed bool   `json:"-"`
+	PanelBaseURL        string `json:"panel_base_url,omitempty"`
 	// 设置备份目录（config.json 全量快照的存放位置；空 = 本机应用数据目录下 backups/）。
 	// 可选 /volN 下共享目录 = 外部存储，手机/电脑可同步备份走。
 	BackupDir string `json:"backup_dir,omitempty"`
@@ -260,7 +264,7 @@ type NotifyChannel struct {
 	Type    string            `json:"type"` // wecom|dingtalk|feishu|serverchan|pushplus|bark|webhook
 	Name    string            `json:"name"`
 	Enabled bool              `json:"enabled"`
-	Params  map[string]string `json:"params,omitempty"` // 连接参数（webhook_url/sendkey/token/...）
+	Params  map[string]string `json:"params,omitempty"`  // 连接参数（webhook_url/sendkey/token/...）
 	Timeout int               `json:"timeout,omitempty"` // 秒，0 = 默认 10
 	// Format 消息形式（0.6.144；0.6.177 全部渠道生效，webhook 除外）：
 	// ""/markdown = 默认；markdown_v2 = 表格/富文本形式（企微 markdown_v2 表格；

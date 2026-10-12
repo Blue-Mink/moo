@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -30,14 +31,16 @@ func resolveMooLogPath(dataDir string) string {
 // 0.6.216 P2（N3）：moo.log 大小轮转。
 // 平台把进程 stdout/stderr 捕获到 <dataDir>/moo.log（O_APPEND——已实测：
 // 外部截断文件后，下一条写入落在 offset 0，无稀疏空洞）。因此轮转策略 =
-// 超过阈值：整份拷贝到 moo.log.1（旧 .1 顺移到 .2）+ 原文件截断为 0。
+// 超过阈值：整份拷贝到 moo.log.1（旧归档顺移）+ 原文件截断为 0。
 // 不接管日志输出、不持文件句柄——平台日志展示与现有功能零影响。
-// 保留：当前文件（≤ 阈值+单条行）+ 2 份归档（≤ 阈值/份）。
+// 保留：当前文件（≤ 阈值+单条行）+ 5 份归档（≤ 阈值/份）。
 const (
 	logRotateInterval    = 10 * time.Minute
-	logRotateMaxSize     = 5 << 20 // 超过 5MB 触发轮转
-	logRotateMaxArchives = 2       // moo.log.1 / moo.log.2
+	logRotateMaxArchives = 5 // moo.log.1 ~ moo.log.5（0.6.321 F4：2→5，
+	// 32MB 级日志事件 ~84% 取证窗口不随轮转自灭）
 )
+
+var logRotateMaxSize int64 = 5 << 20 // 超过 5MB 触发轮转（var：单测可临时调小）
 
 func (s *Server) StartLogRotator(ctx context.Context) {
 	for {
@@ -53,7 +56,8 @@ func (s *Server) StartLogRotator(ctx context.Context) {
 	}
 }
 
-// rotateMooLog 归档 moo.log 到 moo.log.1（旧 .1 → .2）并截断原文件。
+// rotateMooLog 归档 moo.log 到 moo.log.1（旧归档顺移 .1 → .2 → … → .N，
+// 最旧 .N 丢弃）并截断原文件。
 // 任何一步失败都静默放弃本次轮转（10 分钟后重试），绝不影响主流程。
 func rotateMooLog(dataDir string) {
 	p := resolveMooLogPath(dataDir)
@@ -61,8 +65,10 @@ func rotateMooLog(dataDir string) {
 	if err != nil || fi.Size() <= logRotateMaxSize {
 		return
 	}
-	// 归档顺移：.1 → .2（POSIX rename 覆盖同名目标，旧 .2 丢弃）
-	_ = os.Rename(p+".1", p+".2")
+	// 归档顺移：.N-1 → .N … .1 → .2（POSIX rename 覆盖同名目标，最旧丢弃）
+	for i := logRotateMaxArchives - 1; i >= 1; i-- {
+		_ = os.Rename(p+"."+fmt.Sprintf("%d", i), p+"."+fmt.Sprintf("%d", i+1))
+	}
 
 	src, err := os.Open(p)
 	if err != nil {

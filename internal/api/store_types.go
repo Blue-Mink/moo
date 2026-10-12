@@ -178,6 +178,9 @@ type VolumeOption struct {
 type Settings struct {
 	CheckIntervalHours  int                   `json:"check_interval_hours"`
 	Mirror              string                `json:"mirror"`
+	// 0.6.321 F7：「智能选源包含直连」（不带 omitempty：false 也要透出，
+	// 前端据此渲染开关；omitempty 会把「显式关」吞成 undefined 恒显关）。
+	MirrorIncludeDirect bool                  `json:"mirror_include_direct"`
 	MirrorOptions       []config.MirrorOption `json:"mirror_options,omitempty"`
 	DockerMirror        string                `json:"docker_mirror"`
 	DockerMirrorOptions []config.MirrorOption `json:"docker_mirror_options,omitempty"`

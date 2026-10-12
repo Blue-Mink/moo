@@ -14,6 +14,13 @@ import (
 	"time"
 )
 
+// pathEntry 按文件路径缓存的 manifest 解析结果（以 mtime 判定失效）。
+type pathEntry struct {
+	mod  time.Time
+	info localFpkInfo
+	ok   bool
+}
+
 // localFpkInfo 本地 FPK 包 manifest 读出的元数据。
 type localFpkInfo struct {
 	AppName        string
@@ -45,14 +52,18 @@ type fpkLocal struct {
 	parsing  map[string]bool         // 惰性解析进行中标记
 	missed   map[string]time.Time    // 未命中记录（目录刷新周期内不重试）
 	scanning bool
-	scanFor  time.Time // 索引对应的目录快照时间
+	scanFor  time.Time          // 索引对应的目录快照时间
+	byPath   map[string]pathEntry // 文件路径 → manifest（按 mtime 失效；DisplayFor/NotePath 用）
+	parsingPath map[string]bool   // 路径级后台解析进行中标记（防并发重复解析同一文件）
 }
 
 var fpkLocalInstance = &fpkLocal{
-	index:   map[string]localFpkInfo{},
-	cache:   map[string]localFpkInfo{},
-	parsing: map[string]bool{},
-	missed:  map[string]time.Time{},
+	index:       map[string]localFpkInfo{},
+	cache:       map[string]localFpkInfo{},
+	parsing:     map[string]bool{},
+	missed:      map[string]time.Time{},
+	byPath:      map[string]pathEntry{},
+	parsingPath: map[string]bool{},
 }
 
 const fpkDirListTTL = 10 * time.Minute
@@ -381,4 +392,103 @@ func (f *fpkLocal) parseCandidates(n, appName string) {
 		f.cache[n] = *best
 		f.mu.Unlock()
 	}
+}
+
+// fillIndex 把解析出的 info 回填 appname 索引/缓存并清 missed（调用方须持锁）。
+func (f *fpkLocal) fillIndex(info localFpkInfo) {
+	n := normAppName(info.AppName)
+	if n == "" {
+		return
+	}
+	if old, ok := f.index[n]; !ok || compareVersions(info.Version, old.Version) > 0 {
+		f.index[n] = info
+	}
+	f.cache[n] = info
+	delete(f.missed, n)
+}
+
+// byPathCap 322R4：路径缓存上限——超过后新增键前触发 gcByPath（清文件已不存在的
+// 孤儿条目），防 byPath 随历史 FPK 路径无界增长（条目小，属轻微内存卫生）。
+const byPathCap = 256
+
+// gcByPath 清理 byPath 中「文件已不存在」的孤儿条目（调用方须持 f.mu）。
+// 仅在「新增键且已达上限」时由写入路径触发，避免每次写入都扫盘；文件都在则
+// 无条目可清（此时增长受下载目录磁盘容量天然约束）。
+func (f *fpkLocal) gcByPath() {
+	for p := range f.byPath {
+		if _, err := os.Stat(p); err != nil {
+			delete(f.byPath, p)
+		}
+	}
+}
+
+// NotePath 同步解析指定 FPK 文件的 manifest，写入路径缓存并回填 appname 索引。
+// 供上传流程落盘后调用：上传本身已有 IO 等待，同步解析一次可接受，使新上传
+// 的 FPK 在「已下载的 FPK」列表立即拿到应用名（display_name），无需等后台全量
+// 扫描或 10 分钟目录列表 TTL。解析失败静默返回、不改动现有状态。
+func (f *fpkLocal) NotePath(path string) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	info, perr := parseFpkManifest(path)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, exists := f.byPath[path]; !exists && len(f.byPath) >= byPathCap {
+		f.gcByPath()
+	}
+	if perr == nil {
+		f.byPath[path] = pathEntry{mod: fi.ModTime(), info: info, ok: true}
+		f.fillIndex(info)
+	} else {
+		f.byPath[path] = pathEntry{mod: fi.ModTime(), ok: false}
+	}
+}
+
+// DisplayFor 返回指定 FPK 文件的 manifest（路径 + mtime 缓存）。
+// 命中缓存直接返回（快）；未命中则后台解析（非阻塞），本次返回空、下次请求
+// 补齐。用于 listDownloads 确保每个已下载 FPK 最终都能拿到 display_name——
+// 直接解析「正在展示的那个文件」，绕过「文件名派生 appname 与包内 appname
+// 不一致」导致的漏名（如 moo_0.6.321_x86.fpk 包内 appname=moo，文件名归一
+// 却是 moo06321x86，按 appname 的 Lookup 永远匹配不上）。
+func (f *fpkLocal) DisplayFor(path string) (localFpkInfo, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return localFpkInfo{}, false
+	}
+	f.mu.Lock()
+	if e, ok := f.byPath[path]; ok && e.mod.Equal(fi.ModTime()) {
+		f.mu.Unlock()
+		if e.ok {
+			return e.info, true
+		}
+		return localFpkInfo{}, false
+	}
+	if f.parsingPath[path] {
+		f.mu.Unlock()
+		return localFpkInfo{}, false
+	}
+	f.parsingPath[path] = true
+	f.mu.Unlock()
+
+	go func() {
+		defer func() {
+			f.mu.Lock()
+			delete(f.parsingPath, path)
+			f.mu.Unlock()
+		}()
+		info, perr := parseFpkManifest(path)
+		st, serr := os.Stat(path)
+		if perr != nil || serr != nil {
+			return
+		}
+		f.mu.Lock()
+		if _, exists := f.byPath[path]; !exists && len(f.byPath) >= byPathCap {
+			f.gcByPath()
+		}
+		f.byPath[path] = pathEntry{mod: st.ModTime(), info: info, ok: true}
+		f.fillIndex(info)
+		f.mu.Unlock()
+	}()
+	return localFpkInfo{}, false
 }

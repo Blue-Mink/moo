@@ -25,11 +25,29 @@ import (
 
 const exemptTTL = 30 * time.Second
 
+// negTTL 是 DNS 解析失败的负 TTL（0.6.321 F2，issue #3）：抖动窗口内同主机
+// 只缓存「解析失败」（超时/无结果），TTL 内直接返回缓存错误（秒拒），不再
+// 每候选裸跑 5s。解析成功→内网 IP 的实时判定路径零改动（安全语义不变）；
+// 解析成功不缓存（防 IP 变化被旧值挡住）。
+var negTTL = 30 * time.Second
+
+type negEntry struct {
+	err error
+	at  time.Time
+}
+
 var (
 	mu          sync.Mutex
 	exempt      map[string]bool
 	rebuilder   func() []string
 	lastRebuild time.Time
+
+	negMu    sync.Mutex
+	negCache = map[string]negEntry{}
+	// dnsLookup 可注入（单测用失败 resolver）；默认系统解析器。
+	dnsLookup = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		return net.DefaultResolver.LookupIPAddr(ctx, host)
+	}
 )
 
 // SetRebuilder 注册豁免主机重建函数（启动时调用一次）。
@@ -119,11 +137,29 @@ func Public(rawURL string) (string, error) {
 		}
 		return host, nil
 	}
+	// 负缓存命中=秒拒（不再白等 5s DNS 超时）
+	hl := strings.ToLower(host)
+	negMu.Lock()
+	if e, ok := negCache[hl]; ok {
+		if time.Since(e.at) < negTTL {
+			negMu.Unlock()
+			return host, e.err
+		}
+		delete(negCache, hl) // 过期：重新探测
+	}
+	negMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	addrs, err := dnsLookup(ctx, host)
 	if err != nil || len(addrs) == 0 {
-		return host, fmt.Errorf("主机解析失败（拒绝抓取）: %v", err)
+		werr := fmt.Errorf("主机解析失败（拒绝抓取）: %v", err)
+		negMu.Lock()
+		if len(negCache) > 4096 {
+			negCache = map[string]negEntry{} // 兜底防无界增长
+		}
+		negCache[hl] = negEntry{err: werr, at: time.Now()}
+		negMu.Unlock()
+		return host, werr
 	}
 	for _, a := range addrs {
 		if !ipOK(a.IP) {

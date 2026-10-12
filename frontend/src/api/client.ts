@@ -503,6 +503,8 @@ export interface WizardItem {
   label?: string;
   helpText?: string;
   initValue?: string;
+  /** fnOS radio/select 字段的选项（0.6.321：渲染为可选项+默认预选，不再掉级为文本框）。 */
+  options?: { label?: string; value: string }[];
   rules?: { required?: boolean; message?: string; min?: number }[];
 }
 
@@ -525,6 +527,11 @@ export const installApp = (appname: string, onEvent: SSECallback, wizard?: Wizar
   const qs = params.toString() ? `?${params.toString()}` : '';
   return streamSSE(apiUrl(`/api/apps/${appname}/install${qs}`), onEvent);
 };
+
+// 0.6.321r6 方案2：仅下载+暂存 FPK（SSE 进度）——「先下载、后弹安装向导」的下载阶段；
+// 完成后 GET /wizard 因包已落缓存而毫秒级返回。
+export const stageApp = (appname: string, onEvent: SSECallback): SSEHandle =>
+  streamSSE(apiUrl(`/api/apps/${appname}/stage`), onEvent);
 
 /** 「下载 fpk」：后端按镜像链下载 FPK 到本地缓存，并登记进面板官方下载通道（SSE 进度）。 */
 export const downloadFpk = (appname: string, onEvent: SSECallback): SSEHandle =>
@@ -648,6 +655,8 @@ export interface Settings {
   check_interval_hours: number;
   mirror: string;
   mirror_options?: MirrorOption[];
+  // 0.6.321 F7：「智能选源包含直连」（默认关=零行为变化）
+  mirror_include_direct?: boolean;
   docker_mirror: string;
   docker_mirror_options?: MirrorOption[];
   custom_github_mirror?: string;
@@ -737,6 +746,8 @@ export interface MirrorCheckResult {
   /** 吞吐测速（字节/秒，仅 GitHub 文件加速源） */
   speed_bps?: number;
   status: 'ok' | 'timeout' | 'error';
+  /** 0.6.321 F6：失败原因短语（429 限流/403 拒绝/慢/连接被拒/DNS/资产 404） */
+  error?: string;
 }
 
 export interface MirrorCheckResponse {
@@ -762,6 +773,8 @@ export interface MirrorStat {
   /** 吞吐测速（字节/秒，仅 GitHub 文件加速源；0 = 未测出） */
   speed_bps?: number;
   status: 'ok' | 'fail' | '';
+  /** 0.6.321 F6：失败原因短语（仅 fail 时有值） */
+  error?: string;
   last_check: string;
   consec_fails: number;
 }
@@ -1088,6 +1101,22 @@ export const deleteFpkDownload = async (name: string): Promise<void> => {
   }
 };
 
+/** 321R7 E：上传本地 FPK 安装包（手机/电脑文件）到 FPK 下载目录。
+ *  multipart 字段名 `file`；后端仅收 .fpk（大小写归一）、≤512MB、同名覆盖。 */
+export const uploadFpkDownload = async (file: File): Promise<{ name: string; size: number; replaced: boolean }> => {
+  const fd = new FormData();
+  fd.append('file', file);
+  // 勿设 Content-Type：浏览器需自管 multipart 边界；apiFetch 自动补 X-Moo-Admin
+  const response = await apiFetch(apiUrl('/api/fpk-downloads/upload'), {
+    method: 'POST',
+    body: fd,
+  });
+  if (!response.ok) {
+    throw new Error(await extractError(response, `上传 FPK 失败: ${response.statusText}`));
+  }
+  return response.json();
+};
+
 /** 直接安装已下载的 FPK 缓存（SSE 进度流；不重新下载，文件保留在缓存中）。 */
 export const installFpkDownload = (name: string, onEvent: SSECallback, wizard?: WizardParam[]): SSEHandle => {
   const qs = wizard?.length ? `?wizard=${encodeURIComponent(JSON.stringify(wizard))}` : '';
@@ -1232,7 +1261,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {

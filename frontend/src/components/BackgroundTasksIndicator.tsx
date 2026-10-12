@@ -36,7 +36,7 @@ const eventKey = (op: string, ok: boolean) => {
   return ok ? `${e}_${e === 'download' ? 'done' : 'success'}` : `${e}_error`;
 };
 
-const BackgroundTasksIndicator: React.FC = () => {
+const BackgroundTasksIndicator: React.FC<{ onView?: (appname: string) => void }> = ({ onView }) => {
   // 渲染状态：当前展示的任务（最新数据）+ 排队条数
   const [render, setRender] = useState<{ t: BackgroundTask | null; queued: number }>({ t: null, queued: 0 });
   // 展示状态机（ref 驱动，轮询内同步推进，避免 setState 时序竞态）
@@ -135,6 +135,17 @@ const BackgroundTasksIndicator: React.FC = () => {
           </span>
           {render.queued > 0 && (
             <span className="text-xs text-muted-foreground shrink-0">· 还有 {render.queued} 条</span>
+          )}
+          {/* 321R7 B：安装/更新成功给「查看」——滚到刚装的应用并高亮（解决
+              「装完不知道去哪了」）；卸载/下载无列表定位目标，不给按钮 */}
+          {ok && onView && (t.op === 'install' || t.op === 'update') && (
+            <button
+              type="button"
+              onClick={() => onView(t.appname)}
+              className="ml-auto shrink-0 h-6 px-2.5 rounded-full bg-primary/15 text-primary border border-primary/40 text-xs font-medium hover:bg-primary/25 transition-colors"
+            >
+              查看
+            </button>
           )}
         </div>
         {!ok && t.message && (

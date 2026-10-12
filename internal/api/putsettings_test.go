@@ -102,3 +102,25 @@ func putSettingsBodyExpect400(t *testing.T, s *Server, body string) *httptest.Re
 	}
 	return rec
 }
+
+// TestPutSettingsMirrorIncludeDirect 0.6.321 F7：「智能选源包含直连」开关
+// 指针语义（nil=未提交不改动 / 显式 true·false 均可落盘）。
+// 此前 putSettings 结构漏该字段 → 前端提交被静默丢弃（开关永不生效）。
+func TestPutSettingsMirrorIncludeDirect(t *testing.T) {
+	t.Setenv("MOO_DATA", t.TempDir())
+	cfg := &config.Config{}
+	s := &Server{Cfg: cfg, Src: source.NewManager(cfg)}
+
+	putSettingsBody(t, s, `{"mirror_include_direct": true}`)
+	if !cfg.MirrorIncludeDirect {
+		t.Fatal("显式 true 应落盘")
+	}
+	putSettingsBody(t, s, `{"auto_update": true}`)
+	if !cfg.MirrorIncludeDirect {
+		t.Fatal("字段未提交应不改动")
+	}
+	putSettingsBody(t, s, `{"mirror_include_direct": false}`)
+	if cfg.MirrorIncludeDirect {
+		t.Fatal("显式 false 应落盘")
+	}
+}

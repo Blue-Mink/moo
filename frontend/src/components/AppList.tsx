@@ -37,6 +37,8 @@ interface AppListProps {
   onToggleFavorite?: (app: AppInfo) => void;
   /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
   clickMode?: 'single' | 'double';
+  /** 321R7 B：需要滚动定位并高亮的应用 key（「XX 安装成功」→「查看」） */
+  highlightKey?: string | null;
 }
 
 const getEmptyMessage = (filterType?: string) => {
@@ -50,7 +52,7 @@ const getEmptyMessage = (filterType?: string) => {
   }
 };
 
-const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double' }) => {
+const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double', highlightKey }) => {
   // 渐进渲染：apps 集合变化（搜索/筛选/刷新后首尾不同）时回到首批；
   // 内容相同的重复拉取（安装/启停后刷新）不重置，避免用户滚动位置被弹回。
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -78,6 +80,22 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
     io.observe(el);
     return () => io.disconnect();
   }, [apps.length, visible]);
+
+  // 321R7 B：「XX 安装成功」→「查看」定位（桌面网格同款：展开渲染 + 滚到居中）
+  const highlightIdx = highlightKey ? apps.findIndex(a => (a.key || a.appname) === highlightKey) : -1;
+  useEffect(() => {
+    if (highlightIdx < 0) return;
+    setVisible(v => Math.max(v, highlightIdx + 1));
+    const t = setTimeout(() => {
+      document.querySelectorAll('[data-app-key]').forEach(el => {
+        const e = el as HTMLElement;
+        if (e.dataset.appKey !== highlightKey) return;
+        if (e.getClientRects().length === 0) return;
+        e.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    }, 180);
+    return () => clearTimeout(t);
+  }, [highlightKey, highlightIdx]);
 
   if (loading) {
     return (
@@ -118,8 +136,14 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
     /* 0.6.285（用户定稿）：统一等高大卡网格（h-180 固定高）；卡面动作只剩
        安装/打开（头部 GET 位）；2xl 宽屏 5 列让卡片整体更小更匀。 */
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 items-start">
-      {shown.map((app) => (
-        <Suspense key={app.key || app.appname} fallback={<WebAppDetailCardSkeleton />}>
+      {shown.map((app, i) => (
+        <div
+          key={app.key || app.appname}
+          data-app-key={app.key || app.appname}
+          // 321R7 B：「查看」定位高亮（包一层网格项，~2.5s 后父组件清除）
+          className={highlightIdx === i ? "rounded-[18px] ring-2 ring-inset ring-primary/50" : undefined}
+        >
+        <Suspense fallback={<WebAppDetailCardSkeleton />}>
           <WebAppDetailCard
             app={app}
             operation={appOperations?.get(app.appname)}
@@ -138,6 +162,7 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
             clickMode={clickMode}
           />
         </Suspense>
+        </div>
       ))}
       {visible < apps.length && <div ref={sentinelRef} className="h-px" />}
     </div>

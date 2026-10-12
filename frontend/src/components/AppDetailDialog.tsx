@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import AppIcon from "./AppIcon";
@@ -529,18 +530,43 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 只能沿左缘纵向拖动（y 持久化）；静置 = 比背景浅一档的半透白磨玻璃（不影响阅读），
   // 拖动 = 加深为页面背景色 + 微放大；细线 ‹ 箭头右移、露出区内完全可见；轻点 = 返回。
   const BACK_X = -32; // 56px 圆钮露出 24px，紧贴左边缘（加大点击区）
+  // 0.6.322：iOS 刘海屏安全区补偿——viewport-fit=cover 下 window.innerHeight 是
+  // 整屏物理高度，原几何中心 (H-56)/2 落在「感知可见区」(扣除顶部刘海/底部 home 条)
+  // 中心之上，返回钮显得偏上（用户 iOS 实抓）；Android 无安全区(=0)行为不变。
+  // 改为对可见安全区 [sTop, H-sBottom] 居中：默认 y = sTop + (H-sTop-sBottom-56)/2。
   const [backY, setBackY] = useState<number>(() => {
+    // 322R4：不再读 localStorage 旧值——旧版（322/322R3）把「整屏几何中心」落盘，
+    // 读回会覆盖安全区补偿 → 仍偏上（用户 iOS 实抓）。返回钮本就不可定位（拖动=
+    // 滚动页面、松手弹回原位，见 onPointerUp 的 moveBackY(d.oy)），持久化无意义，
+    // 恒用「对可见安全区居中」的补偿默认值。
+    let sTop = 0, sBottom = 0;
     try {
-      const n = parseInt(localStorage.getItem('detail-back-y') || '', 10);
-      if (Number.isFinite(n)) return Math.max(8, Math.min(window.innerHeight - 64, n));
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px) 0;';
+      document.body.appendChild(probe);
+      const cs = getComputedStyle(probe);
+      sTop = parseFloat(cs.paddingTop) || 0;
+      sBottom = parseFloat(cs.paddingBottom) || 0;
+      probe.remove();
     } catch { /* ignore */ }
-    return Math.max(8, Math.round((window.innerHeight - 56) / 2)); // 默认垂直居中
+    const H = window.innerHeight;
+    return Math.max(sTop + 8, Math.round(sTop + (H - sTop - sBottom - 56) / 2)); // 对可见安全区居中
   });
   const [backDragging, setBackDragging] = useState(false);
-  const backDragRef = useRef<{ sy: number; oy: number; moved: boolean } | null>(null);
+  const backDragRef = useRef<{ sx: number; sy: number; oy: number; st0: number; moved: boolean } | null>(null);
+  // 0.6.321r5b 方案B：返回钮纵向拖动=滚动主内容框（跟手式，相对增量）
+  const backScrollRef = useRef<HTMLDivElement | null>(null);
   const moveBackY = (ny: number) => {
-    setBackY(ny);
-    try { localStorage.setItem('detail-back-y', String(ny)); } catch { /* ignore */ }
+    setBackY(ny); // 322R4：不落盘——返回钮不可定位（拖动=滚动页面、松手弹回），持久化只会留旧偏上值
+  };
+  // 0.6.321r5b 方案B：手指位移 dy → scrollTop = 起始 − dy（内容跟手；
+  // 直接写 DOM，不 setState、零重渲染；钳在 [0, maxScroll] 无橡皮筋）
+  const backScrollByDelta = (dy: number, st0: number) => {
+    const sc = backScrollRef.current;
+    if (!sc) return;
+    const maxScroll = sc.scrollHeight - sc.clientHeight;
+    if (maxScroll <= 0) return; // 内容不可滚：无效果
+    sc.scrollTop = Math.max(0, Math.min(maxScroll, st0 - dy));
   };
 
   // 灯箱切换图片：重置加载/错误态 + 预加载下一张（弱网下少一次白等）
@@ -845,10 +871,14 @@ mdsSim && "mds-sim")}>
                 （wrapper sm 以下 = contents 完全透明，手机行为与旧版一致）。 */}
             <div className="contents sm:block sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2">
               {operation ? (
-              <button disabled className={cn(headerPillCls, "min-w-[84px] bg-primary/15 text-primary border border-primary/40 opacity-70")}>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                处理中
-              </button>
+              /* 0.6.321r6 方案2：「处理中」升级进度胶囊——消息+百分比在对话框内可见
+                 （移动端详情页全屏，列表行的进度条在对话框后面看不到） */
+              <div className={cn(headerPillCls, "min-w-[84px] max-w-[240px] bg-primary/15 text-primary border border-primary/40 cursor-default")}
+                title={operation.message}>
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                <span className="truncate">{operation.message || '处理中'}</span>
+                <span className="shrink-0 tabular-nums">{Math.round(operation.progress)}%</span>
+              </div>
             ) : !isInstalled ? (
               // 0.6.319F（用户定稿）：安装/打开/下载 FPK 三胶囊去箭头图标，只留文字（网页端同款）
               <Button onClick={() => { onOpenChange(false); onInstall(app); }} className={cn(headerPillCls, "px-5 shadow-sm hover:opacity-90")}>
@@ -979,7 +1009,15 @@ mdsSim && "mds-sim")}>
             0.6.319g：滚动框延伸到对话框最底（底部动作区不再占 flex 段），
             paddingBottom=动作区实测高度——文字可滚到胶囊下方穿过（胶囊浅蓝
             玻璃半透可见），静止时最后内容正好停在胶囊上方、不被遮。 */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5"
+        {/* 0.6.321r6 方案2：进行中操作的细进度条（冻结头部与内容区之间，全宽）。
+            下载阶段=「正在下载 xxx 12.3MB/45.6MB」的实时进度，安装阶段无缝续接。 */}
+        {operation && (
+          <div className="flex-none px-3 pb-2">
+            <Progress value={operation.progress} className="h-1" />
+          </div>
+        )}
+        <div ref={backScrollRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5"
           style={dlAreaH > 0 ? { paddingBottom: dlAreaH } : undefined}>
         {!bodyReady ? (
           /* 同步加载骨架：详情完整字段 + 面板详情并行拉取，齐了再一次性渲染
@@ -1460,6 +1498,9 @@ mdsSim && "mds-sim")}>
         {/* 悬浮返回钮（移动端）：磨玻璃圆钮磁吸贴左缘半露出。
             静置 = 毛玻璃 + 比背景浅一档的半透白（不影响阅读）；拖动 = 加深为背景色 + 微放大。
             x 磁吸贴左缘，只能沿左缘纵向拖动（y 持久化）；轻点 = 返回列表。
+            0.6.321r5b 方案B：纵向拖动=滚动主内容框（跟手式相对增量，
+            scrollTop = 起始 − dy，内容跟手；钮视觉跟手、松手弹回原位，
+            拖动定位让位；轻点返回不变）。
             细线 ‹ 箭头右移，在露出区内完全可见。
             必须放在 DialogContent 内部：Radix Dialog 会把对话框外的 DOM 置为
             inert（无法交互）；在内容同层堆叠上下文内 z-40 浮于内容之上。 */}
@@ -1473,24 +1514,37 @@ mdsSim && "mds-sim")}>
           }`}
           style={{ left: BACK_X, top: backY }}
           onPointerDown={(e) => {
+            if (backDragRef.current) return; // 0.6.321r5：拖动进行中忽略第二指
             (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-            backDragRef.current = { sy: e.clientY, oy: backY, moved: false };
+            backDragRef.current = { sx: e.clientX, sy: e.clientY, oy: backY, st0: backScrollRef.current?.scrollTop ?? 0, moved: false };
             setBackDragging(true);
           }}
           onPointerMove={(e) => {
             const d = backDragRef.current;
             if (!d) return;
+            const dx = e.clientX - d.sx;
             const dy = e.clientY - d.sy;
-            if (!d.moved && Math.abs(dy) <= 6) return;
-            d.moved = true;
-            // x 磁吸锁定在左缘，只跟随纵向位移
+            if (!d.moved) {
+              if (Math.abs(dy) <= 6) return;
+              // 0.6.321r5：横向手势不认领（iOS 左缘系统滑返保险）
+              if (Math.abs(dy) < Math.abs(dx)) return;
+              d.moved = true;
+            }
+            // 0.6.321r5b 方案B（跟手式）：钮视觉跟手（松手弹回原位=拖动定位让位）；
+            // 页面内容跟手相对增量：scrollTop = 起始 − dy（手指下移→内容下移）
             moveBackY(Math.max(8, Math.min(window.innerHeight - 64, d.oy + dy)));
+            backScrollByDelta(dy, d.st0);
           }}
           onPointerUp={() => {
             const d = backDragRef.current;
             backDragRef.current = null;
             setBackDragging(false);
-            if (!d || d.moved) return;
+            if (!d) return;
+            if (d.moved) {
+              // 0.6.321r5b 方案B：拖动后钮弹回原位（拖动定位让位，y 不落盘终值）
+              moveBackY(d.oy);
+              return;
+            }
             // 轻点 = 返回。关掉弹窗后按钮随之卸载，pointerup 之后的 click 事件
             // 可能穿透落到下方的列表行上把详情重新打开 —— 捕获阶段一次性吞掉它。
             // 兜底：若该 click 因目标节点已卸载而未派发，300ms 后移除监听，避免
@@ -1503,7 +1557,7 @@ mdsSim && "mds-sim")}>
             onOpenChange(false);
           }}
           onPointerCancel={() => { backDragRef.current = null; setBackDragging(false); }}
-          aria-label="返回应用列表（可沿左缘上下拖动）"
+          aria-label="返回应用列表（轻点返回，上下拖动滚动页面）"
         >
           {/* 细线 ‹ 箭头（用户指定样式）：右移到露出区(0~24px)偏右、完全可见
               （56px 钮 + ml-9 → 笔画中心落在屏幕 x≈14，露出区中点 12 的右侧） */}

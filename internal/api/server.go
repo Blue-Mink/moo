@@ -248,6 +248,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	// ---- 每应用操作（SSE） ----
 	mux.HandleFunc("GET /api/apps/{key}/wizard", s.appWizard)
 	mux.HandleFunc("POST /api/apps/{key}/install", s.requireAdmin(s.appInstallSSE))
+	mux.HandleFunc("POST /api/apps/{key}/stage", s.requireAdmin(s.appStageSSE))
 	mux.HandleFunc("POST /api/apps/{key}/update", s.requireAdmin(s.appUpdateSSE))
 	mux.HandleFunc("POST /api/apps/{key}/uninstall", s.requireAdmin(s.appUninstallSSE))
 	mux.HandleFunc("POST /api/apps/{key}/download-task", s.requireAdmin(s.appDownloadTaskSSE))
@@ -296,6 +297,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	// ---- FPK 下载缓存 ----
 	mux.HandleFunc("GET /api/fpk-downloads", s.requireAdmin(s.listDownloads))
 	mux.HandleFunc("DELETE /api/fpk-downloads/{name}", s.requireAdmin(s.removeDownload))
+	mux.HandleFunc("POST /api/fpk-downloads/upload", s.requireAdmin(s.uploadFpkDownload))
 	mux.HandleFunc("POST /api/fpk-downloads/{name}/install", s.requireAdmin(s.installDownloadSSE))
 	mux.HandleFunc("GET /api/fpk-downloads/{name}/wizard", s.requireAdmin(s.fpkDownloadWizard))
 

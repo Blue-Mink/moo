@@ -23,6 +23,7 @@ import (
 
 	"moo/internal/config"
 	"moo/internal/lang"
+	"moo/internal/logagg"
 	"moo/internal/netguard"
 	"moo/internal/netx"
 	"moo/internal/operation"
@@ -197,6 +198,39 @@ func (s *Server) appInstallSSE(w http.ResponseWriter, r *http.Request) {
 	f := sseStart(w)
 	s.sseRunOp(r, w, f, "install", a.Name, func(ctx context.Context, progress func(string, float64)) error {
 		return s.Pipe.InstallWithParams(ctx, srcName, a.Name, params, progress)
+	})
+}
+
+// appStageSSE POST /api/apps/{key}/stage：0.6.321r6 方案2「先下载、后弹安装向导」——
+// FPK 下载+暂存作为独立操作推送 SSE 进度（完成后 GET /wizard 缓存命中毫秒级返回）。
+// 进度刻度重映射（StageOnly 内部沿用安装管线刻度 5→35/8→9.2，独立展示需单调）：
+// 下载段 5→35 → 5→90；缓存复用 → 95；暂存段 8→9.2 → 90→100。
+func (s *Server) appStageSSE(w http.ResponseWriter, r *http.Request) {
+	if s.isOfficialKey(r.PathValue("key")) {
+		writeErr(w, http.StatusNotImplemented, errors.New("官方云通道无需独立下载阶段"))
+		return
+	}
+	srcName, a, err := s.resolveKey(r.PathValue("key"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	f := sseStart(w)
+	s.sseRunOp(r, w, f, "stage", a.Name, func(ctx context.Context, progress func(string, float64)) error {
+		remap := func(msg string, pct float64) {
+			switch {
+			case strings.Contains(msg, "下载安装包"):
+				progress(msg, 5+(pct-5)*85/30)
+			case msg == "复用已下载的安装包":
+				progress("复用已下载的安装包", 88)
+			case strings.Contains(msg, "暂存安装包"):
+				progress(msg, 90+(pct-8)*10/1.2)
+			default:
+				progress(msg, pct)
+			}
+		}
+		_, err := s.Pipe.StageOnly(ctx, srcName, a.Name, remap)
+		return err
 	})
 }
 
@@ -392,6 +426,7 @@ func (s *Server) FpkCandidates(a *source.App) []string {
 	if err != nil || u.Host != "github.com" {
 		return []string{base}
 	}
+	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(false)
 	urlByKey := map[string]string{}
 	for _, opt := range config.GitHubMirrorOptions() {
@@ -717,6 +752,16 @@ func (s *Server) appAsset(w http.ResponseWriter, r *http.Request) {
 		}
 		data, ctype, ierr := s.resolveIcon(iconCtx, a)
 		if ierr != nil {
+			// 0.6.321 F3：图标错误响应挂短负缓存（B10 实锤：错误响应此前零
+			// 缓存头 → React 重渲/切 tab 全量重请，放大 #3 风暴）：确定缺失
+			// 300s / 瞬态 30s。仅本 handler；全局 writeErr 不动（API JSON 错
+			// 误不可缓存）。
+			var ie *iconFetchErr
+			if errors.As(ierr, &ie) && ie.defMiss {
+				w.Header().Set("Cache-Control", "public, max-age=300")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=30")
+			}
 			writeErr(w, http.StatusNotFound, ierr)
 			return
 		}
@@ -1115,8 +1160,9 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 			// 安全（2026-09-27 审核）：候选含源数据驱动的任意 URL
 			// （readme_url/preview_urls/icon_url，发布者可控）——非公共
 			// 地址（内网/环回/元数据）拒绝抓取，防 SSRF。
-			if _, gerr := netguard.Public(u); gerr != nil {
-				log.Printf("[race] 跳过（安全策略）%s: %v", u, gerr)
+			if host, gerr := netguard.Public(u); gerr != nil {
+				// 0.6.321 F1：host 级聚合（DNS 抖动窗口内同主机只留首条+窗口末聚合行）
+				logagg.Default.Record("race", host, "跳过（安全策略）%s: %v", u, gerr)
 				ch <- rres{u: u, status: http.StatusForbidden}
 				return
 			}
@@ -1127,7 +1173,8 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 				// 胜出后落选者被父 ctx 取消（context canceled）属正常，
 				// 不记日志；只记真实网络错误。
 				if !errors.Is(err, context.Canceled) {
-					log.Printf("[race] ERR %s: %v (t=%v)", u, err, time.Since(t0).Round(time.Millisecond))
+					// 0.6.321 F1：host 级聚合
+					logagg.Default.Record("race", mustParseURL(u).Hostname(), "ERR %s: %v (t=%v)", u, err, time.Since(t0).Round(time.Millisecond))
 				}
 				return
 			}
@@ -1403,8 +1450,22 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	if data, ct, ok := st.GetStale(stalePrefix); ok {
 		return data, ct, nil
 	}
-	return nil, "", errors.New("图标不存在或拉取失败")
+	// 0.6.321 F3：区分「确定缺失」（defMiss=true：候选全有 404/403/410/占位
+	// 图确定性证据）与「瞬态失败」（DNS 超时/限流/挂起）——icon handler 据此
+	// 给错误响应挂短负缓存头（UI 重请放大=B10）；文案不变，只换错误类型。
+	if len(defMissPaths) > 0 {
+		return nil, "", &iconFetchErr{msg: "图标不存在或拉取失败", defMiss: true}
+	}
+	return nil, "", &iconFetchErr{msg: "图标不存在或拉取失败", defMiss: false}
 }
+
+// iconFetchErr 区分图标确定的缺失（defMiss=true）与瞬态失败（0.6.321 F3）。
+type iconFetchErr struct {
+	msg     string
+	defMiss bool
+}
+
+func (e *iconFetchErr) Error() string { return e.msg }
 
 // mirrorVariants 给候选里的 raw.githubusercontent 直链附加 n 个最健康镜像前缀变体
 // （声明顺序即 2026-09 实测延迟序，取前 n 个健康镜像）。
@@ -1565,8 +1626,9 @@ func sniffImageMime(b []byte) string {
 func fetchIconBytes(ctx context.Context, rawURL string) ([]byte, string, bool, bool) {
 	// 安全（2026-09-27 审核）：icon_url 由源数据提供（发布者可控），
 	// 图标预热在启动时自动批量触发——非公共地址一律拒绝（防 SSRF）。
-	if _, gerr := netguard.Public(rawURL); gerr != nil {
-		log.Printf("[icon] 跳过（安全策略）%s: %v", rawURL, gerr)
+	if host, gerr := netguard.Public(rawURL); gerr != nil {
+		// 0.6.321 F1：host 级聚合（DNS 抖动窗口内同主机只留首条+窗口末聚合行）
+		logagg.Default.Record("icon", host, "跳过（安全策略）%s: %v", rawURL, gerr)
 		return nil, "", false, false
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)

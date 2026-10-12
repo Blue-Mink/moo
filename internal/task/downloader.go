@@ -6,12 +6,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"moo/internal/logagg"
 )
 
 // 任务状态。
@@ -37,7 +39,7 @@ type Task struct {
 	SizeBytes  int64    // 0 = 未知
 	SHA256     string   // 源声明包哈希（空 = 不校验）
 
-	mu sync.Mutex
+	mu     sync.Mutex
 	done   int64
 	size   int64 // 总大小，未知时为 0
 	cancel context.CancelFunc
@@ -238,7 +240,13 @@ func (m *Manager) run(t *Task) {
 			t.setSize(size)
 		},
 		OnFail: func(candidate, stage string, derr error) {
-			log.Printf("下载候选失败 [%s/%s] %s: %v", t.AppName, stage, candidate, derr)
+			// 0.6.321 F1：host 级聚合（DNS 抖动窗口内同主机只留首条+窗口末
+			// 聚合行；候选 URL 原样保留在消息里供取证）
+			host := ""
+			if u, perr := url.Parse(candidate); perr == nil {
+				host = u.Hostname()
+			}
+			logagg.Default.Record("dl", host, "下载候选失败 [%s/%s] %s: %v", t.AppName, stage, candidate, derr)
 		},
 	})
 	switch {

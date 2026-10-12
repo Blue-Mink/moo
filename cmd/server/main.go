@@ -250,6 +250,9 @@ func main() {
 	// （readme/preview/icon/download）只放行公共地址，防 SSRF。
 	srv.SetupNetguard()
 
+	// 322R4：启动清理上传残留临时文件（进程在 os.Create 与 os.Rename 间崩溃遗留）
+	srv.CleanupUploadTmp()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

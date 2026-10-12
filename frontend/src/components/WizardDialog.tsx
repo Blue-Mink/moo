@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -157,6 +159,16 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
               }
               if (!item.field) return null;
               const err = touched[item.field] ? errorFor(item) : null;
+              // 0.6.321：带 options 的字段（fnOS radio/select，如 fnMusic「初始音源（三选一）」）
+              // 渲染为可选项组+默认预选（initValue 已预填进 values，选中态即默认项）；
+              // 此前一律掉级为文本框，用户被迫手输 "musicdl" 这类值。
+              // checkbox（多选）暂不猜测取值契约，保持文本回落。
+              const opts = item.options;
+              const isChoice = !!opts && opts.length > 0 && item.type !== 'checkbox';
+              // 0.6.321：switch 字段（如 fnMusic「安装完成后立即启用扩展」，initValue "true"）
+              // 渲染为真开关（此前掉级为文本框，用户要手输 true/false）；取值契约 "true"/"false"
+              const isSwitch = item.type === 'switch';
+              const switchOn = (values[item.field as string] ?? '') === 'true';
               return (
                 <div key={item.field} className="space-y-1.5">
                   <label className="flex items-center justify-between gap-2 text-sm font-medium leading-none">
@@ -169,14 +181,60 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
                       </span>
                     ) : null}
                   </label>
-                  <Input
-                    type={item.type === 'password' ? 'password' : 'text'}
-                    value={values[item.field] ?? ''}
-                    onChange={(e) =>
-                      setValues((v) => ({ ...v, [item.field as string]: e.target.value }))
-                    }
-                    aria-invalid={err ? true : undefined}
-                  />
+                  {isChoice ? (
+                    <div className="space-y-1" role="radiogroup" aria-label={item.label ?? item.field}>
+                      {opts!.map((o) => {
+                        const ov = String(o.value);
+                        const selected = (values[item.field as string] ?? '') === ov;
+                        return (
+                          <label
+                            key={ov}
+                            className={cn(
+                              'flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors',
+                              selected ? 'bg-primary/10' : 'hover:bg-muted/50'
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name={item.field}
+                              value={ov}
+                              checked={selected}
+                              onChange={() =>
+                                setValues((v) => ({ ...v, [item.field as string]: ov }))
+                              }
+                              className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                            />
+                            <span className="leading-relaxed">{o.label ?? ov}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : isSwitch ? (
+                    <div className="flex items-center gap-2.5 py-1.5">
+                      <Switch
+                        id={item.field}
+                        checked={switchOn}
+                        onCheckedChange={(c) =>
+                          setValues((v) => ({
+                            ...v,
+                            [item.field as string]: c ? 'true' : 'false',
+                          }))
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {switchOn ? '启用' : '停用'}
+                      </span>
+                    </div>
+                  ) : (
+                    <Input
+                      type={item.type === 'password' ? 'password' : 'text'}
+                      value={values[item.field] ?? ''}
+                      onChange={(e) =>
+                        setValues((v) => ({ ...v, [item.field as string]: e.target.value }))
+                      }
+                      aria-invalid={err ? true : undefined}
+                    />
+                  )}
                   {err ? (
                     <p className="text-xs text-destructive">{err}</p>
                   ) : item.helpText ? (

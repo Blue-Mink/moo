@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, uploadFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
@@ -26,7 +26,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { AlertTriangle, ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, Upload, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -125,6 +125,8 @@ const MirrorHealthPanel: React.FC<{
   showSpeed?: boolean;
   /** showSpeed 时的说明文案（缺省为 GitHub 文案） */
   speedNote?: string;
+  /** 0.6.321 F7：「智能选源包含直连」开关（仅 GitHub 组传入；智能模式才显示）。 */
+  includeDirect?: { value: boolean; onChange: (v: boolean) => void };
   /**
    * 参考模式（Docker 组专用）：优选结果只驱动本面板展示，**不接入实际镜像
    * 拉取**（拉取由 fnOS 系统级 registry-mirrors 决定，Moo 不写该配置）。
@@ -136,7 +138,7 @@ const MirrorHealthPanel: React.FC<{
   intervalH: number;
   intervalM: number;
   onIntervalChange: (h: number, m: number) => void;
-}> = ({ title, health, options, customConfigured, labelOf, refreshing, onRefresh, showSpeed, speedNote, referenceOnly, intervalH, intervalM, onIntervalChange }) => {
+}> = ({ title, health, options, customConfigured, labelOf, refreshing, onRefresh, showSpeed, speedNote, referenceOnly, includeDirect, intervalH, intervalM, onIntervalChange }) => {
   const [collapsed, setCollapsed] = React.useState<boolean>(() => {
     try {
       // 默认折叠（无持久化记录时）；用户手动展开/折叠后按保存值
@@ -154,10 +156,16 @@ const MirrorHealthPanel: React.FC<{
 
   const rows = React.useMemo(() => {
     const statsByKey = new Map((health?.mirrors || []).map((s) => [s.key, s] as const));
+    // 0.6.321r：「智能选源包含直连」开启时显示 direct 行（直连作为候选参与测速
+    // 排名后可见化：状态/延迟/速度/失败原因/「当前」徽章全走既有行渲染）。
+    // 仅 GitHub 组传 includeDirect；Docker 组不传 → 恒隐藏 direct（原行为）。
+    const showDirect = !!includeDirect?.value;
     const base = options.filter((o) =>
-      o.key !== 'direct' && o.key !== 'auto' && (o.key !== 'custom' || customConfigured)
+      o.key !== 'auto' &&
+      (o.key !== 'direct' || showDirect) &&
+      (o.key !== 'custom' || customConfigured)
     );
-    return base.map((o) => {
+    const list = base.map((o) => {
       const st = statsByKey.get(o.key);
       return {
         key: o.key,
@@ -166,9 +174,23 @@ const MirrorHealthPanel: React.FC<{
         latency_ms: st?.latency_ms || 0,
         speed_bps: st?.speed_bps || 0,
         consec_fails: st?.consec_fails || 0,
+        // 0.6.321 F6：失败原因短语透传（下方第二行展示）
+        error: st?.error || '',
       };
     });
-  }, [options, health, customConfigured]);
+    // 0.6.321r4：按测速自动排序（用户指令，GitHub/Docker 两组共用本面板）——
+    // ok 在前（吞吐降序；无吞吐数据按首字节延迟升序，与后端 topSpeedKeys
+    // 优选序一致=「列表头≈当前优选源」）→ fail（连败少者先）→ 未测速殿后。
+    // 首屏无探测数据时全=未测速，stable sort 保持原选项序，无跳动。
+    const rank = (r: (typeof list)[number]) => (r.status === 'ok' ? 0 : r.status === 'fail' ? 1 : 2);
+    return list.sort((a, b) => {
+      const d = rank(a) - rank(b);
+      if (d !== 0) return d;
+      if (a.status === 'ok') return (b.speed_bps - a.speed_bps) || (a.latency_ms - b.latency_ms);
+      if (a.status === 'fail') return a.consec_fails - b.consec_fails;
+      return 0;
+    });
+  }, [options, health, customConfigured, includeDirect?.value]);
 
   const okCount = rows.filter((r) => r.status === 'ok').length;
   const failCount = rows.filter((r) => r.status === 'fail').length;
@@ -233,10 +255,25 @@ const MirrorHealthPanel: React.FC<{
           </Button>
         </div>
       </div>
+      {/* 0.6.321 F7：「智能选源包含直连」开关（仅 GitHub 组、智能模式显示，默认关） */}
+      {includeDirect && health?.selected === 'auto' && (
+        <label className="mb-2 flex cursor-pointer select-none items-center gap-2 px-1 text-[12px] text-muted-foreground">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-primary"
+            checked={includeDirect.value}
+            onChange={(e) => includeDirect.onChange(e.target.checked)}
+          />
+          <span>智能选源包含直连（直连作为候选参与测速排名，默认关）</span>
+        </label>
+      )}
       {collapsed ? (
         <p className="text-[11px] text-muted-foreground">
           {okCount}/{rows.length} 正常{failCount > 0 ? `（${failCount} 失败）` : ''}
-          {health?.active && health.active !== 'direct' && ` · ${referenceOnly ? '最快' : '当前'} ${labelOf(health.active)}`}
+          {/* 0.6.321r：去掉 active!=='direct' 守卫——直连生效（智能模式直连胜出/
+              全镜像 fail 兜底）时折叠摘要也如实显示「当前 直连 GitHub」（labelOf
+              两组 options 均含 direct 条目，标签现成） */}
+          {health?.active && ` · ${referenceOnly ? '最快' : '当前'} ${labelOf(health.active)}`}
         </p>
       ) : (
         <>
@@ -265,7 +302,8 @@ const MirrorHealthPanel: React.FC<{
           </div>
           <div className="space-y-1">
             {rows.map((row) => (
-              <div key={row.key} className="flex items-center gap-2 text-[13px]">
+              <div key={row.key} className="flex flex-col">
+                <div className="flex items-center gap-2 text-[13px]">
                 <span
                   className={cn(
                     "h-2 w-2 rounded-full shrink-0",
@@ -297,6 +335,11 @@ const MirrorHealthPanel: React.FC<{
                         : `${Math.round(row.speed_bps / 1024)}KB/s`
                       : '—'}
                   </span>
+                )}
+                </div>
+                {/* 0.6.321 F6：失败原因第二行（短语，#4 可感知性） */}
+                {row.status === 'fail' && row.error && (
+                  <div className="pl-4 text-[10px] leading-tight text-red-400/80">{row.error}</div>
                 )}
               </div>
             ))}
@@ -598,6 +641,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [interval, setInterval] = useState<number>(24);
   const [mirror, setMirror] = useState<string>('gh-proxy');
   const [mirrorOptions, setMirrorOptions] = useState<MirrorOption[]>([]);
+  // 0.6.321 F7：「智能选源包含直连」（默认关=零行为变化）
+  const [mirrorIncludeDirect, setMirrorIncludeDirect] = useState(false);
   const [dockerMirror, setDockerMirror] = useState<string>('daocloud');
   const [dockerMirrorOptions, setDockerMirrorOptions] = useState<MirrorOption[]>([]);
   // 0.6.269 Docker 优选接入：系统 daemon.json 当前镜像源状态 + 应用流程
@@ -900,6 +945,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       toast.error(e instanceof Error ? e.message : '刷新失败');
     } finally {
       setFpkLoading(false);
+    }
+  };
+  // 321R7 E：上传本地 FPK（手机/电脑文件）到下载目录，上传完即入列表可装
+  const [fpkUploading, setFpkUploading] = useState(false);
+  const fpkFileRef = useRef<HTMLInputElement>(null);
+  const handleFpkUpload = async (file: File) => {
+    if (fpkUploading) return;
+    setFpkUploading(true);
+    try {
+      const r = await uploadFpkDownload(file);
+      toast.success(r.replaced ? `已覆盖 ${r.name}` : `已上传 ${r.name}（可在下方列表安装）`);
+      await handleFpkRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '上传失败');
+    } finally {
+      setFpkUploading(false);
+      if (fpkFileRef.current) fpkFileRef.current.value = ''; // 允许重选同名文件
     }
   };
   // 目录浏览器：读取单级列表（path='/' 为卷根虚拟层）
@@ -1392,6 +1454,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         const dm = settings.docker_mirror || 'daocloud';
         setMirror(m);
         setMirrorOptions(settings.mirror_options || []);
+        setMirrorIncludeDirect(!!settings.mirror_include_direct);
         setDockerMirror(dm);
         setDockerMirrorOptions(settings.docker_mirror_options || []);
         setCustomGithubMirror(settings.custom_github_mirror || '');
@@ -1495,6 +1558,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       await updateSettings({
         check_interval_hours: interval,
         mirror,
+        mirror_include_direct: mirrorIncludeDirect,
         docker_mirror: dockerMirror,
         // 后端指针语义：空串 = 显式清除（此前 `|| undefined` 会把「清空」
         // 变成「不提交」，用户清掉自定义镜像/地址后保存无效）。
@@ -2041,6 +2105,7 @@ mdsSim && "mds-sim")}>
                       refreshing={healthRefreshing}
                       onRefresh={refreshHealth}
                       showSpeed
+                      includeDirect={{ value: mirrorIncludeDirect, onChange: setMirrorIncludeDirect }}
                     />
                   </div>
 
@@ -2434,58 +2499,6 @@ mdsSim && "mds-sim")}>
 
                 </div>
 
-                {/* 自动更新应用（安装位置下方小卡片：周期检查时后台自动检测+安装，
-                    无需打开应用；排除已忽略应用与商店自身） */}
-                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <label className="text-sm font-medium leading-none flex items-center gap-1.5">
-                        <Zap className="h-3.5 w-3.5 text-muted-foreground" />
-                        自动更新应用
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        周期检查时自动在后台检测并安装更新，无需打开应用
-                      </p>
-                    </div>
-                    <Switch checked={autoUpdate} onCheckedChange={setAutoUpdate} />
-                  </div>
-                </div>
-
-                {/* 跨源更新策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
-                    （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
-                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium leading-none flex items-center gap-1.5">
-                      <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
-                      更新检测策略
-                    </label>
-                    <p className="text-xs text-muted-foreground">
-                      {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
-                    </p>
-                    {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
-                        bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
-                        语言与顶部 tab 一致 */}
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {UPDATE_POLICY_OPTIONS.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          onClick={() => setUpdatePolicy(o.value)}
-                          className={cn(
-                            'h-8 rounded-full text-xs font-medium transition-colors',
-                            // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
-                            updatePolicy === o.value
-                              ? 'bg-primary/15 text-primary border border-primary/40'
-                              : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
-                          )}
-                        >
-                          {o.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
                 {/* FPK 下载目录 + 已下载列表（独立卡片，不与常规设置混在一起） */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
                   <div className="space-y-2">
@@ -2520,7 +2533,29 @@ mdsSim && "mds-sim")}>
                       <span className="text-xs font-medium text-muted-foreground">
                         已下载的 FPK{fpkFiles.length > 0 ? `（${fpkFiles.length}）` : ''}
                       </span>
-                      <div className="flex items-center gap-0.5">
+                      {/* 322：上传/刷新/折叠三钮间距再调宽（321R8 gap-1.5=6px 用户仍反馈易误触）→ gap-3=12px */}
+                      <div className="flex items-center gap-3">
+                        {/* 321R7 E：上传本地 FPK（手机/电脑文件）→ 入列表可直接安装 */}
+                        <input
+                          ref={fpkFileRef}
+                          type="file"
+                          accept=".fpk"
+                          className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) void handleFpkUpload(f); }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => fpkFileRef.current?.click()}
+                          disabled={fpkUploading}
+                          title="上传 FPK 安装包（手机/电脑本地文件）"
+                          aria-label="上传 FPK 安装包"
+                        >
+                          {fpkUploading
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                            : <Upload className="h-3.5 w-3.5" />}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -2697,6 +2732,58 @@ mdsSim && "mds-sim")}>
                   </div>
                 </div>
 
+
+                {/* 自动更新应用（安装位置下方小卡片：周期检查时后台自动检测+安装，
+                    无需打开应用；排除已忽略应用与商店自身） */}
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                        <Zap className="h-3.5 w-3.5 text-muted-foreground" />
+                        自动更新应用
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        周期检查时自动在后台检测并安装更新，无需打开应用
+                      </p>
+                    </div>
+                    <Switch checked={autoUpdate} onCheckedChange={setAutoUpdate} />
+                  </div>
+                </div>
+
+                {/* 跨源更新策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
+                    （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                      <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+                      更新检测策略
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
+                    </p>
+                    {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
+                        bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
+                        语言与顶部 tab 一致 */}
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {UPDATE_POLICY_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => setUpdatePolicy(o.value)}
+                          className={cn(
+                            'h-8 rounded-full text-xs font-medium transition-colors',
+                            // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
+                            updatePolicy === o.value
+                              ? 'bg-primary/15 text-primary border border-primary/40'
+                              : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
 
                 {/* 商店版本卡片已移除：版本号并入顶部 tab 行最右侧（2026-09-26 用户定稿） */}
 

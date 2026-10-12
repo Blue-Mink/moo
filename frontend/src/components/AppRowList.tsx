@@ -33,6 +33,8 @@ interface AppRowListProps {
   favoriteSet?: Set<string>;
   /** 切换收藏（行内星标） */
   onToggleFavorite?: (app: AppInfo) => void;
+  /** 321R7 B：需要滚动定位并高亮的应用 key（「XX 安装成功」→「查看」） */
+  highlightKey?: string | null;
 }
 
 // 渐进渲染批量：首批只渲染这么多行，滚动接近底部再追加（同 AppList）。
@@ -47,7 +49,7 @@ const PAGE_SIZE = 48;
  * 的 e2e heading 选择器冲突（桌面布局下本组件 display:none）。
  */
 const AppRowList: React.FC<AppRowListProps> = ({
-  apps, onInstall, onUpdate, onDetail, onCancelOp, appOperations, searchQuery, filterType, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite,
+  apps, onInstall, onUpdate, onDetail, onCancelOp, appOperations, searchQuery, filterType, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, highlightKey,
 }) => {
   // 渐进渲染（与 AppCard 网格同款）：1624 行一次性挂载 + 每次交互全量
   // reconcile 是移动端「触屏反馈慢」的根因（实测点击→详情 356ms vs
@@ -80,6 +82,23 @@ const AppRowList: React.FC<AppRowListProps> = ({
     io.observe(el);
     return () => io.disconnect();
   }, [apps.length, visible]);
+
+  // 321R7 B：「XX 安装成功」→「查看」定位——展开渐进渲染覆盖目标行，
+  // 行挂载后滚到视口中央；高亮样式由行内 highlightKey 判定（父组件 2.5s 后清除）。
+  const highlightIdx = highlightKey ? apps.findIndex(a => (a.key || a.appname) === highlightKey) : -1;
+  useEffect(() => {
+    if (highlightIdx < 0) return;
+    setVisible(v => Math.max(v, highlightIdx + 1));
+    const t = setTimeout(() => {
+      document.querySelectorAll('[data-app-key]').forEach(el => {
+        const e = el as HTMLElement;
+        if (e.dataset.appKey !== highlightKey) return;
+        if (e.getClientRects().length === 0) return; // 隐藏实例跳过
+        e.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    }, 180);
+    return () => clearTimeout(t);
+  }, [highlightKey, highlightIdx]);
 
   if (apps.length === 0) {
     const emptyText = searchQuery?.trim()
@@ -118,6 +137,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
         return (
           <div
             key={app.key || app.appname}
+            data-app-key={app.key || app.appname}
             // content-visibility:auto：视口外的行跳过排版/绘制，滚动与
             // 重渲染都更省（行高近似稳定，containIntrinsicSize 给估算值
             // 防滚动条跳动）
@@ -125,7 +145,9 @@ const AppRowList: React.FC<AppRowListProps> = ({
             className={cn(
               // 0.6.301：touch-manipulation = iOS 在卡面不消费双击缩放手势
               "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50 touch-manipulation",
-              i > 0 && "border-t border-border/40"
+              i > 0 && "border-t border-border/40",
+              // 321R7 B：「查看」定位高亮（~2.5s，父组件清除 highlightKey 后自动消失）
+              highlightIdx === i && "bg-primary/10 ring-1 ring-inset ring-primary/40"
             )}
             onClick={() => onDetail(app)}
           >

@@ -22,7 +22,7 @@ import ThemeToggle from './components/ThemeToggle';
 import MobileDock from './components/MobileDock';
 import AppRowList from './components/AppRowList';
 import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
-import { fetchApps, triggerCheck, installApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings } from './api/client';
+import { fetchApps, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
@@ -494,8 +494,9 @@ const App: React.FC = () => {
   // App Store large title：内容滚动后标题收缩、头部转毛玻璃
   const [mainScrolled, setMainScrolled] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('default');
-  // 「全部」视图随机展示：每次数据加载后重新洗牌（不再按 fnos-apps 等来源分组置顶），
-  // 同一次会话内顺序稳定（切 tab 返回不重洗，记住的滚动位置仍落在同一应用上）。
+  // 「全部」视图随机展示（322R4 回退到 0.6.321 最早态 / 320 风格 Fisher-Yates）：
+  // 每次数据加载后重新洗牌（setShuffleTick），同一次会话内顺序稳定
+  //（切 tab 返回不重洗，记住的滚动位置仍落在同一应用上）。
   const [shuffleTick, setShuffleTick] = useState(0);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   // 发现页「收藏列表」区：默认折叠，点「展开」显示收藏应用网格
@@ -573,7 +574,10 @@ const App: React.FC = () => {
   }, []);
   // 切回某 tab 时恢复其滚动位置：等新列表提交布局；目标超出当前文档高度时
   // 逐帧重试（列表还在渲染），最多 10 帧后钳制到当前最大值兜底。
+  const skipScrollRestoreRef = useRef(false);
   useEffect(() => {
+    // 321R7 B：「查看」触发的切 tab 不恢复旧滚动位置（目标由 highlightKey 滚动决定）
+    if (skipScrollRestoreRef.current) { skipScrollRestoreRef.current = false; return; }
     const target = scrollPosRef.current[activeFilter] ?? 0;
     let tries = 0;
     let raf = 0;
@@ -592,6 +596,32 @@ const App: React.FC = () => {
   // iframe 被隐藏），返回时清空屏上通知、离开期间吞掉新通知。
   // 实现见 lib/pagePresence.ts。
   useEffect(() => installPresenceTracking(), []);
+
+  // 321R7 B：「XX 安装成功」通知的「查看」——定位到刚装的应用。
+  // highlightKey 置位后由列表组件滚动到该行并高亮，2.5s 后自动清除。
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!highlightKey) return;
+    const t = setTimeout(() => setHighlightKey(null), 2500);
+    return () => clearTimeout(t);
+  }, [highlightKey]);
+  const handleViewApp = useCallback((appname: string) => {
+    // 任务视图给的是裸 appname，大小写容错匹配（daemon 记账名可能大小写漂移）
+    const found = apps.find(a => a.appname === appname)
+      || apps.find(a => (a.appname || '').toLowerCase() === (appname || '').toLowerCase());
+    if (!found) return;
+    // 详情对话框开着 → 直接切到该应用的内容（比列表定位更直达）
+    if (detailApp) { setDetailApp(found); return; }
+    // 清掉会隐藏该应用的搜索/分类过滤，再落到必定展示它的 tab
+    if (searchInput) setSearchInput('');
+    setActiveCategory(null);
+    const target = found.installed ? 'installed' : 'all';
+    if (activeFilterRef.current !== target) {
+      skipScrollRestoreRef.current = true;
+      switchFilter(target);
+    }
+    setHighlightKey(found.key || found.appname);
+  }, [apps, detailApp, searchInput, switchFilter]);
 
   const setAppOp = useCallback((appname: string, op: AppOperation | null) => {
     setAppOperations(prev => {
@@ -655,7 +685,7 @@ const App: React.FC = () => {
       // 稳定合并：内容未变的条目复用旧对象引用（见 lib/stableApps.ts）——
       // memo 化行跳过重渲染，无变化的全量刷新主线程开销从数百 ms 降到 ~ms。
       setApps(prev => stableApps(prev, data.apps).list);
-      setShuffleTick(t => t + 1); // 新数据 → 重新洗牌（随机展示）
+      setShuffleTick(t => t + 1); // 新数据 → 重新洗牌（随机展示，322R4 回退 321 最早态）
       setUpgradeAllowed(data.upgrade_allowed !== false);
       setLastCheck(data.last_check);
       loadDedup(); // 目录变了 → 三档计数同步
@@ -862,11 +892,11 @@ const App: React.FC = () => {
 
     if (data.step === 'error') {
       const lastStep = appOperationsRef.current.get(appname)?.step || 'starting';
-      toast.error(data.message || '发生未知错误', {
+      toast.error(data.message || data.error || '发生未知错误', {
         duration: 8000, // 带「上报」操作的错误通知留足点击时间，其余通知 3 秒自动消失
         action: {
           label: '上报',
-          onClick: () => setReportTarget({ app: appname, step: lastStep, error: data.message || '发生未知错误' })
+          onClick: () => setReportTarget({ app: appname, step: lastStep, error: data.message || data.error || '发生未知错误' })
         }
       });
       setAppOp(appname, null);
@@ -971,33 +1001,65 @@ const App: React.FC = () => {
     }
   }, [createSSEHandler, setAppOp]);
 
-  /** 0.6.269：安装主流程（源级向导收集后 / 无源级向导时直达）：
-      探测 FPK 自带向导 → 有则弹 WizardDialog（其 onConfirm 合并 pending
-      源参数），无则直接 runInstall（带上 pending 源参数）。 */
+  /** 0.6.321r6 方案2：安装主流程（源级向导收集后 / 无源级向导时直达）：
+      先下载——stage SSE 推送 FPK 下载进度（详情页进度胶囊+列表行可见，可取消）；
+      下载完成再查向导定义（包已落缓存，毫秒级）→ 有则弹就绪态 WizardDialog
+      （其 onConfirm 合并 pending 源参数），无则直接 runInstall（进度无缝续接）。
+      相比 0.6.269 的「先探测向导（静默下载）后弹窗」：下载阶段进度可见、
+      失败提前暴露（不再白等数分钟后才报错）、向导页出现即零等待。 */
   const continueInstall = useCallback(async (app: AppInfo) => {
     const pending = pendingSourceParamsRef.current;
-    // Probe for an install form first. A lookup failure must never block
-    // installing, so anything unexpected falls through to a plain install.
-    setWizardApp(app);
-    setWizardLoading(true);
-    setWizardDef(null);
-    setPanelWizardParams(null);
+    const appname = app.appname;
+    if (appOperationsRef.current.has(appname)) return;
+    const handler = createSSEHandler(app, 'install');
+    const handle = stageApp(appname, handler);
+    setAppOp(appname, {
+      step: 'starting',
+      progress: 0,
+      message: `正在下载 ${app.display_name}…`,
+      cancel: handle.cancel,
+    });
     try {
-      const w = await fetchWizard(app.appname);
-      if (w.has_wizard && (w.content?.length ?? 0) > 0) {
-        // FPK 自带向导：源向导值已暂存 ref，WizardDialog onConfirm 处合并
-        setWizardDef(w);
-        setWizardLoading(false);
+      await handle.promise;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        toast.info('已取消');
+        setAppOp(appname, null);
         return;
       }
+      console.error(error);
+      toast.error('下载失败', {
+        action: {
+          label: '上报',
+          onClick: () => setReportTarget({ app: appname, step: 'stage', error: error instanceof Error ? error.message : String(error) })
+        }
+      });
+      loadApps();
+      return;
+    }
+    // 下载完成 → 查向导定义（缓存命中毫秒级）。探测失败不得阻塞安装，
+    // 任何意外都回落直装（与 0.6.269 行为一致）。
+    let w: AppWizard | null = null;
+    try {
+      w = await fetchWizard(appname);
     } catch {
-      // ignore — fall through and install with defaults
+      w = null;
+    }
+    if (w && w.has_wizard && (w.content?.length ?? 0) > 0) {
+      // FPK 自带向导：源向导值已暂存 ref，WizardDialog onConfirm 处合并
+      setWizardApp(app);
+      setWizardDef(w);
+      setWizardLoading(false);
+      setPanelWizardParams(null);
+      return;
     }
     setWizardApp(null);
+    setWizardDef(null);
     setWizardLoading(false);
+    setPanelWizardParams(null);
     pendingSourceParamsRef.current = [];
     void runInstall(app, pending.length ? pending : undefined);
-  }, [runInstall]);
+  }, [createSSEHandler, setAppOp, runInstall, loadApps]);
 
   // 0.6.312 B2：冲突对话框「仍要安装」——bypass 裁决重入安装流
   //（向导参数沿用 continueInstall 暂存值，若已收集）。
@@ -1248,7 +1310,9 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 随机排序权重：Fisher-Yates 洗牌当前应用列表，key → 随机位次
+  // 随机排序权重（322R4 回退到 0.6.321 最早态 / 320 风格 Fisher-Yates）：洗牌当前
+  // 应用列表，key → 随机位次。故意只依赖 shuffleTick——洗牌时机 = 每次 loadApps
+  // 成功（见 setShuffleTick），同一次会话内顺序稳定（切 tab 返回不重洗）。
   const appsRef = useRef<AppInfo[]>(apps);
   appsRef.current = apps;
   const shuffledRank = useMemo(() => {
@@ -2204,6 +2268,7 @@ const App: React.FC = () => {
                    favoriteSet={favoriteSet}
                    onToggleFavorite={handleToggleFavorite}
                    clickMode={clickMode}
+                   highlightKey={highlightKey}
                 />
               ) : (
                 <AppRowList
@@ -2223,6 +2288,7 @@ const App: React.FC = () => {
                   onOpenApp={handleOpenApp}
                   favoriteSet={favoriteSet}
                   onToggleFavorite={handleToggleFavorite}
+                  highlightKey={highlightKey}
                 />
               )}
             </>
@@ -2369,8 +2435,9 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* 后台任务进度（退出应用后继续跑的安装/更新，轮询展示） */}
-      <BackgroundTasksIndicator />
+      {/* 后台任务进度（退出应用后继续跑的安装/更新，轮询展示）；
+          321R7 B：安装/更新成功通知带「查看」→ 定位到刚装的应用 */}
+      <BackgroundTasksIndicator onView={handleViewApp} />
 
       <Suspense fallback={null}>
         <SettingsPage

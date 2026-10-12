@@ -4,14 +4,17 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"moo/internal/config"
@@ -27,8 +30,12 @@ type MirrorStat struct {
 	// Docker 镜像加速源拉 library/nginx 层；0 = 未测出）。
 	// 2026-09-22 实测：延迟相近的镜像吞吐差可达 400 倍（57MB/s ↔ 139KB/s），
 	// 故选路以 SpeedBPS 为准、LatencyMS（首字节延迟）仅作参考。
-	SpeedBPS    int64  `json:"speed_bps,omitempty"`
-	Status      string `json:"status"` // ok | fail | ""（未探测）
+	SpeedBPS int64  `json:"speed_bps,omitempty"`
+	Status   string `json:"status"` // ok | fail | ""（未探测）
+	// Error 失败原因短语（0.6.321 F6，issue #4「失败原因不可见」缺口闭合）：
+	// 429 限流 / 403 拒绝 / HTTP 5xx / 慢（低于吞吐门槛）/ 连接被拒 /
+	// DNS 解析失败 / 探测资产 404。仅 Status=fail 时有值；可选字段，旧前端忽略。
+	Error       string `json:"error,omitempty"`
 	LastCheck   string `json:"last_check"`
 	ConsecFails int    `json:"consec_fails"`
 }
@@ -40,6 +47,7 @@ type MirrorCheckResult struct {
 	LatencyMS int64  `json:"latency_ms"`
 	SpeedBPS  int64  `json:"speed_bps,omitempty"`
 	Status    string `json:"status"` // ok | timeout | error
+	Error     string `json:"error,omitempty"`
 }
 
 // MirrorSwitch 记录一次自动优选切换（前端「最近一次自动优选」横幅）。
@@ -69,6 +77,16 @@ type mirrorMonitor struct {
 	// 连续失败计数（ok 清零、fail 累加；前端「失败×N」显示）
 	ghFails map[string]int
 	dkFails map[string]int
+	// 0.6.321 F7：「智能选源包含直连」开关（config.MirrorIncludeDirect，默认关）。
+	// Server 每探测周期/按需入口前 set；probeGh 据此决定是否追加 direct 候选。
+	ghIncludeDirect bool
+}
+
+// setGhIncludeDirect 设置「智能选源包含直连」开关（0.6.321 F7）。
+func (m *mirrorMonitor) setGhIncludeDirect(v bool) {
+	m.mu.Lock()
+	m.ghIncludeDirect = v
+	m.mu.Unlock()
 }
 
 func newMirrorMonitor() *mirrorMonitor {
@@ -107,6 +125,32 @@ type mirrorProbeRes struct {
 	ms  MirrorStat
 }
 
+// shortNetErr 把错误压成面板可展示短语（0.6.321 F6，#4 可感知性）。
+func shortNetErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "DNS 解析失败"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "超时"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "超时"
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "连接被拒"
+	}
+	s := err.Error()
+	if len(s) > 60 {
+		s = s[:60] + "…"
+	}
+	return s
+}
+
 // probeGh GitHub 加速组测速（0.6.148 从 ensureFresh 拆出）：并发探测全部 gh
 // 镜像（读前 2MB 测 MB/s），更新 ghStats/ghFails/lastProbeGh。
 // 后台间隔由 mirrorProbeLoopGh 按配置（gh_probe_hours/minutes）驱动。
@@ -117,7 +161,10 @@ func (m *mirrorMonitor) probeGh() {
 	gh := make(chan mirrorProbeRes, 32)
 
 	ghProbe := func(ch chan mirrorProbeRes, opt config.MirrorOption) {
-		fail := func() { ch <- mirrorProbeRes{opt.Key, MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail"}} }
+		// 0.6.321 F6：失败带原因短语（面板状态列展示；旧前端忽略可选字段）
+		fail := func(reason string) {
+			ch <- mirrorProbeRes{opt.Key, MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail", Error: reason}}
+		}
 		assets, minBytes := ghProbeAssets, int64(ghProbeMinBytes)
 		if opt.Key == "conversun" {
 			assets, minBytes = ghProbeAssetsConversun, ghProbeConversunMinBytes
@@ -128,21 +175,31 @@ func (m *mirrorMonitor) probeGh() {
 			start := time.Now()
 			req, err := http.NewRequestWithContext(pctx, http.MethodGet, opt.URL+asset, nil)
 			if err != nil {
-				fail()
+				fail(shortNetErr(err))
 				return
 			}
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				fail()
+				fail(shortNetErr(err))
 				return
 			}
 			if resp.StatusCode == http.StatusNotFound {
 				resp.Body.Close()
 				continue // 资产下线 → 试下一个
 			}
+			switch resp.StatusCode {
+			case http.StatusTooManyRequests:
+				resp.Body.Close()
+				fail("429 限流")
+				return
+			case http.StatusForbidden:
+				resp.Body.Close()
+				fail("403 拒绝")
+				return
+			}
 			if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 				resp.Body.Close()
-				fail()
+				fail(fmt.Sprintf("HTTP %d", resp.StatusCode))
 				return
 			}
 			ttfb := time.Now()
@@ -164,11 +221,13 @@ func (m *mirrorMonitor) probeGh() {
 				st.Status = "ok"
 				st.LatencyMS = ttfb.Sub(start).Milliseconds() // 首字节延迟
 				st.SpeedBPS = read * int64(time.Second) / int64(elapsed)
+			} else {
+				st.Error = fmt.Sprintf("慢（%ds 读 %dKB < %dKB 门槛）", int(ghProbeReadTimeout/time.Second), read>>10, minBytes>>10)
 			}
 			ch <- mirrorProbeRes{opt.Key, st}
 			return
 		}
-		fail() // 全部资产 404
+		fail("探测资产 404（资产下线或未代理）")
 	}
 
 	var wg sync.WaitGroup
@@ -181,6 +240,20 @@ func (m *mirrorMonitor) probeGh() {
 			defer wg.Done()
 			ghProbe(gh, o)
 		}(opt)
+	}
+	// 0.6.321 F7：「智能选源包含直连」开启（默认关=零行为变化）时追加合成
+	// 候选 direct——探同一 pinned 资产（raw 直链），bestKey 可返回 direct
+	// = 直连参与排名而非仅兜底（#4 建议 #1 承接；知情开启，大陆无代理场景
+	// 直连常态慢，开关默认关）。
+	m.mu.Lock()
+	includeDirect := m.ghIncludeDirect
+	m.mu.Unlock()
+	if includeDirect {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ghProbe(gh, config.MirrorOption{Key: "direct", Label: "直连 GitHub", URL: "https://raw.githubusercontent.com/"})
+		}()
 	}
 	wg.Wait()
 	close(gh)
@@ -234,6 +307,7 @@ func (m *mirrorMonitor) probeDk() {
 		lat := time.Since(start).Milliseconds()
 		st := MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail"}
 		if err != nil {
+			st.Error = shortNetErr(err) // 0.6.321 F6
 			ch <- mirrorProbeRes{opt.Key, st}
 			return
 		}
@@ -566,6 +640,7 @@ func (s *Server) StartMirrorProbeLoop(ctx context.Context) {
 		return
 	case <-time.After(10 * time.Second):
 	}
+	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(true) // 首批：全量探一次
 	// 0.6.187：首轮也评估一次——建立 prevActive 基线（首调不推），
 	// 之后后台循环每齿轮周期自动评估，UI 不开也推。
@@ -593,6 +668,7 @@ func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 		if s.uiInactive() && time.Since(s.probeGhLast()) < mirrorProbeIdleGap {
 			continue
 		}
+		s.applyMirrorProbeFlags()
 		s.Mirrors.probeGh()
 		s.lastProbeGh.Store(time.Now().Unix())
 		// 0.6.187：每齿轮周期评估优选切换（生效源变化 → 通知，30min 冷却防抖）
@@ -639,6 +715,13 @@ func cfgDockerMirror(s *Server) string {
 		return ""
 	}
 	return s.Cfg.DockerMirror
+}
+
+// applyMirrorProbeFlags 应用本周期探测开关（0.6.321 F7；Cfg 为 nil 时 no-op）。
+func (s *Server) applyMirrorProbeFlags() {
+	if s.Cfg != nil {
+		s.Mirrors.setGhIncludeDirect(s.Cfg.MirrorIncludeDirect)
+	}
 }
 
 func (m *mirrorMonitor) gh() []MirrorStat {
