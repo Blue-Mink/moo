@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（仅留 Moo 自索引）",
   "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-10T21:19:02+08:00"
+  "updated_at": "2026-10-12T09:03:02+08:00"
  },
  "apps": {
   "moo": {
@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.322": {
+     "changelog": "修复SwrodKing反馈的issue #3、#4：图标加载失败日志刷屏（同主机日志按窗口聚合，故障期从数十MB降至KB级）、镜像「包含直连」开关不生效（补全保存/测速/候选全链路，开启后测速面板显示「直连」行）、SSE 错误被吞恒显「发生未知错误」（改为透出真实错误）\n安装向导多选项字段改为可选渲染（默认项自动预选）\n收录zchunh-max反馈的javycoder/fnos_music_ext（fnMusic音源扩展）\n修复桌面/无外接键盘环境在设置页输入框输入时底部「保存」按钮消失的问题\nGitHub/Docker 镜像优选列表改为按测速结果自动排序（正常源吞吐降序→失败源连败少者先→未测速殿后）\n安装流程优化：点安装不再弹窗，改为详情页进度胶囊+安装向导预填确认\n已下载 FPK 列表改为按最近修改时间倒序（最新在上）\n上传的 FPK 安装包现在能正确显示应用名",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.322/moo_0.6.322_x86.fpk",
+       "size": 4969465,
+       "size_mb": 4.7,
+       "sha256": "18b2d060352f574f7a58c968e5e3c557b627a18c2217f6b5dae2669ad4b0436b"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.322/moo_0.6.322_arm.fpk",
+       "size": 4527165,
+       "size_mb": 4.3,
+       "sha256": "7536fe0a985234137aeeaaac95dc47454fcb5676de80d0f8317dbb8346b7adfc"
+      }
+     },
+     "updated_at": "2026-10-12T09:03:02+08:00"
+    },
     "0.6.320": {
      "changelog": "修复了一些已知问题",
      "packages": {
@@ -45,26 +63,9 @@
       }
      },
      "updated_at": "2026-10-10T11:35:00+08:00"
-    },
-    "0.6.318": {
-     "changelog": "内存占用优化，剔除同步目录中的伪资产源链moo已加入严格的官源应用审核溯源机制，手动添加的源链不在审核列表内，请注意甄别\n！！！勿添加不受信任的HTTP明文源链（此为开发者测试通道）！！！\n欢迎发现新项目，提交issue\n感谢（大白聊技术、徐大大、 总是瞎折腾、科技姬）的推文",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.318/moo_0.6.318_x86.fpk",
-       "size": 4936536,
-       "size_mb": 4.7,
-       "sha256": "70408b8fecf5430592f6ae0ed994129f5b045ef855b09afaefc3aa0685a6e33d"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.318/moo_0.6.318_arm.fpk",
-       "size": 4500105,
-       "size_mb": 4.3,
-       "sha256": "bfa6d81e867b9318f3eef281072df4664aad6b1fe14c0fac133bf8f68a52413a"
-      }
-     }
     }
    },
-   "sha256": "ab5a38cd187c039ac790f0df1b0df9fa46941181ab4ee073e1b2424236463d38",
+   "sha256": "18b2d060352f574f7a58c968e5e3c557b627a18c2217f6b5dae2669ad4b0436b",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -76,11 +77,11 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-10T21:19:02+08:00",
-   "version": "0.6.320",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.320/moo_0.6.320_x86.fpk",
+   "updated_at": "2026-10-12T09:03:02+08:00",
+   "version": "0.6.322",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.322/moo_0.6.322_x86.fpk",
    "size": 4.7,
-   "changelog": "修复了一些已知问题",
+   "changelog": "修复SwrodKing反馈的issue #3、#4：图标加载失败日志刷屏（同主机日志按窗口聚合，故障期从数十MB降至KB级）、镜像「包含直连」开关不生效（补全保存/测速/候选全链路，开启后测速面板显示「直连」行）、SSE 错误被吞恒显「发生未知错误」（改为透出真实错误）\n安装向导多选项字段改为可选渲染（默认项自动预选）\n收录zchunh-max反馈的javycoder/fnos_music_ext（fnMusic音源扩展）\n修复桌面/无外接键盘环境在设置页输入框输入时底部「保存」按钮消失的问题\nGitHub/Docker 镜像优选列表改为按测速结果自动排序（正常源吞吐降序→失败源连败少者先→未测速殿后）\n安装流程优化：点安装不再弹窗，改为详情页进度胶囊+安装向导预填确认\n已下载 FPK 列表改为按最近修改时间倒序（最新在上）\n上传的 FPK 安装包现在能正确显示应用名",
    "service_port": "38100",
    "size_mb": 4.7
   }

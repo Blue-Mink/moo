@@ -192,7 +192,7 @@ Docker 组同构（`/api/mirrors/docker/health`）。
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -309,6 +309,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | 端点 | 说明 |
 |---|---|
 | `POST /api/apps/{key}/install` | 安装（下载 FPK → 校验 sha256 → appcenter 安装/升级） |
+| `POST /api/apps/{key}/stage` | 仅下载+暂存 FPK（SSE 进度；供「先下载、后弹安装向导」流程使用，下载完成后 `GET /wizard` 缓存命中） |
 | `POST /api/apps/{key}/update` | 更新到 `available_version`（保留 @appdata 数据） |
 | `POST /api/apps/{key}/uninstall` | 卸载（走平台标准管线） |
 | `POST /api/apps/{key}/download-task` | 仅下载 FPK 到缓存（不安装），生成可暂停/续传任务 |
@@ -473,6 +474,7 @@ daemon.json 损坏时拒绝写入。
 |---|---|---|
 | `GET /api/fpk-downloads` | admin | 已下载 FPK 列表 `[FpkDownloadFile]` |
 | `DELETE /api/fpk-downloads/{name}` | admin | 删除缓存包 |
+| `POST /api/fpk-downloads/upload` | admin | 上传本地 FPK（multipart 字段 `file`，仅 `.fpk`，≤512MB，同名覆盖；返回 `{name,size,replaced}`，上传后即可列表内安装） |
 | `POST /api/fpk-downloads/{name}/install` | admin + SSE | 用缓存包安装/升级（跳过下载阶段） |
 | `GET /api/fpk-downloads/{name}/wizard` | admin | 探测缓存包安装向导定义（直读 FPK 内 wizard/install，无需 staging） |
 
@@ -502,6 +504,25 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 - 测速**直连**各镜像（不经科学加速代理）——测的是镜像本身质量。
 - 自动测速间隔由 `gh_probe_*` / `dk_probe_*` 齿轮配置（0h0m = 默认 5 分钟）。
 - 全部候选失败 → `mirrors_all_failed`（Docker 组对偶 `docker_mirrors_all_failed`），恢复 → `mirrors_recovered`。
+
+`POST /api/mirrors/check` 响应示例（0.6.321 起 fail 条目带 `error` 原因短语）：
+
+```json
+{
+  "github_mirrors": [
+    {"key": "gh-proxy-hk", "label": "GH-Proxy HK", "latency_ms": 45, "speed_bps": 1461372, "status": "ok"},
+    {"key": "gh-fast", "label": "GHFast", "latency_ms": 0, "status": "error", "error": "403 拒绝"}
+  ],
+  "docker_mirrors": [
+    {"key": "daocloud", "label": "DaoCloud", "latency_ms": 88, "status": "ok"}
+  ]
+}
+```
+
+- 顶层恒两键 `github_mirrors` / `docker_mirrors`（单点 writeJSON，结构上不可能缺键）；字段名是 **`github_mirrors`**，不是选项 key 前缀——按 `gh_mirrors` 之类子串查找会 0 命中。
+- `status` = `ok | error`（服务端 `checkStatus` 映射：ok→ok，其余→error）；`error`（0.6.321 F6，可选字段）仅 fail 时有值：`429 限流` / `403 拒绝` / `HTTP 5xx` / `慢（10s 读 NKB < 512KB 门槛）` / `连接被拒` / `DNS 解析失败` / `探测资产 404（资产下线或未代理）`。
+- `direct` / `auto` / `custom` 无探测 URL、不入池、不出现在响应；例外：设置 `mirror_include_direct=true`（0.6.321 F7，默认关）时 `direct` 以合成候选（raw 直链探同一 pinned 资产）出现并参与排名。
+- `speed_bps` 仅 GitHub 组（吞吐测速）；Docker 组测速只影响速度列、不改可达判定。
 
 ---
 
