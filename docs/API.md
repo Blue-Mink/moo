@@ -102,7 +102,7 @@ Moo 采用**两层防线**：
    即使平台网关不校验 `Origin`，CSRF 也在应用层被封死。**只读 GET 豁免**。
    手工 `curl` 调写接口：`curl -H 'X-Moo-Admin: 1' -H 'Content-Type: application/json' …`。
 
-只读端点（目录浏览、详情、健康快照等）允许未登录访问（面板内浏览场景），因此**不要在只读端点泄露敏感数据**；配置类写端点永不开放匿名。
+只读端点（目录浏览、应用详情、运行状态等）允许未登录访问（面板内浏览场景），因此**不要在只读端点泄露敏感数据**；配置类写端点永不开放匿名。
 
 面板账号（`panel_enabled`/`panel_username`/`panel_password`）是 Moo 用来调用 fnOS 应用中心（appcenter daemon）的**本机回环**凭据，只存本机 `config.json`，永不通过 API 回显明文密码（`panel_has_password` 仅返回布尔）。
 
@@ -505,8 +505,8 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 
 | 端点 | 权限 | 说明 |
 |---|---|---|
-| `GET /api/mirrors/health` | 公开 | GitHub 组健康快照（§3.4） |
-| `GET /api/mirrors/docker/health` | 公开 | Docker 组健康快照（含本地 KSpeeder 缓存） |
+| `GET /api/mirrors/health` | admin | GitHub 组健康快照（§3.4） |
+| `GET /api/mirrors/docker/health` | admin | Docker 组健康快照（含本地 KSpeeder 缓存） |
 | `POST /api/mirrors/check` | admin | 立即手动测速（两组各自全量候选） |
 
 语义：
