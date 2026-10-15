@@ -35,7 +35,11 @@ const AlertDialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         // 0.6.144 与 ui/dialog 同款统一：宽度 = 内容卡、四周 18px 圆角、卡片表面
-        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-none translate-x-[-50%] translate-y-[-50%] gap-4 border border-border/20 bg-card p-6 shadow-appstore duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-[18px]",
+        // 0.6.325 C14（与 ui/dialog 同款隐患，一并修正）：Radix 同样给 AlertDialog
+        // Content 挂 tabIndex=-1；iOS Safari 对「被聚焦的容器」会绘制系统 focus ring
+        // （整个对话框外框一圈蓝边）。容器聚焦无键盘可达性价值 → 显式禁掉。
+        // 本组件无 Close 按钮（无 focus:ring 写法），故仅需容器这一处。
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-none translate-x-[-50%] translate-y-[-50%] gap-4 border border-border/20 bg-card p-6 shadow-appstore duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-[18px] focus:outline-none focus-visible:outline-none",
         className
       )}
       {...props}

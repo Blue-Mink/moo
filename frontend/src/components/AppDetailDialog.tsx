@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { categoryLabel } from '@/lib/categories';
 import { installTypeRow } from '@/lib/appMeta';
 import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../api/client';
-import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc } from '../api/client';
+import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc, fetchFpkDownloads, installFpkDownload, fetchFpkDownloadWizard, type AppWizard, type WizardParam } from '../api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useIsDesktop, useMobileDesktopSim } from '@/lib/hooks';
@@ -20,6 +20,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import AppIcon from "./AppIcon";
+import WizardDialog from "./WizardDialog";
 import { auroraFor } from "./ViewModeGrids";
 import {
   Package,
@@ -57,6 +58,11 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import DOMPurify from 'dompurify';
+
+// 0.6.325 C9：与后端 normAppName 同口径的归一化（lower + 只保留 a-z0-9）。
+// 消解包内 manifest 脏值（字面引号 / 大小写不符 / 未展开模板变量）导致的
+// 「已下载」永不命中；仅用于比较，显示一律用原始值。
+const normFpk = (s?: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
  * 判断 README 内容是否为 HTML 文档/片段（而非 Markdown）。
@@ -172,6 +178,8 @@ interface AppDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   /** 0.6.312 B2：候选表行点击 → 打开该源卡的详情（显式引用逃生门）。 */
   onInstall: (app: AppInfo) => void;
+  /** 0.6.325 C5：详情内从本地缓存直接安装成功 → 宿主刷新目录/下载数。 */
+  onLocalInstallDone?: () => void;
   onUpdate: (app: AppInfo) => void;
   onIgnoreUpdate?: (app: AppInfo) => void;
   onUnignoreUpdate?: (app: AppInfo) => void;
@@ -261,7 +269,7 @@ export const formatDownloads = (n?: number): string => {
 // DOMPurify 默认策略即剥离 script/style/iframe/object/embed/on* 与
 // javascript: 数据 URL，只保留展示型标签。
 
-const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onUninstall, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
+const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onUninstall, onLocalInstallDone, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
   // 0.6.301：打开时刻记录 —— 配合 DialogContent 的 400ms 外点免疫窗
   //（触屏双击卡片：第一下开详情，第二下落在遮罩上会秒关 = 用户观感仍「没反应」）
   const openedAtRef = useRef(0);
@@ -405,7 +413,12 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     h.promise
       // 页面不可见（用户已离开/关闭窗口）时到达的完成/错误事件不弹通知——
       // 重新打开时由按钮轮询恢复状态，避免「再进去还挂着通知栏」。
-      .then(() => { if (dlOwnerRef.current === owner && !document.hidden) toast.success(doneMsg || 'FPK 下载完成'); })
+      .then(() => {
+        if (dlOwnerRef.current !== owner) return;
+        if (!document.hidden) toast.success(doneMsg || 'FPK 下载完成');
+        // 0.6.325 C5：下载完成 → 重派生「已下载」态（按钮从进度回落到「已下载」）
+        refreshLocalFpk(owner, app?.display_name);
+      })
       .catch((e: unknown) => {
         // 切应用时主动 cancel 的 SSE 会以 AbortError 落到这里：不是下载失败
         if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -493,6 +506,87 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     const timer = window.setInterval(poll, 3000);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [app]);
+
+  // ── 0.6.325 C5：「已下载」态 = 本应用 FPK 已在本地缓存（从缓存列表实时派生，
+  //    不靠内存）：按钮变「已下载」，点击=直接安装该缓存文件（不重新下载）。
+  //    派生时机=打开/切应用（下方 effect）+ 本对话框内下载完成（handleDownloadFpk
+  //    .then 调 refreshLocalFpk）。在「下载」页删除该文件后重开详情=自动回「下载 fpk」。
+  const [localFpkName, setLocalFpkName] = useState<string | null>(null);
+  // 0.6.325 C9：首次「已下载」派生是否完成——未完成前按钮显示「检查中…」并禁用，
+  // 消除冷启动 0.41s 的误闪「下载 fpk」与误点（见 VERIFY_325C5 §8.2）。
+  const [localFpkChecked, setLocalFpkChecked] = useState(false);
+  const [localInstalling, setLocalInstalling] = useState(false);
+  const [localInstallMsg, setLocalInstallMsg] = useState('');
+  const [localWizardDef, setLocalWizardDef] = useState<AppWizard | null>(null);
+  const refreshLocalFpk = useCallback((appname: string, displayName?: string) => {
+    let cancelled = false;
+    setLocalFpkChecked(false);
+    fetchFpkDownloads()
+      .then((res) => {
+        if (cancelled) return;
+        // 匹配口径（0.6.325 C9 归一化）：
+        // 主口径 = 缓存包 appname 归一后等于当前应用 appname 归一（两者都非空）；
+        // 次口径 = 缓存包 appname 归一后为空（解析失败）时，回落 display_name 归一相等。
+        const na = normFpk(appname);
+        const nd = normFpk(displayName);
+        const hit = (res.files || []).find((f) => {
+          const fa = normFpk(f.appname);
+          if (fa && na && fa === na) return true;
+          if (!fa) return !!(nd && normFpk(f.display_name) === nd);
+          return false;
+        });
+        setLocalFpkName(hit ? hit.name : null);
+      })
+      .catch(() => { if (!cancelled) setLocalFpkName(null); })
+      .finally(() => { if (!cancelled) setLocalFpkChecked(true); });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    if (!app) { setLocalFpkName(null); return; }
+    return refreshLocalFpk(app.appname, app.display_name);
+  }, [app, refreshLocalFpk]);
+  // 点击「已下载」→ 直接安装缓存 FPK（SSE 进度；必填无默认值的字段弹向导，
+  // 与 FpkDownloads 组件同一探测/回落模式）
+  const runLocalInstall = (name: string, wizard?: WizardParam[]) => {
+    setLocalInstalling(true);
+    setLocalInstallMsg('准备安装...');
+    installFpkDownload(name, (ev) => {
+      if (ev.step === 'error' || ev.error) return;
+      if (ev.message) setLocalInstallMsg(ev.message);
+    }, wizard).promise
+      .then(() => {
+        toast.success(`已安装 ${name}`);
+        // 文件保留在缓存 → localFpkName 不变（仍是「已下载」）；宿主刷新目录/计数
+        onLocalInstallDone?.();
+      })
+      .catch((e: unknown) => {
+        toast.error(e instanceof Error ? e.message : '安装失败');
+      })
+      .finally(() => {
+        setLocalInstalling(false);
+        setLocalInstallMsg('');
+      });
+  };
+  const handleLocalInstall = () => {
+    if (!localFpkName || localInstalling) return;
+    const name = localFpkName;
+    setLocalInstalling(true);
+    setLocalInstallMsg('加载安装向导...');
+    fetchFpkDownloadWizard(name)
+      .then((wz) => {
+        if (wz.has_wizard && (wz.content?.length ?? 0) > 0) {
+          setLocalWizardDef(wz);
+          setLocalInstalling(false);
+          setLocalInstallMsg('');
+          return;
+        }
+        runLocalInstall(name);
+      })
+      .catch(() => {
+        // 探测失败不阻塞安装 → 直接装，由服务端 AutoFill 报明确错误
+        runLocalInstall(name);
+      });
+  };
   // 灯箱换图动画方向：open=首次打开(缩放进入) / next / prev(左右滑入，消除生硬跳切)
   const [lightboxAnim, setLightboxAnim] = useState<'open' | 'next' | 'prev'>('open');
   // 预览轮播：当前可见图索引（按滚动位置更新，驱动圆点/计数/箭头）
@@ -622,6 +716,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 社区源（镜像链下载）+ 官方应用（daemon cloud 通道免登录下载：FPK 型
   // 直接落盘，TPK 型目录重打包为标准 FPK——0.6.261 起官方全类型可用）。
   const downloadFpkVisible = !!app && !noSource;
+  // 0.6.325 C9：首次本地缓存派生未完成 → 按钮显示「检查中…」并禁用（不响应点击）。
+  // 下载中/暂停/安装中优先级更高，不落此态。
+  const fpkChecking = downloadFpkVisible && !localFpkChecked && !dlBusy && !dlPaused && !localInstalling;
 
   // 切换应用时重新拉 README
   useEffect(() => {
@@ -1462,8 +1559,9 @@ mdsSim && "mds-sim")}>
               // 到底层滚动框），只有胶囊本体 pointer-events-auto（它才是按钮）
               <div className={cn("pointer-events-none pl-2 pr-2 pt-2 pb-0 sm:p-2", actionRow && "mt-2")}>
                 <button
-                  onClick={() => (dlPaused ? handleDlResume() : dlBusy ? handleDlPause() : handleDownloadFpk())}
-                  title={dlBusy ? '暂停下载' : dlPaused ? '继续下载（断点续传）' : '下载 FPK 到本地缓存'}
+                  onClick={() => (fpkChecking ? undefined : dlPaused ? handleDlResume() : dlBusy ? handleDlPause() : localFpkName ? handleLocalInstall() : handleDownloadFpk())}
+                  disabled={localInstalling || fpkChecking}
+                  title={fpkChecking ? '正在检查本地缓存…' : dlBusy ? '暂停下载' : dlPaused ? '继续下载（断点续传）' : localFpkName ? '直接安装已下载的 FPK（不重新下载）' : '下载 FPK 到本地缓存'}
                   // 0.6.319d（用户定稿）：实心蓝与整体不搭，回退浅蓝玻璃（318 定稿款）
                   className="pointer-events-auto relative w-full h-10 overflow-hidden rounded-xl bg-primary/15 text-primary border border-primary/40 text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:bg-primary/25 active:opacity-80 transition-colors"
                 >
@@ -1478,10 +1576,20 @@ mdsSim && "mds-sim")}>
                     <span className="absolute inset-0 animate-pulse bg-primary-foreground/15" />
                   )}
                   <span className="relative inline-flex items-center">
-                    {dlBusy ? (
+                    {fpkChecking ? (
+                      // 0.6.325 C9：首次派生未完成——占位「检查中…」，不误闪「下载 fpk」
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />检查中…</>
+                    ) : dlBusy ? (
                       <><Pause className="h-3.5 w-3.5" />{dlPct != null ? `暂停 ${dlPct}%` : dlBytes > 0 ? `下载中 ${formatBytes(dlBytes)}` : '暂停'}</>
                     ) : dlPaused ? (
                       <><Play className="h-3.5 w-3.5" />继续</>
+                    ) : localInstalling ? (
+                      // 0.6.325 C5：点击「已下载」直接安装中（SSE 消息行）
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />{localInstallMsg || '安装中'}</>
+                    ) : localFpkName ? (
+                      // 0.6.325 C5（用户定稿）：FPK 已在本机缓存 →「已下载」，
+                      // 点击=直接安装该缓存文件（不重新下载）
+                      <><Check className="h-3.5 w-3.5" />已下载</>
                     ) : (
                       // 0.6.319F（用户定稿）：idle 态去 Download 箭头只留文字（暂停/继续态图标非箭头，保留）
                       <span>下载 fpk</span>
@@ -1563,6 +1671,22 @@ mdsSim && "mds-sim")}>
               （56px 钮 + ml-9 → 笔画中心落在屏幕 x≈14，露出区中点 12 的右侧） */}
           <ChevronLeft className="ml-9 h-5 w-5" strokeWidth={2.5} />
         </button>
+        {/* 0.6.325 C5：「已下载」直接安装的向导（必填字段无默认值时弹出，
+            与 FpkDownloads 组件同一 WizardDialog；必须在 DialogContent 内——
+            Radix 会把对话框外 DOM 置 inert） */}
+        {localWizardDef && localFpkName && (
+          <WizardDialog
+            appDisplayName={localWizardDef.appname || localFpkName}
+            wizard={localWizardDef}
+            loading={false}
+            onCancel={() => setLocalWizardDef(null)}
+            onConfirm={(params) => {
+              const name = localFpkName;
+              setLocalWizardDef(null);
+              runLocalInstall(name, params);
+            }}
+          />
+        )}
       </DialogContent>
 
       {/* 预览图灯箱：createPortal 挂到 document.body + z-[100]，

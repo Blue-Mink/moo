@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, deleteFpkDownload, uploadFpkDownload, installFpkDownload, fetchFpkDownloadWizard, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type FpkDownloadFile, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type AppWizard, type WizardParam, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
@@ -34,7 +34,10 @@ import NotifySettingsTab from './NotifySettingsTab'
 import LogSettingsTab from './LogSettingsTab'
 import ReorderList from './ReorderList'
 import GearTimePicker from './GearTimePicker'
-import WizardDialog from './WizardDialog'
+// 0.6.325 C4：已下载 FPK 列表段（含安装向导）抽入独立组件
+import FpkDownloads from './FpkDownloads'
+// 0.6.325 C1：卷显示名优先级（友好名 · /volN → 存储空间 N · /volN）
+import { volumeOptionLabel } from '../lib/volumeLabel'
 
 // 已装应用跨源更新策略（0.6.272）：三档横排切换
 // 0.6.284（用户定稿）：档位命名 严格/同源/同宗 → 严格/友好/宽松（语义不变，仅更口语）
@@ -67,6 +70,7 @@ const DOCK_TAB_ITEMS: { key: string; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'installed', label: '已安装' },
   { key: 'update_available', label: '有更新' },
+  { key: 'settings', label: '设置' },
 ];
 const DOCK_DEFAULT_ORDER = DOCK_TAB_ITEMS.map((t) => t.key);
 const SETTINGS_TAB_DEFAULT_ORDER = TABS.map((t) => t.key);
@@ -672,7 +676,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         dockerMirror === 'custom' ? customDockerMirror.trim() : '',
       );
       setDkApplyOpen(false);
-      toast.success(res.message || '已应用');
+      // 0.6.325 安全加固 R2：mirror=auto 时后端已回传实际选中源，明确告知用户
+      const picked = res.auto_label
+        ? `${res.auto_label}${typeof res.auto_latency_ms === 'number' ? `（${res.auto_latency_ms}ms）` : ''}`
+        : '';
+      toast.success(picked ? `${res.message || '已应用'} · 已选 ${picked}` : (res.message || '已应用'));
       void loadDkStatus();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '应用失败');
@@ -690,7 +698,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [autoUpdate, setAutoUpdate] = useState<boolean>(false);
   // 已装应用跨源更新策略（0.6.272）：严格/友好/宽松（替换 0.6.269 目录语言入口）
   const [updatePolicy, setUpdatePolicy] = useState<string>('strict');
-  // FPK 下载目录 + 已下载列表（设置页展示，可同步刷新）
+  // FPK 下载目录（0.6.325 C4：已下载列表段抽入 FpkDownloads 组件，此处只留
+  // 目录选择 + 轻量 dir 同步 + 上传；列表/安装/删除/向导/折叠态全在组件内）
   // 目录选择对话框：可下钻浏览（卷根 → 共享目录 → 任意子层），切换中状态
   const [dirApplying, setDirApplying] = useState(false);
   const [dirDialogOpen, setDirDialogOpen] = useState(false);
@@ -699,30 +708,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [browseAllowed, setBrowseAllowed] = useState(false);
   const [browseEntries, setBrowseEntries] = useState<{ name: string; path: string }[]>([]);
   const [browseLoading, setBrowseLoading] = useState(false);
-  const [fpkFiles, setFpkFiles] = useState<FpkDownloadFile[]>([]);
   const [fpkDir, setFpkDir] = useState<string>('');
-  const [fpkLoading, setFpkLoading] = useState(false);
-  const [fpkRemoving, setFpkRemoving] = useState<string | null>(null);
-  // 已下载列表折叠（本地持久化）
-  const [fpkListCollapsed, setFpkListCollapsed] = useState<boolean>(() => {
-    try {
-      // 默认折叠（无持久化记录时）；用户手动展开/折叠后按保存值
-      const v = localStorage.getItem('fpk-list-collapsed');
-      return v === null ? true : v === '1';
-    } catch { return true; }
-  });
-  const toggleFpkList = () => {
-    setFpkListCollapsed((v) => {
-      try { localStorage.setItem('fpk-list-collapsed', v ? '0' : '1'); } catch { /* ignore */ }
-      return !v;
-    });
-  };
-  // 直接安装某个已下载 FPK（SSE 进度）
-  const [fpkInstalling, setFpkInstalling] = useState<string | null>(null);
-  const [fpkInstallMsg, setFpkInstallMsg] = useState<string>('');
-  // 已下载 FPK 的安装向导（必填字段无默认值时弹 WizardDialog 收集参数）
-  const [fpkWizardName, setFpkWizardName] = useState<string | null>(null);
-  const [fpkWizardDef, setFpkWizardDef] = useState<AppWizard | null>(null);
+  // 列表段（FpkDownloads）刷新信号：自增即静默重拉（上传完成/保存设置/切换目录）
+  const [fpkRefreshSignal, setFpkRefreshSignal] = useState(0);
   const [storeInfo, setStoreInfo] = useState<StoreUpdateInfo | null>(null);
   // 0.6.299：探测失败（last_error）≠ 无更新——chip 显示琥珀告警态，点击强制重探
   const [probeRetrying, setProbeRetrying] = useState(false);
@@ -908,45 +896,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     return () => window.clearTimeout(t);
   }, [kbOpen]);
 
-  // FPK 下载列表（打开设置/保存目录后同步刷新）
-  const loadFpkFiles = useCallback(async () => {
-    setFpkLoading(true);
+  // FPK 下载目录轻量同步（0.6.325 C4：列表本体在 FpkDownloads 组件内自拉，
+  // 设置页只需 dir 给目录选择卡；上传/保存/切目录后另经 refreshSignal 重拉列表）
+  const loadFpkDir = useCallback(async () => {
     try {
       const res = await fetchFpkDownloads();
-      setFpkFiles(res.files || []);
       setFpkDir(res.dir || '');
-    } catch { /* 目录不存在等场景：显示空列表 */ }
-    finally { setFpkLoading(false); }
+    } catch { /* 目录不存在等场景：保持旧值 */ }
   }, []);
-  const handleFpkRemove = async (name: string) => {
-    if (fpkRemoving) return;
-    setFpkRemoving(name);
-    try {
-      await deleteFpkDownload(name);
-      setFpkFiles((prev) => prev.filter((f) => f.name !== name));
-      toast.success(`已删除 ${name}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '删除失败');
-    } finally {
-      setFpkRemoving(null);
-    }
-  };
-  // 手动刷新已下载列表（带 toast 反馈，避免"点了没反应"的观感）
-  const handleFpkRefresh = async () => {
-    if (fpkLoading) return;
-    setFpkLoading(true);
-    try {
-      const res = await fetchFpkDownloads();
-      const files = res.files || [];
-      setFpkFiles(files);
-      setFpkDir(res.dir || '');
-      toast.success(`已刷新：${files.length} 个 FPK`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '刷新失败');
-    } finally {
-      setFpkLoading(false);
-    }
-  };
   // 321R7 E：上传本地 FPK（手机/电脑文件）到下载目录，上传完即入列表可装
   const [fpkUploading, setFpkUploading] = useState(false);
   const fpkFileRef = useRef<HTMLInputElement>(null);
@@ -956,7 +913,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     try {
       const r = await uploadFpkDownload(file);
       toast.success(r.replaced ? `已覆盖 ${r.name}` : `已上传 ${r.name}（可在下方列表安装）`);
-      await handleFpkRefresh();
+      setFpkRefreshSignal((n) => n + 1); // 列表段（FpkDownloads）静默重拉
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '上传失败');
     } finally {
@@ -998,7 +955,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     try {
       await updateSettings({ download_dir: path });
       toast.success('已切换 FPK 下载目录（已有缓存已迁移）');
-      loadFpkFiles();
+      loadFpkDir();
+      setFpkRefreshSignal((n) => n + 1); // 目录已迁移 → 列表段重拉
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '切换下载目录失败');
     } finally {
@@ -1154,52 +1112,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setRestoring(false);
     }
   };
-  // 直接安装已下载的 FPK（走 SSE 进度；文件保留在缓存中）
-  const runFpkInstall = (name: string, wizard?: WizardParam[]) => {
-    if (fpkInstalling) return;
-    setFpkInstalling(name);
-    setFpkInstallMsg('准备安装...');
-    installFpkDownload(name, (ev) => {
-      if (ev.step === 'error' || ev.error) return;
-      if (ev.message) setFpkInstallMsg(ev.message);
-    }, wizard).promise
-      .then(() => {
-        toast.success(`已安装 ${name}`);
-        onCatalogChanged?.();
-        loadFpkFiles();
-      })
-      .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : '安装失败';
-        toast.error(msg);
-      })
-      .finally(() => {
-        setFpkInstalling(null);
-        setFpkInstallMsg('');
-      });
-  };
-
-  const handleFpkInstall = (name: string) => {
-    // 先探测安装向导（与商店同一模式）：必填无默认值的字段必须弹向导
-    // 收集用户输入，否则 daemon 侧会拒装。
-    if (fpkInstalling) return;
-    setFpkInstalling(name);
-    setFpkInstallMsg('加载安装向导...');
-    fetchFpkDownloadWizard(name)
-      .then((wz) => {
-        if (wz.has_wizard && (wz.content?.length ?? 0) > 0) {
-          setFpkWizardDef(wz);
-          setFpkWizardName(name);
-          setFpkInstalling(null);
-          setFpkInstallMsg('');
-          return;
-        }
-        runFpkInstall(name);
-      })
-      .catch(() => {
-        // 探测失败不阻塞安装 → 直接装，由服务端 AutoFill 报明确错误
-        runFpkInstall(name);
-      });
-  };
+  // 直接安装已下载的 FPK / 安装向导（0.6.325 C4：整段抽入 FpkDownloads 组件）
 
   // 后台下载列表（进行中的「下载 fpk」任务：可暂停/继续，参考官方下载中心）
   const [dlTasks, setDlTasks] = useState<BackgroundTask[]>([]);
@@ -1451,12 +1364,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         if (cancelled) return;
         setInterval(settings.check_interval_hours);
         const m = settings.mirror || 'gh-proxy';
-        const dm = settings.docker_mirror || 'daocloud';
+        // 0.6.325 C12：docker_mirror 按「后端下发的选项集合」判定——空值或
+        // 未知 key（如已下线的 registry-cyou）回落 auto，避免下拉显示空白/
+        // 生 key。后端 GET 已做同样归一，此处为前端侧双保险。
+        const dmOpts = settings.docker_mirror_options || [];
+        const dmRaw = settings.docker_mirror || '';
+        const dm = dmOpts.some((o) => o.key === dmRaw) ? dmRaw : 'auto';
         setMirror(m);
         setMirrorOptions(settings.mirror_options || []);
         setMirrorIncludeDirect(!!settings.mirror_include_direct);
         setDockerMirror(dm);
-        setDockerMirrorOptions(settings.docker_mirror_options || []);
+        setDockerMirrorOptions(dmOpts);
         setCustomGithubMirror(settings.custom_github_mirror || '');
         setCustomDockerMirror(settings.custom_docker_mirror || '');
         setProxyEnabled(!!settings.proxy_enabled);
@@ -1492,10 +1410,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       }
     };
     loadData();
-    loadFpkFiles();
+    loadFpkDir();
     loadBackups();
     return () => { cancelled = true; };
-  }, [open, loadFpkFiles, loadBackups]);
+  }, [open, loadFpkDir, loadBackups]);
 
   const handleGhSpeedTest = async () => {
     setGhChecking(true);
@@ -1584,7 +1502,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         proxy_url: proxyUrl.trim(),
       });
       toast.success('设置已保存');
-      loadFpkFiles();
+      loadFpkDir();
+      setFpkRefreshSignal((n) => n + 1); // 列表段（FpkDownloads）重拉
       // 0.6.312：更新策略变化 → 目录里每张卡的 has_update/候选源按新策略重算，
       // 触发主列表重拉（App 侧 onCatalogChanged 带 2.5s 延迟，给后端重算留时间）
       if (updatePolicy !== loadedUpdatePolicyRef.current) {
@@ -1649,7 +1568,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           - pan（壳平移）：聚焦期间整体隐藏兜底。 */}
       <DialogContent
         style={dialogKeyboardStyle}
-        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex", // 0.6.306（用户定稿）：标准主题玻璃化（与详情页同款 /70+blur-2xl），
+        className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex sm:[&>button.absolute]:z-20", // 0.6.325-C15（用户报「网页端极光模式下设置页右上角 × 关不掉」）：
+// 极光分支顶栏是 `relative z-10`（为压在 aurora 玻璃遮罩之上，桌面也生效），
+// Radix 关闭钮 `button.absolute` 无 z-index（auto）→ 命中测试被顶栏右侧
+// 版本 chip 行（ml-auto pr-1 sm:pr-12）抢走，点 × 等于点顶栏空白区、对话框
+// 不关（标准主题桌面顶栏无 z-10，故只有极光模式中招；实测 elementFromPoint
+// = 版本 chip 行 DIV）。桌面给 × 抬到 z-20（> 顶栏 10）= 恢复可点；移动端
+// （sm 以下）本就不渲染 ×，零影响。
+// 0.6.306（用户定稿）：标准主题玻璃化（与详情页同款 /70+blur-2xl），
 // 极光路径 aurora-1 不变。
 // 0.6.313 A2（飞牛 app WebView 毛玻璃修复，WEBVIEW_SETTINGS_BUG.md §6）：
 // 移动端（<640）玻璃层移到下方内层 absolute 子层——backdrop-filter 不再
@@ -2228,6 +2154,12 @@ mdsSim && "mds-sim")}>
                                 将把 <b>{dockerMirror === 'custom' ? (customDockerMirror || '自定义地址') : dockerMirrorLabel(dockerMirror)}</b>{dockerMirror === 'custom' ? `（${customDockerMirror}）` : ''} 写入 /etc/docker/daemon.json 的 registry-mirrors。
                               </p>
                             )}
+                            {/* 0.6.325 安全加固 R2：智能选源=由系统替你选第三方源，须知情 */}
+                            {dockerMirror === 'auto' ? (
+                              <p className="text-muted-foreground">
+                                智能选源会在<b>应用时</b>对候选源逐个测速，并把<b>最快且可达</b>的一个写入配置；候选含第三方公共加速源，<b>镜像拉取请求会经该源</b>。实际选中结果会在应用后提示。
+                              </p>
+                            ) : null}
                             <p>
                               需要<b>重启 Docker</b>：本机所有容器会停止数秒后自动恢复（Docker 类应用短暂不可用）。写前自动备份，任一步失败自动回滚。
                             </p>
@@ -2479,7 +2411,11 @@ mdsSim && "mds-sim")}>
                             {volumeOptions.map((vol) => (
                               <SelectItem key={vol.index} value={vol.index.toString()}>
                                 <span className="flex items-center gap-2">
-                                  <span>存储空间 {vol.index}</span>
+                                  {/* 0.6.325 C1：卷友好名优先级（有 name=「name · /volN」→ 无=「存储空间 N · /volN」）；
+                                      长名截断（max-w+truncate+title 悬停全名） */}
+                                  <span className="max-w-[180px] truncate" title={volumeOptionLabel(vol)}>
+                                    {volumeOptionLabel(vol)}
+                                  </span>
                                   {vol.total_bytes > 0 && (
                                     <span className="text-xs text-muted-foreground">
                                       {formatBytes(vol.free_bytes)} 可用 / {formatBytes(vol.total_bytes)}
@@ -2528,13 +2464,11 @@ mdsSim && "mds-sim")}>
                         当前生效：{fpkDir}
                       </p>
                     )}
-                    {/* 已下载的 FPK 小节（刷新/展开按钮在此，不再占卡片标题行） */}
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        已下载的 FPK{fpkFiles.length > 0 ? `（${fpkFiles.length}）` : ''}
-                      </span>
-                      {/* 322：上传/刷新/折叠三钮间距再调宽（321R8 gap-1.5=6px 用户仍反馈易误触）→ gap-3=12px */}
-                      <div className="flex items-center gap-3">
+                    {/* 0.6.325 C4：已下载列表段抽入 FpkDownloads 组件（state/handler/渲染全在
+                        组件内）；设置页只保留上传钮（uploadSlot）与进行中的下载任务块
+                        （tasksBlock），布局与 C4 前一致；刷新/折叠/列表/安装向导全在组件 */}
+                    <FpkDownloads
+                      uploadSlot={<>
                         {/* 321R7 E：上传本地 FPK（手机/电脑文件）→ 入列表可直接安装 */}
                         <input
                           ref={fpkFileRef}
@@ -2556,33 +2490,9 @@ mdsSim && "mds-sim")}>
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                             : <Upload className="h-3.5 w-3.5" />}
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={handleFpkRefresh}
-                          disabled={fpkLoading}
-                          title="刷新已下载 FPK 列表"
-                          aria-label="刷新已下载列表"
-                        >
-                          <RefreshCw className={`h-3.5 w-3.5 ${fpkLoading ? 'animate-spin text-primary' : ''}`} />
-                        </Button>
-                        {fpkFiles.length > 0 && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={toggleFpkList}
-                            title={fpkListCollapsed ? '展开已下载列表' : '折叠已下载列表'}
-                            aria-label={fpkListCollapsed ? '展开已下载列表' : '折叠已下载列表'}
-                          >
-                            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", fpkListCollapsed && "-rotate-90")} />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    {/* 后台下载（进行中/已暂停）：下载可暂停/继续（按钮与安装同款，下载中显示「暂停」） */}
-                    {dlTasks.length > 0 && (
+                      </>}
+                      // 后台下载（进行中/已暂停）：下载可暂停/继续（按钮与安装同款，下载中显示「暂停」）
+                      tasksBlock={dlTasks.length > 0 && (
                       <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 divide-y divide-border/40">
                         {dlTasks.map((t) => {
                           const paused = t.status === 'paused';
@@ -2658,129 +2568,64 @@ mdsSim && "mds-sim")}>
                           );
                         })}
                       </div>
-                    )}
-                    {fpkFiles.length > 0 && (fpkListCollapsed ? (
-                      <button
-                        type="button"
-                        onClick={toggleFpkList}
-                        className="w-full rounded-lg border border-border/40 px-3 py-2 text-left text-[11px] text-muted-foreground hover:text-foreground"
-                      >
-                        已下载 {fpkFiles.length} 个 FPK · 点击展开
-                      </button>
-                    ) : (
-                      <div className="max-h-60 overflow-y-auto rounded-lg border border-border/40 divide-y divide-border/40">
-                        {fpkFiles.map((f) => {
-                          const dn = (f.display_name || '').trim();
-                          const showName = !!dn && dn.toLowerCase() !== f.name.replace(/\.fpk$/i, '').toLowerCase();
-                          return (
-                          <div key={f.name} className="flex items-center gap-2.5 px-3 py-2.5">
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-xs font-medium" title={f.name}>
-                                {f.name}
-                              </div>
-                              {showName && (
-                                <div className="truncate text-xs text-foreground/80" title={dn}>
-                                  {dn}
-                                </div>
-                              )}
-                              <div className="text-[11px] text-muted-foreground">
-                                {fpkInstalling === f.name && fpkInstallMsg
-                                  ? <span className="text-primary">{fpkInstallMsg}</span>
-                                  : `${formatBytes(f.size)} · ${f.mod_at ? new Date(f.mod_at).toLocaleString() : ''}`
-                                }
-                              </div>
-                            </div>
-                            {fpkInstalling === f.name ? (
-                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-                            ) : f.installed ? (
-                              <span
-                                className="shrink-0 rounded-full bg-muted/80 border border-white/10 px-2 h-6 inline-flex items-center text-[11px] font-medium text-muted-foreground"
-                                title="该应用当前已安装"
-                              >
-                                已安装
-                              </span>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 shrink-0 px-2 text-xs text-primary hover:bg-primary/10"
-                                onClick={() => handleFpkInstall(f.name)}
-                                disabled={!!fpkInstalling}
-                                title="直接安装该 FPK（不重新下载）"
-                              >
-                                安装
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-red-500"
-                              onClick={() => handleFpkRemove(f.name)}
-                              disabled={fpkRemoving === f.name || !!fpkInstalling}
-                              title="删除该 FPK 缓存"
-                              aria-label={`删除 ${f.name}`}
-                            >
-                              {fpkRemoving === f.name
-                                ? <Loader2 className="h-3 w-3 animate-spin" />
-                                : <Trash2 className="h-3 w-3" />}
-                            </Button>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    ))}
+                      )}
+                      refreshSignal={fpkRefreshSignal}
+                      onCatalogChanged={onCatalogChanged}
+                    />
                   </div>
                 </div>
 
 
-                {/* 自动更新应用（安装位置下方小卡片：周期检查时后台自动检测+安装，
-                    无需打开应用；排除已忽略应用与商店自身） */}
+                {/* 更新策略（0.6.325 C2：「自动更新应用」+「更新检测策略」两卡合一卡——
+                    第一行=自动更新开关+说明；下方=严格/友好/宽松三胶囊+选中说明。
+                    所有 handler/state/0.6.312 重算逻辑原样不动，只改渲染结构；
+                    桌面+390/360 均无溢出（开关行 min-w-0 换行兜底，胶囊行 360 实测 3 列放得下） */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <label className="text-sm font-medium leading-none flex items-center gap-1.5">
-                        <Zap className="h-3.5 w-3.5 text-muted-foreground" />
-                        自动更新应用
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        周期检查时自动在后台检测并安装更新，无需打开应用
-                      </p>
-                    </div>
-                    <Switch checked={autoUpdate} onCheckedChange={setAutoUpdate} />
-                  </div>
-                </div>
-
-                {/* 跨源更新策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
-                    （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
-                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium leading-none flex items-center gap-1.5">
-                      <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
-                      更新检测策略
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium leading-none">
+                      更新策略
                     </label>
-                    <p className="text-xs text-muted-foreground">
-                      {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
-                    </p>
-                    {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
-                        bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
-                        语言与顶部 tab 一致 */}
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {UPDATE_POLICY_OPTIONS.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          onClick={() => setUpdatePolicy(o.value)}
-                          className={cn(
-                            'h-8 rounded-full text-xs font-medium transition-colors',
-                            // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
-                            updatePolicy === o.value
-                              ? 'bg-primary/15 text-primary border border-primary/40'
-                              : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
-                          )}
-                        >
-                          {o.label}
-                        </button>
-                      ))}
+                    {/* 第一行：自动更新应用（周期检查发现更新时后台自动检测+安装，
+                        无需打开应用；排除已忽略应用与商店自身）——label 左、Switch 右对齐 */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                          <Zap className="h-3.5 w-3.5 text-muted-foreground" />
+                          自动更新应用
+                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          周期检查时自动在后台检测并安装更新，无需打开应用
+                        </p>
+                      </div>
+                      <Switch checked={autoUpdate} onCheckedChange={setAutoUpdate} className="shrink-0 mt-0.5" />
+                    </div>
+                    {/* 跨源更新检测策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
+                        （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
+                    <div className="space-y-2">
+                      {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
+                          bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
+                          语言与顶部 tab 一致 */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {UPDATE_POLICY_OPTIONS.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            onClick={() => setUpdatePolicy(o.value)}
+                            className={cn(
+                              'h-8 rounded-full text-xs font-medium transition-colors',
+                              // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
+                              updatePolicy === o.value
+                                ? 'bg-primary/15 text-primary border border-primary/40'
+                                : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
+                            )}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -3026,25 +2871,7 @@ mdsSim && "mds-sim")}>
         </div>
       </DialogContent>
     </Dialog>
-    {/* 已下载 FPK 安装向导：必填字段（如备份目录）无默认值时弹出，
-        确认后带参数安装（与应用源 WizardDialog 同一组件） */}
-    {fpkWizardName && fpkWizardDef && (
-      <WizardDialog
-        appDisplayName={fpkWizardDef.appname || fpkWizardName}
-        wizard={fpkWizardDef}
-        loading={false}
-        onCancel={() => {
-          setFpkWizardName(null);
-          setFpkWizardDef(null);
-        }}
-        onConfirm={(params) => {
-          const name = fpkWizardName;
-          setFpkWizardName(null);
-          setFpkWizardDef(null);
-          runFpkInstall(name, params);
-        }}
-      />
-    )}
+    {/* 已下载 FPK 安装向导：0.6.325 C4 随列表段移入 FpkDownloads 组件内部 */}
     </>
   );
 };

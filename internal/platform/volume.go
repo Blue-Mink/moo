@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// defaultVolumeFn 是 DefaultVolume 的测试缝：单测替换它以模拟不同卷布局下
+// 的探测结果（配置卷 >0 的优先级在调用方 InstallFpk 处理，不经此缝）。
+var defaultVolumeFn = DefaultVolume
+
 // DefaultVolume 解析默认安装存储卷：
 // 1) appcenter-cli default-volume（权威来源）
 // 2) 唯一已挂载卷（df 探测 /volN）

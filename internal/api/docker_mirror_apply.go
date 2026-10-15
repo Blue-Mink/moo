@@ -16,6 +16,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"moo/internal/config"
@@ -110,6 +112,9 @@ func (s *Server) dockerMirrorApply(w http.ResponseWriter, r *http.Request) {
 	in.CustomURL = strings.TrimSpace(in.CustomURL)
 
 	var url string
+	// auto 优选结果（仅 mirror=auto 时有值，透出给前端展示实际选源）
+	var autoKey, autoLabel string
+	var autoLat int64
 	switch in.Mirror {
 	case "direct":
 		url = "" // 直连 = 清空 registry-mirrors
@@ -119,8 +124,22 @@ func (s *Server) dockerMirrorApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		url = strings.TrimRight(in.CustomURL, "/") + "/"
+	case "auto":
+		// 0.6.325 F2：智能 = 并发实测各 Docker 加速源，选最快可达者应用；
+		// 全部不可达 = 诚实报错（列出尝试数量），不落任何配置。
+		actx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		picked, lat, aerr := pickDockerAutoMirror(actx, config.DockerMirrorOptions())
+		if aerr != nil {
+			writeErr(w, http.StatusBadGateway, aerr)
+			return
+		}
+		url, autoKey, autoLabel, autoLat = dockerMirrorApplyURL(picked), picked.Key, picked.Label, lat
 	default:
-		url = config.MirrorURL(config.DockerMirrorOptions(), in.Mirror)
+		// 0.6.325 G1：手选无 URL 字段的源（kspeeder）与 auto 分支同源——
+		// 先经 dockerMirrorApplyURL 映射（kspeeder → 本地代理地址），
+		// 选项不存在或映射后仍空才拒绝。此前手选 kspeeder 必 400。
+		url = dockerMirrorStaticURL(in.Mirror)
 		if url == "" {
 			writeErr(w, http.StatusBadRequest, fmt.Errorf("未知镜像: %s", in.Mirror))
 			return
@@ -131,13 +150,112 @@ func (s *Server) dockerMirrorApply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, map[string]any{
+	out := map[string]any{
 		"ok":       true,
 		"mirrors":  mirrorsForState(url),
 		"applied":  true,
 		"message":  "已应用，Docker 已重启",
 		"restarted": dockerServiceActive(),
-	})
+	}
+	if autoKey != "" {
+		out["auto_mirror"] = autoKey
+		out["auto_label"] = autoLabel
+		out["auto_latency_ms"] = autoLat
+		out["message"] = fmt.Sprintf("已应用智能优选 %s（%dms），Docker 已重启", autoLabel, autoLat)
+	}
+	writeJSON(w, out)
+}
+
+// dockerAutoProbeFn 智能（auto）优选的单源探测：GET <base>v2/ 计延迟，
+// 200/401 = 可达（与 mirrors.go probeDk 判定一致）。kspeeder 无 URL，
+// 按既有逻辑探本地回环 127.0.0.1:5443（自签名证书走 dkLocalClient）。
+// 变量形态 = 单测注入缝。
+var dockerAutoProbeFn = func(ctx context.Context, opt config.MirrorOption) (latencyMS int64, ok bool) {
+	base, client := opt.URL, http.DefaultClient
+	if opt.Key == "kspeeder" {
+		base = "https://" + config.KSpeederLocalAddr + "/"
+		client = dkLocalClient
+	}
+	start := time.Now()
+	resp, err := dkGet(ctx, base+"v2/", nil, client)
+	lat := time.Since(start).Milliseconds()
+	if err != nil {
+		return lat, false
+	}
+	_ = resp.Body.Close()
+	return lat, resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusUnauthorized
+}
+
+// dockerMirrorStaticURL 「手选源」分支的地址解析（0.6.325 G1）：
+// 先取选项自带 URL；无 URL 字段的源（kspeeder）走 dockerMirrorApplyURL
+// 映射。选项不存在或映射后仍空 = 返回 ""（调用方 400）。
+func dockerMirrorStaticURL(mirror string) string {
+	if u := config.MirrorURL(config.DockerMirrorOptions(), mirror); u != "" {
+		return u
+	}
+	for _, opt := range config.DockerMirrorOptions() {
+		if opt.Key == mirror {
+			return dockerMirrorApplyURL(opt)
+		}
+	}
+	return ""
+}
+
+// dockerMirrorApplyURL 源对应的 registry-mirrors 写入地址：
+// 有 URL 直接用；kspeeder = 其本地代理地址（无 URL 字段但可写入 daemon.json）。
+func dockerMirrorApplyURL(opt config.MirrorOption) string {
+	if opt.URL != "" {
+		return opt.URL
+	}
+	if opt.Key == "kspeeder" {
+		return "https://" + config.KSpeederLocalAddr + "/"
+	}
+	return ""
+}
+
+// pickDockerAutoMirror 并发探测候选 Docker 加速源（有 URL 的 + kspeeder
+// 本地源；auto/custom/direct 等虚拟项跳过），返回延迟最低的可达源。
+// 全部失败 = 诚实报错（列出尝试数量）。
+func pickDockerAutoMirror(ctx context.Context, opts []config.MirrorOption) (config.MirrorOption, int64, error) {
+	var cands []config.MirrorOption
+	for _, o := range opts {
+		if o.URL != "" || o.Key == "kspeeder" {
+			cands = append(cands, o)
+		}
+	}
+	if len(cands) == 0 {
+		return config.MirrorOption{}, 0, errors.New("智能选源失败：没有可探测的 Docker 加速源")
+	}
+	type probeRes struct {
+		opt config.MirrorOption
+		lat int64
+		ok  bool
+	}
+	results := make([]probeRes, len(cands))
+	var wg sync.WaitGroup
+	for i, o := range cands {
+		wg.Add(1)
+		go func(i int, o config.MirrorOption) {
+			defer wg.Done()
+			lat, ok := dockerAutoProbeFn(ctx, o)
+			results[i] = probeRes{opt: o, lat: lat, ok: ok}
+		}(i, o)
+	}
+	wg.Wait()
+	var best *probeRes
+	for i := range results {
+		r := &results[i]
+		if !r.ok {
+			continue
+		}
+		if best == nil || r.lat < best.lat {
+			best = r
+		}
+	}
+	if best == nil {
+		return config.MirrorOption{}, 0, fmt.Errorf("智能选源失败：%d 个 Docker 加速源全部不可达（未应用任何配置，请稍后重试或手动指定加速源）", len(cands))
+	}
+	return best.opt, best.lat, nil
 }
 
 // applyDockerMirrors 备份 → 合并写 daemon.json → 重启 → 验证；失败自动回滚。

@@ -1,20 +1,26 @@
 import React from 'react';
-import { Compass, LayoutGrid, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Compass, LayoutGrid, CheckCircle2, RefreshCw, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type MobileTabKey = 'recommended' | 'all' | 'installed' | 'update_available';
+// 0.6.325 C6（用户令）：「下载」移出 Dock=顶栏钮+主页上方弹窗；「设置」从顶栏
+// 齿轮移入 Dock 末位（两者换位）。settings 不参与「Dock 栏排序」（固定末位，
+// orderTabs 的缺 key 追加逻辑天然落到末尾）。
+export type MobileTabKey = 'recommended' | 'all' | 'installed' | 'update_available' | 'settings';
 
 const TABS: { key: MobileTabKey; label: string; icon: React.ElementType }[] = [
   { key: 'recommended', label: '发现', icon: Compass },
   { key: 'all', label: '全部', icon: LayoutGrid },
   { key: 'installed', label: '已安装', icon: CheckCircle2 },
   { key: 'update_available', label: '有更新', icon: RefreshCw },
+  { key: 'settings', label: '设置', icon: Settings },
 ];
 
 interface MobileDockProps {
   active: MobileTabKey;
   onSelect: (key: MobileTabKey) => void;
   updateCount: number;
+  /** 商店（Moo 自身）有可用更新 → 「设置」图标右上角红点（原顶栏齿轮同款）。 */
+  storeHasUpdate?: boolean;
   /** 用户自定义顺序（系统设置「Dock 栏排序」；缺省 = TABS 默认序）。 */
   order?: string[];
   /**
@@ -48,7 +54,7 @@ function orderTabs(order?: string[]): typeof TABS {
  * 距底 10px + 刘海屏安全区。激活 = iOS 蓝图标+文字+浅色底，未激活 = 灰色；
  * 「有更新」带红色角标。
  */
-const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, order, bottomOffset = 0 }) => {
+const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, storeHasUpdate = false, order, bottomOffset = 0 }) => {
   const tabs = orderTabs(order);
   return (
   <nav
@@ -100,6 +106,10 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
                 >
                   {updateCount > 99 ? '99+' : updateCount}
                 </span>
+              )}
+              {/* 0.6.325 C6：商店更新红点（原移动端顶栏设置齿轮同款，随「设置」入 Dock） */}
+              {t.key === 'settings' && storeHasUpdate && (
+                <span className="absolute -top-1 -right-2.5 h-2 w-2 rounded-full bg-destructive" />
               )}
             </span>
             <span className={cn("text-[10px] leading-none", isActive && "font-semibold")}>{t.label}</span>

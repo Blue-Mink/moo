@@ -279,8 +279,11 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/backups/{name}/restore", s.requireAdmin(s.restoreBackup))
 	mux.HandleFunc("GET /api/settings/download-dirs", s.requireAdmin(s.downloadDirOptions))
 	mux.HandleFunc("GET /api/settings/download-dirs/browse", s.requireAdmin(s.browseDownloadDirs))
-	mux.HandleFunc("GET /api/mirrors/health", s.mirrorHealth)
-	mux.HandleFunc("GET /api/mirrors/docker/health", s.dockerMirrorHealth)
+	// 0.6.325 安全加固 R3：两个镜像健康端点由 requireAdmin 守卫（此前无鉴权）。
+	// 前端调用点仅管理员设置页（GitHub/Docker 测速按钮与自动加载）；
+	// GET 版 requireAdmin 只校验 Trusted+IsAdmin，不要求 X-Moo-Admin 头。
+	mux.HandleFunc("GET /api/mirrors/health", s.requireAdmin(s.mirrorHealth))
+	mux.HandleFunc("GET /api/mirrors/docker/health", s.requireAdmin(s.dockerMirrorHealth))
 	mux.HandleFunc("POST /api/mirrors/check", s.requireAdmin(s.mirrorsCheck))
 	// 0.6.269 Docker 优选接入：把选中的镜像写入系统 daemon.json 并重启（可回滚）
 	mux.HandleFunc("GET /api/settings/docker-mirror/status", s.requireAdmin(s.dockerMirrorStatus))

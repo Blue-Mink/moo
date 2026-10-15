@@ -2,6 +2,9 @@
 build/
 dist/
 *.fpk
+# FPK 变体产物（批次备份/基线，如 moo_0.6.325_x86.fpk.base325-preG / .preC10）
+# 注意：已跟踪的 moo_0.4.1_x86.fpk.orig-baseline 不受影响（ignore 不改已跟踪文件）
+*.fpk.*
 
 # 前端
 node_modules/

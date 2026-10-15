@@ -98,23 +98,34 @@ func (f *fpkLocal) SetExtraDirs(dirs []string) {
 }
 
 // fpkStorageDirs 扫描各卷的 FPK 存放目录 + 运行时注册的额外目录。
+// 0.6.325-C16（用户报「内存/CPU 排查」引入的小缺陷）：**必须按绝对路径去重**。
+// 默认下载目录（/vol1/1000/fpk）既命中 glob 又被 SetExtraDirs 注册为额外目录
+// （用户把下载目录留在默认位置时的常态），不去重会让同一批包被枚举、重复解析
+// 一遍——线上实测日志出现「全量索引完成: 272 个包」而磁盘/接口都只有 136 个
+// （索引结果靠 appname 归并所以功能正确，但启动期白烧一遍 CPU、files 列表翻倍）。
 func fpkStorageDirs() []string {
 	var dirs []string
+	seen := make(map[string]bool, 4)
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			seen[p] = true
+			dirs = append(dirs, p)
+		}
+	}
 	for _, pat := range []string{"/vol*/1000/fpk", "/vol*/1000-*/fpk"} {
 		ms, _ := filepath.Glob(pat)
 		for _, m := range ms {
-			if st, err := os.Stat(m); err == nil && st.IsDir() {
-				dirs = append(dirs, m)
-			}
+			add(m)
 		}
 	}
 	extraDirsMu.Lock()
 	extra := append([]string(nil), extraDirs...)
 	extraDirsMu.Unlock()
 	for _, m := range extra {
-		if st, err := os.Stat(m); err == nil && st.IsDir() {
-			dirs = append(dirs, m)
-		}
+		add(m)
 	}
 	return dirs
 }
@@ -159,6 +170,31 @@ func (f *fpkLocal) listFiles() {
 	f.mu.Unlock()
 }
 
+// cleanManifestValue 清洗 manifest 字段值里常见的脏形态（0.6.325 C9）：
+//  1. 循环剥成对的外层引号（" 与 '，每剥一层再 TrimSpace）——部分包把值写成
+//     appname="docker-iyuuplus" / appname='x' 甚至 JSON 片段，未剥引号会让
+//     前端的严格等值匹配永不命中；
+//  2. 值内含未展开的模板变量（${...}）→ 返回空串——例如官方包的
+//     display_name="${common.display_name}"，展开前的占位串对展示与匹配都无意义。
+//
+// 只做清洗，不做其它改写；正常值原样返回（如 com.trek.app 保持不变）。
+func cleanManifestValue(v string) string {
+	v = strings.TrimSpace(v)
+	// 反复剥最外层成对引号，直到不再成对（支持多层包裹）
+	for len(v) >= 2 {
+		first := v[0]
+		if (first == '"' || first == '\'') && v[len(v)-1] == first {
+			v = strings.TrimSpace(v[1 : len(v)-1])
+			continue
+		}
+		break
+	}
+	if strings.Contains(v, "${") {
+		return ""
+	}
+	return v
+}
+
 // parseManifestText 解析 fnpack manifest（key = value 行格式）。
 func parseManifestText(data []byte) localFpkInfo {
 	info := localFpkInfo{}
@@ -172,7 +208,7 @@ func parseManifestText(data []byte) localFpkInfo {
 			continue
 		}
 		k = strings.ToLower(strings.TrimSpace(k))
-		v = strings.TrimSpace(v)
+		v = cleanManifestValue(v)
 		switch k {
 		case "appname":
 			info.AppName = v

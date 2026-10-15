@@ -22,6 +22,7 @@ import (
 
 	"moo/internal/config"
 	"moo/internal/lang"
+	"moo/internal/netguard"
 	"moo/internal/netx"
 	"moo/internal/notify"
 	"moo/internal/operation"
@@ -584,6 +585,9 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 		}
 		// 「自动更新应用」开启时，源刷新后顺势跑一轮自动更新（同一周期）。
 		if ctx.Err() == nil {
+			// 0.6.325 G3：源列表自动同步接线（开关关=直接跳过）——在
+			// autoUpdatePass 之前，新增的源本轮目录重建后即可参与更新判定。
+			s.autoSyncSourceList(ctx)
 			s.autoUpdatePass(ctx)
 		}
 		h := s.Cfg.CheckIntervalHours
@@ -1183,6 +1187,21 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 		go func(u string) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			// 0.6.325 安全加固 R1：列表驱动的加源先过 netguard.Public。
+			// 远端清单（内置/自建列表地址）若被篡改塞入内网地址，一旦入库
+			// 该主机 ≤30s 即进 netguard 豁免表 → 成为 SSRF 跳板。默认跳过
+			// 非公共地址；管理员可用「允许自动同步内网源」显式放开。
+			// 注意：必须在 AddSource 之前判定（先加后检无效）。
+			// 管理员在应用源页手工输入的源不走此路径，不受影响。
+			if !s.Cfg.SourceListAllowPrivate {
+				if _, gerr := netguard.Public(u); gerr != nil {
+					mu.Lock()
+					failed++
+					errs = append(errs, u+": 跳过（安全策略）"+gerr.Error())
+					mu.Unlock()
+					return
+				}
+			}
 			name := sourceNameFromURL(u)
 			if name == "" {
 				mu.Lock()
@@ -1218,18 +1237,51 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 	return
 }
 
-// syncList POST /api/sources/sync-list：抓内置/自定义社区源列表，自动添加新源。
-// 新源并发校验（并发 4、单源 25s 预算，AddSource 失败自动回滚）。
-func (s *Server) syncList(w http.ResponseWriter, r *http.Request) {
+// sourceListSyncOnce 抓源列表 → 解析 → 添加缺失源（0.6.325 G3 抽出，
+// syncList 手动按钮与 StartSourceAutoRefresh 自动接线共用同一套逻辑）。
+// fetchSourceList 失败即返回 err（调用方决定 502 还是记日志跳过）。
+func (s *Server) sourceListSyncOnce(ctx context.Context) (sourceListSyncResult, error) {
 	var res sourceListSyncResult
-	body, err := s.fetchSourceList(r.Context())
+	body, err := s.fetchSourceList(ctx)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
+		return res, err
 	}
 	urls := parseSourceList(body)
 	res.Fetched = len(urls)
 	res.Added, res.Already, res.Failed, res.AddedNames, res.Errors = s.addMissingSources(urls)
+	return res, nil
+}
+
+// autoSyncSourceList 「源列表自动同步」接线（0.6.325 G3，BUG-A1 修复）：
+// UI 开关（SourceManager.tsx:714 title「开启后每次目录检查自动添加官源
+// 列表中的新源」）此前后端零消费者——开关纯摆设。现接入周期刷新循环：
+// 开关关（SourceListOff=true）直接跳过；开则跑与手动「同步官源」按钮同源
+// 的 sourceListSyncOnce，任何失败单行日志跳过、绝不中断本轮刷新；
+// 有新增才落盘（added=0 时 addMissingSources 无变更，无需 Save）。
+func (s *Server) autoSyncSourceList(ctx context.Context) {
+	if s.Cfg.SourceListOff {
+		return
+	}
+	res, err := s.sourceListSyncOnce(ctx)
+	if err != nil {
+		log.Printf("[list-sync] 源列表自动同步跳过（获取失败）: %v", err)
+		return
+	}
+	if res.Added > 0 {
+		_ = s.Cfg.Save(dataDirOf(s))
+		log.Printf("[list-sync] 源列表自动同步：本轮新增 %d 个源（列表 %d 条 / 已存在 %d / 失败 %d）",
+			res.Added, res.Fetched, res.Already, res.Failed)
+	}
+}
+
+// syncList POST /api/sources/sync-list：抓内置/自定义社区源列表，自动添加新源。
+// 新源并发校验（并发 4、单源 25s 预算，AddSource 失败自动回滚）。
+func (s *Server) syncList(w http.ResponseWriter, r *http.Request) {
+	res, err := s.sourceListSyncOnce(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
 	_ = s.Cfg.Save(dataDirOf(s))
 	writeJSON(w, res)
 }
@@ -1520,12 +1572,23 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		Mirror:             s.Cfg.Mirror,
 		MirrorIncludeDirect: s.Cfg.MirrorIncludeDirect,
 		DockerMirror:       s.Cfg.DockerMirror,
+		// 0.6.325 H1(F2)：自定义镜像必须随 GET 透出——PUT 能写但 GET
+		// 不下发时，设置页水合恒空串，下次全量保存把 config 里的
+		// 自定义镜像静默抹掉（数据丢失级）。
+		CustomGitHubMirror: s.Cfg.CustomGitHubMirror,
+		CustomDockerMirror: s.Cfg.CustomDockerMirror,
 		InstallVolume:      s.Cfg.InstallVolume,
 		DownloadDir:        s.Cfg.DownloadDir,
 		// 0.6.255：面板账号已从设置中彻底移除（官方源 = 纯 OAuth，
 		// 授权时临时输入账号不落地）。以下字段不再下发：
 		// PanelEnabled / PanelUsername / PanelBaseURL / PanelHasPassword / PanelDecryptFailed
 		SourceListOff:       s.Cfg.SourceListOff,
+		// 0.6.325 H1(F3)：PUT 可写但 GET 不下发 → UI 永远显示空、
+		// SourceManager 回传恒 undefined。透出生效前的存储值
+		// （空串=未自定义，前端自行回落展示 DefaultSourceListURL）。
+		SourceListURL:       s.Cfg.SourceListURL,
+		// 0.6.325 安全加固 R1：随设置页下发（默认 false）。
+		SourceListAllowPrivate: s.Cfg.SourceListAllowPrivate,
 		SourceAutoCareOff:   s.Cfg.SourceAutoCareOff,
 		AutoUpdate:          s.Cfg.AutoUpdate,
 		CatalogLanguage:     orAuto(s.Cfg.CatalogLanguage),
@@ -1543,18 +1606,19 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		DkProbeMinutes:      s.Cfg.DkProbeMinutes,
 		ProxyEnabled:        s.Cfg.ProxyEnabled,
 		ProxyURL:            s.Cfg.ProxyURL,
-		DockOrder:           resolveOrder(s.Cfg.DockOrder, DockTabKeys),
+		DockOrder:           resolveOrderWithLegacy(s.Cfg.DockOrder, DockTabKeys, legacyDockTabKeys),
 		SettingsTabOrder:    resolveOrder(s.Cfg.SettingsTabOrder, SettingsTabKeys),
 	}
 	if set.Mirror == "" {
 		set.Mirror = "auto"
 	}
-	if set.DockerMirror == "" {
-		set.DockerMirror = "auto"
-	}
-	if set.InstallVolume == 0 {
-		set.InstallVolume = 1
-	}
+	// 0.6.325 C12：docker_mirror 读取侧归一 —— 空值或已下线/未知 key
+	// （如 registry-cyou）一律输出 auto，避免设置页下拉显示生 key/空白。
+	// 仅作用于 GET 输出，s.Cfg.DockerMirror 本身不改写、不落盘。
+	set.DockerMirror = normalizeDockerMirror(set.DockerMirror)
+	// 0.6.325 G2：不再把 0 显示成 1——「0=系统默认」须原样往返，
+	// 否则清除后重开设置页显示「存储空间 1」、下次全量保存把 1 写回去，
+	// 「切回系统默认」在 UI 上永远保不住（与 PUT 指针语义配套）。
 	if s.Pipe.Downloads != "" {
 		set.DownloadDir = s.Pipe.Downloads
 	}
@@ -1606,12 +1670,21 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 重开设置页又看到旧值 → 观感「保存没作用」）。
 		CustomGitHubMirror *string `json:"custom_github_mirror"`
 		CustomDockerMirror *string `json:"custom_docker_mirror"`
-		InstallVolume      int     `json:"install_volume"`
-		CheckIntervalHours int     `json:"check_interval_hours"`
+		// 0.6.325 G2：安装卷指针语义 —— nil=未提交不改动；0=清除（回
+		// 「系统默认」自动探测）；1-8=指定卷；越界（负数/>8）整单拒绝。
+		// 此前 `int` + `>0` 守卫让「切回系统默认」永远保存无效（0 被忽略）。
+		InstallVolume *int `json:"install_volume"`
+		// 0.6.325 H5(F4)：int 一族指针化——nil=未提交不改动；
+		// 0=清除回各自默认（检查间隔 24h、备份周期 7 天、清理周期 1 天，
+		// 生效值由消费方 `<=0` 回落兜底）；越界整单拒绝。
+		// 此前 `>0` 守卫让显式 0 被静默忽略（「改了没反应」）。
+		CheckIntervalHours *int    `json:"check_interval_hours"`
 		SourceListURL      *string `json:"source_list_url"`
 		// 指针区分「未提交」与「显式开/关」：此前 `url != "" || disabled` 条件
 		// 在列表地址为空时无法把自动同步切回开启（false 被忽略）。
 		SourceListDisabled *bool `json:"source_list_disabled"`
+		// 0.6.325 安全加固 R1：nil=未提交不改动；true=允许列表同步添加内网源。
+		SourceListAllowPrivate *bool `json:"source_list_allow_private"`
 		SourceAutoCareOff  *bool `json:"source_auto_care_disabled"`
 		// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_password/
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
@@ -1671,17 +1744,35 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.CustomDockerMirror != nil {
 		s.Cfg.CustomDockerMirror = *in.CustomDockerMirror
 	}
-	if in.InstallVolume > 0 {
-		s.Cfg.InstallVolume = in.InstallVolume
+	// 0.6.325 G2：nil=未提交不改动；0=清除回「系统默认」（安装走
+	// DefaultVolume 自动探测）；越界整单拒绝（与 dock_order/log_lines 同风格）。
+	if in.InstallVolume != nil {
+		v := *in.InstallVolume
+		if v < 0 || v > 8 {
+			writeErr(w, http.StatusBadRequest, errors.New("安装卷须为 0-8（0 = 系统默认）"))
+			return
+		}
+		s.Cfg.InstallVolume = v
 	}
-	if in.CheckIntervalHours > 0 {
-		s.Cfg.CheckIntervalHours = in.CheckIntervalHours
+	// 0.6.325 H5：指针语义（nil=不改）；0=清除回默认 24h（消费循环
+	// store_routes.go 与 GET 均对 <=0 回落 24）；上界 168（7 天，
+	// 原无上限校验，本轮补齐——越界整单拒绝）；负数拒绝。
+	if in.CheckIntervalHours != nil {
+		v := *in.CheckIntervalHours
+		if v < 0 || v > 168 {
+			writeErr(w, http.StatusBadRequest, errors.New("检查间隔须为 0-168 小时（0 = 默认 24）"))
+			return
+		}
+		s.Cfg.CheckIntervalHours = v
 	}
 	if in.SourceListURL != nil {
 		s.Cfg.SourceListURL = *in.SourceListURL
 	}
 	if in.SourceListDisabled != nil {
 		s.Cfg.SourceListOff = *in.SourceListDisabled
+	}
+	if in.SourceListAllowPrivate != nil {
+		s.Cfg.SourceListAllowPrivate = *in.SourceListAllowPrivate
 	}
 	if in.SourceAutoCareOff != nil {
 		s.Cfg.SourceAutoCareOff = *in.SourceAutoCareOff
@@ -1817,8 +1908,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.BackupAuto != nil {
 		s.Cfg.BackupAuto = *in.BackupAuto
 	}
-	if in.BackupIntervalDays != nil && *in.BackupIntervalDays > 0 {
+	// 0.6.325 H5：显式 0 = 清除回默认（备份 7 天 / 清理每 1 天，见
+	// backupIntervalDaysOf / cacheCleanEveryDaysOf 的 `<=0` 回落）；
+	// 上界沿用既有 ≤30 钳制逻辑（前端 parseDays 同界）；负数整单拒绝。
+	if in.BackupIntervalDays != nil {
 		d := *in.BackupIntervalDays
+		if d < 0 {
+			writeErr(w, http.StatusBadRequest, errors.New("备份周期天数不能为负（0 = 默认 7 天）"))
+			return
+		}
 		if d > 30 {
 			d = 30
 		}
@@ -1831,8 +1929,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Cfg.CacheCleanDays = d // 0 = 显式关闭自动清理
 	}
-	if in.CacheCleanEveryDays != nil && *in.CacheCleanEveryDays > 0 {
+	if in.CacheCleanEveryDays != nil {
 		d := *in.CacheCleanEveryDays
+		if d < 0 {
+			writeErr(w, http.StatusBadRequest, errors.New("清理周期天数不能为负（0 = 默认每天）"))
+			return
+		}
 		if d > 30 {
 			d = 30
 		}
@@ -1847,20 +1949,23 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Cfg.LogLines = *in.LogLines
 	}
-	// Dock / 设置 tab 排序（0.6.122）：全量排列校验，非法整体拒绝
-	if err := validateOrderField("dock_order", in.DockOrder, DockTabKeys); err != nil {
+	// Dock / 设置 tab 排序（0.6.122；0.6.325 C11 dock 纳入 settings + 老 4 键迁移）：
+	// 全量排列校验，非法整体拒绝；dock 兼容 legacy 4 键（归一化后存储）。
+	dockOrder, err := normalizeOrderField("dock_order", in.DockOrder, DockTabKeys, legacyDockTabKeys)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if in.DockOrder != nil {
-		s.Cfg.DockOrder = in.DockOrder
+	if dockOrder != nil {
+		s.Cfg.DockOrder = dockOrder
 	}
-	if err := validateOrderField("settings_tab_order", in.SettingsTabOrder, SettingsTabKeys); err != nil {
+	settingsTabOrder, err := normalizeOrderField("settings_tab_order", in.SettingsTabOrder, SettingsTabKeys, nil)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if in.SettingsTabOrder != nil {
-		s.Cfg.SettingsTabOrder = in.SettingsTabOrder
+	if settingsTabOrder != nil {
+		s.Cfg.SettingsTabOrder = settingsTabOrder
 	}
 	_ = s.Cfg.Save(dataDirOf(s))
 	writeJSON(w, map[string]any{"ok": true})
@@ -2083,7 +2188,9 @@ func (s *Server) mirrorHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) dockerMirrorHealth(w http.ResponseWriter, r *http.Request) {
 	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(r.URL.Query().Get("refresh") == "1")
-	writeJSON(w, s.healthOf(orAuto(s.Cfg.DockerMirror), "dk", s.Mirrors.dk()))
+	// 0.6.325 C12：与 getSettings 同源归一——老配置残留的已下线 key
+	// （registry-cyou）不得作为 Selected/Active 透出（面板会显示生 key）。
+	writeJSON(w, s.healthOf(normalizeDockerMirror(s.Cfg.DockerMirror), "dk", s.Mirrors.dk()))
 }
 
 // mirrorsCheck POST /api/mirrors/check：强制全量测速。
@@ -2108,6 +2215,22 @@ func orAuto(m string) string {
 		return "auto"
 	}
 	return m
+}
+
+// normalizeDockerMirror 0.6.325 C12：Docker 镜像加速源的读取侧归一。
+// 空值、或不在 config.DockerMirrorOptions() key 集合内的值（如已下线的
+// registry-cyou）→ "auto"。只影响 GET /api/settings 的输出，不写回配置，
+// 用户 config 里的原值保持不变（下次若该源回归仍可生效）。
+func normalizeDockerMirror(v string) string {
+	if v == "" {
+		return "auto"
+	}
+	for _, o := range config.DockerMirrorOptions() {
+		if o.Key == v {
+			return v
+		}
+	}
+	return "auto"
 }
 
 // orStrict 更新策略缺省归一（0.6.272）："" = 未设置 = strict（0.6.174 行为）。
@@ -2395,17 +2518,10 @@ func (s *Server) installDownloadSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sseSend(w, f, map[string]any{"step": "install", "progress": 30, "message": what + " " + appName + "…"})
-	err = platform.InstallStaged(r.Context(), staged, params, func(frac float64) {
+	err = platform.InstallStaged(r.Context(), staged, params, s.Cfg.InstallVolume, func(frac float64) {
 		// 平台进度可能以千分比上报（2110 = 21.1%），统一归一化为 0-1 比例
-		norm := frac
-		if norm > 100 {
-			norm /= 100
-		}
-		if norm > 100 {
-			norm = 100
-		}
-		norm /= 100
-		sseSend(w, f, map[string]any{"step": "install", "progress": 30 + norm*65, "message": what + "中…"})
+		// （0.6.325 H4：规则抽至 platform.NormalizeProgress，两条安装通道共用）。
+		sseSend(w, f, map[string]any{"step": "install", "progress": 30 + platform.NormalizeProgress(frac)*65, "message": what + "中…"})
 	})
 	if err != nil {
 		// 暂存目录处置（实测平台行为）：
@@ -2581,6 +2697,12 @@ func progressFrac(done, total int64) float64 {
 }
 
 // volumeOptions 列出可写数据卷（/vol1..8 中真实存在的目录）。
+//
+// 0.6.325 C1：VolumeOption.Name（卷友好名）当前恒为空——2026-10-14 主 NAS
+// 实机按序侦察（PG open_gateway / trim 库 / LVM / btrfs / mountmgr /
+// sysinfo+filestor UDS / 面板 locale）未找到可靠来源，且本版本 fnOS 面板
+// 本身不提供存储卷重命名能力，故不做伪造读取；来源可用时在此按 /volN
+// 回填 Name 即可（前端显示优先级已就位，见 volumeOptionLabel）。
 func volumeOptions() ([]VolumeOption, error) {
 	var out []VolumeOption
 	for i := 1; i <= 8; i++ {

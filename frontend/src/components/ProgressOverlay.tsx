@@ -21,6 +21,9 @@ interface ProgressOverlayProps {
 }
 
 const ProgressOverlay: React.FC<ProgressOverlayProps> = ({ visible, message, progress, speed, downloaded, total, onCancel, onDismiss }) => {
+  // 0.6.325 H4(D2) 双保险：后端已用 platform.NormalizeProgress 归一，
+  // 显示端再钳制 0-100，防任何链路漏网时出现 >100% / 负数进度。
+  const pct = Math.min(100, Math.max(0, progress));
   return (
     <Dialog open={visible} onOpenChange={() => {}}>
       <DialogContent 
@@ -36,9 +39,9 @@ const ProgressOverlay: React.FC<ProgressOverlayProps> = ({ visible, message, pro
         <div className="flex flex-col gap-2 py-2">
           <div className="flex justify-between text-sm text-muted-foreground">
             <span>{message}</span>
-            <span>{Math.round(progress)}%</span>
+            <span>{Math.round(pct)}%</span>
           </div>
-          <Progress value={progress} className="w-full" />
+          <Progress value={pct} className="w-full" />
           {speed != null && speed > 0 && (
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>{formatSpeed(speed)}</span>

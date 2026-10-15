@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -667,9 +668,24 @@ func (s *Server) panelDetail(w http.ResponseWriter, r *http.Request, appName str
 			sameName[dep.AppName] = names
 		}
 	}
+	vol := s.panelDefaultVolume()
+	// 0.6.325 G4：卷号附 /volN 路径（与 volumeOptions 同判法：目录存在才给），
+	// 双卷用户在云安装确认框能看出装到哪块盘。
+	volPath := ""
+	if vol > 0 && vol <= 8 {
+		p := fmt.Sprintf("/vol%d", vol)
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			volPath = p
+		}
+	}
+	// 0.6.325 C1：卷友好名透出（与 VolumeOption.Name 同源——当前来源不可用恒空，
+	// 前端有 name 才用 name、无则回落「卷 N」；来源可用时 volumeOptions 回填即全链路生效）
+	volName := ""
 	writeJSON(w, map[string]any{
 		"app":            detail,
-		"volume":         s.panelDefaultVolume(),
+		"volume":         vol,
+		"volume_path":    volPath,
+		"volume_name":    volName,
 		"same_name_apps": sameName,
 	})
 }

@@ -124,3 +124,39 @@ func TestPutSettingsMirrorIncludeDirect(t *testing.T) {
 		t.Fatal("显式 false 应落盘")
 	}
 }
+
+// TestPutSettingsInstallVolume 0.6.325 G2（BUG-C1）：安装卷指针语义 ——
+// PUT 0 清除回「系统默认」/ PUT 2 设置成功 / 未提交该字段不改动 /
+// PUT 9 与负数整单拒绝（400）。此前 `int` + `>0` 守卫让 0 被静默忽略，
+// 「切回系统默认」永远保存无效。
+func TestPutSettingsInstallVolume(t *testing.T) {
+	t.Setenv("MOO_DATA", t.TempDir())
+	cfg := &config.Config{InstallVolume: 0}
+	s := &Server{Cfg: cfg, Src: source.NewManager(cfg)}
+
+	putSettingsBody(t, s, `{"install_volume": 2}`)
+	if cfg.InstallVolume != 2 {
+		t.Fatalf("PUT 2 应设置成功, got %d", cfg.InstallVolume)
+	}
+	putSettingsBody(t, s, `{"check_interval_hours": 6}`)
+	if cfg.InstallVolume != 2 {
+		t.Fatalf("未提交 install_volume 不应改动, got %d", cfg.InstallVolume)
+	}
+	putSettingsBody(t, s, `{"install_volume": 0}`)
+	if cfg.InstallVolume != 0 {
+		t.Fatalf("PUT 0 应清除回系统默认, got %d", cfg.InstallVolume)
+	}
+	// 越界整单拒绝：先恢复 2，确认 400 后值不变
+	putSettingsBody(t, s, `{"install_volume": 2}`)
+	for _, body := range []string{`{"install_volume": 9}`, `{"install_volume": -1}`} {
+		r := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		s.putSettings(rec, r)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s 期望 400, got %d (%s)", body, rec.Code, rec.Body.String())
+		}
+		if cfg.InstallVolume != 2 {
+			t.Fatalf("%s 被拒后不应改动, got %d", body, cfg.InstallVolume)
+		}
+	}
+}

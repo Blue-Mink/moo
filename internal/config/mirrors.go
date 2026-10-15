@@ -51,7 +51,10 @@ func DockerMirrorOptions() []MirrorOption {
 		{Key: "ratdev", Label: "Rat.Dev", URL: "https://hub.rat.dev/", Description: "Rat 社区 Docker 镜像加速"},
 		{Key: "1panel", Label: "1Panel", URL: "https://docker.1panel.live/", Description: "1Panel 官方 Docker 镜像加速（仅限国内）"},
 		{Key: "dockerproxy", Label: "DockerProxy", URL: "https://dockerproxy.net/", Description: "Docker Proxy 社区镜像加速（仅限国内）"},
-		{Key: "registry-cyou", Label: "Registry.cyou", URL: "https://registry.cyou/", Description: "Cloudflare Docker 镜像代理（仅限国内）"},
+		// 0.6.325 C12：registry-cyou 已下线移除——上游 TLS 证书失效
+		// （https://registry.cyou/v2/ 恒 tls: failed to verify certificate），
+		// 主 NAS 连测 4 次全 fail，属恒不可用而非偶发抖动。老配置里残留的
+		// 该 key 由读取侧归一（GET /api/settings → auto），不主动改用户配置。
 		{Key: "custom", Label: "自定义", Description: "使用自定义加速地址"},
 		{Key: "direct", Label: "直连 Docker Hub", Description: "直接拉取，适合有代理的用户"},
 	}

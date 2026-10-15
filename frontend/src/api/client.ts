@@ -571,6 +571,10 @@ export interface PanelDetailApp {
 export interface PanelDetailResponse {
   app: PanelDetailApp;
   volume: number;
+  /** 卷对应路径（/volN，卷目录不存在时为空）——确认框标注用（0.6.325 G4）。 */
+  volume_path?: string;
+  /** 卷用户友好名（0.6.325 C1；当前来源不可用恒空，有值时优先显示）。 */
+  volume_name?: string;
   /** depAppname -> 商店目录里同名应用展示标签（可「用已有的」）。 */
   same_name_apps?: Record<string, string[]>;
 }
@@ -649,6 +653,8 @@ export interface VolumeOption {
   path: string;
   total_bytes: number;
   free_bytes: number;
+  /** 用户命名的卷友好名（0.6.325 C1；后端当前恒空=fnOS 无改卷名来源，见 FIX_325C_IMPL.md）。 */
+  name?: string;
 }
 
 export interface Settings {
@@ -666,6 +672,8 @@ export interface Settings {
   // 内置源列表自动同步（空/缺省 = 内置默认列表地址）
   source_list_url?: string;
   source_list_disabled?: boolean;
+  // 0.6.325 安全加固 R1：允许源列表同步添加内网/环回源（默认 false）
+  source_list_allow_private?: boolean;
   // FPK 下载目录 + 应用源自动监测（缺省 = 目录默认 / 监测开启）
   download_dir?: string;
   source_auto_care_disabled?: boolean;
@@ -1261,7 +1269,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1297,7 +1305,16 @@ export const fetchDockerMirrorStatus = async (): Promise<DockerMirrorStatus> => 
 export const applyDockerMirror = async (
   mirror: string,
   customUrl: string,
-): Promise<{ ok: boolean; message: string; mirrors: string[]; restarted: boolean }> => {
+): Promise<{
+  ok: boolean;
+  message: string;
+  mirrors: string[];
+  restarted: boolean;
+  // 0.6.325 安全加固 R2：mirror=auto 时后端回传的「实际选中源」（可据此告知用户）
+  auto_mirror?: string;
+  auto_label?: string;
+  auto_latency_ms?: number;
+}> => {
   const res = await apiFetch(apiUrl('/api/settings/docker-mirror/apply'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

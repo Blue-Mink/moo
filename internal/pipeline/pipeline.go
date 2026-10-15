@@ -27,6 +27,11 @@ type Pipeline struct {
 	Engine    *task.Engine // 统一下载引擎（aria2 多连接 + 镜像候选 + 续传）
 	// FPKCandidates 生成 GitHub FPK 候选 URL 顺序（可选；nil = 仅直连）
 	FPKCandidates func(app *source.App) []string
+	// InstallVolumeFn 返回设置「应用安装位置」配置的用户卷（>0=指定；
+	// 返回 0 或 nil = 未设置 → 平台 DefaultVolume 探测/诚实报错）。
+	// 0.6.325：由 api 层注入，pipeline 不反向依赖 config/api。
+	// 只作用于新装；升级沿用应用当前所在卷（UpgradeFpk 内部逻辑）。
+	InstallVolumeFn func() int
 }
 
 func New(src *source.Manager, staging, downloads string) *Pipeline {
@@ -68,9 +73,11 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 	}
 
 	// 2) 暂存
+	// 0.6.325 H4(D2)：daemon 进度可能是千分比（2110=21.1%），先归一到
+	// 0~1 再映射进度窗口，避免 SSE 透出 >100 的进度。
 	progress("暂存安装包…", 8)
 	staged, err := platform.StageFpk(ctx, fpkPath, func(f float64) {
-		progress("暂存安装包…", 8+f*0.12)
+		progress("暂存安装包…", 8+platform.NormalizeProgress(f)*12)
 	})
 	if err != nil {
 		return err
@@ -114,12 +121,17 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 	if staged.Installed {
 		progress(fmt.Sprintf("升级 %s → %s…", app.Name, staged.Version), 30)
 		err = platform.UpgradeFpk(ctx, staged, params, func(f float64) {
-			progress("升级中…", 30+f*0.65)
+			progress("升级中…", 30+platform.NormalizeProgress(f)*65)
 		})
 	} else {
+		// 0.6.325：新装传用户配置卷（未设置=0 → InstallFpk 回落默认卷探测）
+		vol := 0
+		if p.InstallVolumeFn != nil {
+			vol = p.InstallVolumeFn()
+		}
 		progress(fmt.Sprintf("安装 %s %s…", app.DisplayName, app.Version), 30)
-		err = platform.InstallFpk(ctx, staged, 0, params, func(f float64) {
-			progress("安装中…", 30+f*0.65)
+		err = platform.InstallFpk(ctx, staged, vol, params, func(f float64) {
+			progress("安装中…", 30+platform.NormalizeProgress(f)*65)
 		})
 	}
 	if err != nil {
@@ -157,7 +169,9 @@ func (p *Pipeline) StageOnly(ctx context.Context, sourceName, appName string, pr
 		return nil, err
 	}
 	return platform.StageFpk(ctx, fpkPath, func(f float64) {
-		progress("暂存安装包…", f)
+		// 0.6.325 H4(D2)：同款千分位归一（StageOnly 与 InstallWithParams
+		// 消费同一个 daemon 进度字段，量纲一致）。
+		progress("暂存安装包…", platform.NormalizeProgress(f)*100)
 	})
 }
 

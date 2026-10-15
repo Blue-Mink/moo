@@ -101,6 +101,10 @@ type Config struct {
 	// 内置源列表自动同步
 	SourceListURL string `json:"source_list_url,omitempty"`
 	SourceListOff bool   `json:"source_list_disabled,omitempty"`
+	// 0.6.325 安全加固 R1：允许「源列表同步」添加非公共地址（内网/环回）的源。
+	// 默认 false = 远端清单里的非公共地址一律跳过（防清单驱动 SSRF）；
+	// 管理员显式手工添加源（应用源页输入框）不受此开关影响。
+	SourceListAllowPrivate bool `json:"source_list_allow_private,omitempty"`
 	// 应用源自动监测（设置页「应用源自动监测」开关，off=停用该策略）：
 	// 每轮全量刷新后，成功但 0 应用连续 5 次的源自动停用，空源在源列表沉底。
 	SourceAutoCareOff bool `json:"source_auto_care_disabled,omitempty"`

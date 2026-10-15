@@ -86,7 +86,12 @@ var (
 	// 第三兜底：FnDepot 公开源的 moo 条目版本号（该仓 2026-07 起公开、
 	// 各出口 raw CDN 缓存全热；moo 仓 10-05 才转公开，部分出口的中间层
 	// 还负缓存着私有时期的 404，github.com/releases/latest 会持续吐旧 404）
-	selfUpdateFnDepotURL = "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json"
+	// 0.6.325-C16：目标从 `moo.json` 改为 `fnpack.json` —— FnDepot 仓根的
+	// moo.json 已于 2026-10-10 被删除（该仓现只有 fnpack.json），旧 URL 恒 404，
+	// 使这条兜底长期失效（设置页实测「FnDepot 源兜底: HTTP 404」）。
+	// 新目标为 V2 结构，moo 节点**无顶层 version**，版本号在 releases 的键上，
+	// 解析见 fetchFnDepotVersion（兼容旧的 version 字段写法）。
+	selfUpdateFnDepotURL = "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json"
 )
 
 type selfUpdateProbe struct {
@@ -346,13 +351,27 @@ func (s *Server) fetchFnDepotVersion(ctx context.Context, fullURL string) (strin
 	var idx struct {
 		Apps map[string]struct {
 			Version string `json:"version"`
+			// 0.6.325-C16：V2 源（FnDepot fnpack.json）把版本号放在 releases 键上，
+			// 节点本身没有 version 字段；两种写法都接受，取最高版本。
+			Releases map[string]json.RawMessage `json:"releases"`
 		} `json:"apps"`
 	}
 	if uerr := json.Unmarshal(data, &idx); uerr != nil {
 		return "", fmt.Errorf("FnDepot 源探测失败: %w", uerr)
 	}
-	ver := idx.Apps["moo"].Version
-	tag := strings.TrimPrefix(strings.TrimSpace(ver), "v")
+	entry := idx.Apps["moo"]
+	tag := strings.TrimPrefix(strings.TrimSpace(entry.Version), "v")
+	if tag == "" {
+		for k := range entry.Releases {
+			v := strings.TrimPrefix(strings.TrimSpace(k), "v")
+			if v == "" {
+				continue
+			}
+			if tag == "" || compareVersions(v, tag) > 0 {
+				tag = v
+			}
+		}
+	}
 	if tag == "" {
 		return "", errors.New("FnDepot 源无 moo 版本号")
 	}

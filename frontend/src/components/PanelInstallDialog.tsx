@@ -35,6 +35,10 @@ const stripHtml = (html?: string): string =>
 const PanelInstallDialog: React.FC<PanelInstallDialogProps> = ({ detail, loading, onCancel, onConfirm }) => {
   const app = detail?.app;
   const volume = detail?.volume ?? 0;
+  // 0.6.325 G4：卷号附 /volN 路径（后端按卷目录存在性下发，双卷可辨识）
+  const volumePath = detail?.volume_path ?? '';
+  // 0.6.325 C1：卷用户友好名（当前恒空；有值时替代「卷 N」）
+  const volumeName = (detail?.volume_name ?? '').trim();
   const sameNameApps = detail?.same_name_apps;
 
   const deps = app?.installDepApps ?? [];
@@ -185,7 +189,7 @@ const PanelInstallDialog: React.FC<PanelInstallDialogProps> = ({ detail, loading
                   <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                 </span>
                 <span>
-                  将通过官方应用中心安装到默认存储卷（卷 {volume}），安装完成后自动启动。
+                  将通过官方应用中心安装到默认存储卷（{volumeName || `卷 ${volume}`}{volumePath ? ` · ${volumePath}` : ''}），安装完成后自动启动。
                   等同于在系统应用中心安装，占用官方下载配额与协议条款。
                 </span>
               </div>

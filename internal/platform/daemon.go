@@ -476,13 +476,15 @@ func WaitTask(ctx context.Context, taskID, what string, budget time.Duration, on
 // 安装 / 升级 / 卸载
 // ---------------------------------------------------------------------------
 
-// InstallFpk 安装未安装的应用（volume<=0 时用默认卷；params 可空）。
+// InstallFpk 安装未安装的应用（volume<=0 时用默认卷探测；params 可空）。
+// volume>0 = 调用方已解析的安装卷（设置「应用安装位置」/DefaultVolume 兜底），
+// 0.6.325：FPK 链路透传用户配置卷，不再硬编码 0 走探测。
 func InstallFpk(ctx context.Context, staged *StagedPackage, volume int, params []WizardParam, onProgress func(float64)) error {
 	if staged.Installed {
 		return fmt.Errorf("%s 已安装，请使用升级功能", staged.AppName)
 	}
 	if volume <= 0 {
-		v, err := DefaultVolume()
+		v, err := defaultVolumeFn()
 		if err != nil {
 			return err
 		}

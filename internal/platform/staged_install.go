@@ -8,8 +8,10 @@ import (
 
 // InstallStaged 安装（或升级）已暂存包，并验证应用出现在已安装列表。
 // params 为安装向导参数（调用方先用 AutoFillParams 自动填充；升级时忽略）。
-// 供「安装已下载缓存 FPK」等不经过应用源的路径使用。
-func InstallStaged(ctx context.Context, staged *StagedPackage, params []WizardParam, onProgress func(float64)) error {
+// volume = 设置「应用安装位置」的用户配置卷（≤0 = 未设置 → DefaultVolume
+// 探测/诚实报错；0.6.325 起透传，不再硬编码 0）。升级路径不受影响
+// （沿用已装卷）。供「安装已下载缓存 FPK」等不经过应用源的路径使用。
+func InstallStaged(ctx context.Context, staged *StagedPackage, params []WizardParam, volume int, onProgress func(float64)) error {
 	if onProgress == nil {
 		onProgress = func(float64) {}
 	}
@@ -18,7 +20,7 @@ func InstallStaged(ctx context.Context, staged *StagedPackage, params []WizardPa
 			return err
 		}
 	} else {
-		if err := InstallFpk(ctx, staged, 0, params, onProgress); err != nil {
+		if err := InstallFpk(ctx, staged, volume, params, onProgress); err != nil {
 			return err
 		}
 	}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles, MousePointer2 } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles, MousePointer2, Download } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -20,9 +20,11 @@ const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
 const WizardDialog = React.lazy(() => import('./components/WizardDialog'));
 import ThemeToggle from './components/ThemeToggle';
 import MobileDock from './components/MobileDock';
+import FpkDownloads from './components/FpkDownloads';
+import { Dialog, DialogContent, DialogTitle } from './components/ui/dialog';
 import AppRowList from './components/AppRowList';
 import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
-import { fetchApps, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings } from './api/client';
+import { fetchApps, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
@@ -142,8 +144,15 @@ const App: React.FC = () => {
   // (HTTP 409, network errors) get silently swallowed.
   const selfUpdateActiveRef = useRef(false);
   const selfUpdateRestartSeenRef = useRef(false);
+  // 0.6.325 H2(E1)：SSE 流内 error 事件已在 onEvent 弹出后端原文，
+  // 置位后 .catch 不再补弹笼统「商店更新失败」（streamSSE 对 error
+  // 事件会同时 reject，此前同一条失败弹两次 toast）。
+  const selfUpdateErrorSeenRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reloadHandleRef = useRef<{ cancel: () => void } | null>(null);
+  // 0.6.325 H3(E2)：reload SSE 流内已出 error 事件（后端原文已展示），
+  // .catch 不再追加「网络连接失败」误导行。
+  const reloadInStreamErrorRef = useRef(false);
   const appOperationsRef = useRef<Map<string, AppOperation>>(new Map());
   // Keep ref synced with state so guards in event handlers see current value
   // without forcing them to depend on appOperations (which would re-create
@@ -155,7 +164,11 @@ const App: React.FC = () => {
   // hash 由下方同步 effect 随状态收敛
   const handleSettingsOpenChange = (open: boolean) => {
     setSettingsVisible(open);
-    if (!open) setSettingsTab(null);
+    if (!open) {
+      setSettingsTab(null);
+      // 0.6.325 C4：设置页内可能删除/上传/安装过 FPK → 关闭后重拉下载数
+      void refreshFpkCount();
+    }
   };
   // Dock 主导航顺序（系统设置「Dock 栏排序」）：启动拉一次 + 设置页改完刷新
   const [dockOrder, setDockOrder] = useState<string[] | null>(null);
@@ -525,6 +538,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     loadApps();
+    // 0.6.325 C6（FINDING-325C-1 修复）：挂载首载即拉一次已下载 FPK 数——
+    // 此前仅「进一次下载页/关一次对话框」才补齐，F5/新开页首载角标恒不显
+    void refreshFpkCount();
     fetchStoreUpdate().then(info => setStoreHasUpdate(info.has_update)).catch(() => {});
     fetchRecommended().then(data => setRecommendedApps(data.apps)).catch(() => {});
     fetchFavorites().then(setFavoriteKeys).catch(() => {});
@@ -838,39 +854,35 @@ const App: React.FC = () => {
 
     setLoadStatus('retrying');
     setLoadMessages([]);
+    reloadInStreamErrorRef.current = false;
 
+    // 0.6.325 H3(E2)：后端 reloadSSE 只发 refresh/done/error 三种 step
+    // （store_routes.go reloadSSE）——此前按 trying/failed/success 维护
+    // 逐源进度行是死分支（永不触发），且 error 只读 message（后端只带
+    // error 键）恒加空行、「网络连接失败」硬编码顶替真实原因。
+    // 现按后端实际协议消费：refresh=进行中轻提示、done=成功、
+    // error=显示后端原文并防 .catch 二次追加。
     const handle = reloadApps((data) => {
-      if (data.step === 'trying') {
-        setLoadMessages(prev => [...prev, { text: data.message || '', status: 'info' }]);
-      } else if (data.step === 'failed') {
-        setLoadMessages(prev => {
-          const updated = [...prev];
-          if (updated.length > 0) {
-            updated[updated.length - 1] = { text: data.message || '', status: 'error' };
-          }
-          return updated;
-        });
-      } else if (data.step === 'success') {
-        setLoadMessages(prev => {
-          const updated = [...prev];
-          if (updated.length > 0) {
-            updated[updated.length - 1] = { text: data.message || '', status: 'success' };
-          }
-          return updated;
-        });
+      if (data.step === 'refresh') {
+        setLoadMessages(prev => [...prev, { text: data.message || '刷新应用源…', status: 'info' }]);
       } else if (data.step === 'done') {
-        setLoadMessages(prev => [...prev, { text: data.message || '', status: 'success' }]);
+        setLoadMessages(prev => [...prev, { text: data.message || '已刷新', status: 'success' }]);
         loadApps(false);
       } else if (data.step === 'error') {
-        setLoadMessages(prev => [...prev, { text: data.message || '', status: 'error' }]);
+        reloadInStreamErrorRef.current = true;
+        setLoadMessages(prev => [...prev, { text: data.error || data.message || '刷新失败', status: 'error' }]);
         setLoadStatus('failed');
       }
     });
     reloadHandleRef.current = handle;
 
-    handle.promise.catch(() => {
+    handle.promise.catch((err: unknown) => {
+      if (reloadInStreamErrorRef.current) return; // 流内 error 已展示后端原文
+      const m = err instanceof Error && err.message && !(err instanceof TypeError)
+        ? err.message // HTTP 错误体原文（requireAdmin 403 等）
+        : '网络连接失败'; // fetch 网络层失败（TypeError）用通用文案
       setLoadStatus('failed');
-      setLoadMessages(prev => [...prev, { text: '网络连接失败', status: 'error' }]);
+      setLoadMessages(prev => [...prev, { text: m, status: 'error' }]);
     }).finally(() => {
       if (reloadHandleRef.current === handle) {
         reloadHandleRef.current = null;
@@ -1267,6 +1279,7 @@ const App: React.FC = () => {
   const handleStoreUpdate = useCallback(async () => {
     setSelfUpdateActive(true);
     selfUpdateActiveRef.current = true;
+    selfUpdateErrorSeenRef.current = false;
     setSelfUpdateState({ message: '正在更新商店...', progress: 0 });
 
     const handle = triggerStoreUpdate((data) => {
@@ -1277,7 +1290,12 @@ const App: React.FC = () => {
         return;
       }
       if (data.step === 'error') {
-        toast.error(data.message || '商店更新失败');
+        // 0.6.325 H2(E1)：后端 store-update 的错误事件只带 `error` 键
+        // （self_update.go 全部出口，无 message）——此前只读 message
+        // 恒显示笼统「商店更新失败」，真实原因（已是最新版/探测失败/
+        // 校验失败…）全被吞。对齐 322 模式：error 优先、message 次之。
+        toast.error(data.error || data.message || '商店更新失败');
+        selfUpdateErrorSeenRef.current = true;
         setSelfUpdateActive(false);
         selfUpdateActiveRef.current = false;
         setSelfUpdateState(null);
@@ -1299,11 +1317,13 @@ const App: React.FC = () => {
       // Only suppress the toast if the backend actually emitted the self_update
       // event - otherwise pre-SSE failures (HTTP 409, network errors) would be
       // silently swallowed and the overlay would be stuck at 0% forever.
-      if (selfUpdateRestartSeenRef.current) {
-        return;
+      if (selfUpdateRestartSeenRef.current || selfUpdateErrorSeenRef.current) {
+        return; // 流内终态已提示过（restart 或 error 原文），不再补弹
       }
       console.error(error);
-      toast.error('商店更新失败');
+      // 0.6.325 H2：streamSSE 对 HTTP 错误体/流内 error 事件都携后端原文
+      // reject，直接展示，不再一律顶替成「商店更新失败」。
+      toast.error(error instanceof Error && error.message ? error.message : '商店更新失败');
       setSelfUpdateActive(false);
       selfUpdateActiveRef.current = false;
       setSelfUpdateState(null);
@@ -1424,6 +1444,21 @@ const App: React.FC = () => {
       update_available: apps.filter(a => a.has_update).length,
       recommended: recommendedApps.length
   }), [apps, recommendedApps]);
+
+  // 0.6.325 C4：下载数角标（0 不显）；C6 起计数挂在顶栏「下载」钮上。
+  // 计数=已下载 FPK 条数；宿主 FpkDownloads 列表变化经 onCountChange 即时回传，
+  // 另在关键时点主动重拉（挂载[含 FINDING-325C-1 修复]/开下载弹窗/
+  // 设置与详情对话框关闭——下载完成或缓存删除可能发生在其中）。
+  const [fpkCount, setFpkCount] = useState(0);
+  // 0.6.325 C6（用户令）：「下载」不再是 Dock 页——顶栏钮打开此弹窗，
+  // 列表浮在主页上方（居中卡片，非全屏）
+  const [fpkListOpen, setFpkListOpen] = useState(false);
+  const refreshFpkCount = useCallback(async () => {
+    try {
+      const res = await fetchFpkDownloads();
+      setFpkCount((res.files || []).length);
+    } catch { /* 后端短暂不可用：保持旧值 */ }
+  }, []);
 
   const categoryCounts = useMemo(() => CATEGORIES.reduce((acc, cat) => {
     acc[cat.key] = apps.filter(a => a.category === cat.key).length;
@@ -1734,6 +1769,7 @@ const App: React.FC = () => {
                 <TooltipContent side="right">有更新 ({counts.update_available})</TooltipContent>
               )}
             </Tooltip>
+            {/* 0.6.325 C6：「下载」移出 Dock/侧栏=顶栏搜索框后按钮+主页上方弹窗（用户令） */}
             {/* 0.6.228（用户定稿）：设置从「侧栏底部固定」改到「有更新」之后，同一组菜单里 */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1858,10 +1894,11 @@ const App: React.FC = () => {
                   )}
                 </button>
                 {/* 搜索栏后常显应用数：始终=当前视图条目数
-                    （tab 过滤 + 分类 + 搜索词全生效）；发现 tab 不显示（用户要求） */}
+                    （tab 过滤 + 分类 + 搜索词全生效）；发现 tab 不显示（用户要求）；
+                    0.6.325 C3：去「个应用」后缀只留数字 */}
                 {activeFilter !== 'recommended' && (
                   <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground" title="当前视图应用数">
-                    {filteredApps.length} 个应用
+                    {filteredApps.length}
                   </span>
                 )}
                 {/* 0.6.301（用户定稿）：移动端三模式按钮 = 发现页搜索框后常显；
@@ -1870,21 +1907,28 @@ const App: React.FC = () => {
                   <div className="shrink-0">{viewModeSwitchGroup}</div>
                 )}
                 <div className="flex items-center gap-3 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9"
-                    onClick={() => setSettingsVisible(true)}
-                    aria-label="设置"
-                    title="设置"
-                  >
-                    <div className="relative">
-                      <Settings className="h-[18px] w-[18px]" />
-                      {storeHasUpdate && (
-                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-destructive" />
-                      )}
-                    </div>
-                  </Button>
+                  {/* 0.6.325 C6（用户令）：「下载」从 Dock 移入顶栏（占原设置齿轮位，
+                      与设置换位）；发现页不显示（用户令）。点击=主页上方 FPK 列表
+                      弹窗（居中卡片非全屏）；设置改为进底部 Dock（MobileDock 末位）。 */}
+                  {activeFilter !== 'recommended' && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={() => setFpkListOpen(true)}
+                      aria-label="已下载的 FPK"
+                      title={fpkCount > 0 ? `已下载的 FPK（${fpkCount}）` : '已下载的 FPK'}
+                    >
+                      <span className="relative">
+                        <Download className="h-[18px] w-[18px]" />
+                        {fpkCount > 0 && (
+                          <span className="absolute -top-1.5 -right-2 min-w-[17px] h-[17px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center bg-muted text-muted-foreground border border-border/40">
+                            {fpkCount > 99 ? '99+' : fpkCount}
+                          </span>
+                        )}
+                      </span>
+                    </Button>
+                  )}
                   <ThemeToggle className="h-9 w-9" />
                   <Button
                     variant="ghost"
@@ -1981,15 +2025,38 @@ const App: React.FC = () => {
                      )}
                    </div>
                    {/* 搜索框后常显应用数：始终=当前视图条目数
-                       （tab 过滤 + 分类 + 搜索词全生效）；发现 tab 不显示（用户要求） */}
+                       （tab 过滤 + 分类 + 搜索词全生效）；发现 tab 不显示（用户要求）；
+                       0.6.325 C3：去「个应用」后缀只留数字 */}
                    {activeFilter !== 'recommended' && (
                      <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground" title="当前视图应用数">
-                       {filteredApps.length} 个应用
+                       {filteredApps.length}
                      </span>
                    )}
                  </>
            </div>
+           {/* 0.6.325 C8（用户令）：「下载」钮位置=应用数与三模式按钮之间 →
+               并入右侧图标组首位（与移动端顶栏同构：下载与主题/刷新同组）。
+               C13（用户令）：**桌面/网页端发现页也常显**（去掉 activeFilter
+               条件；移动端顶栏那处条件保留 → 移动端发现页仍不显示）。
+               点击=主页上方 FPK 列表弹窗（非全屏）。 */}
            <div className="flex items-center gap-3 shrink-0">
+               <Button
+                 variant="ghost"
+                 size="icon"
+                 className="h-9 w-9 shrink-0"
+                 onClick={() => setFpkListOpen(true)}
+                 aria-label="已下载的 FPK"
+                 title={fpkCount > 0 ? `已下载的 FPK（${fpkCount}）` : '已下载的 FPK'}
+               >
+                 <span className="relative">
+                   <Download className="h-[18px] w-[18px]" />
+                   {fpkCount > 0 && (
+                     <span className="absolute -top-1.5 -right-2 min-w-[17px] h-[17px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center bg-muted text-muted-foreground border border-border/40">
+                       {fpkCount > 99 ? '99+' : fpkCount}
+                     </span>
+                   )}
+                 </span>
+               </Button>
                {/* 0.6.319F：鼠标操作习惯钮=模式组左侧（触屏不渲染，网页端专属） */}
                {clickHabitButton}
                {/* 0.6.293 预览模式切换（用户定位）：ThemeToggle 之前、与后面的
@@ -2069,6 +2136,7 @@ const App: React.FC = () => {
 
         {/* 0.6.273：移动端 Dock 改悬浮胶囊（距底 10px+safe），内容底部留白 96→112px */}
         <main className="flex-grow p-4 pb-28 md:p-8 md:pb-36 overflow-y-auto">
+          {/* 0.6.325 C6（用户令）：「下载」不再是页面 tab——改为顶栏钮+主页上方弹窗（见 fpkListOpen Dialog） */}
           {activeFilter === 'recommended' ? (
             <div className="space-y-10">
               {/* 0.6.314r（用户定稿）：发现页前三=固定推荐位（/api/recommended
@@ -2349,8 +2417,9 @@ const App: React.FC = () => {
       {!dockHidden && (
         <MobileDock
           active={activeFilter}
-          onSelect={(key) => { switchFilter(key); }}
+          onSelect={(key) => { if (key === 'settings') setSettingsVisible(true); else switchFilter(key); }}
           updateCount={counts.update_available}
+          storeHasUpdate={storeHasUpdate}
           order={dockOrder ?? undefined}
           bottomOffset={dockOffsetPx}
         />
@@ -2375,6 +2444,7 @@ const App: React.FC = () => {
             { key: 'all', label: '全部', icon: LayoutGrid, count: counts.all },
             { key: 'installed', label: '已安装', icon: CheckCircle2, count: counts.installed },
             { key: 'update_available', label: '有更新', icon: RefreshCw, count: counts.update_available },
+            // 0.6.325 C6（用户令）：「下载」移出 Dock=顶栏搜索框后按钮+主页上方弹窗
           ];
           // 与 MobileDock.orderTabs 同逻辑：按已存顺序排，缺 key 追加末尾
           if (!dockOrder || dockOrder.length === 0) return items;
@@ -2607,8 +2677,11 @@ const App: React.FC = () => {
         <AppDetailDialog
           app={detailApp}
           open={!!detailApp}
-          onOpenChange={(open) => !open && setDetailApp(null)}
+          // 0.6.325 C4：详情内可能完成过 FPK 下载/缓存安装 → 关闭后重拉下载数
+          onOpenChange={(open) => { if (!open) { setDetailApp(null); void refreshFpkCount(); } }}
           onInstall={handleInstall}
+          // 0.6.325 C5：详情内「已下载」直接安装成功 → 刷新目录（已装态）+下载计数
+          onLocalInstallDone={() => { void loadApps(); void refreshFpkCount(); }}
           onUpdate={handleUpdate}
           onIgnoreUpdate={handleIgnoreUpdate}
           onUnignoreUpdate={handleUnignoreUpdate}
@@ -2638,6 +2711,57 @@ const App: React.FC = () => {
           errorMessage={reportTarget?.error || ''}
         />
       </Suspense>
+
+      {/* 0.6.325 C6（用户令）：「下载」列表弹窗——浮在主页上方（居中卡片、遮罩 45%、
+          四周留边，非全屏）；列表段复用共用 FpkDownloads（挂载自取数、行内安装/
+          删除/向导，折叠态与设置页共享 localStorage fpk-list-collapsed） */}
+      <Dialog
+        open={fpkListOpen}
+        onOpenChange={(open) => {
+          setFpkListOpen(open);
+          if (!open) void refreshFpkCount();
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
+          <DialogTitle className="sr-only">已下载的 FPK</DialogTitle>
+          {/* 0.6.325 C7（用户令）：Radix 关闭「×」（right-4 top-4，底边 32px）与
+              FpkDownloads 头部行右端折叠/展开钮（行顶边 28px）垂直几乎贴合 →
+              列表块整体下移 16px，× 与头部行留 12px 间隙（组件本身不动，
+              设置页宿主零变化）。
+              C8（用户令）：弹窗「不能左右滑动」+ 行内安装/删除钮不得露在卡片外
+              ——根因=Grid 内容列 min-width:auto 被 nowrap 文件名撑到 min-content
+              （实测 390 端 scrollWidth 443 > clientWidth 364=可横向拖动、右侧钮
+              被裁到卡片外）→ 本包裹层加 min-w-0 让列可收缩到可用宽（行内名字
+              本就 truncate + min-w-0，收缩后正常省略号），并给 DialogContent 加
+              overflow-x-hidden 双保险（内容已适配，不会裁掉任何控件）。 */}
+          <div className="pt-4 min-w-0">
+          {/* 0.6.325 C13（用户报「移动端点下载按钮弹窗跳闪」）：
+              根因=FpkDownloads 仅在 fpkFiles.length>0 时渲染列表容器，
+              取数那 ~200ms 内弹窗高度只有「头部行」→ DOM 实测定格 89px 停留
+              约 200ms 后一次性跳到 334px（+240px，正是 max-h-60 列表区）。
+              （宿主 {fpkCount===0} 空态块**不是**本处成因：点开时角标已知
+              计数非 0，实测 empty 恒 false。）
+              修法=给列表区定高（stableHeight：加载/空/满同占 h-60、内部滚动），
+              空态内容由 emptyHint 渲染在同一恒高区内（故删除宿主的独立空态块，
+              同时消除「确实 0 条」场景同样存在的 160px 高度跳变）。
+              既有定稿不动：非全屏居中卡片 / max-h-[85vh] 内滚 / pt-4 避让 × /
+              min-w-0 + overflow-x-hidden / defaultExpanded / 折叠态持久化。 */}
+          <FpkDownloads
+            defaultExpanded
+            stableHeight
+            emptyHint={(
+              <div className="flex flex-col items-center justify-center text-muted-foreground">
+                <Download className="h-10 w-10 mb-3 opacity-40" />
+                <p className="text-sm font-medium">暂无已下载的 FPK</p>
+                <p className="text-sm mt-1">在应用详情页点「下载 FPK」，或在设置页上传本地 FPK 后，会出现在这里</p>
+              </div>
+            )}
+            onCountChange={setFpkCount}
+            onCatalogChanged={() => setTimeout(() => loadApps(), 2500)}
+          />
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* 通知栏（对齐 fn-knock 模式）：顶部居中、3 秒自动消失；
           visibleToasts=1 = 同一时刻只显示最新 1 条，其余排队折叠隐藏
           （前一条消失后自动顶上来），绝不出现多条通知栏上下排列 */}

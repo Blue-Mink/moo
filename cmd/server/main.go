@@ -235,6 +235,9 @@ func main() {
 		Official:  official.NewManager(dataDir),
 	}
 	pipe.FPKCandidates = srv.FpkCandidates
+	// 0.6.325：FPK 新装链路透传设置「应用安装位置」的用户卷（实时读 cfg；
+	// 未配置返回 0 → 平台默认卷探测/诚实报错）。
+	pipe.InstallVolumeFn = func() int { return cfg.InstallVolume }
 
 	// 官方应用中心：加载持久化 OAuth 会话（token 未过期则免重新授权）
 	srv.Official.LoadSession()

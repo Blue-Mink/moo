@@ -55,6 +55,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [togglingId, setTogglingId] = useState<string | null>(null);
   // 内置源列表自动同步（列表地址固定用内置/配置值，界面不再暴露输入框）
   const [listAuto, setListAuto] = useState(true);
+  // 0.6.325 安全加固 R1：允许列表同步添加内网/环回源（默认关）
+  const [listAllowPrivate, setListAllowPrivate] = useState(false);
   const [syncingList, setSyncingList] = useState(false);
   const [savingList, setSavingList] = useState(false);
   // 0.6.318：删除默认源（dry_run 预检 → 确认弹窗 → 真删）
@@ -215,6 +217,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
     fetchSettings()
       .then((s) => {
         setListAuto(!(s.source_list_disabled ?? false));
+        setListAllowPrivate(s.source_list_allow_private ?? false);
         setAutoCare(!(s.source_auto_care_disabled ?? false));
       })
       .catch(() => {});
@@ -222,7 +225,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
 
   // 保存源列表设置（带上现有设置全量回传，避免覆盖其它配置；
   // 列表地址沿用当前值，界面已不提供修改入口）
-  const persistListSettings = useCallback(async (auto?: boolean, care?: boolean) => {
+  const persistListSettings = useCallback(async (auto?: boolean, care?: boolean, allowPrivate?: boolean) => {
     const cur = await fetchSettings();
     await updateSettings({
       check_interval_hours: cur.check_interval_hours,
@@ -233,12 +236,13 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       install_volume: cur.install_volume,
       source_list_url: cur.source_list_url,
       source_list_disabled: !(auto ?? listAuto),
+      source_list_allow_private: allowPrivate ?? listAllowPrivate,
       // 全量回传：FPK 下载目录 / 自动监测不能被本组件的保存抹掉
       download_dir: cur.download_dir,
       source_auto_care_disabled: !(care ?? autoCare),
       // 0.6.255：官方源 = 纯 OAuth，无 panel_* 字段可回传
     });
-  }, [listAuto, autoCare]);
+  }, [listAuto, autoCare, listAllowPrivate]);
 
   const handleListAutoChange = async (v: boolean) => {
     setListAuto(v);
@@ -246,6 +250,21 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
     try {
       await persistListSettings(v);
       toast.success(v ? '已开启源列表自动同步' : '已关闭源列表自动同步');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '保存设置失败');
+    } finally {
+      setSavingList(false);
+    }
+  };
+
+  // 0.6.325 安全加固 R1：内网源开关。默认关闭 = 远端清单里的内网/环回地址
+  // 一律跳过（防清单被篡改后驱动内网抓取）；开启后按清单原样添加。
+  const handleAllowPrivateChange = async (v: boolean) => {
+    setListAllowPrivate(v);
+    setSavingList(true);
+    try {
+      await persistListSettings(undefined, undefined, v);
+      toast.success(v ? '已允许同步内网源' : '已禁止同步内网源');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存设置失败');
     } finally {
@@ -763,6 +782,29 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单（前 157 条）的历史源，「恢复源」仅恢复moo默认20条精选源；并把相同地址的重复源去重为 1 个。
         </p>
+        {/* 0.6.325 安全加固 R1：清单里的内网/环回地址默认被跳过（防远端清单被
+            篡改后驱动内网抓取）。需要同步内网源时在此显式放开；
+            在应用源页手工添加的源不受本开关影响。 */}
+        <div className="flex items-start justify-between gap-3 pt-1">
+          <div className="min-w-0 text-[11px] leading-relaxed text-muted-foreground">
+            允许同步内网源
+            <span className="mt-0.5 block text-muted-foreground/80">
+              开启后，清单里的内网/环回地址也会被添加；关闭时自动跳过（推荐关闭）。手工添加的源不受影响。
+            </span>
+          </div>
+          {/* 0.6.325secfix（用户令）：开关须与上面的开关同列对齐——本卡头行开关与
+              上方「应用源自动监测」开关右缘都退让「折叠/展开钮 w-7=28px + gap-1=4px」，
+              此处补同款 w-7 占位，三开关右缘同一竖线。 */}
+          <div className="flex items-center gap-1">
+            <Switch
+              checked={listAllowPrivate}
+              onCheckedChange={handleAllowPrivateChange}
+              disabled={savingList || syncingList || deletingDefaults}
+              title="允许源列表同步添加内网/环回地址的源（默认关闭）"
+            />
+            <div className="w-7" aria-hidden="true" />
+          </div>
+        </div>
       </div>
 
       {!collapsed && (loading ? (

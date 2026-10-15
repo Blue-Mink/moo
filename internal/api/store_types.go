@@ -172,6 +172,15 @@ type VolumeOption struct {
 	Path       string `json:"path"`
 	TotalBytes int64  `json:"total_bytes"`
 	FreeBytes  int64  `json:"free_bytes"`
+	// Name 用户命名的卷友好名（0.6.325 C1，issue#5 遗留改进项）。
+	// 2026-10-14 主 NAS 实机侦察结论：本版本 fnOS（1.2.1）找不到可靠的
+	// 卷友好名来源——面板存储卷渲染恒为「存储空间 {id}」且无重命名入口
+	// （locale 无 rename 项）；PG open_gateway 无卷表、trim.mount 的
+	// comment 列恒空、LVM/btrfs label 均只有 UUID/空。故本字段当前
+	// 恒为空（omitempty 不透出），前端回落「存储空间 N · /volN」；
+	// 字段保留=来源一旦可用即可透传，前端无需再改。详见
+	// FIX_325C_IMPL.md 侦察节。
+	Name string `json:"name,omitempty"`
 }
 
 // Settings 是设置页数据。
@@ -205,6 +214,8 @@ type Settings struct {
 	SourceAutoCareOff   bool                  `json:"source_auto_care_disabled"`
 	SourceListURL       string                `json:"source_list_url,omitempty"`
 	SourceListOff       bool                  `json:"source_list_disabled"`
+	// 0.6.325 安全加固 R1：允许「源列表同步」添加非公共地址的源（默认 false）。
+	SourceListAllowPrivate bool              `json:"source_list_allow_private"`
 	// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
 	// panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
 	// 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
