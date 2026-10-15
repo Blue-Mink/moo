@@ -393,6 +393,9 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 - 字符串字段（如 `custom_github_mirror`、`proxy_url`、`panel_base_url`、`download_dir`、`backup_dir`）：JSON 中**存在**（含空串）= 显式设置/清除；**缺省** = 不改动。
 - 布尔字段（`auto_update`、`proxy_enabled`、`backup_auto`、`panel_enabled`、`source_list_disabled`…）：指针语义同上（缺省 = 不改动）。
 - 数值字段（`gh_probe_hours`…、`cache_clean_days`…）：越界整单拒绝。
+- `install_volume`（0.6.325 G2）：指针语义 —— **缺省** = 不改动；`0` = 清除回「系统默认」（安装走系统默认卷自动探测）；`1-8` = 指定存储卷；负数 / `>8` 整单拒绝。`GET /api/settings` 原样返回该值（`0` 不再显示成 `1`，保证「系统默认」可往返）。
+- `check_interval_hours` / `backup_interval_days` / `cache_clean_every_days`（0.6.325 H5）：指针语义 —— **缺省** = 不改动；`0` = 清除回各自默认（检查间隔 **24h** / 备份周期 **7 天** / 清理周期 **1 天**；`GET /api/settings` 透出生效值）。校验：`check_interval_hours` 合法 `0-168`，越界整单拒绝；两个天数字段负数整单拒绝、`>30` 沿用既有钳制（落 `30`）。
+- `custom_github_mirror` / `custom_docker_mirror` / `source_list_url` 随 `GET /api/settings` 透出（0.6.325 H1 修复：此前 PUT 可写但 GET 恒缺键，设置页水合空串后全量保存会静默清除已存自定义镜像）；未设置时键缺席（omitempty），前端水合成空串。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
 - `update_policy`（0.6.272 跨源更新策略）：仅接受 `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
 - `dedup_policy`（0.6.312 B2 列表去重展示策略）：仅接受 `all`（默认，零变化）/ `merge`（同名组内同宗簇留一代表）/ `one`（每 appname 一张代表卡），其余整单拒绝；变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回三档可见数。
@@ -438,9 +441,16 @@ Docker 优选镜像源状态：读 daemon.json 的 `registry-mirrors` 当前值�
 应用优选镜像源：备份 daemon.json（滚动 5 代）→ 合并写 `registry-mirrors`
 （原子 rename）→ `systemctl restart docker` → 读回验证，失败自动回滚；
 daemon.json 损坏时拒绝写入。
+`mirror` 取值：预设名（DockerMirrorOptions key）、`custom`（配 `custom_url`）、
+`direct`（清空 registry-mirrors 回直连）、`auto`（0.6.325 起支持）。
+`auto` = 并发实测所有有 URL 的 Docker 加速源（kspeeder 本地源探
+127.0.0.1:5443），选延迟最低的可达源应用；全部不可达返回 502 诚实报错
+（列出尝试数量），不改动任何配置。
 ```json
-请求：{"mirror": "aliyun", "custom_url": ""}      // mirror=预设名或 "custom"
-响应：{"ok": true, "mirrors": ["…"], "backup_file": "…"}   // 或 {"ok": false, "error": "…"}
+请求：{"mirror": "auto", "custom_url": ""}      // mirror=预设名/auto/custom/direct
+响应：{"ok": true, "mirrors": ["…"], "backup_file": "…",
+       "auto_mirror": "1panel", "auto_label": "1Panel", "auto_latency_ms": 120}
+// auto_* 三字段仅 mirror=auto 时出现 = 实际选中源；或 {"ok": false, "error": "…"}
 ```
 
 ---

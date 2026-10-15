@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.325": {
+     "changelog": "修复FPK安装/升级不遵循「应用安装位置」设置、多卷机器报错的问题\nDocker加速源「智能」支持应用（自动测速选最快，失败诚实报错）\n应用安装位置下拉标注/volN挂载路径，便于辨别存储卷",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_x86.fpk",
+       "size": 4978821,
+       "size_mb": 4.7,
+       "sha256": "e09663d8bcbfdb310ec8fa9c48703774235afaa5c4cd395bd618f37035a06319"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_arm.fpk",
+       "size": 4542205,
+       "size_mb": 4.3,
+       "sha256": "c1f196a1b799714c476215c9a84cc638f74c61b14c51ae16e7cc70ee6bee259a"
+      }
+     },
+     "updated_at": "2026-10-15T11:34:44+08:00"
+    },
     "0.6.322": {
      "changelog": "修复SwrodKing反馈的issue #3、#4：图标加载失败日志刷屏（同主机日志按窗口聚合，故障期从数十MB降至KB级）、镜像「包含直连」开关不生效（补全保存/测速/候选全链路，开启后测速面板显示「直连」行）、SSE 错误被吞恒显「发生未知错误」（改为透出真实错误）\n安装向导多选项字段改为可选渲染（默认项自动预选）\n收录zchunh-max反馈的javycoder/fnos_music_ext（fnMusic音源扩展）\n修复桌面/无外接键盘环境在设置页输入框输入时底部「保存」按钮消失的问题\nGitHub/Docker 镜像优选列表改为按测速结果自动排序（正常源吞吐降序→失败源连败少者先→未测速殿后）\n安装流程优化：点安装不再弹窗，改为详情页进度胶囊+安装向导预填确认\n已下载 FPK 列表改为按最近修改时间倒序（最新在上）\n上传的 FPK 安装包现在能正确显示应用名",
      "packages": {
@@ -51,21 +69,9 @@
       }
      },
      "updated_at": "2026-10-10T21:19:02+08:00"
-    },
-    "0.6.319": {
-     "changelog": "UI界面的改动\n\n桌面端加入鼠标使用行为习惯的切换\n\n修复桌面端应用源无法复制的问题",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.319/moo_0.6.319_x86.fpk",
-       "size": 4937720,
-       "size_mb": 4.7,
-       "sha256": "5b6b3eccaf02103f8beec00dabd4947e3a52dafabc8b4252ad6a3541302378fe"
-      }
-     },
-     "updated_at": "2026-10-10T11:35:00+08:00"
     }
    },
-   "sha256": "18b2d060352f574f7a58c968e5e3c557b627a18c2217f6b5dae2669ad4b0436b",
+   "sha256": "e09663d8bcbfdb310ec8fa9c48703774235afaa5c4cd395bd618f37035a06319",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -77,11 +83,11 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-12T09:03:02+08:00",
-   "version": "0.6.322",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.322/moo_0.6.322_x86.fpk",
+   "updated_at": "2026-10-15T11:34:44+08:00",
+   "version": "0.6.325",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_x86.fpk",
    "size": 4.7,
-   "changelog": "修复SwrodKing反馈的issue #3、#4：图标加载失败日志刷屏（同主机日志按窗口聚合，故障期从数十MB降至KB级）、镜像「包含直连」开关不生效（补全保存/测速/候选全链路，开启后测速面板显示「直连」行）、SSE 错误被吞恒显「发生未知错误」（改为透出真实错误）\n安装向导多选项字段改为可选渲染（默认项自动预选）\n收录zchunh-max反馈的javycoder/fnos_music_ext（fnMusic音源扩展）\n修复桌面/无外接键盘环境在设置页输入框输入时底部「保存」按钮消失的问题\nGitHub/Docker 镜像优选列表改为按测速结果自动排序（正常源吞吐降序→失败源连败少者先→未测速殿后）\n安装流程优化：点安装不再弹窗，改为详情页进度胶囊+安装向导预填确认\n已下载 FPK 列表改为按最近修改时间倒序（最新在上）\n上传的 FPK 安装包现在能正确显示应用名",
+   "changelog": "修复FPK安装/升级不遵循「应用安装位置」设置、多卷机器报错的问题\nDocker加速源「智能」支持应用（自动测速选最快，失败诚实报错）\n应用安装位置下拉标注/volN挂载路径，便于辨别存储卷",
    "service_port": "38100",
    "size_mb": 4.7
   }
