@@ -70,7 +70,7 @@
 
 ## 作为 Moo 应用源
 
-仓库根部的 `moo.json` 是按 [Moo 应用源协议](docs/Moo应用源协议.md) 生成的自索引（当前收录最近 3 个版本，下载链接指向本仓库 releases，含 SHA256）。在 Moo 中添加本仓库作为源：
+仓库根部的 `moo.json` 是按 [Moo 应用源协议](docs/Moo应用源协议.md) 生成的自索引（当前收录最近 2 个版本，下载链接指向本仓库 releases，含 SHA256）。在 Moo 中添加本仓库作为源：
 
 - 搜索框直接粘贴 `https://github.com/Blue-Mink/moo` → 自动识别为源
 - 或 设置 → 应用源 → 添加源：仓库地址 / raw 直链（`…/raw/main/moo.json`）均可
