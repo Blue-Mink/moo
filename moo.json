@@ -23,7 +23,7 @@
    "license": "MIT",
    "releases": {
     "0.6.325": {
-     "changelog": "修复FPK安装/升级不遵循「应用安装位置」设置、多卷机器报错的问题\nDocker加速源「智能」支持应用（自动测速选最快，失败诚实报错）\n应用安装位置下拉标注/volN挂载路径，便于辨别存储卷",
+     "changelog": "修复FPK安装/升级不遵循「应用安装位置」设置、多卷机器报错的问题\nDocker加速源「智能」支持应用（自动测速选最快，失败诚实报错）",
      "packages": {
       "x86": {
        "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_x86.fpk",
@@ -87,7 +87,7 @@
    "version": "0.6.325",
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_x86.fpk",
    "size": 4.7,
-   "changelog": "修复FPK安装/升级不遵循「应用安装位置」设置、多卷机器报错的问题\nDocker加速源「智能」支持应用（自动测速选最快，失败诚实报错）\n应用安装位置下拉标注/volN挂载路径，便于辨别存储卷",
+   "changelog": "修复FPK安装/升级不遵循「应用安装位置」设置、多卷机器报错的问题\nDocker加速源「智能」支持应用（自动测速选最快，失败诚实报错）",
    "service_port": "38100",
    "size_mb": 4.7
   }
