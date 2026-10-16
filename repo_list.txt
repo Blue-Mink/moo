@@ -18,3 +18,4 @@ https://github.com/Blue-Mink/FnDepot
 https://github.com/Blue-Mink/moo
 https://github.com/kci-lnk/fn-knock-turborepo
 https://github.com/qilin-zhu/LitePan-fpk
+https://github.com/javycoder/fnos_music_ext
