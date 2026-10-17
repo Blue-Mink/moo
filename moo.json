@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（仅留 Moo 自索引）",
   "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-12T09:03:02+08:00"
+  "updated_at": "2026-10-18T00:00:00+08:00"
  },
  "apps": {
   "moo": {
@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.329": {
+     "changelog": "安全加固：自更新增加 minisign 签名校验（离线私钥签发、内嵌公钥验签，防 release 投毒）\n安全加固：自更新强制校验 sha256 侧车，缺失即拒绝更新\n安全加固：安装向导提示文本统一经 DOMPurify 消毒\n安全加固：应用诊断接口挂管理员门（仅管理员可读日志尾）\n安全加固：本地密钥与会话文件权限统一为仅属主可读写",
+     "updated_at": "2026-10-18T00:00:00+08:00",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.329/moo_0.6.329_x86.fpk",
+       "size": 5083007,
+       "size_mb": 4.8,
+       "sha256": "7049ec34c3715a7f59c9c23ad13236fbc0908c9ed4ce74bb1fc50477a8ad1eb6"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.329/moo_0.6.329_arm.fpk",
+       "size": 4627761,
+       "size_mb": 4.4,
+       "sha256": "f51bcd20458c4b0789e59d4a793077e1e9874ba4778f13f48486bd43bcd4b854"
+      }
+     }
+    },
     "0.6.327": {
      "changelog": "应用溯源补强：修复非 fork 搬运源溯源缺失\n上游没有的 README 图片与预览图不再显示占位",
      "updated_at": "2026-10-17T21:13:00+08:00",
@@ -39,27 +57,9 @@
        "sha256": "d941dd2ca29242fe16446c4c20721f986c876ac1f8e0fe896d519793772cb9ee"
       }
      }
-    },
-    "0.6.326": {
-     "changelog": "应用详情页新增「溯源」：显示应用的上游来源，并提供「添加上游源 / 禁用 fork 源 / 禁用应用」三个操作\n更新策略新增第四档「强制上游」：搬运来源的应用，自动更新为上游原作者发布的版本\n被禁用的应用从列表、搜索和推荐中隐藏，可在发现页的「禁用列表」中找回\n修复图标缺失（含上游目录改名 / 大小写不一致）、安装包大小显示异常、更新日志重复条目等问题\n感谢 javycoder/fnos_music_ext：fnmusic 音源扩展已接入 Moo 应用源协议\n该应用的发布与更新由 Moo 统一托管，可直接在 Moo 中安装与升级",
-     "updated_at": "2026-10-17T15:40:09+08:00",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.326/moo_0.6.326_x86.fpk",
-       "size": 5062687,
-       "size_mb": 4.8,
-       "sha256": "5519ae42d862fee744e5a778a37c585b9dd81f603fdf9c6ced7e046aa08fb154"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.326/moo_0.6.326_arm.fpk",
-       "size": 4616300,
-       "size_mb": 4.4,
-       "sha256": "c7132ebc58a6404bd2c6f32500f1baf1ff5da78856d7d473cb6749e3e872f29a"
-      }
-     }
     }
    },
-   "sha256": "2486cfb77542b1db41a33dd08658bd8f6d764a89a34b0c99326e56280195839a",
+   "sha256": "7049ec34c3715a7f59c9c23ad13236fbc0908c9ed4ce74bb1fc50477a8ad1eb6",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -71,9 +71,9 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-17T21:13:00+08:00",
-   "version": "0.6.327",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.327/moo_0.6.327_x86.fpk",
+   "updated_at": "2026-10-18T00:00:00+08:00",
+   "version": "0.6.329",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.329/moo_0.6.329_x86.fpk",
    "size": 4.8,
    "service_port": "38100",
    "size_mb": 4.8
