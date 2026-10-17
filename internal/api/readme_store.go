@@ -32,6 +32,20 @@ const (
 	// 单条几 KB，磁盘增量约 20MB 量级。
 	readmeDiskMax = 4096
 	readmeWarmSem = 3
+	// 0.6.326 A1：未声明 README 的惰性自动探测预算（proxyReadmeAuto）。
+	// 原 20s（阶段 1 10s）在 raw 挂起时让详情页卡满 20s；改 5s（阶段 1 3s）。
+	readmeAutoBudget = 5 * time.Second
+	readmeAutoStage1 = 3 * time.Second
+	// 自动探测的瞬态失败（超时/429/5xx）短负缓存：30 秒内不再重付探测预算，
+	// 又不像确定性 404 那样压 30min。0.6.326 残余 4（用户令「兜底容错」）：
+	// 原 10min 会把偶发 raw 挂起当「没有 README」隐藏 10 分钟；降到 30s——
+	// 单次挂起窗口内不重复付 5s 预算，窗口过后自动重探，README 区短隐即复现。
+	readmeAutoNegTTL = 30 * time.Second
+	// 0.6.326 残余 3（用户令「一并修复」）：**声明了 readme_url** 的卡原走
+	// 25s 预算（serveReadmeURL）——上游 raw 挂起时理论最坏 ~24s。收紧到 8s：
+	// 正常命中中位 0.35s（[race] 实测），8s 足够；挂起时由 stale-while-revalidate
+	// 回退磁盘旧缓存，不再把详情页拖 20+ 秒。自动探测仍用更紧的 readmeAutoBudget(5s)。
+	readmeDeclBudget = 8 * time.Second
 )
 
 type readmeMemEntry struct {
@@ -304,11 +318,21 @@ func (st *readmeStore) stop() {
 
 // MarkNegative 明确 404 记 30min（纯超时不记）。
 func (st *readmeStore) MarkNegative(key string) {
+	st.markNegativeTTL(key, readmeNegTTL)
+}
+
+// markNegativeTTL 自定义时长的负缓存（0.6.326 A1）：自动探测的瞬态失败
+// （raw 挂起/429/5xx）用短 TTL——10 分钟内不再重新付一遍探测预算，但也不会
+// 像确定性 404 那样压 30min，避免把限流窗口当成「应用没有 README」。
+func (st *readmeStore) markNegativeTTL(key string, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
 	st.mu.Lock()
 	if len(st.neg) > 512 {
 		st.neg = map[string]time.Time{}
 	}
-	st.neg[key] = time.Now().Add(readmeNegTTL)
+	st.neg[key] = time.Now().Add(ttl)
 	st.mu.Unlock()
 }
 

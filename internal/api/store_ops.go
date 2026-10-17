@@ -1159,7 +1159,7 @@ func (s *Server) serveReadmeURL(w http.ResponseWriter, r *http.Request, rawURL s
 	if st.IsNegative(cacheKey) {
 		return false, true
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), readmeDeclBudget)
 	defer cancel()
 	body, mime, isDead, winner, err := s.fetchReadmeRace(ctx, rawURL, withMirrors)
 	if err == nil {
@@ -1247,15 +1247,18 @@ func (s *Server) proxyReadmeAuto(w http.ResponseWriter, r *http.Request, a *sour
 		writeErr(w, http.StatusNotFound, errors.New("该应用没有 README"))
 		return
 	}
-	// 20s = 阶段 1（10s）+ 阶段 2（单镜像）+ 余量。实测 26s 无增益（终测
-	// 502: 146→162，属限流噪声），回退到 20s，避免最坏等待变长。
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	// 0.6.326 A1（2026-10-17 实测）：原预算 20s = 阶段 1（10s）+ 阶段 2（单镜像），
+	// raw 挂起时 30 张抽样里 10 张卡满 20.0s 再 502，占全目录 86%（1849/2157）
+	// 未声明 readme_url 的卡——开详情必付。现改为总 5s（阶段 1 3s + 镜像兜底
+	// ≤2s）：有 README 的正常命中都在 0.3s 级（[race] 实测中位 0.35s / p90 0.70s），
+	// 5s 足够；挂起窗口不再把详情页拖 20s。瞬态失败走 10min 短负缓存（见下）。
+	ctx, cancel := context.WithTimeout(r.Context(), readmeAutoBudget)
 	defer cancel()
 	cands := s.readmeAutoCandidates(a)
 
 	// 阶段 1：只用 raw + jsDelivr（审计 MEDIUM-1：不挂镜像，避免每次探测放大 8 倍）。
-	// 预算 10s，够快的命中；raw 挂起时不把整段时间耗死。
-	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
+	// 预算 3s，够快的命中；raw 挂起时立刻让位给镜像兜底。
+	ctx1, cancel1 := context.WithTimeout(ctx, readmeAutoStage1)
 	r1 := r.WithContext(ctx1)
 	allDead := true
 	for _, u := range cands {
@@ -1298,6 +1301,10 @@ func (s *Server) proxyReadmeAuto(w http.ResponseWriter, r *http.Request, a *sour
 			return
 		}
 	}
+	// 0.6.326 A1：瞬态失败（raw 挂起/429/5xx，判不出「确实没有」）也记 10 分钟
+	// 短负缓存——否则同一条目每次打开都重付 5s 探测预算，用户观感仍是「README
+	// 一直在转」。确定性 404 仍走 30min（上面的 MarkNegative）。
+	st.markNegativeTTL(key, readmeAutoNegTTL)
 	writeErr(w, http.StatusBadGateway, errors.New("拉取失败: 所有候选均不可达"))
 }
 

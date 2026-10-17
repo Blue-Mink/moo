@@ -201,18 +201,18 @@ func TestLineageFix326Y_G3b_AppNameCaseDrift(t *testing.T) {
 	}
 }
 
-// ── G1：官方合并改写 Source 后，溯源仍按 OriginSource 反查本源仓库 ────────────
+// ── 0.6.326z3：飞牛官方源不参与溯源（用户规则）────────────────────────────
 //
-// 修复前：mergeOfficialCards 无条件把社区卡的 Source 改写成 fnos-official，
-// 而 fnos-official 不是已配置源 → 溯源两个函数按 a.Source 反查本源仓库全部落空
-// → 整卡跳过（实测 15 张本应溯源的搬运卡缺「溯源」行，如 gridmerge@dysfwhq）。
-func TestLineageFix326Y_G1_OfficialMergeKeepsOriginSource(t *testing.T) {
-	// ① originSourceOf 口径
-	if got := originSourceOf(&AppInfo{Source: OfficialSourceID, OriginSource: "搬运源"}); got != "搬运源" {
-		t.Fatalf("官方合并卡应取 OriginSource，got %q", got)
+// 用户规则：飞牛官方源（fnos-official）是权威来源，官方收录的应用不显示
+// 「溯源/搬运」标记——即使它是官方目录与社区源同名合并来的（OriginSource
+// 有社区源），也一律不溯源。0.6.326y 的「按 OriginSource 反查」据此废止。
+func TestLineage326Z3_OfficialSourceNotUpstream(t *testing.T) {
+	// ① originSourceOf 口径：官方卡一律返回空（不溯源）
+	if got := originSourceOf(&AppInfo{Source: OfficialSourceID, OriginSource: "搬运源"}); got != "" {
+		t.Fatalf("官方合并卡（含 OriginSource）应不溯源返回空，got %q", got)
 	}
-	if got := originSourceOf(&AppInfo{Source: OfficialSourceID}); got != OfficialSourceID {
-		t.Fatalf("纯官方卡（无 OriginSource）应回落到 Source，got %q", got)
+	if got := originSourceOf(&AppInfo{Source: OfficialSourceID}); got != "" {
+		t.Fatalf("纯官方卡应返回空，got %q", got)
 	}
 	if got := originSourceOf(&AppInfo{Source: "搬运源"}); got != "搬运源" {
 		t.Fatalf("普通卡应取 Source，got %q", got)
@@ -261,11 +261,8 @@ func TestLineageFix326Y_G1_OfficialMergeKeepsOriginSource(t *testing.T) {
 	card.Distributor = "MR_XIAOBO"
 	out := []AppInfo{card}
 	s.applyUpstreamLineage(out)
-	if out[0].UpstreamRepo != "ctllo-bit/fndepot" || out[0].UpstreamSource != "父源" || out[0].UpstreamVersion != "2.0.0" {
-		t.Fatalf("修复前：Source=fnos-official 反查不到本源仓库 → 整卡跳过溯源：%+v", out[0])
-	}
-	if out[0].UpstreamURL != "https://github.com/ctllo-bit/fndepot" {
-		t.Fatalf("UpstreamURL 应指向 fork parent：%+v", out[0])
+	if out[0].UpstreamRepo != "" || out[0].UpstreamSource != "" || out[0].UpstreamVersion != "" {
+		t.Fatalf("飞牛官方源不应溯源（即使 OriginSource 有社区源）：%+v", out[0])
 	}
 	// ⑤ applySourceLineage **故意不改**：官方徽章卡不出「禁用fork源」按钮
 	s.applySourceLineage(out)
@@ -283,21 +280,19 @@ func TestLineageFix326Y_G1_OfficialMergeKeepsOriginSource(t *testing.T) {
 		t.Fatalf("纯官方卡（无 OriginSource）必须仍跳过溯源：%+v", o2[0])
 	}
 
-	// ⑦ 纠正层：官方合并的已装卡仍能找到它的上游 sibling（按 OriginSource 比对）
+	// ⑦ 纠正层：官方合并卡（Source=fnos-official）不再纠正——它没有 upstream
+	// （UpstreamSource 空），纠正层据此跳过，不需要 sibling。
 	inst := y326Card("gridmerge@dysfwhq", "gridmerge", "gridmerge", OfficialSourceID, "1.0.0",
 		"https://github.com/dysfwhq/fndepot/releases/download/v1.0.0/gridmerge.fpk")
 	inst.OriginSource = "搬运源"
-	inst.Installed, inst.InstalledVersion, inst.UpstreamSource = true, "1.0.0", "父源"
+	inst.Installed, inst.InstalledVersion, inst.UpstreamSource = true, "1.0.0", ""
 	sib := y326Card("gridmerge@父源", "gridmerge", "gridmerge", OfficialSourceID, "2.0.0",
 		"https://github.com/ctllo-bit/fndepot/releases/download/v2.0.0/gridmerge.fpk")
 	sib.OriginSource = "父源"
 	o3 := []AppInfo{inst, sib}
 	applyUpstreamCorrection(o3, map[string]platform.InstalledApp{}, true)
-	if !o3[0].HasUpdate || o3[0].AvailableVersion != "2.0.0" {
-		t.Fatalf("修复前：sibling 的 Source 也被改写成 fnos-official → 纠正找不到上游卡：%+v", o3[0])
-	}
-	if o3[0].UpdateFromSource != sib.Source {
-		t.Fatalf("更新来源应记 sibling 的 Source：%+v", o3[0])
+	if o3[0].HasUpdate {
+		t.Fatalf("官方源卡不应纠正（UpstreamSource 空）：%+v", o3[0])
 	}
 	// ⑧ 对照：普通（未合并）卡路径不受影响
 	s3 := y326Server(t,

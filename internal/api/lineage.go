@@ -179,20 +179,19 @@ func (s *Server) sourceRepoByKey() map[string]string {
 	return m
 }
 
-// originSourceOf 取卡片的「本源来源」源名（0.6.326y / G1）。
+// originSourceOf 取卡片的「本源来源」源名。
 //
-// 官方合并（store_catalog.go mergeOfficialCards）会把社区卡的 Source 统一
-// 改写成 OfficialSourceID（fnos-official）——而 fnos-official **不是**已配置源，
-// 溯源若按 a.Source 反查本源仓库必然落空 → 这类「官方目录也有同名应用」的搬运卡
-// 整卡跳过溯源（实测 15 张本应溯源的卡缺「溯源」行，含 picoclaw@AstideLabs、
-// Lucky@Chordi0124、gridmerge/vs-code@dysfwhq、java-11-openjdk@LI1223081906…）。
-// 改写前的真来源记在 OriginSource，这里优先取它。
+// 0.6.326z3（用户规则「飞牛官方源不参与溯源」）：官方目录是权威来源，官方
+// 收录的应用（Source == fnos-official）不显示「溯源/搬运」标记——即使它是
+// 官方目录与社区源同名合并来的（OriginSource 有社区源），也一律不溯源。
+// 故 source 为官方时直接返回空，applyUpstreamLineage 据此整卡跳过。
+// （0.6.326y 的「按 OriginSource 反查」已按此规则废止。）
 func originSourceOf(a *AppInfo) string {
 	if a == nil {
 		return ""
 	}
-	if a.Source == OfficialSourceID && a.OriginSource != "" {
-		return a.OriginSource
+	if a.Source == OfficialSourceID {
+		return ""
 	}
 	return a.Source
 }
@@ -289,6 +288,27 @@ func (s *Server) applyUpstreamLineage(out []AppInfo) {
 		if srcRepo == "" {
 			continue // 本源仓库未知（源已删/非 GitHub），无比较基准
 		}
+		// 0.6.326 溯源批次（作者声明上游 / maintainer_url）：
+		// maintainer_url 指向一个**已收录**的打包者索引仓、且其 owner ≠ 本源
+		// owner 时，作者声明优先于 fork 转口——覆盖「mah1618 非 fork 搬运 RROrg、
+		// 其 fork ganx2024 被 fork 溯源停在 mah1618 转口」这类链断场景。
+		// 只认「已收录」仓库：shuangji66 家族 maintainer_url 指向开源项目
+		//（AdguardTeam/AdGuardHome、aria2/aria2…），未收录 → 不在此处理，交给
+		// 下方 fork/releaseOrigin 路径维持正确的「打包者溯源」。同 owner 声明
+		//（作者自建仓）也放过。同名卡版本读原始源数据（upstreamVersionOf 用
+		// s.Src.Apps，天然不受 mergeOfficialCards 改写 source 影响）；源内无同名卡
+		// 时只填 repo/url/source、不填 version（诚实：上游已下架该应用）。
+		if a.MaintainerURL != "" {
+			if ar := releaseOrigin(a.MaintainerURL); ar != "" {
+				if name, ok := bareToSource[ar]; ok && ownerOf(ar) != ownerOf(srcRepo) {
+					a.UpstreamRepo = ar
+					a.UpstreamURL = "https://github.com/" + ar
+					a.UpstreamSource = name
+					a.UpstreamVersion = upstreamVersionOf(verCache, s, name, a.AppName, a.DisplayName)
+					continue
+				}
+			}
+		}
 		origin := ""
 		if a.ReleaseURL != "" {
 			origin = releaseOrigin(a.ReleaseURL)
@@ -321,6 +341,15 @@ func (s *Server) applyUpstreamLineage(out []AppInfo) {
 			// 0.6.326k（F3=B3）：parent 指向本仓 = 自环脏数据，不得把自己写成上游。
 			if !isFork || parent == "" || sameRepo(parent, bare) || !republishedByOther(a, ownerOf(bare)) {
 				continue
+			}
+			// 0.6.326z2：交叉印证——fork parent 已收录但源里没有同名卡时，是
+			// fork 者**自加的二创项目**（GenOffice/LobeHub/Lucky 实测：作者 fork
+			// 了 EWEDLCM/FnDepot 索引框架往里加自己打包的应用），不是搬运 parent
+			// 的内容，不判搬运（与 applyForkParentFallback 同一交叉印证口径）。
+			if name, ok := bareToSource[parent]; ok {
+				if upstreamVersionOf(verCache, s, name, a.AppName, a.DisplayName) == "" {
+					continue
+				}
 			}
 			a.UpstreamRepo = parent
 			a.UpstreamURL = "https://github.com/" + parent

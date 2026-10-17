@@ -111,20 +111,14 @@ export const readmeLooksLikeHtml = (t: string): boolean => {
   return !hasMarkdown;
 };
 
-/** README 图片加载失败处理：破图图标+长 alt 会撑满单元格（GenOffice
-    实锤），压成紧凑的「图片不可用」占位。img 的 error 事件不冒泡，
-    用容器 onErrorCapture（capture 阶段）统一拦截。 */
+/** 图片加载失败处理（README / 应用简介共用）：上游没有的图片直接隐藏，
+    不显示破图图标/占位框（0.6.326 用户令「上游没有的不要用占位显示」）。
+    img 的 error 事件不冒泡，用容器 onErrorCapture（capture 阶段）统一拦截。 */
 export const handleReadmeImgError = (e: React.SyntheticEvent) => {
   const t = e.target as HTMLImageElement;
   if (t.tagName !== 'IMG' || t.dataset.imgFailed) return;
   t.dataset.imgFailed = '1';
-  t.alt = '图片不可用';
-  t.style.maxWidth = '120px';
-  t.style.maxHeight = '36px';
-  t.style.opacity = '0.55';
-  t.style.border = '1px dashed currentColor';
-  t.style.borderRadius = '4px';
-  t.style.padding = '2px 4px';
+  t.style.display = 'none';
 };
 
 // 移动端悬浮返回钮：磨玻璃圆钮贴左缘半露出（磁吸），细线 ‹ 箭头右移完全可见。
@@ -1291,6 +1285,7 @@ mdsSim && "mds-sim")}>
               <>
                 <DialogDescription
                   className={DESC_RICH_CLS}
+                  onErrorCapture={handleReadmeImgError}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(officialDesc) }}
                 />
                 <Separator />
@@ -1304,6 +1299,7 @@ mdsSim && "mds-sim")}>
               <>
                 <DialogDescription
                   className={DESC_RICH_CLS}
+                  onErrorCapture={handleReadmeImgError}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(app.desc_html) }}
                 />
                 <Separator />
@@ -1319,6 +1315,7 @@ mdsSim && "mds-sim")}>
                 <>
                   <DialogDescription
                     className={DESC_RICH_CLS}
+                    onErrorCapture={handleReadmeImgError}
                     dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(d) }}
                   />
                   <Separator />
@@ -1367,6 +1364,14 @@ mdsSim && "mds-sim")}>
                       alt={`${app.display_name} 预览 ${i + 1}`}
                       loading="lazy"
                       draggable={false}
+                      onError={(e) => {
+                        // 0.6.326 用户令「预览图上游没有的不要用占位显示」：
+                        // 加载失败直接隐藏整格，不留灰块/破图。
+                        const el = e.currentTarget as HTMLImageElement;
+                        el.style.display = 'none';
+                        const btn = el.closest('button');
+                        if (btn) btn.style.display = 'none';
+                      }}
                       className="w-full aspect-[16/10] object-cover bg-muted/40"
                     />
                   </button>
