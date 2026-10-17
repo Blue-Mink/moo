@@ -397,6 +397,27 @@ func (p *Panel) ensureBackfill() {
 	}()
 }
 
+// LastError 只读返回官方应用中心连接的最后一个错误串（空 = 无错误）。
+// 0.6.326 通知批次「官方源连接失效」巡检用；对既有行为零影响（纯读）。
+func (p *Panel) LastError() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.err
+}
+
+// CachedAppCount 只读返回官方目录缓存条目数（0 = 无缓存/未连接）。
+func (p *Panel) CachedAppCount() int {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.apps)
+}
+
 // sourceEntry 官方源在 /api/sources 的条目（置顶，不可删）。
 // 0.6.255：官方源恒存在（Alive），未授权时 AppCount=0 + 错误提示引导连接。
 func (p *Panel) sourceEntry() SourceEntry {

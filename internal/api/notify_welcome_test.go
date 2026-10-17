@@ -205,13 +205,14 @@ func TestChannelTestSendsWelcome(t *testing.T) {
 	if sub, _ := tc["sub_title_text"].(string); sub != welcomeCardSub {
 		t.Errorf("测试卡片副题应为三行致谢, got %q", sub)
 	}
-	jl, _ := tc["jump_list"].([]any)
-	if len(jl) == 0 {
-		t.Fatal("应带 jump_list")
+	// 0.6.326：卡片不再带「打开通知详情」列表项（jump_list），改由整卡点击跳转
+	// （card_action）指向演示页。
+	if _, hasJL := tc["jump_list"]; hasJL {
+		t.Errorf("0.6.326 起卡片不应再带 jump_list，got %v", tc["jump_list"])
 	}
-	first, _ := jl[0].(map[string]any)
-	if first["url"] != "http://example.local/api/notify-view/0000test" {
-		t.Errorf("跳转链接应指向 0000test 演示页, got %v", first["url"])
+	ca, _ := tc["card_action"].(map[string]any)
+	if ca == nil || ca["url"] != "http://example.local/api/notify-view/0000test" {
+		t.Errorf("整卡跳转应指向 0000test 演示页, got %v", tc["card_action"])
 	}
 	if len(s.Cfg.NotifyLog) != 0 {
 		t.Errorf("测试不应落 notify_log, got %d 条", len(s.Cfg.NotifyLog))

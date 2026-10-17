@@ -47,8 +47,8 @@ func TestNotifySettingsRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("解析响应: %v", err)
 	}
-	if !got.Enabled || len(got.Catalog) != 33 {
-		t.Fatalf("缺省应总开关开且 33 类事件: enabled=%v catalog=%d", got.Enabled, len(got.Catalog))
+	if !got.Enabled || len(got.Catalog) != 36 {
+		t.Fatalf("缺省应总开关开且 36 类事件: enabled=%v catalog=%d", got.Enabled, len(got.Catalog))
 	}
 	defMap := make(map[string]bool, len(got.Catalog))
 	groups := make(map[string]bool, len(got.Catalog))
@@ -63,6 +63,12 @@ func TestNotifySettingsRoundTrip(t *testing.T) {
 	for _, k := range []string{"updates_available", "auto_update_round", "source_sync_summary", "mirror_switched", "mirrors_recovered", "disk_space_alert"} {
 		if !defMap[k] {
 			t.Errorf("目录缺 0.6.133 事件或默认未开: %s", k)
+		}
+	}
+	// 0.6.326 通知批次新增 3 事件（目录 33 → 36），默认开
+	for _, k := range []string{"upstream_corrected", "notify_channel_error", "official_session_expired"} {
+		if !defMap[k] {
+			t.Errorf("目录缺 0.6.326 新事件或默认未开: %s", k)
 		}
 	}
 	if !groups["应用更新"] {

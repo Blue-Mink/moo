@@ -39,17 +39,20 @@ import FpkDownloads from './FpkDownloads'
 // 0.6.325 C1：卷显示名优先级（友好名 · /volN → 存储空间 N · /volN）
 import { volumeOptionLabel } from '../lib/volumeLabel'
 
-// 已装应用跨源更新策略（0.6.272）：三档横排切换
+// 已装应用更新策略（0.6.272）：横排切换
 // 0.6.284（用户定稿）：档位命名 严格/同源/同宗 → 严格/友好/宽松（语义不变，仅更口语）
+// 0.6.326x（用户令）：原独立开关「自动纠正应用更新」并入本策略做第四档「强制上游」
 const UPDATE_POLICY_OPTIONS: { value: string; label: string }[] = [
   { value: 'strict', label: '严格' },
   { value: 'origin', label: '友好' },
   { value: 'lineage', label: '宽松' },
+  { value: 'upstream', label: '强制上游' },
 ];
 const UPDATE_POLICY_DESCS: Record<string, string> = {
   strict: '只提示当初安装来源的新版本，最保守（默认）',
   origin: '同一发布仓库的新版本也提示，其他源的同名包不算更新',
   lineage: '同作者或同发布仓库的新版本都提示（覆盖最全）',
+  upstream: '已装的搬运应用改用上游原作者的版本；其余应用按「严格」处理（不跨源）',
 };
 
 type SettingsTab = 'system' | 'accel' | 'source' | 'backup' | 'notify' | 'log' | 'about';
@@ -696,6 +699,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [volumeOptions, setVolumeOptions] = useState<VolumeOption[]>([]);
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   const [autoUpdate, setAutoUpdate] = useState<boolean>(false);
+  // 0.6.326x：「自动纠正」已并入更新策略第四档「强制上游」，不再有独立 state。
   // 已装应用跨源更新策略（0.6.272）：严格/友好/宽松（替换 0.6.269 目录语言入口）
   const [updatePolicy, setUpdatePolicy] = useState<string>('strict');
   // FPK 下载目录（0.6.325 C4：已下载列表段抽入 FpkDownloads 组件，此处只留
@@ -1382,6 +1386,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setInstallVolume(settings.install_volume || 0);
         setVolumeOptions(settings.volume_options || []);
         setAutoUpdate(!!settings.auto_update);
+        // 0.6.326x：auto_correct 已并入 update_policy（服务端读旧配置自动迁移）。
         setUpdatePolicy(settings.update_policy || 'strict');
         loadedUpdatePolicyRef.current = settings.update_policy || 'strict';
         // 0.6.255：面板账号加载行已移除（设置不再下发 panel_* 字段）
@@ -2577,7 +2582,8 @@ mdsSim && "mds-sim")}>
 
 
                 {/* 更新策略（0.6.325 C2：「自动更新应用」+「更新检测策略」两卡合一卡——
-                    第一行=自动更新开关+说明；下方=严格/友好/宽松三胶囊+选中说明。
+                    行序（0.6.326b 用户令定稿）：①自动更新应用开关+说明 → ②严格/友好/宽松
+                    三胶囊+选中说明 → ③自动纠正应用更新（原在①下方，用户令挪到胶囊下方）。
                     所有 handler/state/0.6.312 重算逻辑原样不动，只改渲染结构；
                     桌面+390/360 均无溢出（开关行 min-w-0 换行兜底，胶囊行 360 实测 3 列放得下） */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
@@ -2605,7 +2611,7 @@ mdsSim && "mds-sim")}>
                       {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
                           bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
                           语言与顶部 tab 一致 */}
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                         {UPDATE_POLICY_OPTIONS.map((o) => (
                           <button
                             key={o.value}
@@ -2627,6 +2633,9 @@ mdsSim && "mds-sim")}>
                         {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
                       </p>
                     </div>
+                    {/* 0.6.326x（用户令）：原独立开关「自动纠正应用更新」已并入上方
+                        「更新策略」做第四档「强制上游」，不再单独渲染；逻辑见
+                        internal/api resolveUpdateTargetSelection。 */}
                   </div>
                 </div>
 

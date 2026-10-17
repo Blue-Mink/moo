@@ -2,8 +2,8 @@
 //
 // 【新增通知类别必读】internal/notify/CONVENTIONS.md——2026-10-01 用户定稿的
 // 排版硬约束（三长度变体×卡片/mdv2 六种组合、措辞符号、尾部禁「完整明细+
-// 链接」、防刷屏与新增 checklist）。新事件一律走 notifyEventRichV 并按
-// 规范填齐 Variants。
+// 链接」、0.6.326 起禁「打开通知详情」入口、防刷屏与新增 checklist）。新事件
+// 一律走 notifyEventRichV 并按规范填齐 Variants。
 package notify
 
 import (
@@ -427,9 +427,8 @@ func sendWeComCard(client *http.Client, ch config.NotifyChannel, msg *Message) e
 		"card_type": "text_notice",
 		"source":    map[string]any{"desc": "Moo"},
 		"main_title": map[string]any{"title": "Moo · " + title, "desc": time.Unix(msg.TS, 0).Format("01-02 15:04")},
-		"jump_list": []map[string]any{
-			{"type": 1, "url": viewURL, "title": "打开通知详情"},
-		},
+		// 0.6.326：按用户令去掉卡片尾部「打开通知详情」跳转列表项；
+		// 整卡点击跳转（card_action，无文字入口）保留。
 		"card_action": map[string]any{"type": 1, "url": viewURL},
 	}
 	if sub != "" { // 0.6.162：副题空时省略字段（防空白行/与 hero 重复）
@@ -480,28 +479,24 @@ func sendDingTalk(client *http.Client, ch config.NotifyChannel, msg *Message) er
 		u = u + sep + "timestamp=" + ts + "&sign=" + sign
 	}
 	// 0.6.177 通知形式分流（对齐企微三形式）：钉钉 markdown 不支持表格语法
-	// → md_v2 以列表呈现；card = actionCard 整卡跳转（singleTitle/singleURL）。
+	// → md_v2 以列表呈现；card = actionCard 卡片版式。
+	// 0.6.326：按用户令去掉 actionCard 的「打开通知详情」按钮（singleTitle/
+	// singleURL），卡片不再带跳转入口，故也不再依赖详情页地址、无需降级。
 	switch strings.ToLower(strings.TrimSpace(ch.Format)) {
 	case "card":
-		if vu := strings.TrimSpace(msg.ViewURL); vu != "" {
-			body := map[string]any{
-				"msgtype": "actionCard",
-				"actionCard": map[string]any{
-					"title":       msg.Title,
-					"text":        "### " + msg.Title + "\n\n" + msg.Content,
-					"singleTitle": "打开通知详情",
-					"singleURL":   vu,
-				},
-			}
-			return postJSON(client, u, body, func(d map[string]any) error {
-				if code, _ := d["errcode"].(float64); code != 0 {
-					return fmt.Errorf("钉钉 errcode=%v errmsg=%v", d["errcode"], d["errmsg"])
-				}
-				return nil
-			})
+		body := map[string]any{
+			"msgtype": "actionCard",
+			"actionCard": map[string]any{
+				"title": msg.Title,
+				"text":  "### " + msg.Title + "\n\n" + msg.Content,
+			},
 		}
-		// 详情页未配置 → 降级 markdown
-		fallthrough
+		return postJSON(client, u, body, func(d map[string]any) error {
+			if code, _ := d["errcode"].(float64); code != 0 {
+				return fmt.Errorf("钉钉 errcode=%v errmsg=%v", d["errcode"], d["errmsg"])
+			}
+			return nil
+		})
 	default:
 		body := map[string]any{
 			"msgtype": "markdown",
@@ -548,31 +543,25 @@ func sendFeishu(client *http.Client, ch config.NotifyChannel, msg *Message) erro
 		return fmt.Errorf("webhook_url 未配置")
 	}
 	// 0.6.177 通知形式分流（对齐企微三形式）：默认/md_v2 = post 富文本
-	//（飞书不支持表格→列表呈现）；card = interactive 卡片 + 「打开通知详情」按钮跳转。
+	//（飞书不支持表格→列表呈现）；card = interactive 卡片。
+	// 0.6.326：按用户令去掉卡片尾部「打开通知详情」按钮，卡片不再带跳转入口。
 	var body map[string]any
 	switch strings.ToLower(strings.TrimSpace(ch.Format)) {
 	case "card":
-		if vu := strings.TrimSpace(msg.ViewURL); vu != "" {
-			body = map[string]any{
-				"msg_type": "interactive",
-				"card": map[string]any{
-					"header": map[string]any{
-						"template": "blue",
-						"title":    map[string]any{"tag": "plain_text", "content": msg.Title},
-					},
-					"elements": []map[string]any{
-						{"tag": "div", "text": map[string]any{"tag": "lark_md", "content": msg.Content}},
-						{"tag": "note", "elements": []map[string]any{
-							{"tag": "plain_text", "content": time.Unix(msg.TS, 0).Format("01-02 15:04")},
-						}},
-						{"tag": "action", "actions": []map[string]any{
-							{"tag": "button", "text": map[string]any{"tag": "plain_text", "content": "打开通知详情"}, "type": "primary", "url": vu},
-						}},
-					},
+		body = map[string]any{
+			"msg_type": "interactive",
+			"card": map[string]any{
+				"header": map[string]any{
+					"template": "blue",
+					"title":    map[string]any{"tag": "plain_text", "content": msg.Title},
 				},
-			}
-		} else {
-			body = feishuPostBody(msg)
+				"elements": []map[string]any{
+					{"tag": "div", "text": map[string]any{"tag": "lark_md", "content": msg.Content}},
+					{"tag": "note", "elements": []map[string]any{
+						{"tag": "plain_text", "content": time.Unix(msg.TS, 0).Format("01-02 15:04")},
+					}},
+				},
+			},
 		}
 	default:
 		body = feishuPostBody(msg)
@@ -607,13 +596,8 @@ func sendServerChan(client *http.Client, ch config.NotifyChannel, msg *Message) 
 	if key == "" {
 		return fmt.Errorf("sendkey 未配置")
 	}
-	// 0.6.177 card 形式：desp 尾部追加详情链接（markdown 链接，微信侧可点）
+	// 0.6.326：按用户令渠道通知不再追加「打开通知详情」入口，desp 即正文。
 	desp := msg.Content
-	if strings.ToLower(strings.TrimSpace(ch.Format)) == "card" {
-		if vu := strings.TrimSpace(msg.ViewURL); vu != "" {
-			desp += "\n\n[打开通知详情](" + vu + ")"
-		}
-	}
 	body := map[string]any{
 		"title":  msg.Title,
 		"desp":   desp,
@@ -644,7 +628,7 @@ func sendPushPlus(client *http.Client, ch config.NotifyChannel, msg *Message) er
 	if token == "" {
 		return fmt.Errorf("token 未配置")
 	}
-	// 0.6.177 card 形式：未自定义模板时用 html 模板追加详情链接
+	// 0.6.326：按用户令渠道通知不再追加「打开通知详情」链接，content 即正文。
 	content := msg.Content
 	template := func() string {
 		if t := strings.TrimSpace(ch.Params["template"]); t != "" {
@@ -652,12 +636,6 @@ func sendPushPlus(client *http.Client, ch config.NotifyChannel, msg *Message) er
 		}
 		return "txhtml"
 	}()
-	if strings.ToLower(strings.TrimSpace(ch.Format)) == "card" && strings.TrimSpace(ch.Params["template"]) == "" {
-		if vu := strings.TrimSpace(msg.ViewURL); vu != "" {
-			template = "html"
-			content += "<br><a href=\"" + vu + "\">打开通知详情</a>"
-		}
-	}
 	body := map[string]any{
 		"title":    msg.Title,
 		"content":  content,

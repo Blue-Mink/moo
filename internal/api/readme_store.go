@@ -27,7 +27,10 @@ const (
 	readmeDiskTTL = 7 * 24 * time.Hour
 	readmeNegTTL  = 30 * time.Minute
 	readmeMemMax  = 512 // ~10KB × 512 ≈ 5MB
-	readmeDiskMax = 2000
+	// 0.6.326 终测（finding）：目录 2157 卡 > 2000 → 全量访问时 LRU 挤出已命中
+	// 条目，叠加 raw 429 出现「200→502 反弹」（两轮扫描 24 例）。放宽到 4096，
+	// 单条几 KB，磁盘增量约 20MB 量级。
+	readmeDiskMax = 4096
 	readmeWarmSem = 3
 )
 
@@ -347,7 +350,7 @@ func (s *Server) warmReadmesPass(ctx context.Context, budget time.Duration) {
 		if a.ReadmeURL == "" {
 			continue
 		}
-		key := "readme|" + a.ReadmeURL
+		key := "readme2|" + a.ReadmeURL // 与 proxyReadme 同版本段（MED-1 残留失效）
 		if st.Has(key) || st.IsNegative(key) {
 			continue
 		}
@@ -372,8 +375,13 @@ func (s *Server) warmReadmesPass(ctx context.Context, budget time.Duration) {
 		go func(ref *appRef) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			body, mime, dead, err := s.fetchReadmeRace(pctx, ref.a.ReadmeURL)
+			body, mime, dead, winner, err := s.fetchReadmeRace(pctx, ref.a.ReadmeURL, true)
 			if err == nil && len(body) > 0 {
+				// 0.6.326（审计 MED-1）：与 proxyReadme 同口径——按实际命中的
+				// 文件 URL 绝对化相对图片，避免仓库页回落取到的 README 破图。
+				if winner != "" {
+					body = rewriteRelImages(body, readmeWinnerBase(winner))
+				}
 				st.Put(ref.key, body, mime)
 				hitMu.Lock()
 				hit++

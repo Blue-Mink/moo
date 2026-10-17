@@ -26,8 +26,10 @@ func TestRaceFetch_TwoNonJd404sDead(t *testing.T) {
 
 	s := &Server{Mirrors: NewMirrorMonitor()}
 	start := time.Now()
-	_, _, dead, err := s.raceFetch(context.Background(),
-		[]string{srvA.URL + "/x.webp", srvB.URL + "/y.webp"})
+	// 0.6.326：判死口径收紧为「**同一路径**被两个独立来源 404」——两个
+	// 不同路径的 404 互不背书（README.md/readme.md、main/master 变体）。
+	_, _, dead, _, err := s.raceFetch(context.Background(),
+		[]string{srvA.URL + "/x.webp", srvB.URL + "/x.webp"})
 	if !dead {
 		t.Fatalf("双 404 应判真缺失: err=%v", err)
 	}
@@ -48,7 +50,7 @@ func TestRaceFetch_404Plus200Wins(t *testing.T) {
 	defer srv200.Close()
 
 	s := &Server{Mirrors: NewMirrorMonitor()}
-	body, _, dead, err := s.raceFetch(context.Background(),
+	body, _, dead, _, err := s.raceFetch(context.Background(),
 		[]string{srv404.URL + "/x", srv200.URL + "/y"})
 	if err != nil || dead {
 		t.Fatalf("200 应胜出: dead=%v err=%v", dead, err)
@@ -62,7 +64,7 @@ func TestRaceFetch_404Plus200Wins(t *testing.T) {
 // 镜像——否则 raw 黑洞窗口内竞速无独立路径（全候选同主机全超时）。
 func TestMirrorVariants_ColdMonitorFallback(t *testing.T) {
 	s := &Server{Mirrors: NewMirrorMonitor()}
-	cands := s.readmeCandidateURLs("https://raw.githubusercontent.com/o/r/main/README.md")
+	cands := s.readmeCandidateURLs("https://raw.githubusercontent.com/o/r/main/README.md", true)
 	joined := strings.Join(cands, "\n")
 	want := false
 	for _, opt := range config.GitHubMirrorOptions() {
@@ -99,7 +101,7 @@ func TestFetchReadmeRace_RetriesTransientFailure(t *testing.T) {
 	defer func() { http.DefaultClient = orig }()
 
 	s := &Server{Mirrors: NewMirrorMonitor()}
-	body, _, dead, err := s.fetchReadmeRace(context.Background(), srv.URL+"/README.md")
+	body, _, dead, _, err := s.fetchReadmeRace(context.Background(), srv.URL+"/README.md", true)
 	if err != nil {
 		t.Fatalf("瞬态 429 应被重试救回: dead=%v err=%v", dead, err)
 	}
@@ -166,7 +168,7 @@ func TestServeReadme_RewritesRelImages(t *testing.T) {
 
 func TestReadmeCandidateURLs(t *testing.T) {
 	s := &Server{Mirrors: NewMirrorMonitor()}
-	cands := s.readmeCandidateURLs("https://raw.githubusercontent.com/o/r/main/9router/README.md")
+	cands := s.readmeCandidateURLs("https://raw.githubusercontent.com/o/r/main/9router/README.md", true)
 	joined := strings.Join(cands, "\n")
 	for _, want := range []string{
 		"https://raw.githubusercontent.com/o/r/main/9router/README.md",
@@ -244,5 +246,64 @@ func TestLooksLikeImage(t *testing.T) {
 		if got := looksLikeImage(c.b); got != c.want {
 			t.Errorf("%s: looksLikeImage = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// 回归（0.6.326 B）：不同变体各自 404 不得提前判死——否则仓库页回落给出
+// 的 readme.md（小写，常不存在）会先把竞速杀掉，随后 200 的 README.md 被挡。
+func TestRaceFetch_OneVariantDeadDoesNotKillRace(t *testing.T) {
+	// 同一路径被**两个独立来源** 404（旧实现此时立即判死），但另一个变体
+	// （README.md）由慢速候选返回 200 —— 必须等它。
+	srv404A := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv404A.Close()
+	srv404B := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv404B.Close()
+	srvOK := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte("# README"))
+	}))
+	defer srvOK.Close()
+
+	s := &Server{Mirrors: NewMirrorMonitor()}
+	body, _, dead, winner, err := s.raceFetch(context.Background(),
+		[]string{srv404A.URL + "/o/r/main/readme.md", srv404B.URL + "/o/r/main/readme.md", srvOK.URL + "/o/r/main/README.md"})
+	if err != nil || dead {
+		t.Fatalf("不同变体 404 不应判死: dead=%v err=%v", dead, err)
+	}
+	if string(body) != "# README" || !strings.HasSuffix(winner, "/README.md") {
+		t.Fatalf("应命中 200 变体: body=%q winner=%q", body, winner)
+	}
+}
+
+// 回归（0.6.326）：**所有**变体路径都被两源 404 时才快速判死；
+// 单一路径死掉不得中止竞速（另一个变体可能由较慢的镜像返回 200）。
+func TestRaceFetch_AllVariantPaths404Dead(t *testing.T) {
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srvA.Close()
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srvB.Close()
+
+	s := &Server{Mirrors: NewMirrorMonitor()}
+	var cands []string
+	for _, host := range []string{srvA.URL, srvB.URL} {
+		cands = append(cands,
+			host+"/o/r/main/README.md", host+"/o/r/main/readme.md",
+			host+"/o/r/master/README.md", host+"/o/r/master/readme.md")
+	}
+	start := time.Now()
+	_, _, dead, _, err := s.raceFetch(context.Background(), cands)
+	if !dead {
+		t.Fatalf("全部变体双源 404 应判死: err=%v", err)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("应快速判死，实际 %v", time.Since(start))
 	}
 }

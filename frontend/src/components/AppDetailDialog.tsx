@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { categoryLabel } from '@/lib/categories';
 import { installTypeRow } from '@/lib/appMeta';
 import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../api/client';
-import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc, fetchFpkDownloads, installFpkDownload, fetchFpkDownloadWizard, type AppWizard, type WizardParam } from '../api/client';
+import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc, fetchFpkDownloads, installFpkDownload, fetchFpkDownloadWizard, addSource, toggleSource, type AppWizard, type WizardParam } from '../api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useIsDesktop, useMobileDesktopSim } from '@/lib/hooks';
@@ -52,6 +52,11 @@ import {
   ShieldCheck,
   CalendarClock,
   Cpu,
+  GitFork,
+  // 0.6.326g：溯源第二行三钮恒显后的图标（与上方源/开发者/发布者胶囊同款 12px）
+  Plus,
+  Ban,
+  EyeOff,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -183,6 +188,10 @@ interface AppDetailDialogProps {
   onUpdate: (app: AppInfo) => void;
   onIgnoreUpdate?: (app: AppInfo) => void;
   onUnignoreUpdate?: (app: AppInfo) => void;
+  /** 0.6.326 应用溯源：禁用/恢复该应用（列表隐藏，已安装卡保留可恢复）。 */
+  onToggleHide?: (app: AppInfo) => void;
+  /** 0.6.326f：溯源行「禁用fork源 / 恢复fork源」成功后通知宿主刷新目录。 */
+  onSourceToggled?: () => void;
   onUninstall?: (app: AppInfo) => void;
   operation?: AppOperation;
   /** 点击源名 → 只看该源的应用 */
@@ -269,7 +278,7 @@ export const formatDownloads = (n?: number): string => {
 // DOMPurify 默认策略即剥离 script/style/iframe/object/embed/on* 与
 // javascript: 数据 URL，只保留展示型标签。
 
-const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onUninstall, onLocalInstallDone, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
+const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onToggleHide, onSourceToggled, onUninstall, onLocalInstallDone, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
   // 0.6.301：打开时刻记录 —— 配合 DialogContent 的 400ms 外点免疫窗
   //（触屏双击卡片：第一下开详情，第二下落在遮罩上会秒关 = 用户观感仍「没反应」）
   const openedAtRef = useRef(0);
@@ -286,10 +295,28 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 内容区（此前两者各自定时到达 → 描述/版本/预览区逐波「弹出」，观感不同步）。
   // 头部（图标/名称/操作按钮）始终用列表条目稳定渲染，内容区先出骨架屏。
   const [bodyReady, setBodyReady] = useState(false);
+  // 0.6.326 应用溯源：禁用态的本地即时回显。对话框内的 fullApp 快照不随宿主
+  // 列表重拉而更新，点「禁用」后药丸必须立刻变「已禁用」（否则再点一次只是
+  // 重复禁用、无法恢复）。打开/换应用时复位为落库值（effect 内 reset）。
+  const [hiddenOverride, setHiddenOverride] = useState<boolean | null>(null);
+  // 0.6.326d（H3/H9）：溯源行「添加为源」的本地态。idle=可点 / busy=请求中 /
+  // done=已添加（不可重复点）。对话框内不重拉目录——上游 source/version 由
+  // 后端下一次目录刷新补上，但**不允许重复提交**（加源会立刻抓取+解析索引）。
+  const [srcAddState, setSrcAddState] = useState<'idle' | 'busy' | 'done'>('idle');
+  // 0.6.326f：「禁用fork源」的本地即时回显 + 请求中的忙碌态。理由同
+  // hiddenOverride——对话框内的 fullApp 快照不随宿主列表重拉更新，点完
+  // 「禁用fork源」后按钮必须立刻变「恢复fork源」（否则第二次点击无按钮可用；
+  // 且禁用后该源卡片从列表消失，对话框是唯一还能恢复的入口）。
+  const [srcForkDisabledOverride, setSrcForkDisabledOverride] = useState<boolean | null>(null);
+  const [srcForkBusy, setSrcForkBusy] = useState(false);
   useEffect(() => {
     setFullApp(null);
     setPanelInfo(null);
     setBodyReady(false);
+    setHiddenOverride(null);
+    setSrcAddState('idle');
+    setSrcForkDisabledOverride(null);
+    setSrcForkBusy(false);
     const key = propApp?.key;
     if (!key || !open) return;
     let alive = true;
@@ -311,6 +338,108 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     return () => { alive = false; };
   }, [propApp?.key, open]);
   const app = fullApp ?? propApp;
+  // 0.6.326 溯源：禁用态显示值 = 本地即时回显优先，未点击过则取落库值。
+  const hiddenNow = hiddenOverride ?? !!app?.user_hidden;
+  // 0.6.326d（H3/H9 闭环）：溯源行取值。
+  // - upstreamLabel：Moo 已收录该上游源时显示源名，否则回落 owner/repo。
+  // - upstreamHref：优先用后端给的 upstream_url，缺失时按 upstream_repo 拼
+  //   GitHub 地址（两条分支后端都恒填 repo，直链兜底保证一定可点）。
+  const upstreamLabel = app?.upstream_source || app?.upstream_repo || '';
+  const upstreamHref = app?.upstream_url || (app?.upstream_repo ? `https://github.com/${app.upstream_repo}` : '');
+  // 「添加为源」：把上游仓库一键加进 Moo 应用源（POST /api/sources，源管理页
+  // 同款助手）。这是 32 张「有 upstream_repo 无 upstream_source」卡的唯一闭环
+  // 入口 —— 加源后详情页才显示上游版本，且 applyUpstreamCorrection 首行
+  // （UpstreamSource == "" 即跳过）不再拦，「强制上游」策略随之生效。
+  // 0.6.326e：「添加为源」实际要加的地址。后端探测过就听它的（本仓可加=上游仓
+  // 地址；本仓只是作者打包仓、owner 有索引仓=那个索引仓地址——举一反三：真正
+  // 加得上的是它）；未探测（空）则维持旧行为，指向上游仓。
+  const upstreamAddURL = app?.upstream_add_url || upstreamHref;
+  // 非空 = 探测确认加不上（本仓与 owner 索引仓都没有索引）→ 不出按钮，只给原因。
+  const upstreamAddNote = app?.upstream_add_note || '';
+  const handleAddUpstreamSource = async () => {
+    if (!upstreamAddURL || srcAddState !== 'idle') return;
+    setSrcAddState('busy');
+    try {
+      const entry = await addSource(upstreamAddURL);
+      setSrcAddState('done');
+      toast.success(`已添加应用源：${entry?.name || upstreamLabel}`, {
+        description: '稍后目录刷新即可看到该上游的来源与版本；把更新策略设为「强制上游」即会跟随上游更新。',
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // 同地址已存在（后端 ErrExists「源已存在」）= 用户目标已达成，按成功处理。
+      if (/已存在|同地址/.test(msg)) {
+        setSrcAddState('done');
+        toast.success(`该上游源已在列表中：${upstreamLabel}`);
+        return;
+      }
+      setSrcAddState('idle');
+      toast.error(`添加应用源失败：${msg}`);
+    }
+  };
+  // 0.6.326f：本源 fork 源的禁用态显示值 = 本地即时回显优先，否则取落库值。
+  const forkSourceDisabled = srcForkDisabledOverride ?? !!app?.source_disabled;
+  // 「禁用fork源 / 恢复fork源」：把**本源仓库**（该卡 Source 对应的那一条源）
+  // 整体禁用/恢复——禁用后该源全部卡片从目录列表消失（聚合跳过禁用源），
+  // 恢复即回来。只在后端判定「本源是 GitHub fork」时渲染（source_is_fork）。
+  const handleToggleForkSource = async () => {
+    const src = app?.source;
+    if (!src || srcForkBusy) return;
+    // 端点的参数语义是 **enabled**（启用与否），与本地「禁用态」互为反义。
+    // 0.6.326f 首版直接把「目标禁用态」当 enabled 传，结果点「禁用fork源」
+    // 反而又启用了一次（E2E B1/B2 实锤：点完 enabled 仍为 true）——这里
+    // 必须先算目标禁用态，再取反传 enabled。
+    const willDisable = !forkSourceDisabled;
+    setSrcForkBusy(true);
+    try {
+      await toggleSource(src, !willDisable);
+      setSrcForkDisabledOverride(willDisable);
+      toast.success(
+        willDisable ? `已禁用源「${src}」，其应用已从列表隐藏` : `已恢复源「${src}」`,
+      );
+      onSourceToggled?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`操作应用源失败：${msg}`);
+    } finally {
+      setSrcForkBusy(false);
+    }
+  };
+  // 0.6.326g（用户定稿）：溯源第二行三钮恒显 + 置灰 + 与上方元信息胶囊同语言。
+  // tracePill(active, disabled)：
+  //   - META_PILL 打底（中性灰 bg-muted/50 + border/40 + text-muted-foreground）；
+  //   - active（生效/选中）→ bg-primary/15 + text-primary + border-primary/40 变蓝；
+  //   - disabled → opacity-50 + cursor-not-allowed，并用 `disabled:hover:*` 抵消
+  //     META_PILL 的 hover:bg-muted（disabled 元素在 Chromium 下仍会命中 :hover，
+  //     必须显式复原底色才叫「不响应 hover 变色」）。
+  const tracePill = (active: boolean, disabled: boolean) =>
+    cn(
+      META_PILL,
+      active && "bg-primary/15 text-primary border-primary/40",
+      disabled && "opacity-50 cursor-not-allowed",
+      disabled && (active ? "disabled:hover:bg-primary/15" : "disabled:hover:bg-muted/50"),
+    );
+  // ① 添加上游源：上游源已在列表 / 后台探测判定加不上 → 恒显但置灰。
+  const addUnavailable = !!app?.upstream_source || !!upstreamAddNote;
+  const addDisabled = addUnavailable || srcAddState !== 'idle';
+  // 0.6.326i（P1）：上游源已经在源列表里时，胶囊必须**直接说「已添加」**。
+  // 旧实现只把这件事塞进 disabled + title（tooltip）——用户不悬停根本看不见
+  //（现网 1120 张卡受影响，用户实测反馈「并不提示已添加这个上游源」）。
+  // addDone = 本地刚加成功（srcAddState==='done'）或后端已解析出上游源名。
+  const addDone = srcAddState === 'done' || !!app?.upstream_source;
+  const addTitle = app?.upstream_source
+    ? `上游源「${app.upstream_source}」已在应用源列表中`
+    : (upstreamAddNote || `把 ${upstreamAddURL || app?.upstream_repo || upstreamLabel} 添加为 Moo 应用源`);
+  // ② 禁用fork源：本源仓库不是 GitHub fork 搬运源时置灰。
+  const forkDisabled = !app?.source_is_fork || srcForkBusy;
+  const forkTitle = !app?.source_is_fork
+    ? '该源不是搬运 fork 源，无需禁用'
+    : (forkSourceDisabled ? `恢复应用源「${app.source}」` : `禁用应用源「${app.source}」（其应用从列表隐藏）`);
+  // ③ 禁用应用：宿主没给 onToggleHide（例如只读场景）时置灰。
+  const hideDisabled = !onToggleHide;
+  const hideTitle = hiddenNow
+    ? '恢复显示该应用'
+    : (onToggleHide ? '隐藏该应用（已安装的仍可在「已安装」中找回）' : '当前场景不支持禁用应用');
   // 极光模式（0.6.297，用户定稿「只是底板用这种渐变，页面其他元素不用」）：
   // 面板底 = 该应用极光卡同款渐变（同应用恒同色）；内容元素一律不改样式，
   // 靠一层 bg-background/65+blur 玻璃遮罩把渐变压成可读底色染色。
@@ -351,6 +480,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   const [readme, setReadme] = useState<string | null>(null);
   // 0.6.280（用户定稿）：README 与更新日志均为「固定上限独立滚动小框」，无展开/收起状态
   const [readmeError, setReadmeError] = useState('');
+  // 0.6.326 低风险项 #5：源声明了 has_readme 但 asset 端点确定性 404
+  // （上游 README 已删/地址失效，如 boombird）→ 整块隐藏，不留空框。
+  const [readmeMissing, setReadmeMissing] = useState(false);
   const isOfficial = app?.source === 'fnos-official';
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [lightboxLoading, setLightboxLoading] = useState(false);
@@ -722,14 +854,18 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
 
   // 切换应用时重新拉 README
   useEffect(() => {
-    if (!app || !open || !app.has_readme) {
+    // 0.6.326：未声明 README 的条目也要试（后端会做 <appname>/README.md
+    // 惰性自动发现）；失败时前端静默隐藏，不显示错误块。
+    if (!app || !open) {
       setReadme(null);
       setReadmeError('');
+      setReadmeMissing(false);
       return;
     }
     let cancelled = false;
     setReadme(null);
     setReadmeError('');
+    setReadmeMissing(false);
     apiFetch(assetUrl(app.key || app.appname, 'readme'))
       .then(async (r) => {
         if (!r.ok) {
@@ -738,12 +874,21 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
             const j = await r.json();
             if (j && j.error) msg = j.error;
           } catch {}
-          throw new Error(msg);
+          const err: any = new Error(msg);
+          err.status = r.status;
+          throw err;
         }
         return r.text();
       })
       .then((text) => { if (!cancelled) setReadme(text); })
-      .catch((e) => { if (!cancelled) setReadmeError(e?.message || 'README 加载失败（源服务器不可达）'); });
+      .catch((e) => {
+        if (cancelled) return;
+        if (e?.status === 404) {
+          setReadmeMissing(true);
+          return;
+        }
+        setReadmeError(e?.message || 'README 加载失败（源服务器不可达）');
+      });
     return () => { cancelled = true; };
   }, [app?.key, open, app?.has_readme]);
 
@@ -776,7 +921,10 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 头部 GET 位胶囊（未安装=安装 / 安装中=转圈；已装应用的主操作在底部主操作行）
   const headerPillCls = "h-9 px-4 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1.5 shrink-0";
   const uninstallBtn = onUninstall ? (
+    // 0.6.326h：回到旧形态——点「卸载」直接关详情页并交给宿主 App 的
+    // 「确认卸载」AlertDialog 二次确认（确认才发请求；取消则零请求）。
     <button
+      type="button"
       onClick={() => { onOpenChange(false); onUninstall(app); }}
       disabled={!!operation || controlling !== null}
       aria-label={`卸载 ${app.display_name}`}
@@ -1257,6 +1405,114 @@ mdsSim && "mds-sim")}>
         )}
 
         <div className="space-y-0">
+          {/* 0.6.326 应用溯源（用户定稿 + 0.6.326-ui 微调）：后端按内容血缘判定
+              「本源的包来自其它 owner 仓库」时才下发 upstream_* —— 值优先显示 Moo
+              已收录的上游源名，未收录回落 owner/repo。
+              0.6.326-ui：本行移到「版本」之上；上游文字与「禁用」二字加粗高亮，
+              「禁用」药丸改用主色胶囊（与安装/更新等主操作钮同款浅蓝玻璃语言）。
+              0.6.326d（H3/H9）：上游文字变外链 + 未收录上游源时给「添加为源」
+              （补上 32 张卡的闭环入口）。
+              0.6.326f（用户定稿）：拆两行 —— 第一行「上游 xxx」（外链）；
+              第二行依次「添加上游源 / 禁用fork源 / 禁用应用」（括号说明不上屏）。 */}
+          {(app.upstream_source || app.upstream_repo) && (
+            <DetailRow icon={GitFork} label="溯源">
+              <div className="flex flex-col gap-1.5">
+                {/* 0.6.326f（用户定稿）：改两行 —— 第一行「上游 xxx」（外链）；
+                    第二行依次「添加上游源 / 禁用fork源 / 禁用应用」（顺序固定）。 */}
+                {/* 0.6.326d（H3/H9 闭环）：上游文字改成外链 —— 32 张「有
+                    upstream_repo 无 upstream_source」的卡原本只有一段死文本，
+                    用户既去不了上游仓库，也没有入口把上游加为源（于是溯源只到
+                    文本、自动纠正永远不触发）。 */}
+                {upstreamHref ? (
+                  <a
+                    href={upstreamHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`在浏览器打开上游仓库 ${upstreamLabel}`}
+                    className="min-w-0 break-words font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+                  >
+                    上游 {upstreamLabel}
+                  </a>
+                ) : (
+                  <span className="min-w-0 break-words font-semibold text-primary">
+                    上游 {upstreamLabel}
+                  </span>
+                )}
+                {/* 0.6.326g（用户定稿）：三钮**恒显**，不可用时 disabled + 置灰
+                    （opacity-50 + cursor-not-allowed，且 hover 不换底色）；
+                    样式与上方「源/开发者/发布者」胶囊同语言（META_PILL：默认中性
+                    灰，生效/选中态才变蓝 bg-primary/15 text-primary
+                    border-primary/40）；间距 gap-2 = 上方元信息行同款 8px。
+                    顺序固定：添加上游源 → 禁用fork源 → 禁用应用。 */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* ① 添加上游源（= 原「添加为源」仅改标签）。不可用两种：
+                      上游源已在列表（upstream_source 非空），或后台探测判定
+                      本仓/owner 索引仓都没有索引（upstream_add_note 非空）。
+                      0.6.326i（P1）：第一种情况文案变「已添加 ✓」并转生效态蓝色，
+                      不再让用户靠悬停 tooltip 才知道已经加过。 */}
+                  <button
+                    type="button"
+                    disabled={addDisabled}
+                    onClick={handleAddUpstreamSource}
+                    title={addTitle}
+                    aria-label="添加上游源"
+                    className={tracePill(addDone, addDisabled)}
+                  >
+                    {/* 0.6.326i（P1）：已添加 → 图标由「+」换成对勾（与生效态变蓝同语言）。 */}
+                    {addDone ? (
+                      <Check className="h-3 w-3 mt-px shrink-0" />
+                    ) : (
+                      <Plus className="h-3 w-3 mt-px shrink-0" />
+                    )}
+                    <span className="min-w-0 break-words">
+                      {srcAddState === 'busy' ? '添加中…' : (addDone ? '已添加' : '添加上游源')}
+                    </span>
+                  </button>
+                  {/* ② 禁用fork源：仅当本源仓库是 GitHub fork 时可用（整条源禁用
+                      → 该源全部卡片从列表消失）；否则置灰说明原因。 */}
+                  <button
+                    type="button"
+                    disabled={forkDisabled}
+                    onClick={handleToggleForkSource}
+                    title={forkTitle}
+                    aria-label={forkSourceDisabled ? '恢复fork源' : '禁用fork源'}
+                    className={tracePill(forkSourceDisabled, forkDisabled)}
+                  >
+                    <Ban className="h-3 w-3 mt-px shrink-0" />
+                    <span className="min-w-0 break-words">
+                      {forkSourceDisabled ? '恢复fork源' : '禁用fork源'}
+                    </span>
+                    {forkSourceDisabled && <Check className="h-2.5 w-2.5 mt-px shrink-0" />}
+                  </button>
+                  {/* ③ 禁用应用（= 原「禁用」逻辑原样搬移，含目标态语义）。 */}
+                  <button
+                    type="button"
+                    disabled={hideDisabled}
+                    onClick={() => {
+                      // 目标态由本次点击决定（宿主按 app.user_hidden 选 PUT/DELETE）：
+                      // 连点也能正确来回切换，不受对话框内陈旧快照影响。
+                      const next = !hiddenNow;
+                      setHiddenOverride(next);
+                      onToggleHide!({ ...app, user_hidden: next });
+                    }}
+                    title={hideTitle}
+                    aria-label={hiddenNow ? '恢复显示该应用' : '禁用应用'}
+                    className={tracePill(hiddenNow, hideDisabled)}
+                  >
+                    <EyeOff className="h-3 w-3 mt-px shrink-0" />
+                    <span className="min-w-0 break-words">{hiddenNow ? '已禁用' : '禁用应用'}</span>
+                    {hiddenNow && <Check className="h-2.5 w-2.5 mt-px shrink-0" />}
+                  </button>
+                </div>
+                {/* 探测判定「本仓与 owner 索引仓都没发布索引」时，按钮保持恒显
+                    （置灰）并在下方给一行原因。 */}
+                {!!upstreamAddNote && (
+                  <p className="text-[11px] leading-snug text-muted-foreground">{upstreamAddNote}</p>
+                )}
+              </div>
+            </DetailRow>
+          )}
+
           <DetailRow icon={Tag} label="版本">
             <div className="flex items-center gap-2 flex-wrap">
               {/* 同步源里的最新版本作为主值：未更新/未安装直接显示最新版本；
@@ -1389,7 +1645,7 @@ mdsSim && "mds-sim")}>
         </div>
 
         {/* README */}
-        {app.has_readme && (
+        {((app.has_readme && !readmeMissing) || !!readme) && (
           <>
             <Separator />
             {/* 0.6.279（用户定稿）：去掉展开/收起——README 改为固定上限的独立滚动小框：

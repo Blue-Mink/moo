@@ -73,19 +73,42 @@ func (s *Server) writeAppsBody(w http.ResponseWriter, r *http.Request, body []by
 // 现建：复用 appsResponse（内部走 cachedCatalog，SWR + 失效钩子保证构建
 // 频率受控），marshal 与 md5 各算一次后入缓存返回。缓存字节多请求
 // 只读共享（writeAppsBody 永不修改它）。
+//
+// 0.6.326z5 R1（体缓存必须与目录同代）：marshal 在**锁外**完成，落盘前
+// 在 catalogBodyMu 下复核代际号 catalogBodyGen 未变——marshal 期间目录被
+// invalidateCatalog / 后台重建换入新切片（两者都会 ++ 代际并清 body）时，
+// 本次结果已属旧代，**只返回不落盘**（落盘的旧代体会长期驻留：旧实现
+// 里没有任何后续事件会清掉它，症状=源启用瞬间并发请求把「不含该源卡片」
+// 的响应体钉死 >150s）。持锁时间只覆盖取/存字节，不覆盖 marshal。
 func (s *Server) cachedAppsBody(r *http.Request) ([]byte, string, bool) {
 	s.catalogBodyMu.Lock()
-	defer s.catalogBodyMu.Unlock()
 	if s.catalogBody != nil {
-		return s.catalogBody, s.catalogBodyETag, true
+		body, etag := s.catalogBody, s.catalogBodyETag
+		s.catalogBodyMu.Unlock() // 字节切片只读共享，返回后无需持锁
+		return body, etag, true
 	}
+	gen := s.catalogBodyGen
+	s.catalogBodyMu.Unlock()
+
 	body, err := json.Marshal(s.appsResponse(r))
 	if err != nil {
 		return nil, "", false
 	}
 	etag := `"` + fmt.Sprintf("%x", md5.Sum(body)) + `"`
-	s.catalogBody = body
-	s.catalogBodyETag = etag
+
+	if s.appsBodyHook != nil {
+		s.appsBodyHook() // 单测缝（生产恒 nil）：落盘前的交错点
+	}
+
+	s.catalogBodyMu.Lock()
+	// 代际复核 + 首写者优先：代际已变 ⇒ 本次结果属旧代，不落盘（只影响
+	// 这一个请求，下次请求即新代）；body 已被并发同代请求填充 ⇒ 不覆盖
+	//（保持「首个未命中者写入」的旧语义）。
+	if s.catalogBodyGen == gen && s.catalogBody == nil {
+		s.catalogBody = body
+		s.catalogBodyETag = etag
+	}
+	s.catalogBodyMu.Unlock()
 	return body, etag, true
 }
 
@@ -296,7 +319,12 @@ func installConflictOf(self *AppInfo, group []SameNameEntry) string {
 // 删」最多多 60s 仍显示实时卡，下一轮重建后回落快照——可接受。
 //
 // 总位数 >3（?count=N，3≤N≤12）时其余位置维持既有随机逻辑（优先有
-// 图标、同名只取一张、Hidden 卡不参与），且不得重复出现前三 key。
+// 图标、同名只取一张、Hidden/UserHidden 卡不参与），且不得重复出现前三 key。
+//
+// 0.6.326z5（2.1 修复）：固定位对应的**实时卡**若被去重隐藏（Hidden）或被
+// 用户禁用（UserHidden）⇒ 整位跳过且**不回落快照**（回落=照样展示，等于
+// 禁用/去重对这个位置无效）；空位由下方随机补足池填补。仅「目录里根本没
+// 有该应用」（fixedSlotLive 未命中）才回落到内嵌快照。
 func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 	catalog := s.cachedCatalog(lang.From(r.Context()))
 	want := 3
@@ -312,6 +340,11 @@ func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 		var ai AppInfo
 		var ok bool
 		if live, lOK := fixedSlotLive(catalog, appName); lOK {
+			// 0.6.326z5 2.1：实时卡被隐藏/禁用 ⇒ 整位跳过，不回落快照
+			//（快照回落=隐藏位照样出现，等于禁用失效）。空位由随机池补。
+			if live.Hidden || live.UserHidden {
+				continue
+			}
 			ai, ok = live, true
 		} else if snap := reco.Lookup(appName); snap != nil {
 			ai, ok = snapshotAppInfo(snap), true
@@ -330,10 +363,11 @@ func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 	withIcon := make([]AppInfo, 0)
 	rest := make([]AppInfo, 0)
 	// 0.6.312 B2：同名应用只取一张（去重档未开启时也能保证发现页不推
-	// 两张同应用）；Hidden 卡不参与。
+	// 两张同应用）；Hidden 卡不参与。0.6.326-ui：被用户「禁用」的卡
+	//（UserHidden）同样不参与——禁用后不得出现在发现页推荐位。
 	seen := map[string]bool{}
 	for _, a := range catalog {
-		if a.Hidden || seen[a.AppName] {
+		if a.Hidden || a.UserHidden || seen[a.AppName] {
 			continue
 		}
 		seen[a.AppName] = true
@@ -838,6 +872,143 @@ func (s *Server) ghStatsRound(ctx context.Context) {
 	}
 }
 
+// StartGHForksRefresh GitHub 仓库 fork 关系同步循环（0.6.326c 溯源补强）：
+// 溯源要区分「作者自建仓」与「整仓 fork 的搬运仓」，后者只有 GitHub 的
+// fork/parent 关系能可靠判定。匿名 API 60 次/小时，故：启动后 45s 首轮一次性
+// 吃满预算（45 个，尽快让用户看到溯源），之后每 20 分钟一轮最多 12 个；
+// ETag 命中 304 不耗额度，已知结果 72h 后才重排。限流/失败不阻塞，下一轮继续。
+//
+// 0.6.326d（H2 自举可靠性）：原为 首轮 60 + 每轮 25（=110 次/小时，**超**匿名
+// 60/h 上限）——撞限流时 RefreshRound 直接 ErrRateLimited 整轮作废，实际覆盖
+// 速度反而更慢，且限流期内溯源静默缺失。改为 45 / 12（首轮含 ETag 余量，
+// 其后 12/20min ≈ 36/h），配合 304 不计数，额满即自然停手、下小时继续。
+func (s *Server) StartGHForksRefresh(ctx context.Context) {
+	if s.Forks == nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(45 * time.Second): // 等启动自动刷目录完成，源清单才全
+	}
+	first := true
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		budget := ghForksBudget(first)
+		first = false
+		s.ghForksRound(ctx, budget)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Minute):
+		}
+	}
+}
+
+// ghForksBudget 单轮拉取预算：首轮 45（一次性吃满但留 15 次余量给 ETag 复检与
+// 其它 GitHub API 调用方），其后每轮 12（12×3 = 36/h < 60/h）。抽成函数是为了
+// 让「预算不越限流」这条约束可被单测钉住。
+func ghForksBudget(first bool) int {
+	if first {
+		return 45
+	}
+	return 12
+}
+
+// ghForksRound 一轮：把本轮该拉的仓库排入队列（源仓 + 已知 fork parent），
+// 拉限额内的。
+func (s *Server) ghForksRound(ctx context.Context, budget int) {
+	for _, r := range s.ghForkRepos() {
+		s.Forks.Enqueue(r)
+	}
+	n, err := s.Forks.RefreshRound(ctx, budget)
+	if n > 0 {
+		log.Printf("[gh-forks] fork 关系同步: 本轮更新 %d 个仓库", n)
+	}
+	if err != nil && err != source.ErrRateLimited {
+		log.Printf("[gh-forks] 同步异常: %v", err)
+	}
+}
+
+// ghForkRepos 本轮要入队的仓库列表（owner/repo 小写，已去重）。
+//
+// 第一遍：全部 GitHub 源的仓库 —— 没有它们就无从判「本源仓是不是 fork」。
+// 第二遍（0.6.326d，H2）：已知是 fork 的仓库，把它的 parent 也排上。原实现只
+// 排源列表，于是「parent 自己也是 fork」（搬运了搬运仓）的链永远只能发现一层，
+// 溯源链断在半途；parent 不在源列表时多拉一个仓库，代价可忽略而收益是链路完整。
+// 用 seen 去重：既是队列卫生，也兜住脏缓存里可能出现的关系环（不会死循环）。
+//
+// 顺带说明「为什么 parent 也要进队列」：parent 一旦被用户加为源（详情页 0.6.326d
+// 的「添加为源」按钮），它的 fork 关系若已缓存，详情页立刻就能显示上游版本，
+// 不必再等一轮后台拉取。
+func (s *Server) ghForkRepos() []string {
+	if s == nil || s.Src == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	push := func(r string) {
+		r = strings.ToLower(strings.TrimSpace(r))
+		if r == "" || strings.Count(r, "/") != 1 || seen[r] {
+			return
+		}
+		seen[r] = true
+		out = append(out, r)
+	}
+	for _, st := range s.Src.Sources() {
+		k := source.SourceURLKey(st.URL)
+		if !strings.HasPrefix(k, "github.com/") {
+			continue // 非 GitHub 主机：没有 fork API 可用
+		}
+		push(strings.TrimPrefix(k, "github.com/"))
+	}
+	for i := 0; i < len(out); i++ {
+		parent, isFork, known := s.Forks.Lookup(out[i])
+		if known && isFork && parent != "" {
+			push(parent)
+		}
+	}
+	return out
+}
+
+// StartAddProbeRefresh 「添加为源」可加性探测循环（0.6.326e）。
+//
+// 触发方式：buildCatalog 首次入队时会 Kick（目录只在 /api/apps 被请求时构建，
+// 用纯定时会白等一整个周期）；首轮另有 60s 兜底。之后每 6 小时一轮。
+//
+// 成本：探测走 raw.githubusercontent（无 API 额度），待探仓库=全目录
+// distinct upstream_repo ≈ 数十个，每轮上限 64 个（含 owner 索引仓回退探测
+// 时单个仓库最多 2~6 次请求），对网络与源站都可忽略。结果落盘 7 天有效。
+func (s *Server) StartAddProbeRefresh(ctx context.Context) {
+	if s.AddProbes == nil {
+		return
+	}
+	// 首轮：等目录首次构建（入队即 kick）——最多 60s 兜底。
+	s.AddProbes.WaitNext(ctx, 60*time.Second)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		n := s.AddProbes.RefreshRound(ctx, 64)
+		if n > 0 {
+			log.Printf("[add-probe] 上游仓可加性探测: 本轮 %d 个", n)
+			// 0.6.326z4：探测结果会改写卡片的 upstream_add_url/note，而
+			// /api/apps 的响应体缓存（cachedAppsBody）只在 invalidateCatalog
+			// 时失效 → 旧版列表 JSON 里的提示会滞后数十分钟（详情页读目录
+			// 数据不受影响，所以只在列表接口可见）。轮次有产出即失效一次。
+			s.invalidateCatalog()
+		}
+		// 本轮没活儿（目录还没被请求过）→ 短等重试，别错过。
+		wait := 6 * time.Hour
+		if n == 0 {
+			wait = 2 * time.Minute
+		}
+		s.AddProbes.WaitNext(ctx, wait)
+	}
+}
+
 // reloadSSE POST /api/apps/reload：SSE 刷新全部源。
 func (s *Server) reloadSSE(w http.ResponseWriter, r *http.Request) {
 	f := sseStart(w)
@@ -874,6 +1045,18 @@ func (s *Server) sourceEntry(st source.SourceStatus) SourceEntry {
 		AppCount: st.Count,
 		Error:    st.Error,
 		Enabled:  ref.IsEnabled(),
+	}
+	// 0.6.326z：源重合率（只读信号）——目录重建时算好的缓存，这里只读；
+	// 官方源不走本函数（s.Panel.sourceEntry 另实现），故恒不带这些字段。
+	if ov := s.overlapFor(st.Name); ov.SelfCount > 0 {
+		e.OverlapRisk = ov.Risk
+		e.OverlapWith = ov.With
+		e.OverlapNameCount = ov.NameCount
+		e.OverlapExactCount = ov.ExactCount
+		e.OverlapNameRatio = ov.NameRatio
+		e.OverlapExactRatio = ov.ExactRatio
+		e.OverlapUniqueNames = ov.UniqueNames
+		e.OverlapSelfCount = ov.SelfCount
 	}
 	if !st.UpdatedAt.IsZero() {
 		e.LastFetched = st.UpdatedAt.Format(time.RFC3339)
@@ -963,6 +1146,14 @@ func (s *Server) addSource(w http.ResponseWriter, r *http.Request) {
 	if err := jsonDecode(r, &body); err != nil || body.URL == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("url 不能为空"))
 		return
+	}
+	// 0.6.326d2：详情页「添加为源」只发 {url}（不带 name），此前把空 name
+	// 直传 AddSource → manager.go 判空恒 400「源名称与地址均不能为空」。
+	// 与批量端点 batchSources（本文件下半部分）同口径：空名从地址推导；
+	// 推导失败仍交给 AddSource 报错。显式传 name 的行为完全不变
+	// （重名消歧仍在 AddSource 内的 UniqueSourceName）。
+	if body.Name == "" {
+		body.Name = sourceNameFromURL(body.URL)
 	}
 	finalName, err := s.Src.AddSource(body.Name, body.URL)
 	if err != nil {
@@ -1304,7 +1495,7 @@ type sourceRestoreResult struct {
 //     （组内有官方源保官方，否则保列表顺序第一个）；
 //  2. 重抓内置社区源列表补齐被删/缺失的默认源（只增不删用户自加源）。
 func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
-	// 0.6.247：以内置默认源集为基准（0.6.316 起 20 源、全带协议、= Blue-Mink
+	// 0.6.247：以内置默认源集为基准（0.6.316 起 20 源 → 0.6.326 起 21 源、全带协议、= Blue-Mink
 	// 精选清单，与首装默认同一集合）——误删的源可一键找回，离线可用。
 	// 更早依赖外部 repo_list.txt（118 条）/0.6.314 前为 157 源全量集，均
 	// 已废弃。取源方式=同一嵌入清单 BundledDefaultSources（default_sources.txt），
@@ -1360,7 +1551,7 @@ func (s *Server) restoreDefaults(w http.ResponseWriter, _ *http.Request) {
 // （0.6.318，「源列表自动同步」卡的「删除默认源」按钮）。
 // 删除范围 = 现有源中地址归一后命中旧全量默认清单（157 条，0.6.316 前
 // 首装即带的默认源集）的条目，**不做官源保护**（用户 2026-10-09 定稿：
-// 只要在旧 157 清单里的都可一键删除）——与新 20 条官源重叠的 19 条会被
+// 只要在旧 157 清单里的都可一键删除）——与新 21 条官源重叠的 19 条会被
 // 一并删除，随后由「恢复官源」按钮一键找回，构成清单重置工作流。
 // 天然不受影响：官方源（面板 OAuth 条目，id=fnos-official，非 URL 源）、
 // 不在旧清单里的用户自加源、不在旧清单里的官源（如 Blue-Mink/moo）。
@@ -1499,6 +1690,17 @@ func (s *Server) toggleSource(w http.ResponseWriter, r *http.Request) {
 	}
 	s.invalidateCatalog()
 	_ = s.Cfg.Save(dataDirOf(s))
+	if *body.Enabled {
+		// 0.6.326z4：恢复（启用）源时顺带后台拉一次。ToggleSource 会清空该源
+		// 的缓存，此前要等下一次刷新轮次（实测约 20 分钟）卡片才回来——用户点
+		// 「恢复fork源」看到的是「源回到列表了，应用没回来」。失败静默：恢复
+		// 动作本身已成功，网络抖动交给下一轮刷新补，不该让开关报错。
+		go func(name string) {
+			if err := s.Src.Refresh(name); err == nil {
+				s.invalidateCatalog()
+			}
+		}(r.PathValue("id"))
+	}
 	writeJSON(w, map[string]any{"ok": true, "id": r.PathValue("id"), "enabled": *body.Enabled})
 }
 
@@ -1568,10 +1770,10 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		interval = 24 // 默认值（与前端默认一致）
 	}
 	set := Settings{
-		CheckIntervalHours: interval,
-		Mirror:             s.Cfg.Mirror,
+		CheckIntervalHours:  interval,
+		Mirror:              s.Cfg.Mirror,
 		MirrorIncludeDirect: s.Cfg.MirrorIncludeDirect,
-		DockerMirror:       s.Cfg.DockerMirror,
+		DockerMirror:        s.Cfg.DockerMirror,
 		// 0.6.325 H1(F2)：自定义镜像必须随 GET 透出——PUT 能写但 GET
 		// 不下发时，设置页水合恒空串，下次全量保存把 config 里的
 		// 自定义镜像静默抹掉（数据丢失级）。
@@ -1582,15 +1784,17 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		// 0.6.255：面板账号已从设置中彻底移除（官方源 = 纯 OAuth，
 		// 授权时临时输入账号不落地）。以下字段不再下发：
 		// PanelEnabled / PanelUsername / PanelBaseURL / PanelHasPassword / PanelDecryptFailed
-		SourceListOff:       s.Cfg.SourceListOff,
+		SourceListOff: s.Cfg.SourceListOff,
 		// 0.6.325 H1(F3)：PUT 可写但 GET 不下发 → UI 永远显示空、
 		// SourceManager 回传恒 undefined。透出生效前的存储值
 		// （空串=未自定义，前端自行回落展示 DefaultSourceListURL）。
-		SourceListURL:       s.Cfg.SourceListURL,
+		SourceListURL: s.Cfg.SourceListURL,
 		// 0.6.325 安全加固 R1：随设置页下发（默认 false）。
 		SourceListAllowPrivate: s.Cfg.SourceListAllowPrivate,
-		SourceAutoCareOff:   s.Cfg.SourceAutoCareOff,
-		AutoUpdate:          s.Cfg.AutoUpdate,
+		SourceAutoCareOff:      s.Cfg.SourceAutoCareOff,
+		AutoUpdate:             s.Cfg.AutoUpdate,
+		// 0.6.326 溯源批次：自动纠正上游版本（独立开关，默认关）。
+		AutoCorrect:         s.Cfg.AutoCorrect,
 		CatalogLanguage:     orAuto(s.Cfg.CatalogLanguage),
 		UpdatePolicy:        orStrict(s.Cfg.UpdatePolicy),
 		DedupPolicy:         orAll(s.Cfg.DedupPolicy),
@@ -1685,11 +1889,14 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListDisabled *bool `json:"source_list_disabled"`
 		// 0.6.325 安全加固 R1：nil=未提交不改动；true=允许列表同步添加内网源。
 		SourceListAllowPrivate *bool `json:"source_list_allow_private"`
-		SourceAutoCareOff  *bool `json:"source_auto_care_disabled"`
+		SourceAutoCareOff      *bool `json:"source_auto_care_disabled"`
 		// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_password/
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
 		AutoUpdate *bool `json:"auto_update"`
+		// 自动纠正上游版本（0.6.326）：nil = 未提交不改动（指针语义，
+		// 同 auto_update，开关允许切回 false）。
+		AutoCorrect *bool `json:"auto_correct"`
 		// 目录语言（0.6.269）：nil = 未提交不改动；auto/zh-CN/en-US。
 		CatalogLanguage *string `json:"catalog_language"`
 		// 跨源更新策略（0.6.272）：nil = 未提交不改动；
@@ -1781,6 +1988,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.AutoUpdate != nil {
 		s.Cfg.AutoUpdate = *in.AutoUpdate
 	}
+	// 0.6.326x：「自动纠正」已并入更新策略（upstream = 强制上游），不再是独立
+	// 开关。旧客户端若仍提交 auto_correct=true，在下面 update_policy 赋值之后
+	// 按 upstream 处理（放后面以免被同一请求里的策略值覆盖）。
 	// 0.6.321 F7：「智能选源包含直连」（nil = 未提交不改动）。
 	// 只影响测速候选池，下一探测周期经 applyMirrorProbeFlags 自动生效。
 	if in.MirrorIncludeDirect != nil {
@@ -1799,13 +2009,24 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// 策略变化影响目录更新判定 → 保存成功后失效目录缓存。
 	if in.UpdatePolicy != nil {
 		v := strings.TrimSpace(*in.UpdatePolicy)
-		if v != "strict" && v != "origin" && v != "lineage" {
-			writeErr(w, http.StatusBadRequest, errors.New("更新策略仅支持 strict / origin / lineage"))
+		if v != "strict" && v != "origin" && v != "lineage" && v != "upstream" {
+			writeErr(w, http.StatusBadRequest, errors.New("更新策略仅支持 strict / origin / lineage / upstream"))
 			return
 		}
 		if s.Cfg.UpdatePolicy != v {
 			s.Cfg.UpdatePolicy = v
 			s.invalidateCatalog() // 策略变化 → 目录更新判定重建（下次 /api/apps）
+		}
+		// 0.6.326x：策略已是更新目标的唯一事实源 → 归一旧的独立开关。
+		s.Cfg.AutoCorrect = false
+	}
+	// 兼容旧客户端：仍提交 auto_correct（0.6.326 独立开关）。
+	// true ⇒ 等价「强制上游」，必须在 update_policy 赋值之后处理。
+	if in.AutoCorrect != nil {
+		s.Cfg.AutoCorrect = false // 归一：独立开关不再保留
+		if *in.AutoCorrect && s.Cfg.UpdatePolicy != "upstream" {
+			s.Cfg.UpdatePolicy = "upstream"
+			s.invalidateCatalog()
 		}
 	}
 	// 列表去重展示策略（0.6.312 B2）：nil = 未提交不改动；白名单外值整单拒绝。

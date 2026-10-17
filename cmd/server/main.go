@@ -285,6 +285,14 @@ func main() {
 	srv.GHStats = source.NewGHStats(dataDir + "/cache/ghstats.json")
 	go srv.StartGHStatsRefresh(ctx)
 
+	// GitHub 仓库 fork 关系查询（0.6.326c 溯源补强：识别「整仓 fork 式搬运」）
+	srv.Forks = source.NewGHForks(dataDir + "/cache/ghforks.json")
+	go srv.StartGHForksRefresh(ctx)
+
+	// 上游仓「添加为源」可加性探测（0.6.326e：上游仓无索引时前端不再给死按钮）
+	srv.AddProbes = source.NewAddProbe(dataDir + "/cache/addprobe.json")
+	go srv.StartAddProbeRefresh(ctx)
+
 	// 图标预热：目录就绪后 6 并发拉取缺失图标进两级缓存（内存 10min +
 	// 磁盘 7 天）——对齐 New Store 的加载架构，消除「图标冷瀑布」
 	go srv.StartIconWarm(ctx)
@@ -355,8 +363,8 @@ func main() {
 	}
 	go func() {
 		<-ctx.Done()
-		srv.StopIcons()        // 图标两级缓存收尾落盘
-		srv.StopReadmeStore()  // README 两级缓存收尾落盘
+		srv.StopIcons()       // 图标两级缓存收尾落盘
+		srv.StopReadmeStore() // README 两级缓存收尾落盘
 		srv.StopDetailStore() // 0.6.312 B3/F8：详情两级缓存收尾落盘
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()

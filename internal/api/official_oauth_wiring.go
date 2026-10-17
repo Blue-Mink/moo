@@ -101,6 +101,21 @@ func (s *officialStore) hasOAuthSession() bool {
 	return sess.RefreshToken != ""
 }
 
+// hadOAuthSession 曾经授权过（会话里仍有 access token，过期与否不计）。
+//
+// 0.6.326（M-1）：official_session_expired 只对「接通过官方源」的用户有意义。
+// 从未授权的纯社区源用户，面板通道恒报「未连接」且目录 0 条 —— 旧判定
+// （errStr != "" || apps == 0）会在首个轮次立刻推一条与事实不符的失效告警，
+// 此后每 6h 复推。这里用「会话仍在」而不是「会话有效」：access 过期但
+// refresh 失败/失效（真·需要重新授权）时仍应告警。
+func (s *officialStore) hadOAuthSession() bool {
+	if s == nil || s.mgr == nil {
+		return false
+	}
+	sess := s.mgr.Session()
+	return sess != nil && sess.AccessToken != ""
+}
+
 // oauthPanelApps 从 OAuth 通道拉全量官方目录并转成 panel.PanelApp。
 // 仅当会话有效且拉取成功且非空时返回 ok=true。
 func (s *officialStore) oauthPanelApps(ctx context.Context) ([]panel.PanelApp, bool) {

@@ -116,6 +116,16 @@ type Config struct {
 	// （官方应用走平台 cloud 通道、社区应用走 FPK 升级管线，均保留 @appdata）。
 	// 排除商店自身（moo，防自更新环）。依赖 Moo 服务保持运行。
 	AutoUpdate bool `json:"auto_update,omitempty"`
+	// HiddenApps 应用级「禁用」（0.6.326 溯源批次）：存卡片 key，上限 500
+	//（同忽略更新/收藏）。语义=从列表/搜索/推荐消失；已安装的禁用卡仍在
+	// 列表（前端按 user_hidden 过滤、已安装 tab 保留，保证可恢复），
+	// 详情按 key 仍可达。仅展示层，不改更新判定。
+	HiddenApps []string `json:"hidden_apps,omitempty"`
+	// AutoCorrect 自动纠正（0.6.326 引入；0.6.326x 起**已弃用**）：语义已并入
+	// UpdatePolicy="upstream"（强制上游）。字段仅为向后兼容保留——读取旧配置
+	// 时为 true 即等价 upstream（见 internal/api resolveUpdateTargetSelection）；
+	// 保存设置后恒为 false，新代码勿再写入。
+	AutoCorrect bool `json:"auto_correct,omitempty"`
 	// CatalogLanguage 目录语言（0.6.269）：""/auto = 跟随请求 Accept-Language；
 	// 显式值（zh-CN / en-US）固定。后台协程无请求上下文时按此值/默认。
 	CatalogLanguage string `json:"catalog_language,omitempty"`
@@ -192,6 +202,9 @@ type Config struct {
 	NotifyCPUPctAlert int `json:"notify_cpu_alert_pct,omitempty"`
 	// 收藏应用「有更新」推送去重：app key → 已通知过的版本（防每轮重复推）。
 	NotifyFavNotified map[string]string `json:"notify_fav_notified,omitempty"`
+	// 溯源纠正（upstream_corrected）推送去重：appname → 已通知过的上游目标
+	// 版本。同一应用同一上游版本只推一次；上游再发新版（目标版本变化）才再推。
+	NotifyUpstreamNotified map[string]string `json:"notify_upstream_notified,omitempty"`
 	// 关注源「新增应用」推送去重（0.6.143）：源名 → 已见过的应用 key 集合。
 	// 首次关注记基线不推，之后每个 源×应用 只推一次。
 	NotifyFavSourceSeen map[string]map[string]bool `json:"notify_fav_source_seen,omitempty"`
@@ -299,7 +312,7 @@ func (c *Config) IsNotifyEventOn(key string) bool {
 
 // DefaultSourceListURL 内置的应用源列表（每行一个 GitHub 仓库地址）。
 // 0.6.316+：弃用 710850609/FnDepot 的 repo_list.txt（117 条），改用 moo 仓
-// 自带的精选清单 repo_list.txt（20 条，Blue-Mink 维护），
+// 自带的精选清单 repo_list.txt（0.6.316 起 20 条 → 0.6.326 起 21 条，Blue-Mink 维护），
 // 「立即同步源列表」只认这份清单。
 const DefaultSourceListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/repo_list.txt"
 

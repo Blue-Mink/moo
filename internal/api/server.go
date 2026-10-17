@@ -43,6 +43,12 @@ type Server struct {
 	Panel     *Panel
 	// GHStats GitHub Release 资产下载量同步（第三方源目录不统计下载量的补数通道）
 	GHStats *source.GHStats
+	// Forks GitHub 仓库 fork 关系查询（0.6.326c 溯源补强：识别「整仓 fork 式
+	// 搬运」——包在本源仓库里但本源仓库本身是别人搬运仓的 fork）。
+	Forks *source.GHForks
+	// AddProbes 上游仓「添加为源」可加性探测器（0.6.326e：上游仓没发索引时
+	// 前端不再给死按钮）。只读探测结果，未知即入队后台补齐。
+	AddProbes *source.AddProbe
 	// Official 官方应用中心 OAuth 管理器（合并自主线：token 持久化 + 自动刷新）
 	Official *official.Manager
 	// OfficialStore 官方 OAuth 目录缓存（10min TTL）。0.6.253 起由
@@ -83,6 +89,11 @@ type Server struct {
 	catalogRebuildDone chan struct{}
 	// 0.6.313 B4：生效 TTL 记忆化（env 只解析一次；catalogTTL>0 时优先）。
 	catalogTTLMemo time.Duration
+	// 0.6.326z：源重合率缓存（源名 → 信号），与目录同生命周期——目录重建
+	// （buildCatalog/finishCatalogRebuild）时一次性重算并原子交换，
+	// invalidateCatalog 一并置 nil。GET /api/sources 只读它，不额外触发重算
+	//（目录未构建时字段留空，不阻塞、不报错）。计算逻辑见 overlap_326z.go。
+	catalogOverlap map[string]SourceOverlap
 
 	// 0.6.313 B4：GET /api/apps body 缓存——只缓存**无 source 参数**的
 	// 全量响应（前端 fetchApps 唯一热路径，不带 query 参数）marshal 后的
@@ -94,6 +105,17 @@ type Server struct {
 	catalogBodyMu   sync.Mutex
 	catalogBody     []byte
 	catalogBodyETag string
+	// 0.6.326z5 R1：目录代际号。任何「换入新目录切片」的路径
+	//（invalidateCatalog / finishCatalogRebuild）都在 catalogBodyMu 下自增它，
+	// 并同时作废已缓存的 body。cachedAppsBody 在**锁外** marshal（持锁时间
+	// 只覆盖取/存字节），落盘前复核代际未变——否则 marshal 期间目录被后台
+	// 重建换掉的旧代响应体会被无条件写入并长期驻留（源启用瞬间的漏卡
+	// 症状，旧实现里没有后续失效事件能清掉它）。
+	catalogBodyGen uint64
+	// appsBodyHook 是单测缝（生产恒 nil）：在 cachedAppsBody 取出目录快照
+	// 之后、落盘之前调用一次，供单测确定性地制造「marshal 期间目录前进」
+	// 的交错，证明代际校验生效。生产路径不设置该字段。
+	appsBodyHook func()
 
 	selfUpdOnce sync.Once
 	selfUpd     *selfUpdateProbe // 官方 release 探测缓存（自更新）
@@ -108,6 +130,16 @@ type Server struct {
 	lastGHStatsRound atomic.Int64 // 上一轮 GHStats 完成时间（F6 降级判定）
 	lastProbeGh      atomic.Int64 // gh 组上次探测时间（F6）
 	lastProbeDk      atomic.Int64 // dk 组上次探测时间（F6）
+
+	// 0.6.326 通知批次：通知健康态（**内存不落盘**——重启后重新计数，避免把
+	// 陈旧的「连续失败」跨重启续算成一次假告警）。
+	//   notifyChanFails：渠道名 → 连续失败状态（notify_channel_error 事件）
+	//   officialBad/officialBadAt：官方源连接是否失效 + 上次告警时刻
+	//     （official_session_expired 事件）
+	notifyHealthMu  sync.Mutex
+	notifyChanFails map[string]*chanFailState
+	officialBad     bool
+	officialBadAt   time.Time
 }
 
 // 0.6.312 B3/F6（客户端活性门控）阈值：
@@ -237,7 +269,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/sources/reorder", s.requireAdmin(s.reorderSources))
 	mux.HandleFunc("POST /api/sources/sync-list", s.requireAdmin(s.syncList))
 	mux.HandleFunc("POST /api/sources/restore-defaults", s.requireAdmin(s.restoreDefaults)) // 0.6.172 一键恢复默认源列表（含去重）
-	mux.HandleFunc("POST /api/sources/delete-defaults", s.requireAdmin(s.deleteDefaults))  // 0.6.318 一键删除历史默认社区源（官源 20 条保护）
+	mux.HandleFunc("POST /api/sources/delete-defaults", s.requireAdmin(s.deleteDefaults))  // 0.6.318 一键删除历史默认社区源（新官源 21 条由「恢复源」找回）
 	mux.HandleFunc("POST /api/sources/{id}/sync", s.requireAdmin(s.syncSource))
 	mux.HandleFunc("POST /api/sources/sync-all", s.requireAdmin(s.syncAllSources)) // 0.6.171 一键刷新所有源
 	mux.HandleFunc("POST /api/sources/{id}/toggle", s.requireAdmin(s.toggleSource))
@@ -256,6 +288,9 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/apps/{key}/task/resume", s.requireAdmin(s.appTaskResume))
 	mux.HandleFunc("PUT /api/apps/{key}/ignore-update", s.requireAdmin(s.ignoreUpdate))
 	mux.HandleFunc("DELETE /api/apps/{key}/ignore-update", s.requireAdmin(s.ignoreUpdate))
+	// 0.6.326 应用溯源批次：应用级「禁用」（展示层屏蔽，已装卡仍可恢复）。
+	mux.HandleFunc("PUT /api/apps/{key}/hide", s.requireAdmin(s.hideApp))
+	mux.HandleFunc("DELETE /api/apps/{key}/hide", s.requireAdmin(s.hideApp))
 	mux.HandleFunc("POST /api/apps/{key}/start", s.requireAdmin(s.appStart))
 	mux.HandleFunc("POST /api/apps/{key}/stop", s.requireAdmin(s.appStop))
 	mux.HandleFunc("GET /api/apps/{key}/panel-detail", s.requireAdmin(s.appPanelDetail))

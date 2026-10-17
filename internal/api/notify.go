@@ -21,7 +21,7 @@ import (
 //
 //	渠道 = 外部推送通道（企微/钉钉/飞书/Server酱/PushPlus/Bark/通用 Webhook），
 //	       连接参数 schema 化 + 敏感字段脱敏 + 一键测试消息；
-//	规则 = 逐事件开关（22 类事件，缺省见 catalog）；
+//	规则 = 逐事件开关（36 类事件，缺省见 catalog）；
 //	记录 = 实际通知流水（含各渠道发送结果），持久化 config.json，
 //	       上限 config.NotifyLogCap 条。
 //
@@ -55,6 +55,7 @@ var notifyEventCatalog = []notifyEvent{
 	{Key: "updates_available", Label: "应用更新摘要", Desc: "源同步后比对已装应用版本：更新集合变化时推送——更新应用数目 + 每个应用的旧→新版本与来源（前 8 个）", Group: "应用更新", Default: true},
 	{Key: "favorite_update", Label: "收藏应用有更新", Desc: "源同步后发现收藏应用有新版本，推送数目+每个应用的旧→新版本与来源（按应用×版本去重，每版只推一次）", Group: "应用更新", Default: true},
 	{Key: "auto_update_round", Label: "自动更新应用完成", Desc: "「自动更新应用」后台轮次结束推送：成功/失败数目 + 应用列表（一轮一条）", Group: "应用更新", Default: true},
+	{Key: "upstream_corrected", Label: "溯源纠正到上游", Desc: "已装的搬运来源应用被纠正为上游原作者版本时推送（按 应用×上游版本 去重，每版只推一次）", Group: "应用更新", Default: true},
 	// C. Moo 自身
 	{Key: "welcome", Label: "欢迎使用Moo", Desc: "默认测试渠道通知，测完请关闭", Group: "Moo 自身", Default: true},
 	{Key: "store_update_available", Label: "有新版本", Desc: "探测到 GitHub 发布新版 Moo 时推送（与设置页红点同源）", Group: "Moo 自身", Default: true},
@@ -65,6 +66,7 @@ var notifyEventCatalog = []notifyEvent{
 	{Key: "health_error", Label: "后端健康异常", Desc: "5 分钟自检：appcenter daemon RPC 不可达 / 配置不可读（API 存活由自检协程隐含）。恢复后推送 health_recovered", Group: "Moo 自身", Default: true},
 	{Key: "health_recovered", Label: "后端健康恢复", Desc: "健康异常恢复后推送", Group: "Moo 自身", Default: true},
 	{Key: "disk_space_alert", Label: "磁盘空间告警", Desc: "数据目录使用率 >90% 推送告警（30 分钟冷却）；回落 85% 以下推送恢复", Group: "Moo 自身", Default: true},
+	{Key: "notify_channel_error", Label: "渠道推送失败", Desc: "同一推送渠道连续 3 次发送失败时推送（1 小时冷却），用于发现通知渠道本身已失效", Group: "Moo 自身", Default: true},
 	// D. 源与网络
 	{Key: "source_sync_failed", Label: "源同步失败", Desc: "每轮源刷新后聚合推送：失败源列表（前 5）+ 总数，一轮一条", Group: "源与网络", Default: true},
 	{Key: "source_recovered", Label: "源同步恢复", Desc: "此前失败的源本轮恢复（同源 24 小时内不重复推）", Group: "源与网络", Default: false},
@@ -77,6 +79,7 @@ var notifyEventCatalog = []notifyEvent{
 	// 0.6.188：Docker 组全挂监测（与 GitHub 组对偶，挂 dk 探测循环）
 	{Key: "docker_mirrors_all_failed", Label: "Docker 加速源全部不可用", Desc: "全部 Docker 远程加速源探测失败（本地 KSpeeder 缓存不计入）= 网络层或 Docker Hub 异常（镜像拉取会集体变慢/失败）。30 分钟冷却", Group: "源与网络", Default: true},
 	{Key: "docker_mirrors_recovered", Label: "Docker 加速源恢复", Desc: "「Docker 加速源全部不可用」后恢复时推送，附当前优选源", Group: "源与网络", Default: true},
+	{Key: "official_session_expired", Label: "官方源连接失效", Desc: "官方应用中心连接失效（OAuth 会话过期/未授权）时推送，提示重新授权", Group: "源与网络", Default: true},
 	// E. 数据面
 	{Key: "catalog_drop", Label: "目录数量异常下跌", Desc: "本轮目录条目比上轮跌幅 > 20%（源数据异常信号）", Group: "数据面", Default: true},
 }
@@ -171,7 +174,13 @@ func (s *Server) fanoutIfExternalOn(msg *notify.Message, key string) map[string]
 	if base := strings.TrimRight(strings.TrimSpace(s.Cfg.NotifyViewBase), "/"); base != "" {
 		msg.ViewURL = base + "/api/notify-view/" + msg.ViewID + "?t=" + msg.ViewToken
 	}
-	return notify.Fanout(context.Background(), s.Cfg.NotifyChannels, msg)
+	errs := notify.Fanout(context.Background(), s.Cfg.NotifyChannels, msg)
+	// 0.6.326 通知批次：渠道健康跟踪（连续 ≥3 次失败 + 1h 冷却 → 渠道推送失败
+	// 告警）。notify_channel_error 自身的 fan-out 与 welcome（欢迎语/用户主动
+	// 测试）不计入 streak —— 防自激、防把人工测试当故障（见
+	// notify_new_events_326z.go trackNotifyChannelHealth）。
+	s.trackNotifyChannelHealth(key, errs)
+	return errs
 }
 
 // notifyEvent 后端侧 dispatch（自动备份 / 自监控 / 源网络等后台事件，
@@ -647,9 +656,9 @@ func (s *Server) notifyChannelDelete(w http.ResponseWriter, r *http.Request) {
 
 // welcomeTestMessage 渠道测试消息（0.6.164 起改发欢迎语：测试结果 = 欢迎语
 // 在该渠道形式下的真实观感，卡片/markdown/markdown_v2 三形式各预览各的版式）。
-// 不写通知记录（测试只是探针，不落 notify_log）。卡片形式「打开通知详情」
-// 跳转链接指向 0000test 演示页（无需 token）；NotifyViewBase 未配置时
-// ViewURL 为空 → 发送侧自动降级默认 markdown。
+// 不写通知记录（测试只是探针，不落 notify_log）。0.6.326 起卡片不带
+//「打开通知详情」入口；ViewURL 仅剩企微卡片整卡点击跳转（card_action）用，
+// 未配置 NotifyViewBase 时企微卡片自动降级默认 markdown。
 func (s *Server) welcomeTestMessage() *notify.Message {
 	msg := welcomeMessage("channel_test")
 	if base := strings.TrimRight(strings.TrimSpace(s.Cfg.NotifyViewBase), "/"); base != "" {

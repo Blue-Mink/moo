@@ -53,6 +53,34 @@ export interface AppInfo {
   update_ignored?: boolean;
   /** 已忽略且确有被压住的更新（0.6.197：dock「有更新」列表含它） */
   update_ignored_pending?: boolean;
+  /**
+   * 0.6.326 应用溯源：用户手动禁用的应用（列表/搜索/推荐视图隐藏；「已安装」
+   * tab 与详情仍可见，保证可恢复）。后端置位，按卡片 key 持久化。
+   */
+  user_hidden?: boolean;
+  /** 0.6.326 应用溯源：该应用包来自本源的其它 owner 仓库，且 Moo 已收录该上游源 → 上游源名。 */
+  upstream_source?: string;
+  /** 0.6.326 应用溯源：上游仓库 owner/repo（上游未收录为源时的回落展示值）。 */
+  upstream_repo?: string;
+  /** 0.6.326 应用溯源：上游源里同名应用的最新版本（自动纠正的判定依据）。 */
+  upstream_version?: string;
+  /** 0.6.326 应用溯源：上游仓库主页（https://github.com/<owner>/<repo>）。 */
+  upstream_url?: string;
+  /**
+   * 0.6.326e：「添加为源」可加性（后端探测，7 天缓存）。非空 = 显示按钮，
+   * 点击添加该地址；本仓可加时=上游仓地址，本仓只是打包仓而 owner 有索引仓
+   * 时=那个索引仓地址。
+   */
+  upstream_add_url?: string;
+  /** 0.6.326e：不可加时的一行原因（如「该上游仓库未发布应用源索引」）。 */
+  upstream_add_note?: string;
+  /**
+   * 0.6.326f：该卡所属源的**本源仓库**是 GitHub fork（parent 非空）→
+   * 详情页溯源第二行出「禁用fork源」按钮（非 fork / 关系未知不出）。
+   */
+  source_is_fork?: boolean;
+  /** 0.6.326f：该卡所属源当前已禁用（enabled=false）→ 按钮切「恢复fork源」。 */
+  source_disabled?: boolean;
   platform: string;
   /** 当前选中安装包的架构（0.6.303：x86/arm/all；源未提供时为空）。 */
   arch?: string;
@@ -679,9 +707,11 @@ export interface Settings {
   source_auto_care_disabled?: boolean;
   // 自动更新应用（周期检查发现更新时后台自动安装，无需打开应用）
   auto_update?: boolean;
+  // 0.6.326x：已弃用——语义并入 update_policy="upstream"（强制上游）；服务端读旧配置自动迁移。
+  auto_correct?: boolean;
   // 目录语言（0.6.269）：auto（默认，跟随浏览器语言）/ zh-CN / en-US
   catalog_language?: string;
-  // 已装应用跨源更新判定策略（0.6.272）：strict（默认）/ origin / lineage
+  // 已装应用跨源更新判定策略（0.6.272；0.6.326x 加 upstream=强制上游）：strict（默认）/ origin / lineage / upstream
   update_policy?: string;
   /** 列表去重展示策略（0.6.312 B2）：all（默认）/ merge / one */
   dedup_policy?: string;
@@ -843,6 +873,26 @@ export interface SourceEntry {
   empty_streak?: number;
   /** 是否关注（星标，0.6.143）；关注源新增应用时推通知 */
   favorite?: boolean;
+  /** ── 源重合率（0.6.326z，只读信号）──
+   * FnDepot 式内容重合率：该源与「最相似的对方源」的应用名/版本重合情况
+   * （与 fork 标志无关，用于让「同 owner 且 fork=false 的整仓复制源」可见）。
+   * **绝非停源依据**：无按钮、不影响源状态、不进应用详情页「溯源」行。
+   * 官方源（fnos-official）恒无这些字段。 */
+  overlap_risk?: 'none' | 'low' | 'medium' | 'high';
+  /** 最相似的对方源名（平票取字典序小者） */
+  overlap_with?: string;
+  /** appname 重合数 */
+  overlap_name_count?: number;
+  /** appname|version 重合数 */
+  overlap_exact_count?: number;
+  /** 名称重合率 = 重合数 / max(两源应用数) */
+  overlap_name_ratio?: number;
+  /** 精确重合率（同名同版本） */
+  overlap_exact_ratio?: number;
+  /** 本方独有 appname 数（「停掉它会丢多少」） */
+  overlap_unique_names?: number;
+  /** 本方应用数（比值分母依据） */
+  overlap_self_count?: number;
 }
 
 export interface SourcesResponse {
@@ -1269,7 +1319,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1737,6 +1787,25 @@ export const unignoreUpdate = async (appname: string): Promise<void> => {
   const response = await apiFetch(apiUrl(`/api/apps/${appname}/ignore-update`), { method: 'DELETE' });
   if (!response.ok) {
     throw new Error(`Failed to unignore update: ${response.statusText}`);
+  }
+};
+
+/**
+ * 0.6.326 应用溯源：禁用某个应用（列表/搜索/推荐视图隐藏；已安装卡仍列出，
+ * 详情页可恢复）。key = 卡片 key，可能是 `appname@源名` 形式 → 必须编码。
+ */
+export const hideApp = async (key: string): Promise<void> => {
+  const response = await apiFetch(apiUrl(`/api/apps/${encodeURIComponent(key)}/hide`), { method: 'PUT' });
+  if (!response.ok) {
+    throw new Error(await extractError(response, `Failed to hide app: ${response.statusText}`));
+  }
+};
+
+/** 0.6.326 应用溯源：恢复被禁用的应用。 */
+export const unhideApp = async (key: string): Promise<void> => {
+  const response = await apiFetch(apiUrl(`/api/apps/${encodeURIComponent(key)}/hide`), { method: 'DELETE' });
+  if (!response.ok) {
+    throw new Error(await extractError(response, `Failed to unhide app: ${response.statusText}`));
   }
 };
 

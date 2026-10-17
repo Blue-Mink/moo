@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log"
 	"net/http"
@@ -356,6 +358,12 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 	// A3 缓存复用：成品已完整（无 aria2 续传残留、大小已知时匹配）则跳过下载
 	fileName := a.Name + ".fpk"
 	sizeCands := task.ParseSizeMB(a.SizeMB)
+	// 0.6.326z3：条目已归一的字节值优先——源把字节数写进 MB 槽位时
+	// ParseSizeMB 会算出天文数字（fnmusic-ext：27257554 → 2.7e13 字节），
+	// 使缓存判定永不命中、下载任务总量显示离谱。
+	if a.SizeBytes > 0 {
+		sizeCands = append([]int64{a.SizeBytes}, sizeCands...)
+	}
 	sizeBytes := int64(0)
 	if len(sizeCands) > 0 {
 		sizeBytes = sizeCands[0]
@@ -580,6 +588,53 @@ func (s *Server) ignoreUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "ignored": ignored})
 }
 
+// maxHiddenApps 禁用应用集合上限（防误操作膨胀，同忽略更新/收藏）。
+const maxHiddenApps = 500
+
+// hideApp PUT/DELETE /api/apps/{key}/hide：应用级「禁用」（0.6.326 溯源批次）。
+// PUT = 加入隐藏集合（幂等，顺序 = 禁用先后），DELETE = 恢复（幂等）。
+//
+// 语义（与「忽略更新」区分）：纯展示层屏蔽——列表/搜索/推荐不展示；
+// 已安装的禁用卡仍在列表（前端按 user_hidden 过滤、「已安装」tab 保留，
+// 保证可恢复）；详情按 key 仍可达（逃生门）。不改更新判定。
+//
+// key 原样存（不经过 daemonAppNameFor）：前端传的是卡片 key（appname@源名
+// 或裸 appname），禁用粒度就是「那张卡」；构建期按 key 匹配、回落 appname。
+func (s *Server) hideApp(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.PathValue("key"))
+	if key == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("无法解析应用标识"))
+		return
+	}
+	add := r.Method == http.MethodPut
+	hidden := s.Cfg.HiddenApps[:0:0] // 重建切片，避免 alias 原底层数组
+	found := false
+	for _, k := range s.Cfg.HiddenApps {
+		if k == key {
+			found = true
+			if add {
+				hidden = append(hidden, k) // PUT 幂等：保留原位置
+			}
+			continue
+		}
+		hidden = append(hidden, k)
+	}
+	if add && !found {
+		if len(hidden) >= maxHiddenApps {
+			writeErr(w, http.StatusConflict, errors.New("禁用数量已达上限（500）"))
+			return
+		}
+		hidden = append(hidden, key)
+	}
+	if hidden == nil {
+		hidden = []string{}
+	}
+	s.Cfg.HiddenApps = hidden
+	_ = s.Cfg.Save(dataDirOf(s))
+	s.invalidateCatalog() // 隐藏态影响列表下发，旧缓存立即作废
+	writeJSON(w, map[string]any{"ok": true, "hidden": hidden})
+}
+
 // appStart / appStop。
 func (s *Server) appStart(w http.ResponseWriter, r *http.Request) {
 	s.appStartStop(w, r, true)
@@ -773,7 +828,20 @@ func (s *Server) appAsset(w http.ResponseWriter, r *http.Request) {
 		if _, ra, rerr := s.resolveKey(key); rerr == nil {
 			a = ra
 		}
-		if a == nil || a.ReadmeURL == "" {
+		if a != nil && a.ReadmeURL == "" {
+			// 0.6.314 C：固定推荐快照优先（内嵌全文，源被删也能渲染）
+			if snap := snapshotForKey(key); snap != nil {
+				if md := snap.ReadmeText(); md != "" {
+					w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+					_, _ = w.Write([]byte(md))
+					return
+				}
+			}
+			// 0.6.326：未声明 README 的条目惰性自动发现（<appname>/README.md）。
+			s.proxyReadmeAuto(w, r, a)
+			return
+		}
+		if a == nil {
 			// 0.6.314 C：固定推荐快照 README（内嵌全文）——源被删后详情页
 			// README 区仍完整渲染，不再 404。
 			if snap := snapshotForKey(key); snap != nil {
@@ -901,9 +969,133 @@ func normalizeReadmeURL(raw string) string {
 	return raw
 }
 
-func (s *Server) readmeCandidateURLs(raw string) []string {
+// readmeRepoPageCandidates 把 GitHub「仓库页面」链接展开为 README 文件直链候选。
+//
+// 只接受两种页面形态（其余保持原有行为，绝不猜测）：
+//
+//	github.com/<owner>/<repo>              → README.md / readme.md @ main、master
+//	github.com/<owner>/<repo>/tree/<br>   → 同上，分支用 <br>
+//
+// 返回 ok=true 表示该 URL 是「页面而非文档」，调用方应只用返回的文件候选。
+// /blob/、/raw/ 直链已由 normalizeReadmeURL 归一，不在此展开。
+func readmeRepoPageCandidates(raw string) ([]string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Host, "github.com") {
+		return nil, false
+	}
+	seg := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(seg) < 2 || seg[0] == "" || seg[1] == "" {
+		return nil, false
+	}
+	branches := []string{"main", "master"}
+	switch {
+	case len(seg) == 2: // 仓库首页
+	case len(seg) >= 4 && seg[2] == "tree": // 指定分支（可带子目录）
+		branches = []string{seg[3]}
+	default:
+		return nil, false
+	}
+	out := make([]string, 0, len(branches)*2)
+	for _, br := range branches {
+		for _, name := range []string{"README.md", "readme.md"} {
+			out = append(out, "https://raw.githubusercontent.com/"+seg[0]+"/"+seg[1]+"/"+br+"/"+name)
+		}
+	}
+	return out, true
+}
+
+// readmeWinnerBase 把「实际命中的候选 URL」还原成可做相对路径 base 的地址。
+//
+// 竞速候选里既有 GitHub 直链，也有镜像前缀（形如
+// https://hub.conversun.com/https://raw.githubusercontent.com/…）与
+// jsDelivr 变体。若直接拿镜像 URL 当 base，`![](./a.png)` 会被补成
+// 「镜像前缀 + 嵌套 https」这种前端不认的地址 → 破图。
+//
+// 处理：先归一 blob 页；再剥已知镜像前缀；最后兜底——URL 里出现嵌套的
+// raw.githubusercontent.com 就取最后一段（兼容自定义镜像）。jsDelivr
+// 的 `…/gh/o/r@br/path` 本身可直接做 base（相对图会自然落到同目录）。
+func readmeWinnerBase(winner string) string {
+	u := normalizeGitHubURL(winner)
+	for _, opt := range config.GitHubMirrorOptions() {
+		p := strings.TrimRight(opt.URL, "/")
+		if p == "" {
+			continue
+		}
+		if strings.HasPrefix(u, p+"/") {
+			return strings.TrimPrefix(u, p+"/")
+		}
+	}
+	if i := strings.Index(u, "https://raw.githubusercontent.com/"); i > 0 {
+		return u[i:]
+	}
+	return u
+}
+
+// readmePathKey 归一候选「目标路径」，用于「同一文件被两个独立来源都判 404
+// → 真缺失」的快速判死。0.6.326：B 的仓库页回落会一次给出 4 个变体
+// （main/master × README.md/readme.md），旧实现按「任意两个 404」判死，会在
+// 前两个不存在的变体（小写 readme.md）返回时就提前中止，把随后 200 的
+// README.md 挡掉 → 假「无 README」。改为按路径聚合：只有同一条路径被
+// 两个不同来源 404 才判死。
+func readmePathKey(u string) string {
+	x := normalizeGitHubURL(u)
+	for _, opt := range config.GitHubMirrorOptions() {
+		p := strings.TrimRight(opt.URL, "/")
+		if p != "" && strings.HasPrefix(x, p+"/") {
+			x = strings.TrimPrefix(x, p+"/")
+		}
+	}
+	if i := strings.Index(x, "https://raw.githubusercontent.com/"); i > 0 {
+		x = x[i:]
+	}
+	pu, err := url.Parse(x)
+	if err != nil {
+		return x
+	}
+	if pu.RawQuery != "" {
+		return pu.Path + "?" + pu.RawQuery
+	}
+	return pu.Path
+}
+
+// swapReadmeCase 在 README.md / readme.md 之间互换大小写（同目录兜底候选）。
+func swapReadmeCase(u string) string {
+	i := strings.LastIndex(u, "/")
+	if i < 0 {
+		return ""
+	}
+	base := u[i+1:]
+	switch base {
+	case "README.md":
+		return u[:i+1] + "readme.md"
+	case "readme.md":
+		return u[:i+1] + "README.md"
+	}
+	return ""
+}
+
+func (s *Server) readmeCandidateURLs(raw string, withMirrors bool) []string {
 	raw = normalizeReadmeURL(raw)
 	cands := []string{raw}
+	// 0.6.326：readme_url 也可能是「镜像前缀 + 原始 URL」（wget.la / gh-proxy
+	// / git.yylx.win 等）。镜像限流时整批 429（实测 shuangji66 源 37 应用
+	// 全 502），而剥前缀后的 raw 直链是好的 → 必须同时挂 raw 候选。
+	if inner := unwrapMirrorURL(raw); inner != "" {
+		cands = append(cands, normalizeReadmeURL(inner))
+	}
+	// 0.6.326：上游把 readme_url 写成「仓库首页」是常见写法（实测 cmbya 源
+	// 9/9 应用都是 github.com/<owner>/<repo>）——页面本身是 HTML，拉下来必然
+	// 被 looksLikeWebPage 拒服。这里改为只尝试该仓库的 README 文件；
+	// 页面 URL 必须从候选里剔除，否则 200 的 HTML 会先胜出（竞速取首个 200）。
+	if files, ok := readmeRepoPageCandidates(raw); ok {
+		cands = files
+	} else if strings.HasSuffix(strings.ToLower(raw), ".md") {
+		// 0.6.326：声明文件名大小写常与仓库不一致（README.md vs readme.md）。
+		// 同目录大小写变体只是兜底候选，不影响已命中的正路。
+		if alt := swapReadmeCase(raw); alt != "" && alt != raw {
+			cands = append(cands, alt)
+		}
+	}
 	if u := strings.Replace(raw, "/main/", "/master/", 1); u != raw {
 		cands = append(cands, u)
 	} else if u := strings.Replace(raw, "/master/", "/main/", 1); u != raw {
@@ -916,7 +1108,12 @@ func (s *Server) readmeCandidateURLs(raw string) []string {
 			cands = append(cands, "https://cdn.jsdelivr.net/gh/"+parts[0]+"/"+parts[1]+"@"+parts[2])
 		}
 	}
-	cands = append(cands, s.mirrorVariants(cands, 3)...)
+	if withMirrors {
+		// 0.6.326（审计 MEDIUM-1）：自动发现不挂镜像候选——一个未命中应用
+		// main+master 会放大成 24 个镜像请求，sweep 实测 7 分钟把 gh-proxy
+		// 打成 4088 条 429，还会连带拖慢图标/已声明 README。
+		cands = append(cands, s.mirrorVariants(cands, 3)...)
+	}
 	return dedupeMirrors(cands)
 }
 
@@ -925,22 +1122,22 @@ func (s *Server) readmeCandidateURLs(raw string) []string {
 // 瞬态失败（上游 429 限流窗口/镜像 5xx）重试一次：请求预算 25s、
 // 单轮竞速 13s 封顶（2026-09-23 实锤：源同步风暴触发 GitHub raw
 // 限流窗口，单轮竞速全部候选非 200，重试窗口内即恢复）。
-func (s *Server) fetchReadmeRace(ctx context.Context, rawURL string) ([]byte, string, bool, error) {
+func (s *Server) fetchReadmeRace(ctx context.Context, rawURL string, withMirrors bool) ([]byte, string, bool, string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		body, mime, dead, err := s.raceFetch(ctx, s.readmeCandidateURLs(rawURL))
+		body, mime, dead, winner, err := s.raceFetch(ctx, s.readmeCandidateURLs(rawURL, withMirrors))
 		if err == nil {
-			return body, mime, false, nil
+			return body, mime, false, winner, nil
 		}
 		if dead {
-			return nil, "", true, errors.New("源仓库返回 404（README 可能不在仓库内）")
+			return nil, "", true, "", errors.New("源仓库返回 404（README 可能不在仓库内）")
 		}
 		lastErr = err
 		if ctx.Err() != nil {
-			return nil, "", false, lastErr
+			return nil, "", false, "", lastErr
 		}
 	}
-	return nil, "", false, errors.New("拉取失败: " + lastErr.Error())
+	return nil, "", false, "", errors.New("拉取失败: " + lastErr.Error())
 }
 
 // proxyReadme 并发竞速拉取 README，第一个 200 即透传；全败返回 502。
@@ -948,43 +1145,173 @@ func (s *Server) fetchReadmeRace(ctx context.Context, rawURL string) ([]byte, st
 // 上游限流/抖动窗口内直接吃缓存，详情页不再 13s 死等）；缓存未命中走
 // 候选竞速；竞速失败回退旧缓存（stale-while-revalidate）；原始 URL
 // 明确 404 记负缓存 30min（真缺失不反复重试）。
-func (s *Server) proxyReadme(w http.ResponseWriter, r *http.Request, rawURL string) {
-	cacheKey := "readme|" + rawURL
+// serveReadmeURL 拉取并写出一个 README 地址（缓存/竞速/回退全在这里）。
+// 返回 served=true 表示已写出正文；dead=true 表示确认不存在（可负缓存）。
+// 失败时**不写响应**，由调用方决定错误文案/是否再试下一个候选。
+func (s *Server) serveReadmeURL(w http.ResponseWriter, r *http.Request, rawURL string, withMirrors bool) (served bool, dead bool) {
+	cacheKey := "readme2|" + rawURL
 	base := normalizeReadmeURL(rawURL)
 	st := s.readmeStore()
 	if body, ct, ok := st.Get(cacheKey); ok && !looksLikeWebPage(body) {
 		serveReadme(w, body, ct, base)
-		return
+		return true, false
 	}
 	if st.IsNegative(cacheKey) {
-		writeErr(w, http.StatusNotFound, errors.New("该应用没有可用 README"))
-		return
+		return false, true
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	body, mime, dead, err := s.fetchReadmeRace(ctx, rawURL)
+	body, mime, isDead, winner, err := s.fetchReadmeRace(ctx, rawURL, withMirrors)
 	if err == nil {
 		if looksLikeWebPage(body) {
-			// blob 页等完整 HTML 文档不是 README：不入缓存，本次也拒服
-			// （上游声明的 readme_url 指向了 GitHub 页面本身）
-			writeErr(w, http.StatusNotFound, errors.New("README 链接指向页面而非文档"))
-			return
+			return false, true
+		}
+		if winner != "" {
+			body = rewriteRelImages(body, readmeWinnerBase(winner))
 		}
 		st.Put(cacheKey, body, mime)
 		serveReadme(w, body, mime, base)
-		return
+		return true, false
 	}
-	// 竞速失败：回退旧缓存（并发请求可能刚灌进来，或磁盘层尚存）
 	if body, ct, ok := st.Get(cacheKey); ok && !looksLikeWebPage(body) {
 		serveReadme(w, body, ct, base)
-		return
+		return true, false
 	}
-	if dead {
+	if isDead {
 		st.MarkNegative(cacheKey)
-		writeErr(w, http.StatusNotFound, errors.New(err.Error()))
+		return false, true
+	}
+	return false, false
+}
+
+// readmeAutoCandidates 对**未声明 README** 的条目做惰性自动发现：
+// 从下载地址/源地址反推 GitHub 仓库，再尝试 <appname>/README.md（main/master）。
+// 只在详情页请求 README 时触发（不预热），失败按应用负缓存 30min。
+func (s *Server) readmeAutoCandidates(a *source.App) []string {
+	repo, br := githubRepoFromURLs(a.DownloadURL, s.sourceBaseURL(a.Source), a.IconURL, a.ReadmeURL)
+	dir := strings.TrimSpace(a.Name)
+	if repo == "" || dir == "" {
+		return nil
+	}
+	branches := []string{}
+	if br != "" {
+		branches = append(branches, br)
+	}
+	for _, b := range []string{"main", "master"} {
+		if b != br {
+			branches = append(branches, b)
+		}
+	}
+	var out []string
+	for _, b := range branches {
+		out = append(out, "https://raw.githubusercontent.com/"+repo+"/"+b+"/"+dir+"/README.md")
+	}
+	return out
+}
+
+// githubRepoFromURLs 从若干 URL 中反推 GitHub 仓库 owner/repo 与分支：
+// github.com/o/r(/...) → o/r；raw.githubusercontent.com/o/r/<branch>/...
+// → o/r + branch。镜像前缀会先剥掉。
+func githubRepoFromURLs(urls ...string) (string, string) {
+	for _, raw := range urls {
+		if raw == "" {
+			continue
+		}
+		u := raw
+		if inner := unwrapMirrorURL(raw); inner != "" {
+			u = inner
+		}
+		p, err := url.Parse(u)
+		if err != nil || p.Host == "" {
+			continue
+		}
+		host := strings.ToLower(p.Hostname())
+		segs := strings.Split(strings.Trim(p.Path, "/"), "/")
+		if strings.HasSuffix(host, "github.com") && len(segs) >= 2 {
+			return segs[0] + "/" + segs[1], ""
+		}
+		if host == "raw.githubusercontent.com" && len(segs) >= 3 {
+			return segs[0] + "/" + segs[1], segs[2]
+		}
+	}
+	return "", ""
+}
+
+// proxyReadmeAuto 自动发现失败/命中统一出口：命中即写出正文；
+// 全部候选确认不存在才 404 并记负缓存；存在瞬态失败（超时/429/5xx）
+// 时返回 502 且**不**记负——避免把限流窗口当成「应用没有 README」缓存 30 分钟。
+func (s *Server) proxyReadmeAuto(w http.ResponseWriter, r *http.Request, a *source.App) {
+	key := "auto-readme|" + a.Source + "@" + a.Name + "@" + a.Version
+	st := s.readmeStore()
+	if st.IsNegative(key) {
+		writeErr(w, http.StatusNotFound, errors.New("该应用没有 README"))
 		return
 	}
-	writeErr(w, http.StatusBadGateway, errors.New(err.Error()))
+	// 20s = 阶段 1（10s）+ 阶段 2（单镜像）+ 余量。实测 26s 无增益（终测
+	// 502: 146→162，属限流噪声），回退到 20s，避免最坏等待变长。
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	cands := s.readmeAutoCandidates(a)
+
+	// 阶段 1：只用 raw + jsDelivr（审计 MEDIUM-1：不挂镜像，避免每次探测放大 8 倍）。
+	// 预算 10s，够快的命中；raw 挂起时不把整段时间耗死。
+	ctx1, cancel1 := context.WithTimeout(ctx, 10*time.Second)
+	r1 := r.WithContext(ctx1)
+	allDead := true
+	for _, u := range cands {
+		served, dead := s.serveReadmeURL(w, r1, u, false)
+		if served {
+			cancel1()
+			return
+		}
+		if !dead {
+			allDead = false
+		}
+	}
+	cancel1()
+	if allDead {
+		st.MarkNegative(key) // 审计 MEDIUM-3：只有「全部确定 404」才记负
+		writeErr(w, http.StatusNotFound, errors.New("该应用没有 README"))
+		return
+	}
+
+	// 阶段 2：阶段 1 出现瞬态失败（raw 连接挂起/429）时才补**单个**健康镜像兜底。
+	// 背景（2026-10-17 终版实测）：去掉镜像后 raw 偶发 SYN 挂起 → 全部候选判不出
+	// 死，2157 张卡里约 190 张 README 由 200/404 退化成 502。只在失败路径加镜像，
+	// 正常路径仍是 6 个候选，不重新引入 24 候选的放大。
+	mirrorCands := s.mirrorVariants(cands, 1)
+	if len(mirrorCands) > 0 {
+		log.Printf("[readme-auto] 阶段1 未命中（瞬态），镜像兜底 %d 个候选", len(mirrorCands))
+		allDead2 := true
+		for _, u := range mirrorCands {
+			served, dead := s.serveReadmeURL(w, r.WithContext(ctx), u, false)
+			if served {
+				return
+			}
+			if !dead {
+				allDead2 = false
+			}
+		}
+		if allDead2 {
+			st.MarkNegative(key)
+			writeErr(w, http.StatusNotFound, errors.New("该应用没有 README"))
+			return
+		}
+	}
+	writeErr(w, http.StatusBadGateway, errors.New("拉取失败: 所有候选均不可达"))
+}
+
+func (s *Server) proxyReadme(w http.ResponseWriter, r *http.Request, rawURL string) {
+	// 0.6.326：缓存键加版本段——升级前写入的正文未按 winner 绝对化相对图片，
+	// 直接复用会在 serve 阶段用页面 base 二次改写 → 破图（审计 MED-1 残留）。
+	// 旧条目按 7 天自然淘汰，这里直接换段使其立即失效。
+	if served, dead := s.serveReadmeURL(w, r, rawURL, true); served {
+		return
+	} else if dead {
+		writeErr(w, http.StatusNotFound, errors.New("该应用没有可用 README"))
+		return
+	}
+	writeErr(w, http.StatusBadGateway, errors.New("拉取失败: 所有候选均不可达"))
 }
 
 // proxyPreview 代理详情页预览图：与 README 同一套「镜像竞速 + 两级缓存」，
@@ -1000,7 +1327,7 @@ func (s *Server) proxyPreview(w http.ResponseWriter, r *http.Request, rawURL str
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	body, mime, dead, err := s.fetchReadmeRace(ctx, rawURL)
+	body, mime, dead, _, err := s.fetchReadmeRace(ctx, rawURL, true)
 	if err == nil {
 		if !looksLikeImage(body) {
 			// 上游声明的预览图地址指向了非图片内容（网页/文本）：拒服
@@ -1046,12 +1373,22 @@ func servePreview(w http.ResponseWriter, body []byte, ct string) {
 // 自动改走 readme-img 代理）+ 1h 浏览器缓存。
 func serveReadme(w http.ResponseWriter, body []byte, ct string, readmeBase string) {
 	body = rewriteRelImages(body, readmeBase)
-	if ct == "" {
-		ct = "text/markdown; charset=utf-8"
-	}
-	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Type", normalizeReadmeCT(ct))
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	_, _ = w.Write(body)
+}
+
+// normalizeReadmeCT 把 README 响应的 Content-Type 归一到实际语义：
+// raw.githubusercontent 等上游对 .md 返回 text/plain，缓存命中时原样
+// 回给前端（0.6.326 终测低风险项 #4）。README 正文是 Markdown/HTML 文本，
+// 统一按 text/markdown 回；text/html 保持原样（前端按内容嗅探渲染，
+// 不依赖此头，仅影响协议正确性与第三方抓取）。
+func normalizeReadmeCT(ct string) string {
+	lc := strings.ToLower(strings.TrimSpace(ct))
+	if lc == "" || strings.HasPrefix(lc, "text/plain") || strings.HasPrefix(lc, "application/octet-stream") {
+		return "text/markdown; charset=utf-8"
+	}
+	return ct
 }
 
 // github 系图片 host 白名单（readme-img 代理只放行这些，防 SSRF）。
@@ -1089,11 +1426,11 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 	var cands []string
 	switch pu.Hostname() {
 	case "raw.githubusercontent.com":
-		cands = s.readmeCandidateURLs(u)
+		cands = s.readmeCandidateURLs(u, true)
 	case "github.com":
 		seg := strings.SplitN(strings.TrimPrefix(pu.Path, "/"), "/", 4)
 		if len(seg) == 4 && seg[2] == "raw" {
-			cands = s.readmeCandidateURLs("https://raw.githubusercontent.com/" + seg[0] + "/" + seg[1] + "/" + seg[3])
+			cands = s.readmeCandidateURLs("https://raw.githubusercontent.com/"+seg[0]+"/"+seg[1]+"/"+seg[3], true)
 		} else {
 			cands = []string{u}
 			for _, st2 := range s.Mirrors.gh() {
@@ -1118,10 +1455,10 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	body, mime, dead, rerr := s.raceFetch(ctx, cands)
+	body, mime, dead, _, rerr := s.raceFetch(ctx, cands)
 	if rerr != nil && !dead && ctx.Err() == nil {
 		// 瞬态失败（raw 限流/黑洞窗口）：剩余预算内重试一次竞速
-		body, mime, dead, rerr = s.raceFetch(ctx, cands)
+		body, mime, dead, _, rerr = s.raceFetch(ctx, cands)
 	}
 	if rerr == nil {
 		if mime == "" || mime == "text/plain" || mime == "text/html" {
@@ -1145,7 +1482,7 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 
 // raceFetch 通用候选竞速（README/图片共用）：任一 200 即胜，全败带
 // dead404 判定（仅原始 URL 404 算真缺失）。
-func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string, bool, error) {
+func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string, bool, string, error) {
 	type rres struct {
 		u      string
 		body   []byte
@@ -1196,33 +1533,74 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 		}(u)
 	}
 	deadline := time.After(13 * time.Second)
-	nf404 := 0
+	miss := map[string]int{}   // 目标路径 → 404 来源数（仅直链/镜像）
+	paths := map[string]bool{} // 需被判定的不同目标路径（jsDelivr 不作证据，也不计入）
+	for _, u := range cands {
+		if strings.Contains(u, "cdn.jsdelivr.net") {
+			continue
+		}
+		paths[readmePathKey(u)] = true
+	}
+	deadPaths := map[string]bool{}
+	// 全部候选都明确 404（无超时/无 5xx）→ 也判真缺失：镜像变体常常一条
+	// 路径只有一个来源，按「同路径两源」规则永远攒不到 2 票，会把确定缺失
+	// 误报成瞬态 502（便签记事本 12:18 实测：3 个候选全 404 却回 502）。
+	all404 := true
+	sawNonJd := false
+	nonJdAll404 := true
+	sawResult := false
+	allDead := func() bool {
+		if len(deadPaths) == 0 || len(deadPaths) < len(paths) {
+			return false
+		}
+		return true
+	}
 	for i := 0; i < len(cands); i++ {
 		select {
 		case res := <-ch:
+			sawResult = true
+			isJd := strings.Contains(res.u, "cdn.jsdelivr.net")
+			if !isJd {
+				sawNonJd = true
+			}
+			if res.status != http.StatusNotFound || isJd {
+				all404 = false
+			}
+			if !isJd && res.status != http.StatusNotFound {
+				nonJdAll404 = false
+			}
 			if res.status == http.StatusOK && len(res.body) > 0 {
-				return res.body, res.mime, false, nil
+				return res.body, res.mime, false, res.u, nil
 			}
 			// 404 证据：仅认直链/镜像（路径 1:1 语义）；jsDelivr 对
 			// 非默认分支/未收录仓库的 404/301 有歧义，不作证据。
-			// 两个独立来源都 404 → 文件真缺失，快速判死（不再让页面
-			// 等满 13s；GenOffice 镜像仓库缺图 + raw 黑洞实锤）。
+			// **同一路径**被两个独立来源 404 → 该文件真缺失，快速判死；
+			// 不同变体（README.md vs readme.md、main vs master）互不背书。
 			if res.status == http.StatusNotFound && !strings.Contains(res.u, "cdn.jsdelivr.net") {
-				nf404++
-				if nf404 >= 2 {
-					return nil, "", true, errors.New("源 404")
+				k := readmePathKey(res.u)
+				miss[k]++
+				if miss[k] >= 2 {
+					deadPaths[k] = true
+					// 只有**所有**候选目标路径都被两源判 404 才提前判死；
+					// 单一路径死掉不能终止竞速——README.md/readme.md、
+					// main/master 是并列变体，慢的那个仍可能 200。
+					if allDead() {
+						return nil, "", true, "", errors.New("源 404")
+					}
 				}
 			}
 		case <-ctx.Done():
-			return nil, "", nf404 >= 2, errors.New("拉取超时")
+			all404 = false
+			return nil, "", allDead(), "", errors.New("拉取超时")
 		case <-deadline:
-			return nil, "", nf404 >= 2, errors.New("拉取超时")
+			all404 = false
+			return nil, "", allDead(), "", errors.New("拉取超时")
 		}
 	}
-	if nf404 >= 2 {
-		return nil, "", true, errors.New("源 404")
+	if allDead() || (sawResult && all404) || (sawNonJd && nonJdAll404) {
+		return nil, "", true, "", errors.New("源 404")
 	}
-	return nil, "", false, errors.New("所有候选均不可达")
+	return nil, "", false, "", errors.New("所有候选均不可达")
 }
 
 // looksLikeWebPage 判断缓存体是否完整 HTML 文档（GitHub 页面等）。
@@ -1316,6 +1694,32 @@ func rewriteRelImages(body []byte, readmeURL string) []byte {
 // 同步换图标（icon_url 指向仓库 main 分支——URL 不变、内容更新）；不带
 // 版本时 7 天磁盘层会一直供旧图标（对标 FnDepot v0.6.6 修复的同款根因）。
 // 版本变化 → 新 key → 重新抓取；旧条目由磁盘层容量（iconDiskMax）淘汰。
+// unwrapMirrorURL 剥掉「镜像前缀 + 嵌套 https」的外层，返回内层原始 URL；
+// 非嵌套形态返回空串（调用方忽略）。
+func unwrapMirrorURL(u string) string {
+	// 形如 https://<mirror>/https://raw.githubusercontent.com/… 的「镜像前缀」
+	// 写法。注意内层 https 出现在**第二个**位置——首个 https:// 是镜像自己的
+	// scheme（旧实现从 0 开始找、命中 i==0 直接放弃，等于此兜底从未生效）。
+	// 0.6.326（审计 MEDIUM-2）：最短合法形态 = https://a/https://b（≥16 字节）；
+	// 不足长度直接返回，否则 rest[8:] 对短串 panic（第三方源写 icon_url:"x"
+	// 时每个详情页请求都会 panic serving）。
+	if len(u) < 16 {
+		return ""
+	}
+	rest := strings.ToLower(u)
+	idx := strings.Index(rest[8:], "https://")
+	if idx < 0 {
+		return ""
+	}
+	inner := u[8+idx:]
+	low := strings.ToLower(inner)
+	if strings.HasPrefix(low, "https://") && (strings.Contains(low, "raw.githubusercontent.com/") ||
+		strings.Contains(low, "github.com/") || strings.Contains(low, "cdn.jsdelivr.net/")) {
+		return inner
+	}
+	return ""
+}
+
 func iconCacheKey(a *source.App) string {
 	return a.Source + "@" + a.Name + "@" + a.Version
 }
@@ -1341,6 +1745,12 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	var cands []string
 	if a.IconURL != "" {
 		cands = append(cands, normalizeGitHubURL(a.IconURL))
+		// 0.6.326：部分源把 icon_url 写成「镜像前缀 + 原始 URL」（如
+		// https://git.yylx.win/https://raw.githubusercontent.com/…）。镜像
+		// 对缺失文件常回 HTML 404，必须同时尝试剥前缀后的原始地址。
+		if inner := unwrapMirrorURL(a.IconURL); inner != "" {
+			cands = append(cands, normalizeGitHubURL(inner))
+		}
 	}
 	cands = append(cands, iconCandidates(a.Name, s.sourceBaseURL(a.Source))...)
 	// raw 直链加 2 个最健康镜像进竞速（直连挂起时镜像兜底）
@@ -1375,6 +1785,7 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 		ok      bool
 		defMiss bool // 远端明确 404/403/410
 	}
+	var tried []string // 诊断：失败时打印候选与结果（低音量：仅失败路径）
 	ch := make(chan result, len(cands))
 	for _, u := range cands {
 		go func(rawURL string) {
@@ -1395,6 +1806,7 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 		select {
 		case r := <-ch:
 			resolved++
+			tried = append(tried, fmt.Sprintf("%s(ok=%v,miss=%v)", r.u, r.ok, r.defMiss))
 			if r.defMiss {
 				defMissPaths[stripMirror(r.u)] = true
 				continue
@@ -1432,11 +1844,74 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 			return data, ct, nil
 		}
 	}
+	// 0.6.326（审计 M-2）：本机已有图标（已装应用的 @appcenter/ui/images、
+	// /var/apps 等）必须在**别名网络探测之前**命中——别名回落失败/冷缓存时
+	// 最坏要付 ~20s 网络成本，而本地文件零成本，且比上游仓库图更贴近本机应用。
 	if data, ok := localAppIcon(a.Name); ok {
 		// 0.6.201 本地图标同样过降采样（UI 图标多为小图，零开销）
 		small, ct, _ := downsampleIcon(data, "image/png")
 		st.Put(cacheKey, small, ct) // 本地图标也进缓存
 		return small, ct, nil
+	}
+	// 0.6.326d 目录名别名回落（icon_alias.go）：主链路候选全败后，若源是
+	// GitHub 系，用 jsDelivr 列举仓库目录，按「归一化相等 / 唯一目录」找回
+	// 目录名与 appname 不一致的图标（smartdns→SmartDNS、小松鼠→xiansongshu）。
+	// 拿不到清单/无匹配/取图失败一律静默降级，维持下面的 404 行为。
+	// 0.6.326：FPK 兜底与目录别名探测**并行**——两者都在等网络，串行会超出
+	// 图标请求 15s 预算（便签记事本实测：别名 8s + 下载 3s + 竞速已耗尽）。
+	type fpkResult struct {
+		data []byte
+		ct   string
+		ok   bool
+	}
+	var fpkCh chan fpkResult
+	fpkCtx, fpkCancel := context.WithCancel(ctx)
+	defer fpkCancel()
+	if a.IconURL != "" && a.DownloadURL != "" && a.SizeBytes > 0 && a.SizeBytes <= fpkIconMaxFPKBytes {
+		fpkCh = make(chan fpkResult, 1)
+		go func() {
+			d, ct, ok := s.fpkIconFallback(fpkCtx, a)
+			fpkCh <- fpkResult{d, ct, ok}
+		}()
+	}
+	if adata, act, aok := s.resolveIconAlias(ctx, a, defMissPaths); aok {
+		fpkCancel() // 别名已命中：停止下载，省流量
+		st.Put(cacheKey, adata, act)
+		return adata, act, nil
+	}
+	fpkPending := false
+	if fpkCh != nil {
+		select {
+		case r := <-fpkCh:
+			if r.ok {
+				small, sct, _ := downsampleIcon(r.data, r.ct)
+				st.Put(cacheKey, small, sct)
+				return small, sct, nil
+			}
+		case <-time.After(3 * time.Second):
+			// 预算内没等到：先按原有语义继续，末尾再等一次（不重复下载）
+			fpkPending = true
+		}
+	}
+	// 0.6.326：上游图标文件本身损坏（如整份 PNG 被 UTF-8 替换符污染、
+	// 仓库 ICON.PNG 与 icon_url 同为坏文件）时的最后兜底——从发布包 FPK
+	// 内取图标（根 ICON*.PNG / app.tgz → ui/images/*）。门槛与上限见
+	// fpk_icon_326.go；失败静默，不改变后面「真实缺失 vs 瞬态」的判定。
+	// 0.6.326（审计 326AD MED-2）：FPK 兜底只发起一次——上面已并行启动，
+	// 这里只对同一 goroutine 的结果做第二轮有界等待。旧实现在 3s 超时后
+	// 再同步调用一次 fpkIconFallback = 同一包下载两遍，且慢的那次可能用
+	// 失败结果把成功缓存覆盖成负缓存。
+	if fpkPending {
+		select {
+		case r := <-fpkCh:
+			if r.ok {
+				small, sct, _ := downsampleIcon(r.data, r.ct)
+				st.Put(cacheKey, small, sct)
+				return small, sct, nil
+			}
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+		}
 	}
 	// 负缓存只认真实缺失的确定性证据（明确 404/403 或占位图拒绝）：
 	// 纯网络超时（镜像风暴/限流/直连挂起）不能记负，否则健康图标会被
@@ -1453,6 +1928,7 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	// 0.6.321 F3：区分「确定缺失」（defMiss=true：候选全有 404/403/410/占位
 	// 图确定性证据）与「瞬态失败」（DNS 超时/限流/挂起）——icon handler 据此
 	// 给错误响应挂短负缓存头（UI 重请放大=B10）；文案不变，只换错误类型。
+	log.Printf("[iconfail] %s@%s decl=%q 候选=%v", a.Source, a.Name, a.IconURL, tried)
 	if len(defMissPaths) > 0 {
 		return nil, "", &iconFetchErr{msg: "图标不存在或拉取失败", defMiss: true}
 	}
@@ -1577,6 +2053,36 @@ func ghPlaceholderIconHash(data []byte) bool {
 	return ghPlaceholderIconHashes[hex.EncodeToString(sum[:])]
 }
 
+// repairPngUTF8Mangle 修复「PNG 签名首字节被 UTF-8 转码」的上游坏图：
+// 原始 0x89 被写成 U+FFFD（EF BF BD），后续 7 字节签名与 IHDR 完好
+// （实测 cmbya/FnDepot 的 assets/icons/ZJJX.png 即此类；浏览器同样渲染不出）。
+//
+// 只放行结构可验证的字节：IHDR 长度=13、类型=IHDR、CRC 自洽。任何一项
+// 不符都返回 nil（保持原样 → 仍由 looksLikeImage 拒收），避免把 HTML/JSON
+// 错误体或其它损坏数据"修"成图片。
+func repairPngUTF8Mangle(b []byte) []byte {
+	const mangled = "\xEF\xBF\xBDPNG\r\n\x1a\n"
+	if len(b) <= len(mangled) || string(b[:len(mangled)]) != mangled {
+		return nil
+	}
+	rest := b[3:] // 去掉 U+FFFD：剩 7 字节签名（PNG\r\n\x1a\n）+ chunks
+	if len(rest) < 32 {
+		return nil
+	}
+	// rest[0:7] 是签名余部；IHDR 长度在 rest[7:11]，类型在 rest[11:15]，
+	// CRC 在 rest[28:32]（IHDR 4 + 数据 13 = 17 字节的校验）。
+	if binary.BigEndian.Uint32(rest[7:11]) != 13 || string(rest[11:15]) != "IHDR" {
+		return nil
+	}
+	if crc32.ChecksumIEEE(rest[11:28]) != binary.BigEndian.Uint32(rest[28:32]) {
+		return nil
+	}
+	out := make([]byte, len(rest)+1)
+	out[0] = 0x89
+	copy(out[1:], rest)
+	return out
+}
+
 // looksLikeImage 魔数校验真实图片字节。镜像对不存在的文件会返回
 // 200+损坏字节（PNG 头 0x89 被转码成 U+FFFD）、源数据也可能把
 // icon_url 错写成 README.md——200 状态码不可信，魔数才是终审。
@@ -1652,12 +2158,19 @@ func fetchIconBytes(ctx context.Context, rawURL string) ([]byte, string, bool, b
 	if err != nil || len(body) == 0 {
 		return nil, "", false, false
 	}
+	// 0.6.326：上游把 PNG 首字节 0x89 经 UTF-8 转码成 EF BF BD（U+FFFD）——
+	// 严格校验 IHDR+CRC 后就地修复；不合格字节原样返回（下面魔数仍会拒）。
+	if fixed := repairPngUTF8Mangle(body); fixed != nil {
+		body = fixed
+	}
 	ctype := resp.Header.Get("Content-Type")
 	if strings.HasPrefix(ctype, "text/html") {
 		return nil, "", false, false
 	}
 	if !looksLikeImage(body) {
-		// 200 但不是图片（README 文本/JSON 错误体/损坏字节）→ 视为无效候选
+		// 200 但不是图片（README 文本/JSON 错误体/损坏字节）→ 视为无效候选。
+		// 0.6.326：**不记 defMiss**——镜像限流/风控偶尔会回 HTML 200，若按
+		// 确定性缺失处理会把它误写 30min 负缓存（图标整块消失）。
 		return nil, "", false, false
 	}
 	if ctype == "" {
@@ -1684,6 +2197,9 @@ func normalizeGitHubURL(rawURL string) string {
 
 // sourceBaseURL 按源名查配置里的源地址。
 func (s *Server) sourceBaseURL(name string) string {
+	if s == nil || s.Cfg == nil {
+		return ""
+	}
 	for _, sr := range s.Cfg.Sources {
 		if sr.Name == name {
 			return strings.TrimRight(sr.URL, "/")

@@ -31,16 +31,32 @@ export const ChangelogPager: React.FC<{ text: string; appKey?: string; maxH?: st
 
   if (!entries.length) return null;
 
-  // 单页=原文直渲（保留原始空行/换行的 markdown 排版，与 0.6.308 起行为一致）
+  // 0.6.326（2026-10-17 用户令）：更新日志**按行显示**——markdown 的软换行默认被折叠成空格
+  //（所以多条日志会挤成一段）。这里把每个条目之间补一个空行（markdown 空行 =
+  // 独立段落，必然分行）。
+  // ⚠️ 段间距必须用 `!important` 压掉：ReadmeRender 自带 `[&_p]:my-2`（prose 段距），
+  // 两个 arbitrary variant 的 specificity 相同、由生成顺序决定胜负 → 实测 my-0 被覆盖，
+  // 每行之间留下 8px 空隙（用户 2026-10-17 明确「中间不要有空行」）。
+  // ⚠️ Tailwind 4.3 的 important 必须写**尾缀**：`[margin:0]!` → `margin:0 !important`；
+  // 写成 `[margin:0!important]` 会被丢弃（实测 CSS 里 0 命中，构建门已拦过一次）。
+  //「版本更新弹窗」与「关于页·最新更新日志」两处共用本组件，同时生效。
+  const body = (t: string) => (
+    <div className="[&_p]:[margin:0]!">
+      <ReadmeRender readme={t} appKey={appKey} maxH={maxH} />
+    </div>
+  );
+  const perLine = (lines: string[]) => lines.join('\n\n');
+
+  // 单页=原文直渲（保留原始空行/换行的 markdown 排版）
   if (pages === 1) {
-    return <ReadmeRender readme={text} appKey={appKey} maxH={maxH} />;
+    return body(perLine(entries));
   }
 
   const cur = Math.min(page, pages - 1);
-  const slice = entries.slice(cur * PER_PAGE, (cur + 1) * PER_PAGE).join('\n');
+  const slice = perLine(entries.slice(cur * PER_PAGE, (cur + 1) * PER_PAGE));
   return (
     <div className="space-y-1.5">
-      <ReadmeRender readme={slice} appKey={appKey} maxH={maxH} />
+      {body(slice)}
       <div className="flex items-center justify-center gap-2 pt-0.5">
         <button
           type="button"

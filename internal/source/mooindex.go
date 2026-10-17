@@ -28,22 +28,53 @@ const (
 	MooSchema = "moo"
 )
 
-// jsonNamesFor 返回一个仓库地址下应按优先级尝试的索引文件名序列：
-// moo.json 优先（Moo 原生，字段更全），随后是 FnDepot 的 fnpack.json（兼容回退）。
+// jsonIndexNames 是仓库形态源应按优先级尝试的索引文件名**全集**，必须与
+// source_key.go 的 searchKeyIndexFiles（链接归一化识别集合）逐一对应。
+//
+// 顺序：moo.json（Moo 原生，字段最全）→ fnpack.json（FnDepot 现行）→
+// fndepot.json / fndepot_v2.json（FnDepot 早期与 V2 协议名）→ apps.json
+// （conversun 形态，内容须为应用集合，故垫底且由 fetchIndex 校验内容）。
+//
+// 0.6.326e：修前这里只有 {moo.json, fnpack.json}，而识别集合有 5 个 →
+// 「只发布 fndepot.json / fndepot_v2.json / apps.json 的仓库」识别得出却拉不到
+// （用户报「有些使用 fndepot 协议的添加不了」，详情页「添加为源」点了必 404）。
+var jsonIndexNames = []string{MooIndexFile, "fnpack.json", "fndepot.json", "fndepot_v2.json", "apps.json"}
+
+// jsonNamesFor 返回一个仓库地址下应按优先级尝试的索引文件名序列（全集）。
 func jsonNamesFor(repo bool) []string {
-	return []string{MooIndexFile, "fnpack.json"}
+	return jsonIndexNames
+}
+
+// indexNameOf 取候选地址的索引文件名（末段，忽略 query/fragment），小写。
+// 用于把 buildCandidates 产出的扁平候选按「常规名 / 扩展名 / apps.json」
+// 分阶段抓取，以及在「添加为源」探测里回报命中文件名。
+func indexNameOf(u string) string {
+	p := u
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	p = strings.TrimRight(p, "/")
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		p = p[i+1:]
+	}
+	return strings.ToLower(p)
 }
 
 // buildCandidates 把用户填写的源地址展开成候选 JSON 地址（按优先级）。
 //
 // 规则（与 docs/SOURCE-PROTOCOL.md §1 一致）：
-//   - `.json` 直链        → 该地址本身；
+//   - `.json` 直链        → 该地址本身（+ GitHub 系镜像/raw/jsDelivr 变体）；
 //   - GitHub 仓库地址     → raw(main/master) → 各 GitHub 镜像 → jsDelivr，
-//     每个前缀下 **moo.json 先于 fnpack.json**；
-//   - 其它仓库/目录地址   → `<url>/moo.json` → `<url>/fnpack.json` → `<url>/raw/main/<name>`。
+//     每个前缀下按 jsonIndexNames 顺序（moo.json 先于 fnpack.json 等）；
+//   - 其它仓库/目录地址   → `<url>/<name>` → `<url>/raw/main/<name>`。
 //
 // 之所以把 moo.json 排在前：同一仓库可能同时挂着两种索引，Moo 应读自己那份；
-// 只有 moo.json 不存在时（404）才回退 FnDepot 格式。
+// 只有 moo.json 不存在时（404）才回退其它格式。
+//
+// 0.6.326e：GitHub 仓库形态先把 owner/repo 之后的**子路径段剥掉**——用户常从
+// 浏览器地址栏直接复制 `github.com/owner/repo/tree/main`，旧实现把
+// "repo/tree/main" 整个当仓库名，候选全落在 `.../FnDepot/tree/main/main/moo.json`
+// 上，一律 404（「有些添加不了」的第二个成因）。
 func buildCandidates(u string) []string {
 	var out []string
 	switch {
@@ -60,26 +91,33 @@ func buildCandidates(u string) []string {
 		trimmed = strings.TrimPrefix(trimmed, "http://")
 		parts := strings.SplitN(trimmed, "/", 3)
 		if len(parts) == 3 {
+			// 0.6.326e：/tree/<分支>[/子目录]、/blob/... 等子路径段一律剥掉，
+			// 只保留 owner/repo（GitHub 仓库根的规范形态）。
 			owner, repo := parts[1], strings.TrimSuffix(parts[2], ".git")
-			raw := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/", owner, repo)
-			for _, branch := range []string{"main", "master"} {
-				for _, name := range jsonNamesFor(true) {
-					out = append(out, raw+branch+"/"+name)
-				}
+			if i := strings.Index(repo, "/"); i >= 0 {
+				repo = strings.TrimSuffix(repo[:i], ".git")
 			}
-			for _, opt := range config.GitHubMirrorOptions() {
-				if opt.URL == "" { // auto = 非直连项
-					continue
-				}
-				m := strings.TrimRight(opt.URL, "/") + "/" + raw
+			if owner != "" && repo != "" {
+				raw := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/", owner, repo)
 				for _, branch := range []string{"main", "master"} {
 					for _, name := range jsonNamesFor(true) {
-						out = append(out, m+branch+"/"+name)
+						out = append(out, raw+branch+"/"+name)
 					}
 				}
-			}
-			for _, name := range jsonNamesFor(true) {
-				out = append(out, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s/%s", owner, repo, name))
+				for _, opt := range config.GitHubMirrorOptions() {
+					if opt.URL == "" { // auto = 非直连项
+						continue
+					}
+					m := strings.TrimRight(opt.URL, "/") + "/" + raw
+					for _, branch := range []string{"main", "master"} {
+						for _, name := range jsonNamesFor(true) {
+							out = append(out, m+branch+"/"+name)
+						}
+					}
+				}
+				for _, name := range jsonNamesFor(true) {
+					out = append(out, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s/%s", owner, repo, name))
+				}
 			}
 		}
 		for _, name := range jsonNamesFor(true) {

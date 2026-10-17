@@ -64,6 +64,12 @@ type AppInfo struct {
 	Category             string `json:"category,omitempty"`
 	PostInstallNote      string `json:"post_install_note,omitempty"`
 	Source               string `json:"source,omitempty"`
+	// OriginSource（0.6.326y / G1）：官方目录也有同名应用时，mergeOfficialCards
+	// 会把社区卡的 Source 统一改写成 OfficialSourceID（fnos-official）。改写前把
+	// 原来源记在这里，溯源（lineage.go 的 originSourceOf）据此仍能按本源仓库反查
+	// ——否则这类卡整卡跳过溯源（实测 15 张本应溯源的搬运卡缺「溯源」行）。
+	// 纯内部字段，不下发 JSON（json:"-"）。
+	OriginSource         string `json:"-"`
 	Maintainer           string `json:"maintainer,omitempty"`
 	MaintainerURL        string `json:"maintainer_url,omitempty"`
 	Distributor          string `json:"distributor,omitempty"`
@@ -92,6 +98,36 @@ type AppInfo struct {
 	// 与 PreviewCount 配套，仅详情用（列表瘦身时若剔除不影响计数展示）。
 	PreviewURLs []string `json:"preview_urls,omitempty"`
 	HasReadme   bool     `json:"has_readme,omitempty"`
+	// ── 溯源与禁用（0.6.326）──
+	// UserHidden：该卡被用户「禁用」（config.HiddenApps）——前端从列表/
+	// 搜索/推荐过滤，但「已安装」tab 保留（保证可恢复）；详情按 key 可达。
+	UserHidden bool `json:"user_hidden,omitempty"`
+	// UpstreamSource/UpstreamRepo/UpstreamVersion/UpstreamURL：应用溯源
+	//（0.6.326）。该卡的发布仓库 owner 与本源仓库 owner 不同 ⇒ 判定为
+	// 搬运上游：UpstreamRepo=上游 owner/repo（恒有）、UpstreamSource=Moo
+	// 已添加的该上游源名（未添加则为空）、UpstreamVersion=上游源同名卡
+	// 最新版本、UpstreamURL=上游仓库地址。非搬运卡全空。
+	UpstreamSource  string `json:"upstream_source,omitempty"`
+	UpstreamRepo    string `json:"upstream_repo,omitempty"`
+	UpstreamVersion string `json:"upstream_version,omitempty"`
+	UpstreamURL     string `json:"upstream_url,omitempty"`
+	// UpstreamAddURL/UpstreamAddNote（0.6.326e）：上游源未收录时「添加为源」
+	// 的可用性预判（探测器用与 Fetch 同源的候选展开探测，7 天缓存，不阻塞）：
+	//   AddURL 非空 ⇒ 显示按钮，点它添加该地址（本仓可加=上游仓地址；
+	//                 本仓只是打包仓而 owner 有索引仓=owner 的索引仓地址）；
+	//   AddNote 非空 ⇒ 不显示按钮，显示该一行原因；
+	//   两者皆空 ⇒ 尚未探测（前端维持现状，照旧显示按钮指向 UpstreamRepo）。
+	UpstreamAddURL  string `json:"upstream_add_url,omitempty"`
+	UpstreamAddNote string `json:"upstream_add_note,omitempty"`
+	// ── 本源仓库属性（0.6.326f）──
+	// SourceIsFork：该卡所属源（Source）对应的**本源仓库**是 GitHub fork
+	// 且 parent 非空。前端据此在溯源第二行出「禁用fork源」按钮（非 fork /
+	// fork 关系未知则不渲染）。与上游判定独立：不看包地址血缘。
+	SourceIsFork bool `json:"source_is_fork,omitempty"`
+	// SourceDisabled：该卡所属源当前 enabled=false（用户已禁用该 fork 源）。
+	// 前端据此把按钮切成「恢复fork源」。禁用源的卡不在列表下发（聚合跳过
+	// 禁用源），此字段主要用于详情端点/边界态显示。
+	SourceDisabled bool `json:"source_disabled,omitempty"`
 	// ── 去重展示层（0.6.312 B2，仅展示；数据层全量卡不变）──
 	// Hidden：当前 dedup_policy 下非代表卡——列表（/api/apps 无源过滤时）
 	// 与推荐不展示；按 key 的详情/显式引用不受影响（逃生门）。
@@ -139,6 +175,19 @@ type SourceEntry struct {
 	EmptyStreak int    `json:"empty_streak"`
 	// Favorite 是否关注（星标，0.6.143）；关注源新增应用时推通知。
 	Favorite bool `json:"favorite,omitempty"`
+	// ── 源重合率（0.6.326z，只读信号）──
+	// FnDepot 式内容重合率：该源与「最相似的对方源」的应用名/版本重合情况。
+	// 与 fork 标志无关，用于把「同 owner 且 fork=false 的整仓复制源」变成
+	// 源级可见信号。**绝非停源依据**：不加按钮、不改启用/禁用语义、不进
+	// 应用详情页「溯源」行。官方源恒不带这些字段。口径见 overlap_326z.go。
+	OverlapRisk        string  `json:"overlap_risk,omitempty"`         // none|low|medium|high
+	OverlapWith        string  `json:"overlap_with,omitempty"`         // 最相似的对方源名
+	OverlapNameCount   int     `json:"overlap_name_count,omitempty"`   // appname 重合数
+	OverlapExactCount  int     `json:"overlap_exact_count,omitempty"`  // appname|version 重合数
+	OverlapNameRatio   float64 `json:"overlap_name_ratio,omitempty"`   // 名称重合率（分母 max）
+	OverlapExactRatio  float64 `json:"overlap_exact_ratio,omitempty"`  // 精确重合率（分母 max）
+	OverlapUniqueNames int     `json:"overlap_unique_names,omitempty"` // 本方独有 appname 数
+	OverlapSelfCount   int     `json:"overlap_self_count,omitempty"`   // 本方应用数（分母依据）
 }
 
 // BackgroundTask 是后台任务视图（GET /api/tasks 的元素）。
@@ -199,6 +248,10 @@ type Settings struct {
 	VolumeOptions       []VolumeOption        `json:"volume_options,omitempty"`
 	DownloadDir         string                `json:"download_dir,omitempty"`
 	AutoUpdate          bool                  `json:"auto_update"`
+	// AutoCorrect（0.6.326 引入；0.6.326x 起**已弃用**）：语义并入
+	// UpdatePolicy="upstream"（强制上游）。仍透出（不带 omitempty）仅为兼容
+	// 旧前端；保存设置后恒为 false。
+	AutoCorrect bool `json:"auto_correct"`
 	// CatalogLanguage 目录语言（0.6.269）：auto（默认，跟随请求
 	// Accept-Language）/ zh-CN / en-US。影响官方目录的名称/简介语言。
 	CatalogLanguage string `json:"catalog_language"`

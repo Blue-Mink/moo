@@ -62,10 +62,10 @@ interface ChannelFormState {
 const TABLE_FORMAT_TYPES = new Set<string>(['wecom']);
 const FORMAT_OPTIONS: Record<string, [string, string, string]> = {
   wecom: ['默认 markdown（纯文本）', 'markdown_v2（列表以表格呈现）', '卡片（点按查看详情）'],
-  dingtalk: ['默认 markdown（列表）', 'markdown（列表，不支持表格）', '卡片 actionCard（点按查看详情）'],
-  feishu: ['默认富文本', '富文本（列表，不支持表格）', '卡片（按钮跳转详情）'],
-  serverchan: ['默认 markdown', 'markdown（微信侧渲染）', 'markdown + 详情链接'],
-  pushplus: ['默认富文本', '富文本（列表）', 'HTML + 详情链接'],
+  dingtalk: ['默认 markdown（列表）', 'markdown（列表，不支持表格）', '卡片 actionCard（卡片版式）'],
+  feishu: ['默认富文本', '富文本（列表，不支持表格）', '卡片（交互卡片版式）'],
+  serverchan: ['默认 markdown', 'markdown（微信侧渲染）', '卡片（与默认同款）'],
+  pushplus: ['默认富文本', '富文本（列表）', '卡片（与默认同款）'],
   bark: ['默认 markdown', 'markdown（列表）', '点击通知跳转详情'],
 }
 
@@ -165,9 +165,10 @@ const ChannelFormDialog: React.FC<{
             </Select>
           </div>
           {/* 0.6.177 通知形式：全渠道生效（webhook 自定义模板除外），三形式对齐企微
-              ——各平台按官方能力最佳近似：钉钉 actionCard 整卡跳转 / 飞书
-              interactive 卡片+按钮 / Server酱询链接行 / PushPlus html链接 / Bark url 点击跳转；
-              0.6.179：「表格」中间项仅企微显示（其余渠道官方无表格语法，与默认同渲染，隐藏防误导） */}
+              ——各平台按官方能力最佳近似：钉钉 actionCard 卡片版式 / 飞书
+              interactive 卡片 / Bark url 点击跳转；
+              0.6.179：「表格」中间项仅企微显示（其余渠道官方无表格语法，与默认同渲染，隐藏防误导）；
+              0.6.326：按用户令去掉各渠道「打开通知详情」入口（企微整卡点击跳转保留）。 */}
           {type !== 'webhook' && (
             <div>
               <label className="text-xs text-muted-foreground">通知形式</label>
@@ -186,13 +187,13 @@ const ChannelFormDialog: React.FC<{
                   {type === 'wecom'
                     ? '卡片点击跳转通知详情页；需在本页「应用访问入口」配置（默认端口 38100），未配置时自动按默认 markdown 发送。'
                     : type === 'dingtalk'
-                    ? '卡片 = 钉钉 actionCard，整卡点击跳转通知详情页；需配置「应用访问入口」，未配置时降纤 markdown 发送。'
+                    ? '卡片 = 钉钉 actionCard 卡片版式（不再带跳转入口）。'
                     : type === 'feishu'
-                    ? '卡片 = 飞书交互卡片 + 「打开通知详情」按钮；需配置「应用访问入口」，未配置时降级富文本发送。'
+                    ? '卡片 = 飞书交互卡片（不再带跳转入口）。'
                     : type === 'serverchan'
-                    ? '尾部追加「打开通知详情」链接；需配置「应用访问入口」，未配置时不加链接。'
+                    ? '卡片与默认 markdown 同款（不再追加链接）。'
                     : type === 'pushplus'
-                    ? '用 html 模板追加详情链接（自定义了消息模板时不覆盖）；需配置「应用访问入口」。'
+                    ? '与默认形式同款（不再追加详情链接）。'
                     : 'iOS 通知点击直接打开详情页；需配置「应用访问入口」。'}
                 </p>
               )}
@@ -573,7 +574,7 @@ const NotifySettingsTab: React.FC = () => {
                   </Button>
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">
-                  卡片消息点按后，在该地址下打开通知详情页看完整内容；未配置时，卡片形式的渠道自动按默认 markdown 发送。
+                  企业微信卡片点按后，在该地址下打开通知详情页看完整内容；未配置时，企微卡片形式自动按默认 markdown 发送。
                 </p>
               </div>
             )}

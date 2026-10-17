@@ -62,9 +62,13 @@ func (s *Server) cachedCatalog(l string) []AppInfo {
 		// 并发双重建在此角落可接受（buildCatalog 幂等，结果一致）。
 		s.catalogMu.Unlock()
 		data := s.buildCatalog(l)
+		ov := computeSourceOverlap(data) // 0.6.326z：源重合率与目录同步重算（锁外）
 		s.catalogMu.Lock()
 		s.catalogData = data
 		s.catalogAt = time.Now()
+		s.catalogOverlap = ov
+		// 0.6.326z5 R1：本路径必然是 nil→首次构建（上一分支已排除非 nil），
+		// 属同一代（那次失效已推进过代际），故不重复推进 body 代际。
 		return data
 	}
 	// 本调用方是唯一构建者：标记进行中，锁外重建。
@@ -90,11 +94,29 @@ func (s *Server) cachedCatalog(l string) []AppInfo {
 func (s *Server) finishCatalogRebuild(l string, done chan struct{}) {
 	defer close(done)
 	data := s.buildCatalog(l)
+	ov := computeSourceOverlap(data) // 0.6.326z：源重合率与目录同生命周期（锁外算，毫秒级）
 	s.catalogMu.Lock()
+	// 0.6.326z5 R1：本次是否**覆盖已有目录切片**（真正意义上的「换入新
+	// 一代内容」）。nil→首次构建（刚失效后的同步重建）不算新一代：那次
+	// 失效本身已经清过 body 缓存并推进过代际，而「自己触发的重建」若也
+	// 推进代际，会把本请求刚 marshal 出来的当前代体判成旧代 → 白丢一次
+	// 缓存（0.6.313 B4 的「失效后下次请求重建 body」契约随之破坏）。
+	replaced := s.catalogData != nil
 	s.catalogData = data
 	s.catalogAt = time.Now()
 	s.catalogBuilding = false
+	// 0.6.326z：与目录数据同一次原子交换，读方（listSources）只会看到同一代信号。
+	if ov == nil {
+		ov = map[string]SourceOverlap{}
+	}
+	s.catalogOverlap = ov
 	s.catalogMu.Unlock()
+	if replaced {
+		// 0.6.326z5 R1：目录前进（换入含新卡的切片）→ body 缓存同代作废。
+		// 旧实现此处不清体缓存：SWR 后台重建换入新目录后既不作废 body，也
+		// 没有后续失效事件 ⇒ 基于旧代目录 marshal 的响应体长期驻留。
+		s.advanceCatalogBodyGen()
+	}
 }
 
 // catalogTTLValueLocked 返回生效的目录 TTL（调用方须持有 s.catalogMu）。
@@ -136,13 +158,26 @@ func (s *Server) invalidateCatalog() {
 	s.catalogMu.Lock()
 	s.catalogData = nil
 	s.catalogAt = time.Time{}
+	s.catalogOverlap = nil // 0.6.326z：重合率与目录同生共死（重建时重算）
 	// F11：若重建正进行，置回未构建态；在途的 finishCatalogRebuild 随后
 	// 会写入新数据（比失效点更新，直接覆盖无害）。
 	s.catalogBuilding = false
 	s.catalogRebuildDone = nil
 	s.catalogMu.Unlock()
 	// 0.6.313 B4：body 缓存与目录缓存同一钩子一并失效。
+	// 0.6.326z5 R1：同时推进代际号（在途的 marshal 落盘前会复核它）。
+	s.advanceCatalogBodyGen()
+}
+
+// advanceCatalogBodyGen 目录代际前进：作废 /api/apps body 缓存并 ++ 代际号。
+// 不变量（0.6.326z5 R1）：**body 缓存必须与目录同代**——任何换入新目录
+// 切片的路径都必须调用本函数，否则基于旧代目录 marshal 出来的响应体会被
+// 长期驻留（无后续失效事件，直到下一次 invalidateCatalog，实测可 >150s）。
+// 调用方不得持 catalogBodyMu；不得持 catalogMu 后再调（本函数只取
+// catalogBodyMu，锁序与 invalidateCatalog 一致：catalogMu → catalogBodyMu）。
+func (s *Server) advanceCatalogBodyGen() {
 	s.catalogBodyMu.Lock()
+	s.catalogBodyGen++
 	s.catalogBody = nil
 	s.catalogBodyETag = ""
 	s.catalogBodyMu.Unlock()
@@ -383,11 +418,25 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	}
 	markInstalledCanonical(out, upgVer)
 
-	// 跨源更新策略（0.6.272）：origin/lineage 下允许同宗同名卡提供更新
-	// 目标。必须在 markInstalledCanonical 之后（规范卡/降级卡已定）、
-	// applyPlatformUpgrades 之前（平台信号随后 OR）、applyPlatformUpdateAuthority
-	// 之前（平台跟踪应用由它收敛，双重保险）。
-	applyLineageUpdates(out, orStrict(s.Cfg.UpdatePolicy), byName)
+	// 应用溯源（0.6.326）：派生 UpstreamSource/Repo/Version/URL（搬运上游判定）。
+	// 必须在 applyDedupPolicy 之前、且必须在这里——appsResponse 列表瘦身会
+	// 剥掉 ReleaseURL，之后再算就没有比较依据了。
+	s.applyUpstreamLineage(out)
+
+	// 本源仓库属性（0.6.326f）：SourceIsFork / SourceDisabled —— 与上游判定
+	// 独立（ReleaseURL 为空的卡也要算），供详情页「禁用fork源」按钮。
+	s.applySourceLineage(out)
+
+	// 更新目标（0.6.326x 单轴化）：update_policy 四档互斥
+	// strict / origin / lineage / upstream（强制上游）。必须在
+	// markInstalledCanonical 之后（规范卡/降级卡已定）、applyPlatformUpgrades
+	// 之前（平台信号随后 OR）、applyPlatformUpdateAuthority 之前（平台跟踪
+	// 应用由它收敛，双重保险）、applyIgnoredUpdates 之前（用户忽略更新仍能压住）。
+	// upstream 档 =「严格 base + 上游纠正」——原先独立的 auto_correct 开关已并入
+	// 同一轴，不会再出现「严格 + 自动纠正」这种一个开关静默旁路另一个的组合。
+	// resolveUpdateTargetSelection 返回本轮真正被纠正到上游的应用（upstream
+	// 档之外恒空）——仅供锁外异步通知用，判定逻辑零变化。
+	corrected := resolveUpdateTargetSelection(out, s.Cfg.UpdatePolicy, s.Cfg.AutoCorrect, byName)
 
 	// 平台权威更新信号（daemon upgradeInfo，与应用中心 UI 同源），
 	// 补齐目录版本滞后漏掉的「有更新」。
@@ -424,6 +473,17 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	// 去重展示层（0.6.312 B2）：在确定性排序之后（代表卡阶梯的「slice
 	// 顺序」步要稳定）；只标 Hidden + 填同名组信息，不改版本/更新判定。
 	applyDedupPolicy(out, s.Cfg.DedupPolicy)
+
+	// 应用级禁用（0.6.326）：必须最末——applyDedupPolicy 会写 Hidden，
+	// 在其后置位才不被覆盖。
+	applyHiddenApps(out, s.Cfg.HiddenApps)
+
+	// 溯源纠正通知（0.6.326 通知批次）：目录构建是热路径（可被并发触发、
+	// 且调用方可能持锁）——通知一律锁外异步跑，不阻塞构建；事件自带去重表
+	//（同一应用×目标版本只推一次），并发重复构建最多多做一次判定。
+	if len(corrected) > 0 {
+		go s.notifyUpstreamCorrected(corrected)
+	}
 	return out
 }
 
@@ -462,6 +522,13 @@ func mergeOfficialCards(out []AppInfo, official []AppInfo, seen map[string]bool)
 			if e.LatestVersion == "" {
 				e.LatestVersion = oa.LatestVersion
 			}
+		}
+		// 0.6.326y（G1）：改写 Source 之前先把原来源记到 OriginSource ——
+		// 溯源按本源仓库反查（lineage.go originSourceOf）时需要它，否则
+		// 「官方目录也有同名应用」的搬运卡会整卡跳过溯源（实测 15 张本应
+		// 溯源的卡缺「溯源」行）。只记一次（幂等）；Source 已是官方值时跳过。
+		if e.OriginSource == "" && e.Source != "" && e.Source != OfficialSourceID {
+			e.OriginSource = e.Source
 		}
 		// 应用存在于官方目录 → 源徽章统一「飞牛应用中心源」：
 		// 官方版本已并入本卡作为更新目标，卡片代表官方应用，
@@ -513,7 +580,9 @@ var changelogVerRe = regexp.MustCompile(`^(\d+(?:\.\d+)+(?:[A-Za-z0-9.\-]*)?)\s*
 // 约定格式：「1.20.16: 说明；1.20.15: 说明；…」——版本段以「数字.数字[:：]」开头，
 // 不带版本前缀的片段并入前一条（如「当前仅发布 x86 版」）。
 // releases[最新版本].changelog 更干净，存在时覆盖对应条目。
-// 完全解析不出版本模式时退回单条（版本=最新版本）。
+// 整串都没有版本前缀时：releases 有有效文本 ⇒ 只回 releases 的版本条目
+// （丢弃裸文本条目——0.6.326 B 方案，杜绝「无版本重复条目」）；releases 无
+// ⇒ 退回单条（版本=最新版本）。
 func parseChangelogEntries(raw, latest string, rel map[string]string) []ChangelogEntry {
 	raw = strings.TrimSpace(raw)
 	if raw == "" && len(rel) == 0 {
@@ -541,12 +610,26 @@ func parseChangelogEntries(raw, latest string, rel map[string]string) []Changelo
 	}
 	if !anyVersioned {
 		if len(rel) > 0 {
+			// 0.6.326（B 方案·治本）：顶层串一个版本前缀都没有 ⇒ 它只是 releases
+			// 那几段说明的「另一种写法」，releases 才是权威 → 必须**丢弃**前面由
+			// 裸文本生成的 Version:"" 条目。否则该空版本条目会混进列表（UI 对
+			// 无版本条目不渲染版本徽章，只留 1px 占位）→ 视觉上「挂」在别的版本
+			// 条目下面（0.6.325 用户实抓：0.6.322 下面冒出 325 的日志）。
+			prev := entries
+			entries = entries[:0] // 丢弃裸文本条目；下面 append 复用同一底层数组
 			for ver, t := range rel {
-				entries = append(entries, ChangelogEntry{Version: ver, Text: strings.TrimSpace(t)})
+				if t = strings.TrimSpace(t); t != "" {
+					entries = append(entries, ChangelogEntry{Version: ver, Text: t})
+				}
 			}
-			sort.SliceStable(entries, func(i, j int) bool {
-				return compareVersions(entries[i].Version, entries[j].Version) > 0
-			})
+			if len(entries) == 0 {
+				// releases 全为空文本：退回裸文本条目（不丢信息；prev 未被覆写）
+				entries = prev
+			} else {
+				sort.SliceStable(entries, func(i, j int) bool {
+					return compareVersions(entries[i].Version, entries[j].Version) > 0
+				})
+			}
 		} else {
 			entries = []ChangelogEntry{{Version: latest, Text: raw}}
 		}
@@ -954,12 +1037,21 @@ func compareVersions(a, b string) int {
 
 func splitVer(v string) []string {
 	v = strings.ToLower(strings.TrimSpace(v))
+	// 0.6.326k（F7=K3）：剥前导 `v`。否则 compareVersions("2.5.0","v1.9.0") 的第 0
+	// 段是 "2" vs "v1"（一个数字一个不是）→ 落入字符串分支 → '2'(0x32) < 'v'(0x76)
+	// =「2.5.0 更低」，v 前缀版本被系统性低估（更新判定、自动纠正、去重排序全会
+	// 受影响）。FPK manifest / 索引里的版本常带 v 前缀，必须两口径同值。
+	v = strings.TrimPrefix(v, "v")
 	for _, sep := range []string{"-rc", "_rc", "-beta", "-alpha", "-"} {
 		if i := strings.Index(v, sep); i > 0 {
 			v = v[:i]
 		}
 	}
-	return strings.Split(v, ".")
+	// 0.6.326y（G4）：剥完预发布标记之后，把 `_` 也当分段符。Java 系版本
+	//（1.8.0_492）此前整串判「不可解析」（comparableVersion=false）→ 上游版本
+	// 不显示 + 自动纠正静默跳过；同处比较器还会把 1.8.0_99 vs 1.8.0_100 退化成
+	// 字符串比较（"0_99" > "0_100"）而判反。`_rc` 已在上面按预发布剥掉，行为不变。
+	return strings.Split(strings.ReplaceAll(v, "_", "."), ".")
 }
 
 // markInstalledCanonical 已装规范条目（就地修改）：每个已装应用（appname）
@@ -1069,10 +1161,51 @@ var releaseOriginPatterns = []*regexp.Regexp{
 func releaseOrigin(url string) string {
 	for _, re := range releaseOriginPatterns {
 		if m := re.FindStringSubmatch(url); m != nil {
-			return strings.ToLower(m[1]) + "/" + strings.ToLower(m[2])
+			owner, repo := m[1], m[2]
+			// 0.6.326k（F1=B1）：jsDelivr `gh/owner/repo@ref/path` 形态的 `@ref`
+			// 不属于仓库名——不剥掉会得到 "owner/repo@main"：详情页链到 404、
+			// 永远匹配不上源列表（upstream_source 恒空、自动纠正失效），且同一
+			// 仓库的 GitHub 形态卡与 jsDelivr 形态卡被当成不同宗（跨源更新与
+			// 去重同时失效）。GitHub 直链形态不含 `@`，无副作用。
+			repo, _, _ = strings.Cut(repo, "@")
+			if repo == "" {
+				continue
+			}
+			return strings.ToLower(owner) + "/" + strings.ToLower(repo)
 		}
 	}
 	return ""
+}
+
+// resolveUpdateTargetSelection 已装应用更新目标的单一裁决入口（0.6.326x 单轴化）。
+//
+// update_policy 四档（互斥，取代原「三档策略 + 独立 auto_correct 开关」）：
+//   - ""/strict = 只认安装源自身最新（0.6.174 默认，零变化）；
+//   - origin   = 同一发布仓库（download_url 归一 owner/repo）的新版也算；
+//   - lineage  = origin 之外 maintainer / distributor 相等也算同宗；
+//   - upstream = 强制上游：已装的搬运上游应用改用上游原作者版本，其余按 strict。
+//
+// 调用顺序契约（buildCatalog）：本函数产出更新目标后，applyPlatformUpgrades
+// （平台信号 OR）→ applyPlatformUpdateAuthority（平台跟踪应用收敛）→
+// applyIgnoredUpdates（用户忽略更新压住）。
+//
+// 兼容：0.6.326 的独立开关 auto_correct 若为 true（旧配置文件 / 旧客户端），
+// 等价于 upstream 档（策略值本身优先，仅当不是 upstream 时提升）。
+// 返回本轮**真正被纠正到上游**的应用明细（upstream 档才可能非空；其它档返回
+// nil）——调用方（buildCatalog）锁外异步推 upstream_corrected 通知用，不参与
+// 任何判定。
+func resolveUpdateTargetSelection(out []AppInfo, policy string, autoCorrect bool, byName map[string]platform.InstalledApp) []upstreamCorrection {
+	pol := orStrict(policy)
+	if autoCorrect && pol != "upstream" {
+		pol = "upstream"
+	}
+	if pol == "upstream" {
+		// 严格 base：applyLineageUpdates 对 strict 是空操作，故不调用；
+		// 只跑上游纠正（仅对「有 upstream 血缘」的搬运应用生效）。
+		return applyUpstreamCorrection(out, byName, true)
+	}
+	applyLineageUpdates(out, pol, byName)
+	return nil
 }
 
 // applyLineageUpdates 跨源更新策略（0.6.272，设置页「严格/同源/同宗」）：

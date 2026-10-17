@@ -49,45 +49,138 @@ func (f *FnDepot) candidateURLs() []string {
 	return buildCandidates(f.url)
 }
 
-// fetchJSON 分两级拉取（整体 12s 上限）：
-//  1. 一级=源站候选（raw.githubusercontent / 仓库直链）——内容永远最新，并发竞速；
-//  2. 二级=CDN 候选（jsDelivr）——2026-09-23 实测 jsDelivr 缓存滞后于源站
-//     （源站 11 应用、CDN 还是 10），若参与竞速会因 CDN 更快而稳定胜出，
-//     导致目录长期停留在旧版。故 CDN 仅在一级全部失败（GitHub 不可达）时兜底。
-//
-// 返回值 base = 胜出 JSON 所在目录（去掉尾部 fnpack.json）：源里的
-// 相对 download_url/图标/预览按该目录补全——与 fnpack.json 同树的文件
-// 一定可达，且自动适配 master/main 分支（硬编码 main 会在 master
-// 仓库上 404）。
+// fetchJSON 拉取源索引：见 fetchIndex（分阶段），本处只把胜出的索引地址
+// 折算成相对资源 base（indexBaseDir）。
 func (f *FnDepot) fetchJSON() ([]byte, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-
-	var primary, fallback []string
-	for _, u := range f.candidateURLs() {
-		if strings.Contains(u, "cdn.jsdelivr.net") {
-			fallback = append(fallback, u)
-		} else {
-			primary = append(primary, u)
-		}
-	}
-	if data, winner, err := raceFetch(primary, ctx); err == nil {
-		return data, indexBaseDir(winner), nil
-	} else if len(fallback) == 0 {
-		// 0.6.271：无回退候选时透传真实错误（旧实现落入空 fallback 竞速，
-		// 报「无候选地址」把 404/连接失败/登录墙全吞掉）
-		return nil, "", err
-	}
-	// 0.6.283：兜底竞速给独立 12s 预算——旧实现与主候选共享同一 ctx，
-	// 主候选把时间烧完后兜底只剩 0 时间，jsDelivr 明明活着也被拖死
-	// （2026-10-05 moo.json 直链源超时事件连带暴露）。
-	fctx, fcancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer fcancel()
-	data, winner, err := raceFetch(fallback, fctx)
+	data, winner, err := f.fetchIndex()
 	if err != nil {
 		return nil, "", err
 	}
 	return data, indexBaseDir(winner), nil
+}
+
+// fetchIndex 拉取索引，返回 (内容, 胜出 URL)。
+//
+// 候选名全集 = jsonIndexNames（moo.json / fnpack.json / fndepot.json /
+// fndepot_v2.json / apps.json，与 source_key.go 的识别集合一致）。
+// 分阶段抓取（0.6.326e）——现有源几乎全部命中在 moo.json/fnpack.json，
+// 不该让每次刷新都为扩展名多打一轮 404：
+//
+//	阶段 1：常规名（moo.json / fnpack.json / 用户直接贴的 .json 直链），12s 预算；
+//	阶段 2：扩展名（fndepot.json / fndepot_v2.json）；
+//	阶段 3：CDN（jsDelivr）兜底，常规名 + 扩展名；
+//	阶段 4：apps.json 兜底——**必须内容校验**（ParseFnpack 能解析出非空
+//	        应用集合），否则工程项目自带的无关 apps.json 会被误当源。
+//
+// 阶段 2–4 共用一份 12s 预算（阶段 1 另有一份），把「无索引仓库」的最坏等待
+// 钉在 ~24s，与旧实现（主候选 12s + CDN 12s）同量级。
+func (f *FnDepot) fetchIndex() ([]byte, string, error) {
+	var plain, plainExt, plainApps []string
+	var cdn, cdnExt, cdnApps []string
+	for _, u := range f.candidateURLs() {
+		isCDN := strings.Contains(u, "cdn.jsdelivr.net")
+		switch indexNameOf(u) {
+		case "apps.json":
+			if isCDN {
+				cdnApps = append(cdnApps, u)
+			} else {
+				plainApps = append(plainApps, u)
+			}
+		case "fndepot.json", "fndepot_v2.json":
+			if isCDN {
+				cdnExt = append(cdnExt, u)
+			} else {
+				plainExt = append(plainExt, u)
+			}
+		default: // moo.json / fnpack.json / 直接贴的 .json 直链
+			if isCDN {
+				cdn = append(cdn, u)
+			} else {
+				plain = append(plain, u)
+			}
+		}
+	}
+
+	// 阶段 1：常规名。热路径，绝大多数源在此命中。
+	// 0.6.326：按索引名优先级竞速（moo.json / 用户直链先发，700ms 窗口后
+	// 才放开 fnpack.json 等）——见 raceFetchOrdered 注释：旧实现是同时打、
+	// 谁先回谁赢，同仓库并存两个索引时「moo.json 优先」并不成立。
+	pctx, pcancel := context.WithTimeout(context.Background(), 12*time.Second)
+	data, winner, err := raceFetchOrdered(plain, 700*time.Millisecond, pctx)
+	pcancel()
+	if err == nil {
+		return data, winner, nil
+	}
+	lastErr := err
+
+	// 阶段 2–4：共用 12s 预算。
+	rctx, rcancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer rcancel()
+
+	if len(plainExt) > 0 {
+		if d, w, e := raceFetchOrdered(plainExt, 500*time.Millisecond, rctx); e == nil {
+			return d, w, nil
+		} else {
+			lastErr = e
+		}
+	}
+	if all := append(append([]string{}, cdn...), cdnExt...); len(all) > 0 {
+		if d, w, e := raceFetchOrdered(all, 500*time.Millisecond, rctx); e == nil {
+			return d, w, nil
+		} else {
+			lastErr = e
+		}
+	}
+	for _, set := range [][]string{plainApps, cdnApps} {
+		if len(set) == 0 {
+			continue
+		}
+		d, w, e := raceFetch(set, rctx)
+		if e != nil {
+			lastErr = e
+			continue
+		}
+		if looksLikeApps(d) {
+			return d, w, nil
+		}
+		lastErr = fmt.Errorf("%s: 内容不是应用集合", w)
+	}
+	return nil, "", lastErr
+}
+
+// looksLikeApps 校验一份候选 JSON 是否确为「应用集合」（apps.json 兜底专用）。
+// 结构须可解析（V2 包裹或 V1 平铺）且至少一条条目带 display_name / version /
+// download_url 之一——避免把工程项目自带的无关 apps.json（构建产物清单等）
+// 误当成源。
+func looksLikeApps(data []byte) bool {
+	entries, err := ParseFnpack(data)
+	if err != nil || len(entries) == 0 {
+		return false
+	}
+	for _, m := range entries {
+		if strings.TrimSpace(str(m, "display_name")) != "" ||
+			strings.TrimSpace(anyScalarStr(m, "version")) != "" ||
+			strings.TrimSpace(str(m, "download_url")) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// ProbeIndex 探测一个仓库/目录地址是否发布可解析的索引，返回命中的索引
+// 文件名（"" = 无索引 / 网络失败）。与 Fetch 走同一套候选展开与内容校验，
+// 故「探测到文件名」⇒「添加为源必成功」。
+//
+// 仅供展示层预判「添加为源」按钮可用性（0.6.326e），不写任何缓存。
+func ProbeIndex(repoURL string) string {
+	if strings.TrimSpace(repoURL) == "" {
+		return ""
+	}
+	_, winner, err := NewFnDepot("", repoURL).fetchIndex()
+	if err != nil {
+		return ""
+	}
+	return indexNameOf(winner)
 }
 
 // indexBaseDir 0.6.271：相对资源（icon/readme/preview）的 base = 索引文件
@@ -152,9 +245,127 @@ func raceFetch(cands []string, parent context.Context) ([]byte, string, error) {
 	return nil, "", fmt.Errorf("所有候选地址均失败: %w", lastErr)
 }
 
+// indexNameRank 索引文件名的优先级（0 最高）：
+//   - 用户直接贴的 .json 直链（文件名不在协议集合里）= 显式指定，0；
+//   - 其余按 jsonIndexNames 顺序：moo.json=0 / fnpack.json=1 /
+//     fndepot.json=2 / fndepot_v2.json=3 / apps.json=4。
+func indexNameRank(u string) int {
+	n := indexNameOf(u)
+	if n == "" {
+		return 0
+	}
+	for i, x := range jsonIndexNames {
+		if n == x {
+			return i
+		}
+	}
+	return 0 // 自定义 .json 直链：用户显式指定，视为最高优先
+}
+
+// raceFetchOrdered 按索引文件名优先级竞速：
+//   - 只先发最高优先组（rank 0：moo.json / 用户直链）的请求；
+//   - headStart 窗口内命中即返回（首名快时保证「moo.json 优先」真的生效）；
+//   - 首组全部失败（404 很快）或窗口到期仍未命中 → 放开其余候选一起竞速。
+//
+// 背景：旧实现把同一仓库的 moo.json / fnpack.json 等**同时**打出去，谁先回
+// 200 谁赢——「按优先级」只存在于候选列表顺序里，实际是抽签。只有 fnpack.json
+// 的仓库代价可控：moo.json 通常快速 404，首组失败后立即放开，不额外等待整个窗口。
+func raceFetchOrdered(cands []string, headStart time.Duration, parent context.Context) ([]byte, string, error) {
+	if len(cands) == 0 {
+		return nil, "", fmt.Errorf("无候选地址")
+	}
+	type result struct {
+		data   []byte
+		winner string
+		err    error
+		first  bool
+	}
+	ch := make(chan result, len(cands))
+	fetch := func(u string, first bool) {
+		req, err := http.NewRequestWithContext(parent, http.MethodGet, u, nil)
+		if err != nil {
+			ch <- result{err: err, first: first}
+			return
+		}
+		resp, err := fetchClient.Do(req)
+		if err != nil {
+			ch <- result{err: err, first: first}
+			return
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+		if resp.StatusCode != 200 || err != nil {
+			ch <- result{err: fmt.Errorf("%s: HTTP %d", u, resp.StatusCode), first: first}
+			return
+		}
+		ch <- result{data: body, winner: u, first: first}
+	}
+
+	var firstWave, rest []string
+	for _, u := range cands {
+		if indexNameRank(u) == 0 {
+			firstWave = append(firstWave, u)
+		} else {
+			rest = append(rest, u)
+		}
+	}
+	if len(firstWave) == 0 { // 理论上不会（rank 0 兜底），保底退回全量竞速
+		return raceFetch(cands, parent)
+	}
+	for _, u := range firstWave {
+		go fetch(u, true)
+	}
+	var lastErr error
+	pendingFirst, pendingRest := len(firstWave), 0
+	startedRest := false
+	startRest := func() {
+		if startedRest {
+			return
+		}
+		startedRest = true
+		pendingRest = len(rest)
+		for _, u := range rest {
+			go fetch(u, false)
+		}
+	}
+	if len(rest) == 0 {
+		startedRest = true
+	}
+	window := time.After(headStart)
+	for {
+		if startedRest && pendingFirst == 0 && pendingRest == 0 {
+			break
+		}
+		select {
+		case r := <-ch:
+			if r.err == nil {
+				return r.data, r.winner, nil
+			}
+			lastErr = r.err
+			if r.first {
+				pendingFirst--
+			} else {
+				pendingRest--
+			}
+			// 首组全败（如 moo.json 快速 404）→ 立刻放开，不等窗口
+			if pendingFirst == 0 {
+				startRest()
+			}
+		case <-window:
+			startRest()
+			window = nil // 只触发一次；nil channel 永远阻塞
+		case <-parent.Done():
+			return nil, "", parent.Err()
+		}
+	}
+	return nil, "", fmt.Errorf("所有候选地址均失败: %w", lastErr)
+}
+
 // v2Doc 是 V2 包裹格式（schema_version + source_info + apps）。
+// 0.6.326e：SchemaVersion 放宽为 RawMessage——协议只要求该键**存在**，
+// 取值形态（"2" / 2 / "moo"）不应影响解析（conversun 系用数字，其它用字符串）。
 type v2Doc struct {
-	SchemaVersion string                    `json:"schema_version"`
+	SchemaVersion json.RawMessage           `json:"schema_version"`
 	SourceInfo    map[string]any            `json:"source_info"`
 	Apps          map[string]map[string]any `json:"apps"`
 }
@@ -351,6 +562,61 @@ func pkgsWithDownload(pkgs map[string]any) []string {
 	return archDisplayKeys(out)
 }
 
+// 包体合理性区间（0.6.326z3）。实测：真实 FPK 包体最小 ~60KB（官方 easydown
+// 85B 走面板通道不在此列），社区包最大数十 GB；而「把 MB 小数写进字节槽位」
+// 的源其数值通常 <1024（如 26.0 / 3.2），两侧可清晰区分。
+const (
+	fpkSizeMinSane = 1 << 10  // 1 KiB
+	fpkSizeMaxSane = 64 << 30 // 64 GiB
+)
+
+// entrySizeBytes 解释**条目级** size 字段（协议要求单位 MB）。
+// 正常 MB 值返回 (0,false)：交下游按 MB×1e6 处理，行为不变。
+// 若数值按 MB 解读明显不可能（> 64GiB）而按字节解读落在真实包体区间，则判定
+// 「源把字节数写进了 MB 槽位」，返回 (字节数,true)。
+// 实证：fnmusic-ext 的 moo.json 条目级 size=27257554（字节）配顶层
+// version/download_url → 读不到包级正确字节值 → 按 MB 放大 1e6 倍 →
+// 详情页「安装包大小」显示 25385.61 GB（真实 26.0 MB）。
+// 注意：MB 值 >1024 也可能是真实大包（数 GB 应用），故此判断只在
+// 「按 MB 解读超出 64GiB 上限」时才改判，不会动 900MB/9GB 这类正常值。
+func entrySizeBytes(raw string) (int64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	if v*1000*1000 > fpkSizeMaxSane && v >= fpkSizeMinSane && v <= fpkSizeMaxSane {
+		return int64(v), true
+	}
+	return 0, false
+}
+
+// sanePkgSize 判断**包级** size（协议单位=字节）是否可信：低于 1KiB 视为源把
+// MB 小数写进了字节槽位（26.0 → 26 字节），不可采信（交条目级兜底）。
+func sanePkgSize(n int) bool {
+	return n >= fpkSizeMinSane && int64(n) <= fpkSizeMaxSane
+}
+
+// releaseFor 取指定版本的可安装包（当前架构 → all 回退）；want 为空或该版本
+// 下没有可安装包时，回落到 bestRelease（版本降序取第一个可安装包）。
+func releaseFor(rel map[string]any, want string) (string, string, map[string]any) {
+	if want != "" {
+		if rm, ok := rel[want].(map[string]any); ok {
+			if pkgs, ok2 := rm["packages"].(map[string]any); ok2 {
+				for _, k := range []string{currentArch(), "all"} {
+					if p, ok3 := pkgs[k].(map[string]any); ok3 && strings.TrimSpace(str(p, "download_url")) != "" {
+						return want, k, p
+					}
+				}
+			}
+		}
+	}
+	return bestRelease(rel, currentArch())
+}
+
 // versionLess 报告版本 a 是否小于 b：去掉 v 前缀后按点分段数值比较，
 // 非数字后缀（如 -1、rc1）按整段字典序兜底。
 func versionLess(a, b string) bool {
@@ -458,6 +724,13 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 	if a.SizeBytes == 0 {
 		a.SizeBytes = int64(anyInt(m, "size_bytes"))
 	}
+	// 0.6.326z3：条目级 size 被源写成字节时按字节采信（唯一规则实现点，
+	// api.parseSizeBytes 的 MB×1e6 兜底只在正常 MB 值上生效）。
+	if a.SizeBytes == 0 {
+		if b, ok := entrySizeBytes(a.SizeMB); ok {
+			a.SizeBytes = b
+		}
+	}
 	// releases: 版本 → {changelog, updated_at, packages: {arch: {download_url, sha256, size}}}
 	// V2 多版本源（如 RROrg）顶层没有 version/download_url：按版本降序取
 	// 当前架构（x86→all 回退）第一个可安装包，补齐版本/下载链接/校验和/体积。
@@ -506,6 +779,21 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 					if rm, ok := rel[ver].(map[string]any); ok {
 						a.UpdatedAt = str(rm, "updated_at")
 					}
+				}
+			}
+		}
+		// 0.6.326z3：包级体积无条件兜底。旧版把整段包级解析门控在
+		// 「顶层缺 version/download_url」里，于是「顶层 version/download_url
+		// + releases」混合形态（我方参考样例本身的写法）永远读不到包级
+		// size/sha256/架构；条目级体积又缺失或写错时就只能凭空显示。
+		// 现改为：条目级拿不到可用体积时，一律回落到该条目版本（缺失则
+		// bestRelease）的包级 size（协议单位=字节，经合理性区间校验）。
+		if a.SizeBytes == 0 {
+			if _, _, pkg := releaseFor(rel, a.Version); pkg != nil {
+				if n := anyInt(pkg, "size_bytes"); sanePkgSize(n) {
+					a.SizeBytes = int64(n)
+				} else if n := anyInt(pkg, "size"); sanePkgSize(n) {
+					a.SizeBytes = int64(n)
 				}
 			}
 		}

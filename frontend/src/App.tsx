@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, Grid2x2, Sparkles, MousePointer2, Download } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -24,7 +24,7 @@ import FpkDownloads from './components/FpkDownloads';
 import { Dialog, DialogContent, DialogTitle } from './components/ui/dialog';
 import AppRowList from './components/AppRowList';
 import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
-import { fetchApps, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads } from './api/client';
+import { fetchApps, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, hideApp, unhideApp, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
@@ -41,6 +41,7 @@ const WebAppDetailCard = React.lazy(() => import('./components/WebAppDetailCard'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { stableApps } from "@/lib/stableApps"
+import { resolveDisplayApps } from "@/lib/recoPins"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -517,6 +518,8 @@ const App: React.FC = () => {
   // 发现页「忽略更新」区（0.6.181）：收藏列表下方的折叠按钮，默认折叠，
   // 展开后列出被忽略更新的应用（行内可快速取消忽略）
   const [ignoreExpanded, setIgnoreExpanded] = useState(false);
+  // 0.6.326-ui 应用溯源：发现页「禁用列表」区（忽略更新区下方）的折叠态。
+  const [hiddenExpanded, setHiddenExpanded] = useState(false);
   // 排序菜单位置：pill 行是 overflow-x-auto 滚动容器（会同时裁剪 y 轴），
   // 菜单必须 fixed 定位逃出裁剪，坐标在打开时按触发钮实测位置计算。
   const [sortMenuPos, setSortMenuPos] = useState<{ left: number; top: number; w: number } | null>(null);
@@ -1163,6 +1166,7 @@ const App: React.FC = () => {
     }
   }, [createSSEHandler, setAppOp]);
 
+  // 卸载 = 破坏性操作：详情页「卸载」→ 本层 AlertDialog「确认卸载」→ 确认才发请求。
   const handleUninstall = useCallback((app: AppInfo) => {
     setPendingUninstallApp(app);
   }, []);
@@ -1242,6 +1246,29 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // 0.6.326 应用溯源：禁用/恢复（列表/搜索/推荐隐藏；已安装卡与详情保留=可恢复）。
+  // key 用卡片 key（外部源应用为 appname@源名，接口内已 encodeURIComponent）。
+  const handleToggleHide = useCallback(async (app: AppInfo) => {
+    const key = app.key || app.appname;
+    // 0.6.326 修正：入参 `user_hidden` 的语义 = **目标态**（详情对话框按本次
+    // 点击算出 next 后传入，连点也能正确来回切，不受陈旧快照影响）。
+    // 初版这里当作「当前态」解读 → 点击实际发出的是反向请求（禁用变取消禁用），
+    // 落库失败而 UI 因本地即时回显显示「已禁用」，E2E D6 抓出。
+    const wantHidden = !!app.user_hidden;
+    try {
+      if (wantHidden) {
+        await hideApp(key);
+        toast.success(`${app.display_name} 已禁用`);
+      } else {
+        await unhideApp(key);
+        toast.success(`${app.display_name} 已恢复显示`);
+      }
+      await loadApps();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : (wantHidden ? '禁用失败' : '恢复失败'));
+    }
+  }, []);
+
   // 收藏：key→Set 派生（O(1) 查询，行/卡 memo 依赖稳定）
   const favoriteSet = useMemo(() => new Set(favoriteKeys), [favoriteKeys]);
   const favoriteKeysRef = useRef(favoriteKeys);
@@ -1260,6 +1287,9 @@ const App: React.FC = () => {
   // 忽略更新（发现页，0.6.181）：更新信号被忽略的已装应用（后端
   // update_ignored 标记；has_update 已在目录层置假，更新列表/角标不再出现）。
   const ignoredApps = useMemo(() => apps.filter(a => a.update_ignored), [apps]);
+  // 0.6.326-ui 应用溯源：被「禁用」的应用——已从列表/搜索/推荐隐藏，
+  // 在发现页「禁用列表」区集中找回（行内「恢复」一键解除；详情页同入口）。
+  const hiddenApps = useMemo(() => apps.filter(a => a.user_hidden), [apps]);
 
   const handleToggleFavorite = useCallback((app: AppInfo) => {
     const key = app.key || app.appname;
@@ -1349,6 +1379,9 @@ const App: React.FC = () => {
   }, [shuffleTick]);
 
   const filteredApps = useMemo(() => apps.filter(app => {
+    // 0.6.326 应用溯源：被禁用的应用从「全部/发现/有更新/搜索/分类」隐藏，
+    // 但「已安装」tab 不过滤——否则用户禁用自己装的应用后再也找不回来。
+    if (app.user_hidden && activeFilter !== 'installed') return false;
     if (activeFilter === 'installed' && !app.installed) return false;
     // 0.6.197：已忽略但有被压住更新的应用也列入「有更新」（行上带
     // 「已忽略」徽章标记；纯已最新的忽略 app 不进列表）
@@ -1417,31 +1450,21 @@ const App: React.FC = () => {
   // 源缺失时后端给快照条目（AppInfo 同构形态），卡/图标/详情/安装全走后端
   // 回落（appDetail/appAsset 三 key 快照）。仅发现页且无搜索词/分类过滤时
   // 生效（发现页结构上即无此二态，双保险防状态残留）。
-  const displayApps = useMemo(() => {
-    if (activeFilter !== 'recommended' || recommendedApps.length < 3 || searchQuery.trim() || activeCategory) {
-      return filteredApps;
-    }
-    const pinned: AppInfo[] = [];
-    const baseKeys = new Set<string>();
-    for (const rec of recommendedApps.slice(0, 3)) {
-      const base = (rec.key || rec.appname || '').split('@')[0];
-      const hit = apps.find(a => (a.key || a.appname || '').split('@')[0] === base && base !== '');
-      pinned.push(hit ?? rec);
-      if (base) baseKeys.add(base);
-    }
-    const rest = filteredApps.filter(a => {
-      const b = (a.key || a.appname || '').split('@')[0];
-      return !b || !baseKeys.has(b);
-    });
-    return [...pinned, ...rest];
-  }, [activeFilter, recommendedApps, filteredApps, apps, searchQuery, activeCategory]);
+  // 0.6.326z5（2.1 修复）：钉序命中卡若被用户禁用（user_hidden）→ 该位整位跳过
+  // （不再把禁用卡钉回列表），base 仍记入 baseKeys 防其从 rest 冒出；逻辑已抽到
+  // lib/recoPins.ts（纯函数，单测覆盖矩阵见 recoPins.test.ts）。
+  const displayApps = useMemo(() => resolveDisplayApps({
+    apps, filteredApps, recommendedApps, activeFilter, searchQuery, activeCategory,
+  }), [activeFilter, recommendedApps, filteredApps, apps, searchQuery, activeCategory]);
 
   const counts = useMemo(() => ({
-      all: apps.length,
+      // 0.6.326：计数与各自列表同口径（被禁用者不在「全部/有更新」列表里，
+      // 就不计入；「已安装」列表仍含已装被禁用者 → 计数照含）
+      all: apps.filter(a => !a.user_hidden).length,
       installed: apps.filter(a => a.installed).length,
       // 0.6.197：计数含「已忽略但有被压住更新」的应用（与列表一致）
       // 0.6.312：与列表过滤同口径——忽略 pending 不再计入「有更新」
-      update_available: apps.filter(a => a.has_update).length,
+      update_available: apps.filter(a => a.has_update && !a.user_hidden).length,
       recommended: recommendedApps.length
   }), [apps, recommendedApps]);
 
@@ -1461,7 +1484,8 @@ const App: React.FC = () => {
   }, []);
 
   const categoryCounts = useMemo(() => CATEGORIES.reduce((acc, cat) => {
-    acc[cat.key] = apps.filter(a => a.category === cat.key).length;
+    // 0.6.326：与列表同口径（被禁用者不在分类列表里，不计入分类计数）
+    acc[cat.key] = apps.filter(a => a.category === cat.key && !a.user_hidden).length;
     return acc;
   }, {} as Record<string, number>), [apps]);
 
@@ -2305,6 +2329,85 @@ const App: React.FC = () => {
                   )
                 )}
               </section>
+              {/* 0.6.326-ui 应用溯源（用户定稿）：被禁用的应用集中列表，
+                  位于「忽略更新」区下方；行内「恢复」一键解除禁用
+                  （应用重新进入 列表/搜索/推荐）。三种预览模式同「忽略更新」区
+                  一致：极简/极光形态下经详情对话框恢复。 */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-lg font-bold tracking-tight flex items-center gap-1.5">
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    禁用列表
+                  </h2>
+                  {hiddenApps.length > 0 && (
+                    <span className="text-sm text-muted-foreground tabular-nums">{hiddenApps.length}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setHiddenExpanded(v => !v)}
+                    aria-expanded={hiddenExpanded}
+                    className="inline-flex items-center gap-1 h-7 px-3 rounded-full bg-muted/60 hover:bg-muted text-xs font-medium text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    {hiddenExpanded ? '收起' : '展开'}
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", hiddenExpanded && "rotate-180")} />
+                  </button>
+                </div>
+                {hiddenExpanded && (
+                  hiddenApps.length > 0 ? (
+                    viewMode === 'minimal' ? (
+                      <MinimalIconGridM apps={hiddenApps} onDetail={setDetailApp} clickMode={clickMode} />
+                    ) : viewMode === 'aurora' ? (
+                      <AuroraGridM apps={hiddenApps} onDetail={setDetailApp} clickMode={clickMode} />
+                    ) : (
+                    <div className="bg-card rounded-[18px] overflow-hidden border border-border/20 shadow-appstore">
+                      {hiddenApps.map((app, i) => (
+                        <div
+                          key={app.key || app.appname}
+                          className={cn(
+                            "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50",
+                            i > 0 && "border-t border-border/40"
+                          )}
+                          // 与「忽略更新」行同款：打开详情=单击/双击受习惯开关控制
+                          onClick={singleOpen ? () => setDetailApp(app) : undefined}
+                          onDoubleClick={singleOpen ? undefined : () => setDetailApp(app)}
+                        >
+                          <AppIcon app={app} className="w-11 h-11 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="font-semibold text-[15px] leading-tight truncate" title={app.display_name}>
+                                {app.display_name}
+                              </span>
+                            </div>
+                            <span className="text-[12px] text-muted-foreground/80 truncate block" title={app.appname}>
+                              {app.upstream_source || app.upstream_repo
+                                ? `溯源 上游 ${app.upstream_source || app.upstream_repo}`
+                                : app.appname}
+                            </span>
+                          </div>
+                          {/* 0.6.326-ui：handleToggleHide 的 `user_hidden` 是**目标态**
+                              （详情对话框按本次点击算 next 后传入）。本行按钮语义固定
+                              =「恢复显示」，必须显式传 false；直接传 app（其 user_hidden
+                              此时恒为 true）会被读成「目标=禁用」→ 再发一次 PUT，永远恢复不了。 */}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleToggleHide({ ...app, user_hidden: false }); }}
+                            className="shrink-0 h-7 px-3 rounded-full bg-muted/60 hover:bg-muted text-xs font-medium text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            恢复
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    )
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
+                      <EyeOff className="h-10 w-10 mb-3 opacity-40" />
+                      <p className="text-sm font-medium">还没有禁用的应用</p>
+                      <p className="text-sm mt-1">在应用详情页点「禁用」，该应用会出现在这里</p>
+                    </div>
+                  )
+                )}
+              </section>
             </div>
           ) : loadStatus === 'loaded' ? (
             <>
@@ -2685,6 +2788,16 @@ const App: React.FC = () => {
           onUpdate={handleUpdate}
           onIgnoreUpdate={handleIgnoreUpdate}
           onUnignoreUpdate={handleUnignoreUpdate}
+          onToggleHide={handleToggleHide}
+          // 0.6.326f：详情页「禁用fork源 / 恢复fork源」成功后刷新目录
+          //（禁用源 → 该源全部卡片从列表消失；恢复 → 回来）。
+          // 0.6.326z4：恢复（启用）时后端会顺带后台重拉该源（约 1~3s），故补两次
+          // 延时刷新让卡片自己回来——此前实测要等一次刷新轮次（~20 分钟）。
+          onSourceToggled={() => {
+            void loadApps();
+            window.setTimeout(() => { void loadAppsRef.current(); }, 2500);
+            window.setTimeout(() => { void loadAppsRef.current(); }, 8000);
+          }}
           onUninstall={handleUninstall}
           operation={detailApp ? appOperations.get(detailApp.appname) : undefined}
           onSourceFilter={applyTextFilter}

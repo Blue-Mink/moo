@@ -49,6 +49,12 @@ try:
         m = json.load(f)["apps"]["moo"]
     if m.get("version") == ver:
         text = (m.get("changelog") or "").strip()
+        # 0.6.326：顶层 changelog 已按协议去重口径清空（多版本说明只写
+        # releases.<ver>.changelog，避免详情页多一条无版本条目）——顶层为空时
+        # 回落该版本的 releases 节点，保证「关于」卡仍能内嵌本版日志。
+        if not text:
+            rel = (m.get("releases") or {}).get(ver) or {}
+            text = (rel.get("changelog") or "").strip()
 except Exception:
     text = ""
 with open(out, "w", encoding="utf-8") as f:

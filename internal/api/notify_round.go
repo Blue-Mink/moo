@@ -198,6 +198,9 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	s.favoriteSourceReportPass()
 	// 0.6.133 应用更新摘要（已装应用更新集合变化才推）
 	s.updatesAvailablePass()
+	// 0.6.326 官方源连接巡检（官方应用中心 OAuth 会话约 1 小时过期 → 官方源
+	// 必然转「未连接」；由正常转失效时推一次，6 小时冷却复推）
+	s.officialSessionPass()
 }
 
 // enabledSourceStates 0.6.312 B3/F5：全部已启用源的当前状态（名称 + 最新

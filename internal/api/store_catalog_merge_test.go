@@ -35,6 +35,11 @@ func mergeOfficialCardsLegacy(out []AppInfo, official []AppInfo, seen map[string
 				e.LatestVersion = oa.LatestVersion
 			}
 		}
+		// 0.6.326y（G1）：改写 Source 前记录原来源（与生产实现同口径，
+		// 否则对拍会把 OriginSource 差异误判成 map 版回归）。
+		if e.OriginSource == "" && e.Source != "" && e.Source != OfficialSourceID {
+			e.OriginSource = e.Source
+		}
 		e.Source = OfficialSourceID
 		if oa.DownloadCount != nil {
 			e.DownloadCount = oa.DownloadCount

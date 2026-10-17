@@ -36,7 +36,12 @@ const AppIcon: React.FC<{
   // 已装应用目录图标（/vol1/@appcenter/<app>/ui/images/）。仅 http(s)
   // 绝对直链（官方 CDN / 社区源外链）保持浏览器直载。
   const isAbsoluteHttp = /^https?:\/\//i.test(iconUrl);
-  const useProxy = iconUrl !== '' && (isExternal || !isAbsoluteHttp);
+  // 0.6.326d：外部源「无论 icon_url 是否为空」一律走后端代理。0.6.320 把
+  // `iconUrl !== ''` 提到最外层后，无 icon_url 的社区源卡（全目录 1217/2156）
+  // 直接落入占位分支、从不请求代理 —— 而后端 asset 代理对其中相当一部分
+  // （源仓库根目录 ICON.PNG 等 6 候选）能返回真图。非外部源维持 320 语义：
+  // 相对路径（应用中心面板图标）走代理，http(s) 绝对直链浏览器直载。
+  const useProxy = isExternal || (iconUrl !== '' && !isAbsoluteHttp);
   const src = useProxy
     ? apiUrl(`/api/apps/${encodeURIComponent(app.key)}/asset?type=icon${iconVer ? `&v=${encodeURIComponent(iconVer)}` : ''}`)
     : iconUrl;

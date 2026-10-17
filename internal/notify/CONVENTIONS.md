@@ -45,7 +45,8 @@
 - **消息尾部禁止「完整明细 + 链接」**（0.6.213 用户不要）。
 - 企微 4096 字节上限：3800 字节按行截断，尾巴固定措辞
   「…（超出企业微信单条消息长度上限，其余条目见应用内通知记录）」（0.6.214）。
-- 卡片形式的「打开通知详情」跳转按钮保留（= 用户接受的查看详情入口）。
+- **消息尾部禁止「打开通知详情」入口**（0.6.326 用户令）——各渠道卡片不再带
+  该按钮 / 链接行 / singleTitle（企微卡片仍支持整卡点击跳转 = card_action，无文字入口）。
 
 ## 5. 防刷屏
 
@@ -62,3 +63,16 @@
    触发一次，或载荷级捕获（临时渠道指向本机 HTTP 端点审真实 JSON）；
 4. 部署测试机后验真实运行态：notify-log 的 channels 字段 errors=0；
 5. 清理演示渠道；Release 更新日志一行记新类别。
+
+### 6.1 已按本规范实现的新事件（0.6.326 通知批次，目录 33 → 36 条）
+
+| 事件 key | 类别（Group） | 去重/冷却 | 触发点 |
+|---|---|---|---|
+| `upstream_corrected` | 应用更新 | 应用×上游目标版本（`notify_upstream_notified`） | buildCatalog 锁外异步（强制上游档真纠正时） |
+| `notify_channel_error` | Moo 自身 | 连续 ≥3 次失败 + 1 小时冷却（内存态） | 每次外部 fan-out 后（防自激：本事件自身与 welcome 不计入） |
+| `official_session_expired` | 源与网络 | 正常→失效推一次 + 6 小时冷却复推（内存态） | 既有源刷新轮次末尾（官方应用中心连接巡检） |
+
+实现：`internal/api/notify_new_events_326z.go`（文案/变体）、
+`internal/api/lineage.go`（纠正明细收集）、`internal/api/store_catalog.go`
+（锁外异步推送）、`internal/api/panel.go`（LastError/CachedAppCount 只读 getter）。
+单测：`internal/api/notify_new_events_326z_test.go`（含载荷级六变体捕获）。

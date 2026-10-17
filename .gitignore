@@ -49,3 +49,8 @@ deep*-*.png
 __pycache__
 ROOTUPD_FIX_TODO.md
 ICON_FIX_TODO.md
+# 本地备份/临时产物（如 moo.json.bak_326v2）
+*.bak_*
+# 本地运行数据（含 .moo-secret.key）与本地构建快捷脚本，绝不入库
+moo-data/
+build_fast.sh

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { AppInfo } from '../api/client';
 import { availableVersionLabel, appDownloadLabel, descriptionPlainText } from '../api/client';
 import { cn } from '../lib/utils';
+import { pickFeaturedApps } from '../lib/recoPins';
 import { ChevronRight, Flame, Clock } from 'lucide-react';
 import AppIcon from './AppIcon';
 
@@ -71,16 +72,10 @@ const RowCard: React.FC<{ app: AppInfo; onDetail: (a: AppInfo) => void }> = ({ a
 const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, featured: featuredProp }) => {
   // 0.6.314r：横幅前三=固定推荐位（featuredProp，顺序即 /api/recommended 序）；
   // 未提供时退回旧行为=全目录随机 3 款（useMemo 只依赖 apps，刷新后重新洗牌）。
-  const featured = useMemo(() => {
-    if (featuredProp && featuredProp.length > 0) return featuredProp.slice(0, 3);
-    const arr = [...apps];
-    const out: AppInfo[] = [];
-    while (out.length < 3 && arr.length > 0) {
-      const j = Math.floor(Math.random() * arr.length);
-      out.push(arr.splice(j, 1)[0]);
-    }
-    return out;
-  }, [apps, featuredProp]);
+  // 0.6.326z5（2.1 修复）：featuredProp 分支**先过滤 user_hidden 再 slice(0,3)**；
+  // 过滤后不足 3 位回落既有随机补足（池=apps 非禁用且 base 未占位，不重复）。
+  // 逻辑抽到 lib/recoPins.ts（纯函数）。
+  const featured = useMemo(() => pickFeaturedApps(apps, featuredProp), [apps, featuredProp]);
   // 前三固定位的应用在热门/最近行里不再重复出现（0.6.314r：同名恰 1 张）
   const featuredBaseKeys = useMemo(() => {
     const s = new Set<string>();
@@ -92,13 +87,13 @@ const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, fea
   }, [featured]);
   const popular = useMemo(
     () => [...apps]
-      .filter(a => !featuredBaseKeys.has((a.key || a.appname || '').split('@')[0]))
+      .filter(a => !a.user_hidden && !featuredBaseKeys.has((a.key || a.appname || '').split('@')[0]))
       .sort((a, b) => (b.download_count ?? 0) - (a.download_count ?? 0)).slice(0, 12),
     [apps, featuredBaseKeys]
   );
   const recent = useMemo(
     () => [...apps]
-      .filter(a => !featuredBaseKeys.has((a.key || a.appname || '').split('@')[0]))
+      .filter(a => !a.user_hidden && !featuredBaseKeys.has((a.key || a.appname || '').split('@')[0]))
       .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 12),
     [apps, featuredBaseKeys]
   );

@@ -33,6 +33,22 @@ interface SourceManagerProps {
 
 /** 0.6.216 P1①：明文 http 源警示规则抽到 lib（官方源豁免，见 sourceWarnings） */
 
+/** 0.6.326z：源重合率（只读信号）——档位文案 + 中性色。
+ * 纪律：三档共用同一套 muted 体系（仅描边深浅不同），不用红黄警告色；
+ * 只陈述数值事实，不出现「搬运/盗用/抄袭/危险」等定性词；
+ * **不提供任何按钮**（不作为停源依据，见 OVERLAP_326Z_PLAN.md）。 */
+const overlapRiskLabel = (risk?: string): string =>
+  risk === 'high' ? '重合高' : risk === 'medium' ? '重合中' : '重合低'
+
+const overlapTone = (risk?: string): string =>
+  risk === 'high'
+    ? 'border-border/80 text-foreground/80'
+    : risk === 'medium'
+      ? 'border-border/60 text-muted-foreground'
+      : 'border-border/40 text-muted-foreground'
+
+const overlapPct = (v?: number): string => `${Math.round((v ?? 0) * 100)}%`
+
 const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCounter = 0 }) => {
   const [sources, setSources] = useState<SourceEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -599,7 +615,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   };
 
   // 0.6.318：「删除默认源」——先 dry_run 预检（拿将删清单），确认弹窗展示
-  // 数量后真删。范围=命中旧 157 条默认清单的现有源（含与 20 条官源重叠的
+  // 数量后真删。范围=命中旧 157 条默认清单的现有源（含与 21 条官源重叠的
   // 19 条，删后「恢复官源」可找回）；清单外源（官方源/自加源）不受影响。
   const handleDeleteDefaultsClick = async () => {
     if (deletingDefaults) return;
@@ -762,7 +778,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleDeleteDefaultsClick}
             disabled={deletingDefaults || syncingList || savingList || restoring}
-            title="一键删除默认清单（前 157 条）的历史源；「恢复源」仅可恢复默认 20 条"
+            title="一键删除默认清单（前 157 条）的历史源；「恢复源」仅可恢复默认 21 条"
           >
             <Trash2 className={`h-3.5 w-3.5 shrink-0 ${deletingDefaults ? 'animate-pulse text-primary' : ''}`} />
             {deletingDefaults ? '处理中…' : '删除源'}
@@ -773,14 +789,14 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleRestoreDefaults}
             disabled={restoring || syncingList || savingList || deletingDefaults}
-            title="仅恢复 moo 默认 20 条精选源；相同源地址只保留一个"
+            title="仅恢复 moo 默认 21 条精选源；相同源地址只保留一个"
           >
             <RotateCcw className={`h-3.5 w-3.5 shrink-0 ${restoring ? 'animate-spin text-primary' : ''}`} />
             {restoring ? '恢复中…' : '恢复源'}
           </Button>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单（前 157 条）的历史源，「恢复源」仅恢复moo默认20条精选源；并把相同地址的重复源去重为 1 个。
+          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单（前 157 条）的历史源，「恢复源」仅恢复moo默认21条精选源；并把相同地址的重复源去重为 1 个。
         </p>
         {/* 0.6.325 安全加固 R1：清单里的内网/环回地址默认被跳过（防远端清单被
             篡改后驱动内网抓取）。需要同步内网源时在此显式放开；
@@ -915,6 +931,25 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                     </a>
                   )}
                 </div>
+                {/* 0.6.326z：源重合率（只读一行）——与「最相似的对方源」的应用名/版本
+                    重合情况。只读：无按钮、不影响源状态；官方源恒不显示。 */}
+                {!isOfficialSrc && src.overlap_risk && src.overlap_risk !== 'none' && (
+                  <div
+                    className="src-overlap mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                    data-overlap-risk={src.overlap_risk}
+                    title={`按应用名/版本与其它源比对：本方 ${src.overlap_self_count ?? 0} 个应用中 ${src.overlap_name_count ?? 0} 个同名、${src.overlap_exact_count ?? 0} 个同名同版本；仅供参考，不影响任何源的状态`}
+                  >
+                    <Badge
+                      variant="outline"
+                      className={cn('h-5 shrink-0 whitespace-nowrap px-1.5 text-[10px] font-normal', overlapTone(src.overlap_risk))}
+                    >
+                      {overlapRiskLabel(src.overlap_risk)}
+                    </Badge>
+                    <span className="min-w-0 truncate">
+                      与「{src.overlap_with}」应用重合 {overlapPct(src.overlap_name_ratio)}（版本精确 {overlapPct(src.overlap_exact_ratio)}）· 本方独有 {src.overlap_unique_names ?? 0} 个应用
+                    </span>
+                  </div>
+                )}
                 {src.error && (
                   <div className="mt-0.5 truncate text-[11px] text-red-500">{src.error}</div>
                 )}
@@ -1113,7 +1148,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             <AlertDialogTitle>删除源</AlertDialogTitle>
             <AlertDialogDescription>
               预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中旧清单157条源）。
-              删除后通过「恢复源」仅可恢复默认20条；清单外的源（官方源、自加源）不受影响。
+              删除后通过「恢复源」仅可恢复默认21条；清单外的源（官方源、自加源）不受影响。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
