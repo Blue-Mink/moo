@@ -47,14 +47,15 @@ func TestDoProbeAPI200Baseline(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"tag_name":"v9.9.9","assets":[` +
 			`{"name":"moo_9.9.9_x86.fpk","browser_download_url":"https://example.invalid/dl/moo_9.9.9_x86.fpk"},` +
-			`{"name":"moo_9.9.9_x86.fpk.sha256","browser_download_url":"https://example.invalid/dl/moo_9.9.9_x86.fpk.sha256"}]}`))
+			`{"name":"moo_9.9.9_x86.fpk.sha256","browser_download_url":"https://example.invalid/dl/moo_9.9.9_x86.fpk.sha256"},` +
+			`{"name":"moo_9.9.9_x86.fpk.minisig","browser_download_url":"https://example.invalid/dl/moo_9.9.9_x86.fpk.minisig"}]}`))
 	}))
 	defer apiSrv.Close()
 	restore := setProbeBases(apiSrv.URL, "https://should-not-be-called.invalid", "https://should-not-be-called.invalid")
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, _, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, minisigURL, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe: %v", err)
 	}
@@ -66,6 +67,9 @@ func TestDoProbeAPI200Baseline(t *testing.T) {
 	}
 	if !strings.HasSuffix(shaURL, ".sha256") {
 		t.Fatalf("shaURL = %q", shaURL)
+	}
+	if !strings.HasSuffix(minisigURL, ".minisig") {
+		t.Fatalf("minisigURL = %q", minisigURL)
 	}
 	if !rl.IsZero() {
 		t.Fatalf("ratelimitUntil = %v, want zero", rl)
@@ -95,7 +99,7 @@ func TestDoProbeFallbackOn403Ratelimit(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, _, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, _, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (fallback): %v", err)
 	}
@@ -128,7 +132,7 @@ func TestDoProbeAllChannelsFail(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	_, _, _, _, _, rl, err := s.doProbe()
+	_, _, _, _, _, _, rl, err := s.doProbe()
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -167,7 +171,7 @@ func TestDoProbeFallbackOnMirror(t *testing.T) {
 	defer func() { selfUpdateMirrorPrefixes = oldPrefixes }()
 
 	s := &Server{Cfg: config.Default()}
-	tag, _, asset, _, _, rl, err := s.doProbe()
+	tag, _, asset, _, _, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (mirror fallback): %v", err)
 	}
@@ -198,7 +202,7 @@ func TestDoProbeFallbackOnFnDepot(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, _, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, _, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (fnDepot fallback): %v", err)
 	}
@@ -343,7 +347,7 @@ func TestProbeRatelimitWindowShortCircuits(t *testing.T) {
 		ratelimitUntil: time.Now().Add(10 * time.Minute),
 	}
 	// 限流窗内 probe(false)：回缓存、零网络
-	tag, _, _, _, err := p.probe(false)
+	tag, _, _, _, _, err := p.probe(false)
 	if err != nil || tag != "0.0.0" {
 		t.Fatalf("cached probe = %q, %v", tag, err)
 	}
@@ -351,7 +355,7 @@ func TestProbeRatelimitWindowShortCircuits(t *testing.T) {
 		t.Fatalf("hits = %d, want 0（限流窗内不打网络）", got)
 	}
 	// force 绕过限流窗
-	if _, _, _, _, err := p.probe(true); err != nil {
+	if _, _, _, _, _, err := p.probe(true); err != nil {
 		t.Fatalf("force probe: %v", err)
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
@@ -374,7 +378,7 @@ func TestDoProbeAPICarriesBody(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, _, _, _, body, _, err := s.doProbe()
+	tag, _, _, _, _, body, _, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe: %v", err)
 	}

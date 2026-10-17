@@ -295,7 +295,9 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/apps/{key}/stop", s.requireAdmin(s.appStop))
 	mux.HandleFunc("GET /api/apps/{key}/panel-detail", s.requireAdmin(s.appPanelDetail))
 	mux.HandleFunc("GET /api/apps/{key}/asset", s.appAsset)
-	mux.HandleFunc("GET /api/apps/{key}/diagnostic", s.appDiagnostic)
+	// 0.6.328 安全审计 W2：诊断接口此前公开读日志尾，现挂管理员门（requireAdmin），
+	// 与「上报失败」流程一致（该流程本就是管理员安装失败后触发）。
+	mux.HandleFunc("GET /api/apps/{key}/diagnostic", s.requireAdmin(s.appDiagnostic))
 
 	// ---- 设置 / 加速源（M3/M4 逐步充实） ----
 	// 应用收藏（列表/详情星标切换；发现页收藏列表）

@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import type { AppWizard, WizardItem, WizardParam, WizardStep } from '@/api/client';
+import DOMPurify from 'dompurify';
 
 interface WizardDialogProps {
   /** App display name, for the title. */
@@ -150,10 +151,10 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
                   <p
                     key={idx}
                     className="text-xs text-muted-foreground leading-relaxed [&_a]:text-primary [&_a]:underline"
-                    // The help text is authored by the packager and may contain
-                    // <b>/<a>; it ships inside the fpk, same trust level as the
-                    // binary being installed.
-                    dangerouslySetInnerHTML={{ __html: item.helpText ?? '' }}
+                    // 0.6.328 安全审计 W1：helpText 由打包者编写、可能含 <b>/<a>，
+                    // 与全站（desc_html / README）统一过 DOMPurify 消毒后再渲染，
+                    // 剥离 script/iframe/on* 等危险节点（默认白名单保留 strong/a/br/span）。
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.helpText ?? '') }}
                   />
                 );
               }

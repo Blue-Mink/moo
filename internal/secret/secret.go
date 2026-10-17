@@ -63,6 +63,11 @@ func LoadOrCreate(dataDir string) (*Sealer, error) {
 		if len(raw) != 32 {
 			return nil, fmt.Errorf("密钥文件 %s 长度异常（%d 字节，期望 32）", KeyFile, len(raw))
 		}
+		// 0.6.329 卫生项：存量密钥文件 mode 修正为 0600。历史 0700 文件
+		// 在「已存在」分支直接返回、从未被修正（WriteFile 的 mode 只对新建生效）。
+		if err := os.Chmod(path, 0o600); err != nil {
+			return nil, err
+		}
 		return New(raw), nil
 	} else if !os.IsNotExist(err) {
 		return nil, err

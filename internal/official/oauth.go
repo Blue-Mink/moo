@@ -113,6 +113,9 @@ func (m *Manager) SessionFile() string {
 func (m *Manager) LoadSession() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// 0.6.329 卫生项：启动加载时修正存量会话文件 mode 为 0600（历史 0700
+	// 文件仅靠写入时 chmod 不够——会话无变化则不写入、不触发修正）。
+	_ = os.Chmod(m.SessionFile(), 0o600)
 	b, err := os.ReadFile(m.SessionFile())
 	if err != nil {
 		return
@@ -352,7 +355,12 @@ func (m *Manager) CompleteAuthorization(ctx context.Context, code string) error 
 // saveSessionLocked 调用方无需持锁（内部自锁）。
 func (m *Manager) saveSessionLocked(s *Session) error {
 	b, _ := json.MarshalIndent(s, "", "  ")
-	return os.WriteFile(m.SessionFile(), b, sessionFilePerm)
+	if err := os.WriteFile(m.SessionFile(), b, sessionFilePerm); err != nil {
+		return err
+	}
+	// 0.6.329 卫生项：存量会话文件 mode 修正为 0600（WriteFile 的 mode
+	// 只对新建文件生效，历史 0700 文件覆盖内容时保留原权限）。
+	return os.Chmod(m.SessionFile(), 0o600)
 }
 
 // Do 带 Bearer token 访问 /ogh/ac/h 代理，临期自动刷新（最多一次）。

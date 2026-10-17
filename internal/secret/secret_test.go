@@ -115,3 +115,26 @@ func TestLoadOrCreate(t *testing.T) {
 		t.Fatalf("密钥文件损坏时应报错")
 	}
 }
+
+// 0.6.329 卫生项：存量 0700 密钥文件应被修正为 0600。
+func TestLoadOrCreateFixesExistingPerm(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, KeyFile)
+	// 预置 0700 的 32 字节密钥文件（模拟历史遗留）
+	if err := os.WriteFile(p, make([]byte, 32), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrCreate(dir); err != nil {
+		t.Fatalf("LoadOrCreate: %v", err)
+	}
+	st, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("存量 0700 应修正为 0600，实际 %o", st.Mode().Perm())
+	}
+}

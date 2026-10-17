@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"aead.dev/minisign"
+
 	"moo/internal/config"
 	"moo/internal/lang"
 	"moo/internal/netx"
@@ -35,7 +38,7 @@ import (
 // 检测：GET /api/store-update → 探测 releases/latest（10min 缓存 + 30min 后台轮询），
 // 严格版本比较（只升不降，防恶意源/镜像回灌旧版），仅 amd64（官方只发 x86 FPK）。
 //
-// 更新：POST /api/store-update（SSE）→ 下载 FPK → 结构校验（gzip/ELF/体积）→
+// 更新：POST /api/store-update（SSE）→ 下载 FPK → sha256 校验（0.6.328 起 fail-closed）→
 // 飞牛 appcenter daemon 的 RPC 升级通道就地升级（参考 conversun/fnos-store
 // 的自更新设计：daemon 停应用、换包、@appdata 字节级保留、恢复原运行状态，
 // 且 daemon 是独立 root 进程——被杀掉的本进程不影响升级完成）。
@@ -56,10 +59,9 @@ import (
 // 之前发出并等待冲刷（前端 pollForRestart 接管后续体验）；若 daemon 拒绝或
 // 失败而本进程还活着，则走 SSE error 上报。
 //
-// 完整性（0.6.207-panel D1）：自更新全程 TLS 直连 GitHub（不再经 HTTP 镜像
-// 候选，消除中间人换包面）。release 附 <资产名>.sha256 时下载后严格验哈希；
-// 未附则降级结构校验——解包 FPK 验证其中存在 >5MB 的 ELF 版 moo-server
-//（参考 fn-knock 的下载后校验思路，并留日志提示降级）。
+// 完整性（0.6.207-panel D1；0.6.328 安全审计 W3）：自更新全程 TLS 直连 GitHub
+//（不再经 HTTP 镜像候选，消除中间人换包面）。release 必须附 <资产名>.sha256
+// 侧车，下载后严格验哈希；缺失即拒绝自更新（fail-closed，不再降级结构校验）。
 //
 // 运维/测试钩子：MOO_SELFUPDATE_AS_VERSION 环境变量可覆写「当前版本」
 // （测试机验证自更新链路用，线上不设）。
@@ -94,6 +96,21 @@ var (
 	selfUpdateFnDepotURL = "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json"
 )
 
+// 自更新签名公钥（minisign，0.6.329 起）：go:embed 内嵌，验签不联网取公钥
+//（否则攻击者可连公钥一起替换）。私钥离线保管，见 AGENTS.md「Moo 自更新签名
+// 发布约束」；签名由发布机离线生成 .minisig 侧车。
+//
+//go:embed self_update_pubkey.txt
+var selfUpdatePubkeyText string
+
+var selfUpdatePubkey = func() minisign.PublicKey {
+	var pk minisign.PublicKey
+	if err := pk.UnmarshalText([]byte(strings.TrimSpace(selfUpdatePubkeyText))); err != nil {
+		panic("invalid embedded minisign public key: " + err.Error())
+	}
+	return pk
+}()
+
 type selfUpdateProbe struct {
 	srv *Server
 
@@ -103,6 +120,7 @@ type selfUpdateProbe struct {
 	latestAssetURL string
 	latestAsset    string
 	latestShaURL   string // release 附带的 .sha256 资产 URL（可为空）
+	latestMinisigURL string // 0.6.329：release 附带的 .minisig 资产 URL（可为空）
 	latestBody     string // 0.6.311：release 正文（更新日志；仅 API 主通道有值）
 	lastErr        error
 	lastNotified   string // 已推过 store_update_available 的版本（防重复）
@@ -127,17 +145,17 @@ func (p *selfUpdateProbe) loopForever() {
 }
 
 // probe 探测官方最新版本。fresh 且 !force 直接返回缓存。
-func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string, err error) {
+func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL, minisigURL string, err error) {
 	p.mu.Lock()
 	if !force && p.checkedAt.Add(selfProbeTTL).After(time.Now()) {
-		tag, assetURL, asset, shaURL, err = p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.lastErr
+		tag, assetURL, asset, shaURL, minisigURL, err = p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.latestMinisigURL, p.lastErr
 		p.mu.Unlock()
 		return
 	}
 	// 0.6.299：GitHub 403 限流窗口内（x-ratelimit-reset 未到）不再空打 API，
 	// 直接回缓存——匿名配额 60/h 按出口 IP 计，国内 NAT 共享出口常被耗光。
 	if !force && p.ratelimitUntil.After(time.Now()) {
-		tag, assetURL, asset, shaURL, err = p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.lastErr
+		tag, assetURL, asset, shaURL, minisigURL, err = p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.latestMinisigURL, p.lastErr
 		p.mu.Unlock()
 		return
 	}
@@ -145,11 +163,11 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 
 	var rlUntil time.Time
 	var body string
-	tag, assetURL, asset, shaURL, body, rlUntil, err = p.srv.doProbe()
+	tag, assetURL, asset, shaURL, minisigURL, body, rlUntil, err = p.srv.doProbe()
 
 	p.mu.Lock()
 	p.checkedAt = time.Now()
-	p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.lastErr = tag, assetURL, asset, shaURL, err
+	p.latestTag, p.latestAssetURL, p.latestAsset, p.latestShaURL, p.latestMinisigURL, p.lastErr = tag, assetURL, asset, shaURL, minisigURL, err
 	p.latestBody = body
 	if !rlUntil.IsZero() {
 		p.ratelimitUntil = rlUntil
@@ -173,7 +191,8 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 
 // doProbe 探测 GitHub 最新版本。主通道 = Releases API（0.6.207-panel D1：
 // TLS 直连 only，不经 HTTP 镜像候选）；release 附 <资产名>.sha256 时一并
-// 返回其 URL（下载后验哈希用），未附则 shaURL 为空，调用方降级结构校验。
+// 返回其 URL（下载后验哈希用），未附则 shaURL 为空（0.6.328 W3 起调用方
+// 据此 fail-closed 拒绝自更新）。
 //
 // 0.6.299/300 兜底链（均不消耗 API 匿名配额）：
 //  1. github.com web 通道（/releases/latest 的 302 Location 取 tag，
@@ -184,12 +203,12 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL string
 //  3.（0.6.300）FnDepot 源经用户配置的 GitHub 加速镜像（gh-proxy 系与
 //     GitHub 非同网，直连断流时通常仍可达；镜像不代传 302，只用于 raw）。
 // 兜底通道只能拿到 tag → 资产 URL 按官方命名约定（moo_{ver}_x86.fpk）
-// 构造，无 .sha256 侧车 → 降级结构校验（既有路径）。
+// 构造，无 .sha256 侧车 → 因 fail-closed（0.6.328 W3）自更新将拒绝。
 // 返回值 rateLimitUntil：403 且响应带 x-ratelimit-reset 时为其时刻（+1min
 // 余量），调用方在此之前不再打 API。
 // body = release 正文（更新日志，0.6.311：设置页更新确认弹窗展示）；
 // 仅 API 主通道有值，web/FnDepot 兜底通道为空（调用方优雅降级）。
-func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimitUntil time.Time, err error) {
+func (s *Server) doProbe() (tag, assetURL, asset, shaURL, minisigURL, body string, rateLimitUntil time.Time, err error) {
 	apiURL := selfUpdateAPIBase + "/repos/" + selfUpdateRepo + "/releases/latest"
 
 	client := netx.NewClient(selfDlTimeout)
@@ -221,14 +240,14 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimit
 		data, rerr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		resp.Body.Close()
 		if rerr != nil {
-			return "", "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", rerr)
+			return "", "", "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", rerr)
 		}
 		if uerr := json.Unmarshal(data, &rel); uerr != nil {
-			return "", "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", uerr)
+			return "", "", "", "", "", "", rateLimitUntil, fmt.Errorf("官方 release 探测失败: %w", uerr)
 		}
 		tag = strings.TrimPrefix(rel.TagName, "v")
 		if tag == "" {
-			return "", "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
+			return "", "", "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
 		}
 		// 选 x86 FPK 资产（官方只发 x86；arm 资产出现时兜底选任意 fpk）
 		fallback := ""
@@ -254,7 +273,14 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimit
 				break
 			}
 		}
-		return tag, assetURL, asset, shaURL, rel.Body, rateLimitUntil, nil
+		// 0.6.329：release 附 .minisig 资产（minisign 分离签名）→ 下载后验签
+		for _, a := range rel.Assets {
+			if a.URL != "" && a.Name == asset+".minisig" {
+				minisigURL = a.URL
+				break
+			}
+		}
+		return tag, assetURL, asset, shaURL, minisigURL, rel.Body, rateLimitUntil, nil
 	}
 
 	// 兜底 1：web 通道 302
@@ -263,7 +289,7 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimit
 		log.Printf("[selfupdate] API 通道失败（%v），web 兜底命中 v%s", apiErr, wtag)
 		return wtag,
 			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, wtag, wtag),
-			"moo_" + wtag + "_x86.fpk", "", "", rateLimitUntil, nil
+			"moo_" + wtag + "_x86.fpk", "", "", "", rateLimitUntil, nil
 	}
 	// 兜底 2：FnDepot 公开源版本号（raw CDN，不受 moo 仓负缓存 404 影响）
 	jtag, jerr := s.probeFnDepotLatest()
@@ -271,7 +297,7 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimit
 		log.Printf("[selfupdate] API/web 通道失败（%v / %v），FnDepot 源兜底命中 v%s", apiErr, werr, jtag)
 		return jtag,
 			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, jtag, jtag),
-			"moo_" + jtag + "_x86.fpk", "", "", rateLimitUntil, nil
+			"moo_" + jtag + "_x86.fpk", "", "", "", rateLimitUntil, nil
 	}
 	// 兜底 3（0.6.300）：FnDepot 源经用户 GitHub 加速镜像。国内 NAS 直连
 	// GitHub 常整体断流（API 403 + web/raw 超时，0.6.299 实测），而 gh-proxy
@@ -282,9 +308,9 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, body string, rateLimit
 		log.Printf("[selfupdate] API/web/FnDepot 直连全失败（%v / %v / %v），镜像兜底命中 v%s", apiErr, werr, jerr, mtag)
 		return mtag,
 			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, mtag, mtag),
-			"moo_" + mtag + "_x86.fpk", "", "", rateLimitUntil, nil
+			"moo_" + mtag + "_x86.fpk", "", "", "", rateLimitUntil, nil
 	}
-	return "", "", "", "", "", rateLimitUntil,
+	return "", "", "", "", "", "", rateLimitUntil,
 		fmt.Errorf("%w（web 兜底: %v；FnDepot 源兜底: %v；镜像兜底: %v）", apiErr, werr, jerr, merr)
 }
 
@@ -518,7 +544,7 @@ func (s *Server) storeUpdateInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	// 0.6.299：?force=1 强制重探（设置页版本 chip 告警态的点击重试入口）
 	force := r.URL.Query().Get("force") == "1"
-	tag, assetURL, _, _, err := s.selfUpdProbe().probe(force)
+	tag, assetURL, _, _, _, err := s.selfUpdProbe().probe(force)
 	p := s.selfUpdProbe()
 	p.mu.Lock()
 	lastCheck := p.checkedAt
@@ -569,7 +595,7 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	tag, assetURL, _, shaURL, err := s.selfUpdProbe().probe(true)
+	tag, assetURL, _, shaURL, minisigURL, err := s.selfUpdProbe().probe(true)
 	if err != nil || tag == "" {
 		failNotify("版本探测", "官方版本探测失败: "+err.Error())
 		sseSend(w, f, map[string]any{"step": "error", "error": "官方版本探测失败，请稍后重试"})
@@ -587,7 +613,7 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sseSend(w, f, map[string]any{"step": "downloading", "message": "下载 v" + tag + " 安装包…", "progress": 0})
-	fpkPath, err := s.downloadSelfUpdateFPK(w, f, ctx, assetURL, shaURL, tag)
+	fpkPath, err := s.downloadSelfUpdateFPK(w, f, ctx, assetURL, shaURL, minisigURL, tag)
 	if err != nil {
 		failNotify("下载", "下载 v"+tag+" 安装包失败: "+err.Error())
 		sseSend(w, f, map[string]any{"step": "error", "error": "下载失败: " + err.Error()})
@@ -697,9 +723,10 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // downloadSelfUpdateFPK 直连下载 FPK（0.6.207-panel D1：TLS 直连 only，
-// 不经镜像候选），SSE 上报进度。shaURL 非空（release 附 .sha256）时下载后
-// 严格验哈希，不匹配即失败；为空则留日志、由调用方结构校验兜底。
-func (s *Server) downloadSelfUpdateFPK(w http.ResponseWriter, f http.Flusher, ctx context.Context, assetURL, shaURL, tag string) (string, error) {
+// 不经镜像候选），SSE 上报进度。minisigURL 非空（0.6.329 起 release 附
+// .minisig）时下载后验签；shaURL 非空（release 附 .sha256）时下载后验哈希。
+// 任一缺失或校验失败均 fail-closed 拒绝自更新。
+func (s *Server) downloadSelfUpdateFPK(w http.ResponseWriter, f http.Flusher, ctx context.Context, assetURL, shaURL, minisigURL, tag string) (string, error) {
 	dst := filepath.Join(os.TempDir(), fmt.Sprintf("moo-selfupdate-%d-%s.fpk", os.Getpid(), tag))
 	client := netx.NewClient(8 * time.Minute)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
@@ -765,17 +792,65 @@ func (s *Server) downloadSelfUpdateFPK(w http.ResponseWriter, f http.Flusher, ct
 		os.Remove(dst)
 		return "", errors.New("安装包过小，可能损坏")
 	}
-	// D1：release 附 .sha256 → 严格验哈希；未附 → 降级结构校验（留日志）
-	if shaURL != "" {
-		if err := verifySha256(ctx, client, shaURL, dst); err != nil {
-			os.Remove(dst)
-			return "", err
-		}
-		sseSend(w, f, map[string]any{"step": "downloading", "message": "v" + tag + " sha256 校验通过"})
-	} else {
-		log.Printf("[self-update] release v%s 未附 .sha256，降级结构校验", tag)
+	// 0.6.329 安全审计（自更新签名）：release 必须附 <资产名>.minisig 分离签名，
+	// 用内嵌公钥验签；缺失或签名无效即拒绝（fail-closed）。这补上 W3 的缺口——
+	// W3 的 .sha256 侧车与 FPK 同源（无需私钥即可重算），防不了 GitHub release 本身
+	// 投毒；只有 minisign 签名（需离线私钥）能证明「这个包是发布者本人签发的」。
+	if minisigURL == "" {
+		os.Remove(dst)
+		return "", fmt.Errorf("release v%s 未附 .minisig 签名资产，为安全起见拒绝自更新（请报源维护者）", tag)
 	}
+	if err := verifyMinisig(ctx, client, minisigURL, dst); err != nil {
+		os.Remove(dst)
+		return "", err
+	}
+
+	// D1（0.6.328 安全审计 W3）：release 必须附 <资产名>.sha256 校验资产，否则拒绝自更新。
+	// 原「未附 → 降级结构校验」分支只验 gzip/ELF/体积，不验证完整性，防不了投毒/中间人换包，
+	// 属静默安全降级——改为 fail-closed（无侧车即拒），并由发布流程强制附带 .sha256 侧车。
+	if shaURL == "" {
+		os.Remove(dst)
+		return "", fmt.Errorf("release v%s 未附 .sha256 校验资产，为安全起见拒绝自更新（请报源维护者）", tag)
+	}
+	if err := verifySha256(ctx, client, shaURL, dst); err != nil {
+		os.Remove(dst)
+		return "", err
+	}
+	sseSend(w, f, map[string]any{"step": "downloading", "message": "v" + tag + " 校验通过（签名 + 哈希）"})
 	return dst, nil
+}
+
+// verifyMinisig 下载 .minisig 资产并用内嵌公钥（selfUpdatePubkey）验签 FPK。
+// 0.6.329 起自更新的信任锚：签名由发布机离线私钥生成，内嵌公钥验签不联网取钥。
+func verifyMinisig(ctx context.Context, client *http.Client, minisigURL, fpkPath string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, minisigURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("拉取 .minisig 失败: HTTP %d", resp.StatusCode)
+	}
+	sig, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	if len(sig) == 0 {
+		return errors.New(".minisig 内容为空")
+	}
+	// minisign 验签需整个文件内容（BLAKE2b 单遍哈希）；FPK ~5MB，内存可接受。
+	msg, err := os.ReadFile(fpkPath)
+	if err != nil {
+		return err
+	}
+	if !minisign.Verify(selfUpdatePubkey, msg, sig) {
+		return errors.New("自更新签名校验失败（签名无效或不匹配，已拒绝）")
+	}
+	return nil
 }
 
 // verifySha256 下载 .sha256 资产并与本地文件哈希比对。
