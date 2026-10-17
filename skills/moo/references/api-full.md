@@ -127,8 +127,11 @@ Moo 采用**两层防线**：
 | `has_update` | bool | 有可用更新（已忽略时为 false） |
 | `update_ignored` | bool | 更新已被用户忽略 |
 | `update_ignored_pending` | bool | 已忽略但确实压着新版本（角标计数含此类） |
+| `user_hidden` | bool | 该卡被用户「禁用」（0.6.326）：列表/搜索/推荐不展示；已装卡仍列出（可恢复），详情按 key 可达 |
 | `platform` / `app_type` / `category` | string | 平台 / 类型 / 分类 |
 | `release_url` / `release_notes` | string | 上游发布链接 / 说明 |
+| `upstream_source` / `upstream_repo` | string | 溯源（0.6.326）：包发布仓库 owner 与本源码 owner 不同 ⇒ 判定「搬运上游」——`upstream_repo` = 上游 `owner/repo`（恒有），`upstream_source` = Moo 已添加的该上游源名（未添加则空） |
+| `upstream_version` / `upstream_url` | string | 上游源同名卡最新版本 / 上游仓库地址（非搬运卡全空） |
 | `status` | string | 已装应用运行状态（平台提供） |
 | `start_stop` / `uninstallable` | bool? | 可启停 / 可卸载能力位 |
 | `web_protocol` / `web_url` / `web_port` / `web_path` | string/int | Web 入口 |
@@ -154,12 +157,30 @@ Moo 采用**两层防线**：
 {
   "id": "src-xxxx", "name": "FnDepot", "url": "https://…/fndepot.json",
   "app_count": 123, "enabled": true, "favorite": false,
-  "error": "", "last_fetched": "2026-09-29T12:00:00+08:00", "empty_streak": 0
+  "error": "", "last_fetched": "2026-09-29T12:00:00+08:00", "empty_streak": 0,
+  "overlap_risk": "high", "overlap_with": "other-src",
+  "overlap_name_count": 53, "overlap_exact_count": 33,
+  "overlap_name_ratio": 0.5, "overlap_exact_ratio": 0.31,
+  "overlap_unique_names": 53, "overlap_self_count": 106
 }
 ```
 
 - `error`：最近一次同步失败原因（成功时为空）。
 - `empty_streak`：连续 0 应用同步轮次（自动监测据此停用空源）。
+- `overlap_*`（0.6.326z）：**源重合率（只读信号，绝不影响任何源的状态）**——该源与
+  「最相似的对方源」的应用名/版本重合情况，用于让「同 owner 且 `fork=false` 的整仓
+  复制源」可见（这是溯源判定（`lineage`）看不到的盲点）。口径与 FnDepot 对齐：
+  - `overlap_name_ratio = overlap_name_count / max(两源应用数)`；`overlap_exact_ratio` 同理
+    （精确 = 同名同版本）。
+  - `overlap_risk`：`high` ≥0.80 / `medium` ≥0.50 / `low` ≥0.25 / `none` <0.25，且需满足
+    **最小证据量**（`overlap_name_count` 或 `overlap_exact_count` ≥2）——只共享 1 个应用名
+    不足以构成重合结论（现网 114 条信号中 29 条交集=1，其中 26 条是「各只有 1 个应用的源
+    互相指向」）。证据不足时档位回落 `none`，但 `overlap_with` / 各 ratio / 各 count 照常
+    下发（数据零丢失，仅不下发给视图）；无 partner 或比值低于 `low` 时其余字段可缺省。
+  - `overlap_unique_names`：本方独有 appname 数（「停掉它会丢多少」——只看比值会误导，
+    大源天然高重合，故与比值同时下发）。
+  - `overlap_with`：最相似的对方源名（平票取源名字典序小者，结果确定）。
+  - 官方源（`fnos-official`）不参与计算，其条目恒无这些字段。
 
 ### 3.3 BackgroundTask（后台任务）
 
@@ -192,7 +213,7 @@ Docker 组同构（`/api/mirrors/docker/health`）。
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -319,6 +340,11 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 | `POST /api/check` | 检查更新（并发 8 全量源刷新 + 比对已装版本） |
 | `PUT /api/apps/{key}/ignore-update` | 忽略该应用的更新（可重复忽略不同版本） |
 | `DELETE /api/apps/{key}/ignore-update` | 取消忽略 |
+| `PUT /api/apps/{key}/hide` | 禁用（0.6.326）：从列表/搜索/推荐隐藏；已装卡仍列出（可恢复），详情按 key 可达 |
+| `DELETE /api/apps/{key}/hide` | 取消禁用（恢复显示） |
+
+`PUT/DELETE /api/apps/{key}/hide` 为幂等切换，响应 `{"ok":true,"hidden":[...]}`（`hidden` = 当前禁用集合，上限 500）。
+`{key}` 原样存（前端传卡片 key，如 `appname@源名`），构建期按卡片 key 精确匹配、回落 `appname`；仅展示层，不改更新判定（对比「忽略更新」：后者压更新信号）。
 
 安装/更新成功时 `local_installs[appname]` 累计 +1 并持久化。
 
@@ -397,8 +423,9 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 - `check_interval_hours` / `backup_interval_days` / `cache_clean_every_days`（0.6.325 H5）：指针语义 —— **缺省** = 不改动；`0` = 清除回各自默认（检查间隔 **24h** / 备份周期 **7 天** / 清理周期 **1 天**；`GET /api/settings` 透出生效值）。校验：`check_interval_hours` 合法 `0-168`，越界整单拒绝；两个天数字段负数整单拒绝、`>30` 沿用既有钳制（落 `30`）。
 - `custom_github_mirror` / `custom_docker_mirror` / `source_list_url` 随 `GET /api/settings` 透出（0.6.325 H1 修复：此前 PUT 可写但 GET 恒缺键，设置页水合空串后全量保存会静默清除已存自定义镜像）；未设置时键缺席（omitempty），前端水合成空串。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
-- `update_policy`（0.6.272 跨源更新策略）：仅接受 `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
+- `update_policy`（0.6.272 跨源更新策略；0.6.326x 起新增第四档 `upstream`）：仅接受 `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库）/ `upstream`（**强制上游**：已安装且来自「搬运上游」的应用改用上游原作者版本，其余应用按 `strict` 处理），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
 - `dedup_policy`（0.6.312 B2 列表去重展示策略）：仅接受 `all`（默认，零变化）/ `merge`（同名组内同宗簇留一代表）/ `one`（每 appname 一张代表卡），其余整单拒绝；变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回三档可见数。
+- `auto_correct`（0.6.326 引入；0.6.326x 起**已弃用**）：语义已并入 `update_policy="upstream"`（强制上游）。字段仍可提交以兼容旧客户端（提交 `true` 等价于把 `update_policy` 置为 `upstream`），保存设置后恒为 `false`；新代码请直接用 `update_policy`。
 
 常用片段示例：
 
