@@ -175,6 +175,8 @@ go test ./...     # 单元测试
 > 后两个为独立仓库的技能，克隆到工作区的 `skills/` 目录即可被 Agent 识别；
 > 前两个已随本仓库分发（见 [`skills/`](skills/)）。
 
+📦 **[下载「文档与技能」压缩包](downloads/moo-docs-skills.zip)**（约 112 KB）——打包 `应用介绍.md`、`docs/` 下全部 Markdown（API / 应用源协议 / AGENTS / 设计记录）与两个随仓库分发的 Agent Skill（`skills/moo`、`skills/fpk-build-to-moo`），解压后把 `skills/` 下的两个目录放进工作区即可被 Agent 识别；配图不打包，见仓库 [`docs/`](docs/)。
+
 ## 📄 许可证
 
 [MIT License](LICENSE) · © 2026 Blue-Mink
