@@ -11,6 +11,15 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SKILL = ROOT / "SKILL.md"
 
+
+def protocol_ref() -> pathlib.Path | None:
+    """协议文档位置：仓库内 docs/ → 独立安装的 bundled/docs/。"""
+    for p in (ROOT.parents[1] / "docs" / "Moo应用源协议.md",
+              ROOT / "bundled" / "docs" / "Moo应用源协议.md"):
+        if p.exists():
+            return p
+    return None
+
 # 不得出现在技能文档里的敏感模式
 FORBIDDEN = [
     (r"192\.168\.\d+\.\d+", "真实内网地址（示例请用 RFC5737 网段 192.0.2.x）"),
@@ -36,12 +45,16 @@ class TestSkillDocs(unittest.TestCase):
             target = m.group(1)
             if target.startswith("http"):
                 continue
-            self.assertTrue((ROOT / target).exists(), f"路由链接失效: {target}")
+            cands = [ROOT / target]
+            if target.startswith("../../"):
+                # 独立安装：仓库相对链接改为读 bundled/
+                cands.append(ROOT / "bundled" / target.lstrip("./"))
+            self.assertTrue(any(c.exists() for c in cands), f"路由链接失效: {target}")
 
     def test_protocol_reference_present(self):
-        # 仓库版：协议正文就是仓库里的 docs/Moo应用源协议.md（不另存副本，避免漂移）
-        ref = ROOT.parents[1] / "docs" / "Moo应用源协议.md"
-        self.assertTrue(ref.exists(), "缺少 docs/Moo应用源协议.md")
+        # 仓库版：docs/Moo应用源协议.md；独立安装版：bundled/docs/Moo应用源协议.md
+        ref = protocol_ref()
+        self.assertIsNotNone(ref, "缺少协议文档（docs/ 或 bundled/docs/）")
         body = ref.read_text(encoding="utf-8")
         self.assertIn('"schema_version": "moo"', body)
         self.assertIn("分类取值", body, "协议文档应含分类章节")

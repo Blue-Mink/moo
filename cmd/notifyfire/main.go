@@ -76,7 +76,7 @@ var events = []ev{
 
 // detailURL 卡片详情页基址：经 -detail-url / MOO_DETAIL_URL 注入（脱敏，
 // 默认回环 Moo 地址，部署时按实际 NAS 入口传入）。
-var detailURL = "http://127.0.0.1:38101/"
+var detailURL = "http://127.0.0.1:38100/"
 
 func main() {
 	dataDir := flag.String("data", os.Getenv("MOO_DATA"), "moo 数据目录（读 config.json 渠道）")

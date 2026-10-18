@@ -1,6 +1,6 @@
 ---
 name: moo
-description: Understand, diagnose, and safely operate Moo, a self-hosted community app store for fnOS/Fn Connect (飞牛NAS) that aggregates third-party FPK app sources, provides install/update/uninstall with data preservation, mirror acceleration, notification channels, and in-app self-update. Use for questions about Moo concepts, the HTTP API (85 endpoints), FPK build/install/hot-swap, acceleration mirrors (gh-proxy/jsDelivr/Fastly/direct) and scientific-acceleration proxy, notification channels, backups, troubleshooting (source sync failures, icon 404s, self-update red dot, /tmp tmpfs pitfalls), and safe configuration changes via the settings API.
+description: Understand, diagnose, and safely operate Moo, a self-hosted community app store for fnOS/Fn Connect (飞牛NAS) that aggregates third-party FPK app sources, provides install/update/uninstall with data preservation, mirror acceleration, notification channels, and in-app self-update. Use for questions about Moo concepts, the HTTP API (87 endpoints), FPK build/install/hot-swap, acceleration mirrors (gh-proxy/jsDelivr/Fastly/direct) and scientific-acceleration proxy, notification channels, backups, troubleshooting (source sync failures, icon 404s, self-update red dot, /tmp tmpfs pitfalls), and safe configuration changes via the settings API.
 version: 1.0.0
 metadata:
   hermes:
@@ -42,7 +42,7 @@ Load `references/product-model.md` when the user asks what Moo is, which plane a
 
 1. Identify the target: concept explanation, read-only inspection, diagnosis, or configuration change.
 2. Determine the **channel**: API calls should go through the fnOS panel gateway (`/app/moo/api/`) so requests are trusted + admin. Direct port access works on the NAS itself but write endpoints need the trusted channel.
-3. Load `references/api-full.md` for the exact endpoint contract before calling anything (85 endpoints, request/response schemas, SSE protocol).
+3. Load `references/api-full.md` for the exact endpoint contract before calling anything (87 endpoints, request/response schemas, SSE protocol).
 4. Prefer the smallest read workflow; for diagnosis, load `references/troubleshooting.md` first and match symptoms.
 5. Use `references/feature-map.md` to map a user-facing feature (favorite, ignore-update, proxy, backups…) to its API endpoints.
 6. For build/deploy questions, load `references/install-deploy.md` (repo layout, build pipeline, hot-swap, runtime directories).
@@ -52,7 +52,7 @@ Load `references/product-model.md` when the user asks what Moo is, which plane a
 ## Reference Routing
 
 - What Moo is, the four planes, runtime directories, background loops: `references/product-model.md`.
-- Full API contract (all 85 endpoints, types, SSE, errors, security model, build flow): `references/api-full.md`.
+- Full API contract (all 87 endpoints, types, SSE, errors, security model, build flow): `references/api-full.md`.
 - Feature → API map (sources, favorites, ignore-update, mirrors, proxy, notifications, backups, self-update): `references/feature-map.md`.
 - FPK build, install, hot-swap, release pipeline, env vars: `references/install-deploy.md`.
 - Mutation confirmation, credential handling, what never to exfiltrate: `references/safety.md`.
@@ -89,3 +89,21 @@ bash moo/scripts/moo-health.sh http://<NAS_IP>:5666/app/moo/api
 - **Never** assume `/tmp` persists on fnOS test/dev boxes (tmpfs may be reaped); keep tooling artifacts under the data dir.
 - **Never** use `pkill -f <pattern>` from an SSH one-liner where the pattern also appears in the remote command line (self-match kills your own shell) — use the bracket trick: `pkill -f "pat[tern]"`.
 - Proxy config is local-only: the proxy URL is stored in config.json and never sent anywhere; only GitHub domains route through it.
+
+## Install into other agents（跨 Agent 安装）
+
+本技能与平台无关（Markdown + node/curl），可用仓库内安装器落到任意 Agent：
+
+```bash
+sh skills/install-cross-agent.sh --list
+sh skills/install-cross-agent.sh --target qwenpaw --apply        # <项目>/skills/
+sh skills/install-cross-agent.sh --target claude-code --apply    # ~/.claude/skills/
+sh skills/install-cross-agent.sh --target codex --apply          # ~/.codex/prompts/
+sh skills/install-cross-agent.sh --target gemini-cli --apply     # ~/.gemini/commands/
+sh skills/install-cross-agent.sh --target cursor --apply         # .cursor/rules/
+sh skills/install-cross-agent.sh --target agents-md --apply      # AGENTS.md
+```
+
+- 默认 dry-run，`--apply` 才写入；`--link` 用软链；`--dest` 自定义目录。
+- 配置走环境变量：`MOO_API_BASE`（默认 `http://127.0.0.1:38100/api`）、`MOO_COOKIE`（面板会话，可选）。
+- **端口**：API 是 **38100**（`MOO_WEB_PORT` 可覆盖）；**38101 是 pprof 调试端口**，调 `/api/*` 会 404。

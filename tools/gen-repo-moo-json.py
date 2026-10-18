@@ -5,6 +5,11 @@
 用途：把「承载 Moo FPK 的仓库」本身变成一个可被 Moo 添加的应用源
 （应用 = Moo 自己；多版本走 releases 映射）。
 
+网络与凭据边界（安全审计要求）：
+- 唯一网络目的地 = `--repo` 指定的主机（`<host>/api/v1/repos/<owner>/<repo>/releases`）；
+  不访问其它域名，不上传本地文件。
+- `--user/--password` 只用于该主机的 API 认证，不落盘、不写日志。
+
 用法：
   python3 tools/gen-repo-moo-json.py \
       --repo https://gitea.example.com/owner/repo \

@@ -8,7 +8,7 @@ All commands below use placeholders. Run them on a build machine with Node 22+ a
 moo/
 ├── cmd/server/          # Go entry: config load → proxy restore → source manager → HTTP server
 ├── internal/
-│   ├── api/             # all 85 endpoints + SSE + catalog/icon/readme caches
+│   ├── api/             # all 87 endpoints + SSE + catalog/icon/readme caches
 │   ├── config/          # config.json schema + load/save (atomic, 700 perms)
 │   ├── source/          # source sync engines (fndepot index / conversun / official list)
 │   ├── netx/            # scientific-acceleration proxy transport (0.6.206+)
@@ -66,7 +66,7 @@ appcenter-cli install /vol1/downloads/moo_0.6.206_x86.fpk
 
 appcenter-cli stop moo
 appcenter-cli start moo
-curl -s http://127.0.0.1:38101/api/version   # {"version":"0.6.206","trusted":…}
+curl -s http://127.0.0.1:38100/api/version   # {"version":"0.6.206","trusted":…}
 ```
 
 Runtime locations after install:
@@ -85,7 +85,7 @@ rm -rf /vol1/@appcenter/moo/web
 cp -r web /vol1/@appcenter/moo/web
 appcenter-cli start moo
 sleep 5
-curl -s http://127.0.0.1:38101/api/version
+curl -s http://127.0.0.1:38100/api/version
 ```
 
 Hot-swap rules:
@@ -107,7 +107,7 @@ Hot-swap rules:
 
 | Var | Default | Meaning |
 |---|---|---|
-| `MOO_WEB_PORT` | `38101` | listen port for the standalone API/UI |
+| `MOO_WEB_PORT` | `38100` | listen port for the standalone API/UI |
 | `TRIM_PKGVAR` | (framework-injected) | data dir root (@appdata absolute path) |
 
 ## Lifecycle Scripts (fnos/)
@@ -132,9 +132,9 @@ Both are unconditional — there is no API switch to turn them off.
 ## Verification Checklist (post-deploy)
 
 ```bash
-curl -s http://127.0.0.1:38101/api/version           # version + trusted
-curl -s http://127.0.0.1:38101/api/daemon/status     # appcenter RPC reachable
-curl -s http://127.0.0.1:38101/api/operations        # current op + history
+curl -s http://127.0.0.1:38100/api/version           # version + trusted
+curl -s http://127.0.0.1:38100/api/daemon/status     # appcenter RPC reachable
+curl -s http://127.0.0.1:38100/api/operations        # current op + history
 # via panel gateway (trusted channel):
 curl -s http://<NAS_IP>:5666/app/moo/api/settings | head -c 200
 ```

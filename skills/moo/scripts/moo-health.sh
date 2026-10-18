@@ -3,12 +3,12 @@
 #
 # Usage:
 #   bash moo-health.sh [api-base]
-#   api-base default: http://127.0.0.1:38101/api  (panel gateway: http://<NAS_IP>:5666/app/moo/api)
+#   api-base default: http://127.0.0.1:38100/api  (panel gateway: http://<NAS_IP>:5666/app/moo/api)
 #
 # Only GETs; no credentials required except the admin-only endpoints, which
 # are best-effort (403 when called without a trusted admin session).
 set -u
-BASE="${1:-${MOO_API_BASE:-http://127.0.0.1:38101/api}}"
+BASE="${1:-${MOO_API_BASE:-http://127.0.0.1:38100/api}}"
 BASE="${BASE%/}"
 
 jq_or_cat() { # pretty-print JSON if jq exists, else raw (truncated)

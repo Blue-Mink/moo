@@ -40,7 +40,7 @@
 | 通道 | 基址 | 说明 |
 |---|---|---|
 | 面板 WebUI（推荐） | `http://<NAS_IP>:5666/app/moo/api/` | 经 fnOS 应用中心网关代理，自动携带面板会话 → **可信通道** |
-| 直连（可信设备） | `http://<NAS_IP>:38101/api/` | 服务默认监听端口，可被 `MOO_WEB_PORT` 环境变量覆盖 |
+| 直连（可信设备） | `http://<NAS_IP>:38100/api/` | 服务默认监听端口，可被 `MOO_WEB_PORT` 环境变量覆盖 |
 
 - 所有端点路径以 `/api/` 开头；非 `/api` 路径回退 SPA 前端（`index.html`）。
 - 服务仅监听**回环与本机面板代理**可达的地址面；写操作一律要求可信通道 + 管理员（见 §2）。
@@ -748,7 +748,7 @@ sha256sum moo_0.6.206_x86.fpk     # 发布时记录到 Release 尾行
 | `/vol1/@appdata/moo/` | `config.json`（权限 700）、`cache/`（catalog 快照/图标/readme 缓存）、`backups/`、`moo.log` | **升级保留**（@appdata 数据卷） |
 
 环境变量：
-- `MOO_WEB_PORT`：覆盖默认监听端口（默认 38101）。
+- `MOO_WEB_PORT`：覆盖默认监听端口（默认 38100）。
 - `TRIM_PKGVAR`：数据目录根（fnOS 应用框架注入 @appdata 绝对路径）。
 
 生命周期（`fnos/` lifecycle 脚本）：安装 = 释放包 + 起服务；升级 = 停 → 换二进制/web → 起（config.json 不动）；卸载 = 停服务（数据卷默认保留，供重装恢复）。
@@ -760,7 +760,7 @@ appcenter-cli stop moo
 cp <staging>/moo-server /vol1/@appcenter/moo/moo-server
 rm -rf /vol1/@appcenter/moo/web && cp -r web /vol1/@appcenter/moo/web
 appcenter-cli start moo
-curl -s http://127.0.0.1:38101/api/version    # 验证版本
+curl -s http://127.0.0.1:38100/api/version    # 验证版本
 ```
 
 ### 21.5 发布流程

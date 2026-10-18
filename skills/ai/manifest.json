@@ -1,0 +1,19 @@
+{
+  "package": "moo-ai-skills",
+  "version": "1.0.0",
+  "updated_at": "2026-10-18T09:34:17+08:00",
+  "branch": "main",
+  "description": "Moo 应用内 AI 能力技能包（纪律/排障/去重/安全）",
+  "budget": {
+    "max_files": 20,
+    "max_file_kb": 100,
+    "total_kb": 512
+  },
+  "files": {
+    "discipline.md": "a17b1cf84274f1499140f2fbf9eb7fb434a03fbc5618f7148a69ba5fc02b4c8e",
+    "dedup-playbook.md": "89690d5e5e93dea95fa3cfebef70cad65343dedf8740e1d806b8ccad95c6c802",
+    "troubleshooting.md": "42fb29b05f915f3999d1adb2dcc4809531ce8b4dadb3d4f22fb092c537067fe8",
+    "security-scan.md": "a6fda235adabc1a26bfb54ca20761edd9cf9d260e860491bc909a60b319a5480",
+    "CHANGELOG.md": "96979987dc9c0d8cfe05766dd58a769779a8be372a83fd8d8f24ff225f7ac4d3"
+  }
+}

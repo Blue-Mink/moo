@@ -168,3 +168,21 @@ Moo 比较版本：去前导 `v` → 拆「数字前缀 + 后缀」→ 数字逐
 - 生成器：`tools/gen-moo-json`（Go）、`tools/gen-repo-moo-json.py`（Python）
 - 姊妹技能：`fn-fpk-builder`（构建/打包/安装）、`fpk-build-to-fndepot`（发布到 FnDepot）
 - 实战来源：Moo 仓库自身被添加为应用源的全过程（252+ 版本多版本索引、真实下载数、预览图与 README 拉取）
+
+## 九、依赖与跨 Agent 安装
+
+本技能可在仓库内直接使用，也可独立安装到其它 Agent：
+
+```bash
+sh skills/install-cross-agent.sh --target claude-code --apply        # ~/.claude/skills/
+sh skills/install-cross-agent.sh --target codex --apply              # ~/.codex/prompts/
+sh skills/install-cross-agent.sh --target cursor --apply             # .cursor/rules/
+sh skills/install-cross-agent.sh --target agents-md --apply          # AGENTS.md
+sh skills/install-cross-agent.sh --target skills-dir --dest <目录> --apply --skill fpk-build-to-moo
+```
+
+- **仓库相对引用**：`docs/Moo应用源协议.md`、`tools/gen-moo-json`、`tools/gen-repo-moo-json.py`
+  在仓库内是相对路径；独立安装时安装器会复制到本技能的 `bundled/docs/` 与 `bundled/tools/`，
+  文档中的 `../../docs/...` 链接在独立环境下按 `bundled/` 解析。
+- **依赖**：`python3`（生成器与测试）；`tools/gen-moo-json` 是 Go 源码（需要 `go build` 才能跑）。
+- **自检**：`python3 -m unittest discover -s tests`（仓库版与独立安装版都应通过）。

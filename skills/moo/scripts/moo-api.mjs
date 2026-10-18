@@ -14,7 +14,7 @@
  *   node moo-api.mjs sse POST /api/apps/<key>/install
  *
  * Notes:
- * - Base URL default: MOO_API_BASE env or http://127.0.0.1:38101/api
+ * - Base URL default: MOO_API_BASE env or http://127.0.0.1:38100/api
  * - Write endpoints need the trusted channel (panel gateway base) + admin session.
  *   When calling through a browser-logged-in panel, pass the session cookie:
  *     --cookie "moosession=..." (or set MOO_COOKIE)
@@ -26,7 +26,7 @@
 import process from 'node:process';
 
 const argv = process.argv.slice(2);
-const opts = { base: process.env.MOO_API_BASE || 'http://127.0.0.1:38101/api', cookie: process.env.MOO_COOKIE || '', raw: false, sse: false };
+const opts = { base: process.env.MOO_API_BASE || 'http://127.0.0.1:38100/api', cookie: process.env.MOO_COOKIE || '', raw: false, sse: false };
 const args = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];

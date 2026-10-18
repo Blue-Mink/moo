@@ -1,0 +1,39 @@
+name: Skills Check
+
+# 技能目录自检：结构 / 链接 / manifest 哈希 / 安装器 dry-run / 测试 / 脱敏
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - "tools/**"
+      - "docs/Moo应用源协议.md"
+      - ".github/workflows/skills-check.yml"
+  pull_request:
+    paths:
+      - "skills/**"
+      - "tools/**"
+      - "docs/Moo应用源协议.md"
+      - ".github/workflows/skills-check.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Skills self-check
+        run: python3 skills/ci_check.py

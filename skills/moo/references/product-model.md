@@ -8,7 +8,7 @@ Moo (飞牛应用商店增强) is a self-hosted **community app store** panel fo
 - Drives the fnOS **appcenter daemon** (local unix socket, loopback panel credentials) to install / update / uninstall / start / stop apps — always preserving the app's data volume (`@appdata`).
 - Adds operational comfort: GitHub mirror acceleration with auto speed-selection, scientific-acceleration proxy, pause/resume downloads, ignore-update, favorites, config backups, 7-channel notifications, and in-app self-update (FPK in-place upgrade).
 
-Moo itself ships as an FPK and runs as a single Go binary + static React frontend, served on its own web port (default 38101, `MOO_WEB_PORT` overridable) and proxied through the fnOS panel at `/app/moo/`.
+Moo itself ships as an FPK and runs as a single Go binary + static React frontend, served on its own web port (default 38100, `MOO_WEB_PORT` overridable) and proxied through the fnOS panel at `/app/moo/`.
 
 ## The Four Planes
 
@@ -53,7 +53,7 @@ Two **orthogonal** mechanisms — the single most-asked question ("do they confl
 | `/vol1/@appcenter/moo/` | `moo-server` binary + `web/` frontend | overwritten by FPK upgrade |
 | `/vol1/@appdata/moo/` | `config.json`, `cache/`, `backups/`, `moo.log` | **preserved** (data volume) |
 
-Env: `MOO_WEB_PORT` (listen port, default 38101); `TRIM_PKGVAR` (data dir root injected by the fnOS app framework).
+Env: `MOO_WEB_PORT` (listen port, default 38100); `TRIM_PKGVAR` (data dir root injected by the fnOS app framework).
 
 ## Background Loops (resident in-process)
 
