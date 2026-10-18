@@ -161,34 +161,21 @@ go test ./...     # 单元测试
 
 ## 文档与技能
 
-| 资源 | 说明 |
-|---|---|
-| [应用介绍（图文）](应用介绍.md) | 面向用户的完整图文手册：逐页功能讲解（Dock 五键 / 七 tab 设置 / 详情 / 向导）+ moo.json 源协议 + FAQ，全部截图为当前版本真实界面 |
-| [API 文档](docs/API.md) | 全部 HTTP 端点、请求/响应字段、SSE 事件、鉴权与错误码 |
-| [应用源协议](docs/Moo应用源协议.md) | `moo.json` 完整规范：字段全表、14 项固定分类、多版本与 `packages`、版本比较规则、7 份带注释示例、FAQ |
-| [仓库手册 AGENTS.md](docs/AGENTS.md) | 面向在仓库内工作的 Agent 与维护者：项目速览与目录地图、构建与提交前本地门、部署到 fnOS 的四铁律与回滚、发布顺序、脱敏硬规则、反复踩过的坑 |
-| [使用与诊断技能](skills/moo/) | Agent Skill：四平面核心模型、完整 API 镜像、安装与热替换、安全规则、排障 |
-| [构建并发布到 Moo 技能](skills/fpk-build-to-moo/) | Agent Skill：**从构建 FPK 到发布 Moo 的全流程**——构建与本地验证 → 写 `moo.json` → 放仓库（匿名可达）→ 搜索框自测 → 添加为源与详情页验收 → 版本迭代与发布脱敏 |
-| [发布到 FnDepot 技能](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill) | Agent Skill：FnDepot V2 协议与上架流程 |
-| [FPK 构建技能](https://github.com/Blue-Mink/fn-fpk-builder-skill) | Agent Skill：FPK 打包 / 校验 / 发布 / SSH 部署与排障 |
+| 资源 | 说明 | 下载 |
+|---|---|---|
+| [应用介绍（图文）](应用介绍.md) | 面向用户的完整图文手册：逐页功能讲解（Dock 五键 / 七 tab 设置 / 详情 / 向导）+ moo.json 源协议 + FAQ，全部截图为当前版本真实界面 | [zip](downloads/moo-doc-intro.zip) |
+| [API 文档](docs/API.md) | 全部 HTTP 端点、请求/响应字段、SSE 事件、鉴权与错误码 | [zip](downloads/moo-doc-api.zip) |
+| [应用源协议](docs/Moo应用源协议.md) | `moo.json` 完整规范：字段全表、14 项固定分类、多版本与 `packages`、版本比较规则、7 份带注释示例、FAQ | [zip](downloads/moo-doc-protocol.zip) |
+| [仓库手册 AGENTS.md](docs/AGENTS.md) | 面向在仓库内工作的 Agent 与维护者：项目速览与目录地图、构建与提交前本地门、部署到 fnOS 的四铁律与回滚、发布顺序、脱敏硬规则、反复踩过的坑 | [zip](downloads/moo-doc-agents.zip) |
+| [使用与诊断技能](skills/moo/) | Agent Skill：四平面核心模型、完整 API 镜像、安装与热替换、安全规则、排障 | [zip](downloads/moo-skill-usage.zip) |
+| [构建并发布到 Moo 技能](skills/fpk-build-to-moo/) | Agent Skill：**从构建 FPK 到发布 Moo 的全流程**——构建与本地验证 → 写 `moo.json` → 放仓库（匿名可达）→ 搜索框自测 → 添加为源与详情页验收 → 版本迭代与发布脱敏 | [zip](downloads/moo-skill-build-export.zip) |
+| [发布到 FnDepot 技能](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill) | Agent Skill：FnDepot V2 协议与上架流程 | [main.zip](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill/archive/refs/heads/main.zip) |
+| [FPK 构建技能](https://github.com/Blue-Mink/fn-fpk-builder-skill) | Agent Skill：FPK 打包 / 校验 / 发布 / SSH 部署与排障 | [main.zip](https://github.com/Blue-Mink/fn-fpk-builder-skill/archive/refs/heads/main.zip) |
 
-> 后两个为独立仓库的技能，克隆到工作区的 `skills/` 目录即可被 Agent 识别；
-> 前两个已随本仓库分发（见 [`skills/`](skills/)）。
+> 后两个为独立仓库的技能，克隆到工作区的 `skills/` 目录即可被 Agent 识别（「下载」列为 GitHub 自动归档）；
+> 前两个已随本仓库分发（见 [`skills/`](skills/)），「下载」列为对应资源的单独压缩包（保持原目录结构）。
 
 📦 **[下载「文档与技能」压缩包](downloads/moo-docs-skills.zip)**（约 112 KB）——打包 `应用介绍.md`、`docs/` 下全部 Markdown（API / 应用源协议 / AGENTS / 设计记录）与两个随仓库分发的 Agent Skill（`skills/moo`、`skills/fpk-build-to-moo`），解压后把 `skills/` 下的两个目录放进工作区即可被 Agent 识别；配图不打包，见仓库 [`docs/`](docs/)。
-
-**单独下载**（每个资源一个压缩包，解压后保持原目录结构）：
-
-| 资源 | 压缩包 |
-|---|---|
-| 应用介绍（图文） | [moo-doc-intro.zip](downloads/moo-doc-intro.zip) · 7.8 KB |
-| API 文档 | [moo-doc-api.zip](downloads/moo-doc-api.zip) · 18.8 KB |
-| 应用源协议 | [moo-doc-protocol.zip](downloads/moo-doc-protocol.zip) · 13.2 KB |
-| 仓库手册 AGENTS.md | [moo-doc-agents.zip](downloads/moo-doc-agents.zip) · 9.6 KB |
-| 使用与诊断技能（`skills/moo`） | [moo-skill-usage.zip](downloads/moo-skill-usage.zip) · 41.6 KB |
-| 构建并发布到 Moo 技能（`skills/fpk-build-to-moo`） | [moo-skill-build-export.zip](downloads/moo-skill-build-export.zip) · 12.2 KB |
-| 发布到 FnDepot 技能（独立仓库） | [main.zip](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill/archive/refs/heads/main.zip) · GitHub 自动归档 |
-| FPK 构建技能（独立仓库） | [main.zip](https://github.com/Blue-Mink/fn-fpk-builder-skill/archive/refs/heads/main.zip) · GitHub 自动归档 |
 
 ## 📄 许可证
 
