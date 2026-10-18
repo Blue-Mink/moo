@@ -171,6 +171,7 @@ go test ./...     # 单元测试
 | [构建并发布到 Moo 技能](skills/fpk-build-to-moo/) | Agent Skill：**从构建 FPK 到发布 Moo 的全流程**——构建与本地验证 → 写 `moo.json` → 放仓库（匿名可达）→ 搜索框自测 → 添加为源与详情页验收 → 版本迭代与发布脱敏 | [zip](downloads/moo-skill-build-export.zip) |
 | [应用内 AI 资料包](skills/ai/) | 资料型技能：Moo 应用内 AI 助手的行为约定（纪律十条 / 排障四段式 / 去重报告版 / 静态安全扫描），按 `manifest.json` 逐文件哈希同步进应用 | [zip](downloads/moo-skill-ai.zip) |
 | [应用安全审核技能](skills/moo-app-security-audit/) | Agent Skill：第三方 FPK 安全体检——病毒/木马/恶意脚本、数据破坏与勒索、权限面、弱默认口令、攻击面；三层分析（元数据 → 源码 → 解包二进制），附 `fpk_audit.py` | [zip](downloads/moo-skill-security-audit.zip) |
+| [Moo 自身安全审核报告（v0.6.329）](SECURITY-AUDIT-0.6.329.md) | 用上表的安全审核技能对 **Moo 自身**做三层审核（元数据 → 源码 → 解包二进制）：八维安全分 68 🟡、M1–M6 恶意面全未命中、minisign + sha256 双验签通过、发现清单（1 中 2 低 3 信息）与完整复现步骤 | — |
 | [发布到 FnDepot 技能](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill) | Agent Skill：FnDepot V2 协议与上架流程 | [main.zip](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill/archive/refs/heads/main.zip) |
 | [FPK 构建技能](https://github.com/Blue-Mink/fn-fpk-builder-skill) | Agent Skill：FPK 打包 / 校验 / 发布 / SSH 部署与排障 | [main.zip](https://github.com/Blue-Mink/fn-fpk-builder-skill/archive/refs/heads/main.zip) |
 
