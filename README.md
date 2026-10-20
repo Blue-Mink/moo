@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.326-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.351-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64%2Farm64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,12 +58,12 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.326` · x86 `5519ae42d862fee744e5a778a37c585b9dd81f603fdf9c6ced7e046aa08fb154`（4.8MB） / arm `c7132ebc58a6404bd2c6f32500f1baf1ff5da78856d7d473cb6749e3e872f29a`（4.4MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.351` · x86 `a63509744115a40f363687cb87453cc64eff62c95696e01d5f1425ec123735ac`（4.9MB） / arm `88c444e49aefa299577b1299430ed1ddcdbeecb4208b53b19adb62b5171f98e1`（4.5MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
 
-运行要求：fnOS x86_64 / arm64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 4.7 MB（x86）/ 4.3 MB（arm）。
+运行要求：fnOS x86_64 / arm64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 4.9 MB（x86）/ 4.5 MB（arm）。
 
 > [!TIP]
 > 装完可应用内自更新：版本号红点 + 确认框，走平台升级通道就地更新，`@appdata` 数据保留。
@@ -107,6 +107,11 @@
 | 应用溯源 | 详情页显示应用的上游来源，并可「添加上游源 / 禁用 fork 源 / 禁用应用」；整仓 fork 式搬运按 fork parent 判定上游（0.6.326） |
 | 强制上游策略 | 更新策略新增第四档：搬运来源的应用自动更新为上游原作者版本，与原三档并存（0.6.326） |
 | 禁用应用 | 被禁用的应用从列表 / 搜索 / 推荐中隐藏，发现页「禁用列表」可一键找回（0.6.326） |
+| 版本比较统一 | 修复版本号带数字修订号（如 `1.13.0-1`）检测不到更新的问题，全产品统一为唯一比较器，杜绝更新徽章误判（0.6.330） |
+| 日志页单行排版 | 日志改为「时间｜级别｜详情」单行、行尾展开/收起，去右侧滚动条、内容铺满（0.6.344） |
+| 下载并行安装排队 | 多任务下载并行（峰值 3）、安装严格排队（带位次提示），不再互相阻塞（0.6.347） |
+| 真实运行状态 | 列表显示应用真实运行状态，停用应用置灰「启动」、点击即启动（0.6.348） |
+| 官方源 OAuth 端口 | 官方源 OAuth 授权登录适配自定义面板端口，改端口无需重启；脚本同步镜像仓按内容指纹识别归上游（0.6.349→351） |
 | 备份与缓存 | 配置快照一键备份 / 周期自动备份；已下载 FPK 缓存自动清理 |
 | 下载中心 | aria2 高速下载 + 断点续传，任务状态全透明、可暂停 / 删除 |
 
