@@ -24,7 +24,21 @@
    "releases": {
     "0.6.351": {
      "updated_at": "2026-10-20T13:20:00+08:00",
-     "changelog": "溯源补强：脚本同步（非 fork 搬运）镜像仓增加内容指纹识别，同名同包自动归到上游原作者"
+     "changelog": "溯源补强：脚本同步（非 fork 搬运）镜像仓增加内容指纹识别，同名同包自动归到上游原作者",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.351/moo_0.6.351_x86.fpk",
+       "size": 5155053,
+       "size_mb": 4.9,
+       "sha256": "a63509744115a40f363687cb87453cc64eff62c95696e01d5f1425ec123735ac"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.351/moo_0.6.351_arm.fpk",
+       "size": 4693091,
+       "size_mb": 4.5,
+       "sha256": "88c444e49aefa299577b1299430ed1ddcdbeecb4208b53b19adb62b5171f98e1"
+      }
+     }
     },
     "0.6.350": {
      "updated_at": "2026-10-20T10:30:00+08:00",
