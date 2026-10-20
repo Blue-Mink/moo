@@ -1440,7 +1440,9 @@ func (s *Server) mirrorsAllFailedCheckOf(group string) {
 	}
 	allFail := true
 	for _, st := range probed {
-		if st.Status == "ok" {
+		// 0.6.333 F2：ok 与 limited（429 临时限流）都算「链路可达」——
+		// 整组被限流时链路本身没问题，不该推「全部加速源不可用」误报。
+		if st.Status == "ok" || st.Status == "limited" {
 			allFail = false
 			break
 		}

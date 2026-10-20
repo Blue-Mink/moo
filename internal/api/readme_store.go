@@ -5,9 +5,11 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -46,6 +48,11 @@ const (
 	// 正常命中中位 0.35s（[race] 实测），8s 足够；挂起时由 stale-while-revalidate
 	// 回退磁盘旧缓存，不再把详情页拖 20+ 秒。自动探测仍用更紧的 readmeAutoBudget(5s)。
 	readmeDeclBudget = 8 * time.Second
+	// 0.6.335 B2：内存层字节预算。0.6.334 实测内存层 57.7MB（512 条 × 均
+	// 113KB；源码原假设「10KB×512≈5MB」，实际大 11 倍）。超大 README 只服务
+	// 不入内存，总量超预算按最旧淘汰（目标堆 ≤80MB）。
+	readmeMemMaxBytes = 12 << 20
+	readmeMemEntryMax = 256 << 10
 )
 
 type readmeMemEntry struct {
@@ -62,11 +69,15 @@ type readmeDiskRef struct {
 
 type readmeStore struct {
 	dir string
+	// 0.6.335 B2：字节预算（字段化便于单测收紧；默认见 const）
+	memMaxBytes int64
+	memEntryMax int
 
-	mu    sync.Mutex
-	mem   map[string]readmeMemEntry
-	index map[string]readmeDiskRef
-	neg   map[string]time.Time
+	mu       sync.Mutex
+	mem      map[string]readmeMemEntry
+	memBytes int64
+	index    map[string]readmeDiskRef
+	neg      map[string]time.Time
 
 	loaded   bool
 	savMu    sync.Mutex
@@ -77,10 +88,12 @@ type readmeStore struct {
 
 func newReadmeStore(dir string) *readmeStore {
 	return &readmeStore{
-		dir:   dir,
-		mem:   map[string]readmeMemEntry{},
-		index: map[string]readmeDiskRef{},
-		neg:   map[string]time.Time{},
+		dir:         dir,
+		memMaxBytes: readmeMemMaxBytes,
+		memEntryMax: readmeMemEntryMax,
+		mem:         map[string]readmeMemEntry{},
+		index:       map[string]readmeDiskRef{},
+		neg:         map[string]time.Time{},
 	}
 }
 
@@ -158,7 +171,7 @@ func (st *readmeStore) Get(key string) ([]byte, string, bool) {
 	if r, ok := st.index[key]; ok {
 		b, err := os.ReadFile(filepath.Join(st.dir, r.File))
 		if err == nil && len(b) > 0 {
-			st.mem[key] = readmeMemEntry{body: b, ct: r.CT, expires: time.Now().Add(readmeMemTTL)}
+			st.memPutLocked(key, readmeMemEntry{body: b, ct: r.CT, expires: time.Now().Add(readmeMemTTL)})
 			st.mu.Unlock()
 			return b, r.CT, true
 		}
@@ -180,10 +193,7 @@ func (st *readmeStore) Put(key string, body []byte, ct string) {
 		ct = "text/markdown; charset=utf-8"
 	}
 	st.mu.Lock()
-	if len(st.mem) >= readmeMemMax {
-		st.evictMemLocked()
-	}
-	st.mem[key] = readmeMemEntry{body: body, ct: ct, expires: time.Now().Add(readmeMemTTL)}
+	st.memPutLocked(key, readmeMemEntry{body: body, ct: ct, expires: time.Now().Add(readmeMemTTL)})
 	if st.dir != "" {
 		st.load()
 		sum := sha1.Sum([]byte(key))
@@ -213,33 +223,55 @@ func (st *readmeStore) Put(key string, body []byte, ct string) {
 	st.mu.Unlock()
 }
 
-// evictMemLocked 到顶两段淘汰：先清过期，仍超保留最近一半（调用方持锁）。
+// memPutLocked 写 README 内存层（调用方持锁；0.6.335 B2）。
+// 单条 > memEntryMax 只落磁盘（超大 README 每次从磁盘读，page cache 兜底）；
+// 写入后按条数 + 字节双预算淘汰。
+func (st *readmeStore) memPutLocked(key string, e readmeMemEntry) {
+	if old, ok := st.mem[key]; ok {
+		st.memBytes -= int64(len(old.body))
+		delete(st.mem, key)
+	}
+	if st.memEntryMax > 0 && len(e.body) > st.memEntryMax {
+		return
+	}
+	st.mem[key] = e
+	st.memBytes += int64(len(e.body))
+	if len(st.mem) > readmeMemMax || (st.memMaxBytes > 0 && st.memBytes > st.memMaxBytes) {
+		st.evictMemLocked()
+	}
+}
+
+// evictMemLocked 到顶两段淘汰：先清过期，仍超保留最近一半（调用方持锁）；
+// 0.6.335 B2 追加字节预算，条数未超但字节超预算时继续从最旧丢。
 func (st *readmeStore) evictMemLocked() {
 	now := time.Now()
 	type kv struct {
 		k string
 		e readmeMemEntry
 	}
-	var live []kv
+	live := make([]kv, 0, len(st.mem))
 	for k, e := range st.mem {
 		if now.Before(e.expires) {
 			live = append(live, kv{k, e})
 		}
 	}
-	for i := len(live) - 1; i > 0; i-- {
-		for j := i; j > 0 && live[j].e.expires.After(live[j-1].e.expires); j-- {
-			live[j], live[j-1] = live[j-1], live[j]
-		}
-	}
+	sort.Slice(live, func(i, j int) bool { return live[i].e.expires.After(live[j].e.expires) })
 	keep := readmeMemMax / 2
 	if keep > len(live) {
 		keep = len(live)
 	}
 	kept := make(map[string]readmeMemEntry, keep)
+	var keptBytes int64
 	for i := 0; i < keep; i++ {
+		size := int64(len(live[i].e.body))
+		if st.memMaxBytes > 0 && keptBytes+size > st.memMaxBytes && len(kept) > 0 {
+			break
+		}
 		kept[live[i].k] = live[i].e
+		keptBytes += size
 	}
 	st.mem = kept
+	st.memBytes = keptBytes
 }
 
 func (st *readmeStore) scheduleSave() {
@@ -419,4 +451,71 @@ func (s *Server) warmReadmesPass(ctx context.Context, budget time.Duration) {
 	}
 	wg.Wait()
 	log.Printf("[readme-warm] 预热完成: %d/%d 命中", hit, len(pending))
+}
+
+// warmPreviewsPass 0.6.331 P1：预览图预热一轮（4 并发、预算内）。
+//
+// 背景：预览图首次抓取要跑完整候选竞速（深度测试实测 0.58s 已热 / 7.4s 轻载，
+// 源同步风暴下更慢）。详情页轮播最多 4 张，用户点开就等图。预热把「有预览图的
+// 可见应用」提前灌进两级缓存，用户打开详情即命中（毫秒级），与图标/README
+// 预热同一节奏、同一活性门控（UI 长时间不访问时整轮跳过）。
+//
+// 只预热前 4 张（页面最多展示 4 张），单应用去重、已缓存/已负缓存跳过。
+func (s *Server) warmPreviewsPass(ctx context.Context, budget time.Duration) {
+	st := s.readmeStore()
+	type pvRef struct{ url, key string }
+	var pending []pvRef
+	seen := make(map[string]bool, 256)
+	for _, a := range s.visibleSourceApps() {
+		for i, u := range a.PreviewURLs {
+			if i >= 4 {
+				break
+			}
+			if u == "" {
+				continue
+			}
+			key := "preview|" + u
+			if seen[key] || st.Has(key) || st.IsNegative(key) {
+				continue
+			}
+			seen[key] = true
+			pending = append(pending, pvRef{url: u, key: key})
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	log.Printf("[preview-warm] %d 张预览图待预热（预算 %s）", len(pending), budget)
+	pctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	sem := make(chan struct{}, previewWarmSem)
+	var wg sync.WaitGroup
+	hit := 0
+	var hitMu sync.Mutex
+	for _, ref := range pending {
+		if pctx.Err() != nil {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(ref pvRef) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			body, mime, dead, err := s.fetchPreviewShared(pctx, ref.url)
+			if err == nil && len(body) > 0 {
+				st.Put(ref.key, body, mime)
+				hitMu.Lock()
+				hit++
+				hitMu.Unlock()
+				return
+			}
+			// 确定性失败（404 / 非图片）记负缓存，与 proxyPreview 同口径；
+			// 瞬态失败不记，下一轮预热自然重试。
+			if dead || errors.Is(err, errPreviewNotImage) {
+				st.MarkNegative(ref.key)
+			}
+		}(ref)
+	}
+	wg.Wait()
+	log.Printf("[preview-warm] 预热完成: %d/%d 命中", hit, len(pending))
 }

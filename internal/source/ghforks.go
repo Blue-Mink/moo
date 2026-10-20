@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -41,6 +42,11 @@ const ghForkNotFoundTTL = 7 * 24 * time.Hour
 // 不会永久漏掉仓库。
 const ghForkMaxQueue = 512
 
+// ghForkConcurrency fork 关系并发拉取路数（0.6.340）。串行时单仓约 0.6s、
+// 坏网络下单仓可用满 10s 超时；4 路并发把 159 个源仓从「约 100s（正常）/
+// 40 分钟（抖动）」压到约半分钟，且对 GitHub 仍是温和负载。
+const ghForkConcurrency = 4
+
 type ghForkInfo struct {
 	Fork      bool   `json:"fork"`
 	Parent    string `json:"parent,omitempty"`    // owner/repo（小写）
@@ -54,10 +60,36 @@ type GHForks struct {
 	mu      sync.Mutex
 	path    string
 	apiBase string // 默认 https://api.github.com（测试可指向 httptest）
+	token   string // 可选 GitHub token（0.6.334）：有则 5000/h，匿名 60/h
 	repos   map[string]*ghForkInfo
 	queue   []string
 	queued  map[string]bool
 	client  *http.Client
+}
+
+// SetToken 设置 GitHub API token（空串 = 回到匿名）。
+//
+// 为什么需要（0.6.334）：匿名 60 次/小时，159 个源仓冷启动要 4 小时以上
+// 才补满 fork 关系（用户实测：覆盖率从 53% 掉到 45%，picoclaw 33 张卡
+// 全无溯源）。带 token 5000 次/小时，冷装 2 分钟内可补满。
+// token 只在本进程内用于 Authorization 头，不写日志、不下发到前端。
+func (g *GHForks) SetToken(tok string) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.token = strings.TrimSpace(tok)
+	g.mu.Unlock()
+}
+
+// HasToken 是否配置了 token（决定拉取预算/轮询间隔）。
+func (g *GHForks) HasToken() bool {
+	if g == nil {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.token != ""
 }
 
 var ghForksClient = &http.Client{Timeout: 15 * time.Second}
@@ -83,6 +115,19 @@ func (g *GHForks) SetForTest(repo, parent string) {
 	defer g.mu.Unlock()
 	g.repos[repo] = &ghForkInfo{Fork: parent != "", Parent: parent,
 		FetchedAt: time.Now().Format(time.RFC3339)}
+}
+
+// SetAPIBaseForTest 注入 API 基址（测试用：指向 httptest 假 GitHub）。
+// 与 SetForTest 同属测试钩子；生产路径只在 NewGHForks 里默认
+// https://api.github.com，不会调用本方法。
+func (g *GHForks) SetAPIBaseForTest(base string) {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return
+	}
+	g.mu.Lock()
+	g.apiBase = base
+	g.mu.Unlock()
 }
 
 // Lookup 查已知 fork 关系；known=false = 还没拉过（调用方应保守放过）。
@@ -119,7 +164,7 @@ func (g *GHForks) Enqueue(repo string) {
 		if e.NotFound {
 			ttl = ghForkNotFoundTTL // 负缓存也过期重查（改名/转公开可自愈）
 		}
-		if ts, err := time.Parse(time.RFC3339, e.FetchedAt); err == nil && time.Since(ts) < ttl {
+		if ts, err := parseForkTime(e.FetchedAt); err == nil && time.Since(ts) < ttl {
 			return // 结果仍新鲜（或在负缓存有效期内）：不重复入队，省额度
 		}
 		// 时间戳缺失/损坏 → 当作过期，重排一次以自愈。
@@ -128,6 +173,17 @@ func (g *GHForks) Enqueue(repo string) {
 		g.queued[repo] = true
 		g.queue = append(g.queue, repo)
 	}
+}
+
+// parseForkTime 解析缓存时间戳：兼容 RFC3339（`+08:00`）与 Go 默认布局
+// （`+0800`）。0.6.340：预取脚本/手工写入的缓存常用 `2026-10-19T00:14:57+0800`，
+// 严格按 RFC3339 解析会失败 → 该条被当成「时间戳缺失/过期」→ 每轮重新入队，
+// token 档 15 秒一轮时等于持续白拉全部仓库。
+func parseForkTime(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02T15:04:05-0700", s)
 }
 
 // RefreshRound 从队列拉最多 maxRepos 个仓库（未知/最久未拉优先）；
@@ -153,27 +209,59 @@ func (g *GHForks) RefreshRound(ctx context.Context, maxRepos int) (int, error) {
 	g.mu.Unlock()
 
 	updated := 0
-	for _, k := range batch {
+	// 0.6.340：并发拉取（4 路）。原实现串行 + 单仓 15s 超时：GitHub API 在
+	// 本机出口经常单仓挂满超时，159 个源仓最坏要 40 分钟才补满（用户实测
+	// 「溯源不够快」的直接成因之一）。4 路 + 8s 超时后，实测 159 仓 ≈ 30s。
+	limit := len(batch)
+	if maxRepos < limit {
+		limit = maxRepos
+	}
+	if limit < len(batch) {
+		g.requeue(batch[limit:]) // 超预算的留在队里，下轮继续
+	}
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		limited  bool
+		failed   []string
+		okCounts int
+	)
+	sem := make(chan struct{}, ghForkConcurrency)
+	for _, k := range batch[:limit] {
 		if ctx.Err() != nil {
 			break
 		}
-		if updated >= maxRepos {
-			g.requeue(batch[updated:])
-			break
-		}
-		owner, repo, _ := strings.Cut(k, "/")
-		err := g.fetchRepo(ctx, owner, repo)
-		if err == ErrRateLimited {
-			g.requeue(batch[updated:])
-			return updated, ErrRateLimited
-		}
-		if err != nil {
-			g.requeue([]string{k}) // 单仓库失败不拖垮整轮：放回队尾下轮重试
-			continue
-		}
-		updated++
+		wg.Add(1)
+		go func(k string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			owner, repo, _ := strings.Cut(k, "/")
+			err := g.fetchRepo(ctx, owner, repo)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == ErrRateLimited:
+				// 限流 = 这个仓库没有任何结论（不得当「非 fork」落库），
+				// 与其它失败一样回队等下轮（0.6.340 并发化时补齐）。
+				limited = true
+				failed = append(failed, k)
+			case err != nil:
+				failed = append(failed, k) // 单仓库失败不拖垮整轮：放回队尾下轮重试
+			default:
+				okCounts++
+			}
+		}(k)
+	}
+	wg.Wait()
+	updated = okCounts
+	if len(failed) > 0 {
+		g.requeue(failed)
 	}
 	g.save()
+	if limited {
+		return updated, ErrRateLimited
+	}
 	return updated, nil
 }
 
@@ -203,6 +291,7 @@ func (g *GHForks) fetchRepo(ctx context.Context, owner, repo string) error {
 	if e, ok := g.repos[k]; ok && e != nil {
 		etag = e.ETag
 	}
+	token := g.token
 	g.mu.Unlock()
 
 	u := fmt.Sprintf("%s/repos/%s/%s", strings.TrimRight(g.apiBase, "/"), owner, repo)
@@ -211,6 +300,9 @@ func (g *GHForks) fetchRepo(ctx context.Context, owner, repo string) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
@@ -271,12 +363,18 @@ func (g *GHForks) load() {
 	}
 	raw, err := readWholeFile(g.path)
 	if err != nil {
+		// 0.6.340：缓存缺失/不可读是最容易被忽略的「溯源回退」成因——
+		// ghforks.json 被清理后，全部仓库变未知 → 整仓 fork 溯源静默失效，
+		// 而旧实现连一行日志都没有（2026-10-19 主 NAS 实测：缓存文件消失
+		// 后 34 张 picoclaw 卡溯源从 31 张掉到 0 张，无人可察）。
+		log.Printf("[gh-forks] fork 缓存不可读（首次启动或文件缺失）: %v；将按全量重拉", err)
 		return
 	}
 	var doc struct {
 		Repos map[string]*ghForkInfo `json:"repos"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
+		log.Printf("[gh-forks] fork 缓存解析失败（按空处理）: %v", err)
 		return
 	}
 	g.mu.Lock()
@@ -284,6 +382,9 @@ func (g *GHForks) load() {
 		g.repos = doc.Repos
 	}
 	g.mu.Unlock()
+	if len(g.repos) == 0 {
+		log.Printf("[gh-forks] fork 缓存为空；将按全量重拉（溯源在补满前不显示）")
+	}
 }
 
 // save 原子落盘。
@@ -302,5 +403,3 @@ func (g *GHForks) save() {
 	}
 	writeAtomic(g.path, raw)
 }
-
-

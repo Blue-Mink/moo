@@ -61,4 +61,12 @@ describe('AppIcon 图标来源', () => {
     const a = app({ key: 'Nginx@Hxido-RXM', source: 'Hxido-RXM', icon_url: '' });
     expect(src(a)).toContain('/api/apps/Nginx%40Hxido-RXM/asset');
   });
+
+  it('占位改首字母色块（0.6.339）：同一应用色相稳定，且不再渲染灰框', () => {
+    const a = app({ source: undefined, icon_url: '', display_name: 'Navidrome' });
+    const out = html(a);
+    expect(out).toContain('>N</text>');
+    expect(out).toContain('hsl(');
+    expect(html(a)).toBe(out); // 纯函数：两次渲染同色
+  });
 });

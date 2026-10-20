@@ -18,6 +18,13 @@ import type { AppInfo } from '../api/client';
  * - 内置目录（fnos-apps）图标本身已是加速后的直链，直接加载。
  * - 加载失败回退占位图标，不出现破图。
  */
+/** 0.6.339：应用 key 的稳定色相（同一应用每次渲染同色），用于无图标时的首字母占位。 */
+const letterHue = (s: string) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+};
+
 const AppIcon: React.FC<{
   app: AppInfo;
   /** 容器尺寸/类（图标与占位框共用） */
@@ -47,9 +54,25 @@ const AppIcon: React.FC<{
     : iconUrl;
 
   if (!src || failed) {
+    // 0.6.339：无图/加载失败不再一律灰框——用「应用名首字符 + 稳定色块」，
+    // 让确实没有图标来源的卡（社区源自建应用常见）也有可辨识身份。
+    // 无 display_name/appname 时才退回通用包图标。
+    const label = (app.display_name || app.appname || '').trim().charAt(0).toUpperCase();
+    const hue = letterHue(app.key || app.appname || '');
     return (
-      <div className={cn("bg-muted/60 squircle flex items-center justify-center text-muted-foreground", className)}>
-        <Package className={cn("opacity-40", iconClassName || "h-6 w-6")} />
+      <div
+        className={cn("squircle flex items-center justify-center overflow-hidden select-none", className)}
+        style={label ? { backgroundColor: `hsl(${hue} 42% 88%)`, color: `hsl(${hue} 52% 32%)` } : undefined}
+        role="img"
+        aria-label={app.display_name || app.appname}
+      >
+        {label ? (
+          <svg viewBox="0 0 100 100" className="h-full w-full" aria-hidden="true">
+            <text x="50" y="50" textAnchor="middle" dominantBaseline="central" fontSize="52" fontWeight="600" fill="currentColor">{label}</text>
+          </svg>
+        ) : (
+          <Package className={cn("opacity-40", iconClassName || "h-6 w-6")} />
+        )}
       </div>
     );
   }

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -874,62 +875,124 @@ func (s *Server) ghStatsRound(ctx context.Context) {
 
 // StartGHForksRefresh GitHub 仓库 fork 关系同步循环（0.6.326c 溯源补强）：
 // 溯源要区分「作者自建仓」与「整仓 fork 的搬运仓」，后者只有 GitHub 的
-// fork/parent 关系能可靠判定。匿名 API 60 次/小时，故：启动后 45s 首轮一次性
-// 吃满预算（45 个，尽快让用户看到溯源），之后每 20 分钟一轮最多 12 个；
-// ETag 命中 304 不耗额度，已知结果 72h 后才重排。限流/失败不阻塞，下一轮继续。
+// fork/parent 关系能可靠判定。
 //
-// 0.6.326d（H2 自举可靠性）：原为 首轮 60 + 每轮 25（=110 次/小时，**超**匿名
-// 60/h 上限）——撞限流时 RefreshRound 直接 ErrRateLimited 整轮作废，实际覆盖
-// 速度反而更慢，且限流期内溯源静默缺失。改为 45 / 12（首轮含 ETag 余量，
-// 其后 12/20min ≈ 36/h），配合 304 不计数，额满即自然停手、下小时继续。
+// 0.6.334（用户实测「溯源退回 45%」）：预算/节奏改为按「是否配了 token」与
+// 「本轮是否还有待拉仓库」自适应 ——
+//
+//	· 匿名（60 次/小时）：首轮 55，之后每 20 分钟 12（12×3 = 36/h，留余量）；
+//	· 带 token（5000 次/小时）：首轮 80，之后每 1 分钟 40（≈ 3 分钟补满 159 仓）；
+//	· 本轮拉到 0 个 = 队列已空/结果全新鲜 → 退避 6 小时（到期前不再打扰 API）。
+//
+// ETag 命中 304 不耗额度，已知结果 72h 后才重排；限流/失败不阻塞下一轮。
 func (s *Server) StartGHForksRefresh(ctx context.Context) {
 	if s.Forks == nil {
 		return
 	}
+	// 首轮等待：等启动自动刷目录完成、源清单才全。0.6.340：源就绪与否已由
+	// 下面循环里的 ghForkRepos 探测（空则 5 秒重试、不消耗预算），首轮等待
+	// 可以压短——用户实测「装完要看溯源」时，等 15~45 秒纯属浪费。
+	firstWait := 10 * time.Second
+	if s.Forks.HasToken() {
+		firstWait = 5 * time.Second
+	}
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(45 * time.Second): // 等启动自动刷目录完成，源清单才全
+	case <-time.After(firstWait):
 	}
 	first := true
+	waiting := false
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		budget := ghForksBudget(first)
+		// 0.6.340：源清单为空 = 源/目录尚未就绪（启动早期）。原实现此时
+		// RefreshRound 拉到 0 个 → ghForksInterval 判「队列空」→ 退避 6 小时，
+		// fork 关系整晚不拉、溯源大面积缺失且没有任何日志（2026-10-19 主 NAS
+		// 实测：22:56 启动后首轮队列为空，直到人工写入缓存才恢复）。
+		// 改为短等重试（不消耗预算、不算「空轮」）。
+		repos := s.ghForkRepos()
+		if len(repos) == 0 {
+			if !waiting {
+				log.Printf("[gh-forks] 源清单尚未就绪，等待后重试（不消耗预算）")
+				waiting = true
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+		waiting = false
+		budget := ghForksBudget(first, s.Forks.HasToken(), len(repos))
 		first = false
-		s.ghForksRound(ctx, budget)
+		n := s.ghForksRound(ctx, budget)
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(20 * time.Minute):
+		case <-time.After(ghForksInterval(s.Forks.HasToken(), n)):
 		}
 	}
 }
 
-// ghForksBudget 单轮拉取预算：首轮 45（一次性吃满但留 15 次余量给 ETag 复检与
-// 其它 GitHub API 调用方），其后每轮 12（12×3 = 36/h < 60/h）。抽成函数是为了
-// 让「预算不越限流」这条约束可被单测钉住。
-func ghForksBudget(first bool) int {
+// ghForksBudget 单轮拉取预算。抽成函数是为了让「预算不越限流」这条约束
+// 可被单测钉住：匿名档首轮 55 / 其后 12×3 = 36 次每小时 < 60 次每小时；
+// token 档 5000 次每小时，可以放开。
+//
+// 0.6.340（用户实测「溯源不够快」）：token 档一次性给足——把待拉仓库全排上
+// （159 源 ≈ 半分钟串行）。原「首轮 80 / 其后 40」在冷启动、缓存丢失或大批
+// 新源时至少要走 2~3 轮，叠加每轮「目录不失效」的旧缺陷，用户要等几分钟到
+// 几十分钟才看到溯源。pending 只用于放大下限，真正的上限是队列长度。
+func ghForksBudget(first, hasToken bool, pending int) int {
+	if hasToken {
+		if pending < 400 {
+			pending = 400
+		}
+		return pending
+	}
 	if first {
-		return 45
+		return 55
 	}
 	return 12
 }
 
+// ghForksInterval 下一轮间隔：本轮一个都没拉到（队列空/结果全新鲜）→ 退避
+// 6 小时；否则 token 档 15 秒、匿名档 20 分钟（36 次每小时，守 60 次每小时）。
+//
+// 0.6.340：token 档 1 分钟 → 15 秒。token 额度 5000/h 下 15 秒一轮也只会在
+// 队列持续非空时发生（队列空立即退避 6h），不会白白烧额度。
+func ghForksInterval(hasToken bool, fetched int) time.Duration {
+	if fetched == 0 {
+		return 6 * time.Hour
+	}
+	if hasToken {
+		return 15 * time.Second
+	}
+	return 20 * time.Minute
+}
+
 // ghForksRound 一轮：把本轮该拉的仓库排入队列（源仓 + 已知 fork parent），
-// 拉限额内的。
-func (s *Server) ghForksRound(ctx context.Context, budget int) {
+// 拉限额内的；返回实际更新数（供间隔决策）。
+func (s *Server) ghForksRound(ctx context.Context, budget int) int {
 	for _, r := range s.ghForkRepos() {
 		s.Forks.Enqueue(r)
 	}
 	n, err := s.Forks.RefreshRound(ctx, budget)
 	if n > 0 {
 		log.Printf("[gh-forks] fork 关系同步: 本轮更新 %d 个仓库", n)
+		// 0.6.340：fork 关系变了，溯源字段就得重算——目录缓存不失效的话，
+		// 卡片要等下一次目录重建（源同步/安装动作/重启，常常几十分钟）才
+		// 显示上游，用户视角就是「溯源很慢/没生效」。invalidateCatalog 只是
+		// 作废缓存，真正的重建发生在下一次 /api/apps 请求，代价与一次普通
+		// 目录刷新相同（2253 卡实测百毫秒级）。
+		s.invalidateCatalog()
 	}
 	if err != nil && err != source.ErrRateLimited {
 		log.Printf("[gh-forks] 同步异常: %v", err)
 	}
+	return n
 }
 
 // ghForkRepos 本轮要入队的仓库列表（owner/repo 小写，已去重）。
@@ -971,6 +1034,40 @@ func (s *Server) ghForkRepos() []string {
 		}
 	}
 	return out
+}
+
+// StartStartupMemReclaim 0.6.335 B3：启动风暴（160 源刷新 + 目录重建 +
+// 首轮图标/README 预热）结束后，主动把已释放的堆页归还 OS 一次。
+// 为什么：启动期临时对象（目录构建、竞速缓冲、快照解析）把堆顶到高水位后，
+// GC 只复用不归还，RSS 长期停在峰值（实测 172MB vs 稳态活对象 ~133MB）。
+// 只做一次；稳态 GC/GOMEMLIMIT 行为不变，不会与周期性回收打架。
+func (s *Server) StartStartupMemReclaim(ctx context.Context) {
+	// 等源数据就绪（首轮自动刷目录至少完成一批）——最多等 10 分钟。
+	ready := false
+	deadline := time.Now().Add(10 * time.Minute)
+	for time.Now().Before(deadline) {
+		if s.Src != nil && len(s.Src.Apps("", "")) > 0 {
+			ready = true
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+	if !ready {
+		return
+	}
+	// 再等 90s：让首轮目录构建 + 预热的最脏阶段跑完（预热首轮预算 10min，
+	// 这里只求覆盖「目录构建 + 首屏」这一段，不追预热全量）。
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(90 * time.Second):
+	}
+	debug.FreeOSMemory()
+	log.Printf("[mem] 启动风暴结束，已归还空闲堆内存（仅一次；稳态 GC 行为不变）")
 }
 
 // StartAddProbeRefresh 「添加为源」可加性探测循环（0.6.326e）。
@@ -1791,8 +1888,10 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListURL: s.Cfg.SourceListURL,
 		// 0.6.325 安全加固 R1：随设置页下发（默认 false）。
 		SourceListAllowPrivate: s.Cfg.SourceListAllowPrivate,
-		SourceAutoCareOff:      s.Cfg.SourceAutoCareOff,
-		AutoUpdate:             s.Cfg.AutoUpdate,
+		// 0.6.334：只下发「是否已配置」，token 本身绝不回传。
+		GitHubTokenSet:    s.Cfg.GithubToken != "",
+		SourceAutoCareOff: s.Cfg.SourceAutoCareOff,
+		AutoUpdate:        s.Cfg.AutoUpdate,
 		// 0.6.326 溯源批次：自动纠正上游版本（独立开关，默认关）。
 		AutoCorrect:         s.Cfg.AutoCorrect,
 		CatalogLanguage:     orAuto(s.Cfg.CatalogLanguage),
@@ -1889,7 +1988,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListDisabled *bool `json:"source_list_disabled"`
 		// 0.6.325 安全加固 R1：nil=未提交不改动；true=允许列表同步添加内网源。
 		SourceListAllowPrivate *bool `json:"source_list_allow_private"`
-		SourceAutoCareOff      *bool `json:"source_auto_care_disabled"`
+		// 0.6.334：GitHub API token（可选）。nil=未提交不改动；空串=显式清除
+		// （回匿名 60/h）；非空=设置并立即生效（无需重启）。只接受
+		// ghp_ / github_pat_ 前缀，脏值整单拒绝。
+		GitHubToken       *string `json:"github_token"`
+		SourceAutoCareOff *bool   `json:"source_auto_care_disabled"`
 		// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_password/
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
@@ -1980,6 +2083,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.SourceListAllowPrivate != nil {
 		s.Cfg.SourceListAllowPrivate = *in.SourceListAllowPrivate
+	}
+	// 0.6.334：GitHub token（可选）。设置后立即生效（改内存里的查询器），
+	// 落盘走 config 的 enc:v1 密文；空串=清除回匿名。格式校验防止把
+	// 别的凭据粘进来（脏值整单拒绝，避免"看起来保存了其实无效"）。
+	if in.GitHubToken != nil {
+		tok := strings.TrimSpace(*in.GitHubToken)
+		if tok != "" && !strings.HasPrefix(tok, "ghp_") && !strings.HasPrefix(tok, "github_pat_") {
+			writeErr(w, http.StatusBadRequest, errors.New("GitHub token 格式不正确（应以 ghp_ 或 github_pat_ 开头）"))
+			return
+		}
+		s.Cfg.GithubToken = tok
+		if s.Forks != nil {
+			s.Forks.SetToken(tok)
+		}
 	}
 	if in.SourceAutoCareOff != nil {
 		s.Cfg.SourceAutoCareOff = *in.SourceAutoCareOff
@@ -2470,8 +2587,10 @@ func orAll(p string) string {
 }
 
 func checkStatus(st MirrorStat) string {
-	if st.Status == "ok" {
-		return "ok"
+	if st.Status == "ok" || st.Status == "limited" {
+		// 0.6.333 F2：429 限流单列 limited（链路可达、临时性），
+		// 旧前端只认 ok/timeout/error → 会落到「未测速」分支，行为安全。
+		return st.Status
 	}
 	return "error"
 }
@@ -2505,7 +2624,10 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 		// 321R8：改用按路径的 DisplayFor（直接解析「正在展示的这个文件」的
 		// manifest），不再按文件名派生 appname 做 Lookup——后者对版本化文件名
 		// （moo_0.6.321_x86 → moo06321x86 ≠ 包内 moo）永远匹配不上，display_name 恒空。
-		if info, ok := fpkLocalInstance.DisplayFor(filepath.Join(s.Pipe.Downloads, e.Name())); ok {
+		// 0.6.332 F4：解析在后台进行时标 Parsing，前端据此显示「解析中…」
+		// 而不是首开时整列空白（实测 137 个包首次查询 0 个 display_name）。
+		full := filepath.Join(s.Pipe.Downloads, e.Name())
+		if info, ok := fpkLocalInstance.DisplayFor(full); ok {
 			if info.DisplayName != "" {
 				f.DisplayName = info.DisplayName
 			}
@@ -2515,6 +2637,8 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 				f.AppName = info.AppName
 				f.Installed = installed[info.AppName] || f.Installed
 			}
+		} else if fpkLocalInstance.Pending(full) {
+			f.Parsing = true
 		}
 		files = append(files, f)
 	}
@@ -2789,54 +2913,75 @@ func (s *Server) installDownloadSSE(w http.ResponseWriter, r *http.Request) {
 
 // ---- 任务列表 ----
 
+// taskFromView 把队列里的长操作视图转成任务视图（终态：done / failed）。
+func taskFromView(v operation.View) BackgroundTask {
+	status := "done"
+	msg := v.Msg
+	if v.State == operation.StateError {
+		status = "failed"
+		if v.Err != "" {
+			msg = v.Err
+		}
+	}
+	return BackgroundTask{
+		ID:       v.ID,
+		AppName:  v.Target,
+		Op:       v.Kind,
+		Status:   status,
+		Step:     v.Msg,
+		Progress: 100,
+		Message:  msg,
+	}
+}
+
 // listTasks GET /api/tasks：合并长操作与后台下载任务。
-// 长操作：运行中报 running；完成后把「最近一条终态」继续上报（done/failed），
-// 供前端顶部通知栏检测 running→done/failed 翻转弹出结果提示。操作结束时
-// Current() 被清空，若只报 running，前端永远看不到「安装成功」。
+// 长操作：排队中报 queued、运行中报 running、终态报 done/failed，
+// 供前端顶部通知栏检测状态翻转弹出结果提示。操作结束时 Current() 被清空，
+// 若只报 running，前端永远看不到「安装成功」。
+// 0.6.346（并发安装）：排队中的操作与最近 8 条终态一并上报——一次排了多个
+// 应用时，只报「最新一条」会让先完成的那些永远不弹「XX 安装成功」。
 // 前端首轮轮询只建基线不通知，旧的终态残留不会重复弹。
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	out := make([]BackgroundTask, 0)
-	// 取「最近一次长操作」视图：运行中优先当前操作；否则取历史最新一条。
-	// （操作结束时「清空 current + 入 history」在同一把锁内原子完成，
-	//  但 setDone 先于清锁，极短窗口内 Current() 可能仍指向终态操作。）
-	var opView *operation.View
-	if cur := s.Ops.Current(); cur != nil {
-		opView = cur
-	} else if hist := s.Ops.History(); len(hist) > 0 {
-		h := hist[0]
-		opView = &h
+	seen := make(map[string]bool)
+	for _, v := range s.Ops.Pending() {
+		seen[v.ID] = true
+		out = append(out, BackgroundTask{
+			ID:      v.ID,
+			AppName: v.Target,
+			Op:      v.Kind,
+			Status:  "queued",
+			Step:    "排队中",
+			Message: "排队中",
+		})
 	}
-	if opView != nil {
-		switch opView.State {
-		case operation.StateRunning:
-			out = append(out, BackgroundTask{
-				ID:       opView.ID,
-				AppName:  opView.Target,
-				Op:       opView.Kind,
-				Status:   "running",
-				Step:     opView.Msg,
-				Progress: opView.Progress,
-				Message:  opView.Msg,
-			})
-		case operation.StateDone, operation.StateError:
-			status := "done"
-			msg := opView.Msg
-			if opView.State == operation.StateError {
-				status = "failed"
-				if opView.Err != "" {
-					msg = opView.Err
-				}
-			}
-			out = append(out, BackgroundTask{
-				ID:       opView.ID,
-				AppName:  opView.Target,
-				Op:       opView.Kind,
-				Status:   status,
-				Step:     opView.Msg,
-				Progress: 100,
-				Message:  msg,
-			})
+	// 0.6.347：多操作并行（下载可并行）时逐个上报，否则只有最早那条可见
+	for _, cur := range s.Ops.Running() {
+		if seen[cur.ID] {
+			continue
 		}
+		seen[cur.ID] = true
+		if cur.State == operation.StateRunning {
+			out = append(out, BackgroundTask{
+				ID:       cur.ID,
+				AppName:  cur.Target,
+				Op:       cur.Kind,
+				Status:   "running",
+				Step:     cur.Msg,
+				Progress: cur.Progress,
+				Message:  cur.Msg,
+			})
+		} else {
+			out = append(out, taskFromView(cur))
+		}
+	}
+	hist := s.Ops.History()
+	const recentTasks = 8
+	for i := 0; i < len(hist) && i < recentTasks; i++ {
+		if seen[hist[i].ID] {
+			continue
+		}
+		out = append(out, taskFromView(hist[i]))
 	}
 	for _, t := range s.Tasks.Views() {
 		out = append(out, BackgroundTask{

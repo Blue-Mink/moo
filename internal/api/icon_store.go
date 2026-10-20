@@ -45,6 +45,16 @@ const (
 	// 预热并发：3（而非 NS 的 6）——每应用最多 9 个候选并发，6 路预热
 	// = 54 路出站，实测会把 gh-proxy 镜像打进限流、反噬用户点击的图标
 	iconWarmSem = 3
+	// 0.6.332 F1：落盘失败日志限流窗口（同一 store 每窗口最多 1 条）。
+	// 目录缺失/磁盘满时每个图标都失败，逐条打印曾刷出 2699 行/轮。
+	iconDiskErrEvery = time.Minute
+	// 0.6.335 B1：内存层字节预算。0.6.334 实测内存层 50.3MB（256 条 × 均
+	// 196KB）——磁盘存的是降采样后的 35KB，内存却回灌原图；只按条数封顶
+	// 压不住大图。两道闸门：
+	//   · 单条 > iconMemEntryMax 不进内存（只走磁盘，一张大图不再挤掉几十张小图）
+	//   · 总量 > iconMemMaxBytes 按最旧淘汰（与条数上限取更小者，目标堆 ≤80MB）
+	iconMemMaxBytes = 24 << 20
+	iconMemEntryMax = 256 << 10
 )
 
 type iconMemEntry struct {
@@ -66,15 +76,28 @@ type iconStore struct {
 	// 0=禁用内存层纯磁盘，1024=0.6.312 旧行为）。Get/Put/Has/GetStale/
 	// evictMemLocked 的 mem 分支都跟随此值。
 	memMax int
+	// 0.6.335 B1：字节预算（字段化便于单测收紧；默认见 const）
+	memMaxBytes int64
+	memEntryMax int
 
-	mu    sync.Mutex
-	mem   map[string]iconMemEntry
-	index map[string]iconDiskRef
-	neg   map[string]time.Time // 负缓存：key → 过期时刻
+	mu       sync.Mutex
+	mem      map[string]iconMemEntry
+	memBytes int64
+	index    map[string]iconDiskRef
+	neg      map[string]time.Time // 负缓存：key → 过期时刻
 
 	loaded bool
 	savMu  sync.Mutex // 落盘串行（唯一 tmp + rename，防并发写损坏）
 	dirty  bool
+
+	// 0.6.332 F1：目录自建 + 落盘失败日志限流。
+	// dirReady 记忆化「本进程已成功 MkdirAll」（happy path 零额外 syscall，
+	// 读写都在 st.mu 内）；failMu/failLast/failSkipped 用独立锁，因为
+	// Put/healEntry 打日志时正持着 st.mu。
+	dirReady    bool
+	failMu      sync.Mutex
+	failLast    time.Time
+	failSkipped int
 
 	saverOnce sync.Once
 	saverStop chan struct{}
@@ -85,11 +108,13 @@ type iconStore struct {
 // 1024=0.6.312 旧行为；非法值 log 警告用默认）。
 func newIconStore(dir string) *iconStore {
 	st := &iconStore{
-		dir:    dir,
-		memMax: iconMemMax,
-		mem:    map[string]iconMemEntry{},
-		index:  map[string]iconDiskRef{},
-		neg:    map[string]time.Time{},
+		dir:         dir,
+		memMax:      iconMemMax,
+		memMaxBytes: iconMemMaxBytes,
+		memEntryMax: iconMemEntryMax,
+		mem:         map[string]iconMemEntry{},
+		index:       map[string]iconDiskRef{},
+		neg:         map[string]time.Time{},
 	}
 	if v := os.Getenv("MOO_ICON_MEM_MAX"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -187,7 +212,7 @@ func (st *iconStore) Get(key string) ([]byte, string, bool) {
 			b, err := os.ReadFile(p)
 			if err == nil && len(b) >= 64 && looksLikeImage(b) {
 				if st.memMax > 0 {
-					st.mem[key] = iconMemEntry{data: b, ctype: r.CT, expires: time.Now().Add(iconMemTTL)}
+					st.memPutLocked(key, iconMemEntry{data: b, ctype: r.CT, expires: time.Now().Add(iconMemTTL)})
 				}
 				data, ctype, hit = b, r.CT, true
 			} else {
@@ -213,6 +238,51 @@ func (st *iconStore) Get(key string) ([]byte, string, bool) {
 	return data, ctype, true
 }
 
+// writeDisk 图标文件落盘（调用方已持 st.mu）。
+// 0.6.332 F1（全量测试 P1-1）：全新安装后 <DataDir>/cache/icons 尚未创建，
+// 而唯一建目录的地方是 saveIndex——写文件失败会提前 return，永远走不到
+// 建目录 → 磁盘层永久自锁（实测两台日志各刷 2699/2791 行，冷启动图标
+// p50 943ms）。这里写前补 MkdirAll（dirReady 记忆化，命中后零额外 syscall）；
+// 运行期目录被回收（cleanAppCacheWithDays 清空目录）时写失败再补建重试一次。
+func (st *iconStore) writeDisk(path string, data []byte) error {
+	if !st.dirReady {
+		if err := os.MkdirAll(st.dir, 0o755); err != nil {
+			return err
+		}
+		st.dirReady = true
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		if merr := os.MkdirAll(st.dir, 0o755); merr != nil {
+			return err
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+	return nil
+}
+
+// logDiskErr 落盘失败日志限流：同一 store 每 iconDiskErrEvery 窗口最多 1 条，
+// 被省略的次数在下一条里给出（0.6.332 F1；原实现逐图标打印）。
+// hint 保留各调用点原有语义（Put=仅内存层生效 / healEntry=保留旧文件）。
+func (st *iconStore) logDiskErr(what, path string, err error, hint string) {
+	st.failMu.Lock()
+	now := time.Now()
+	if !st.failLast.IsZero() && now.Sub(st.failLast) < iconDiskErrEvery {
+		st.failSkipped++
+		st.failMu.Unlock()
+		return
+	}
+	skipped := st.failSkipped
+	st.failSkipped = 0
+	st.failLast = now
+	st.failMu.Unlock()
+	if skipped > 0 {
+		log.Printf("[icon-store] %s %s: %v（%s；近 %s 另有 %d 次同类失败已省略）",
+			what, path, err, hint, iconDiskErrEvery, skipped)
+		return
+	}
+	log.Printf("[icon-store] %s %s: %v（%s）", what, path, err, hint)
+}
+
 // healEntry 用降采样后的字节替换条目（幂等）。0.6.313 B4 纯磁盘版：
 // 降采样字节直接 WriteFile 落新文件成功后再更新 index（写序同 Put：
 // 先文件后索引，中途崩溃=孤儿文件，cleanupOrphans 兜底）；ctype 变化
@@ -221,13 +291,13 @@ func (st *iconStore) healEntry(key string, data []byte, ctype string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.memMax > 0 {
-		st.mem[key] = iconMemEntry{data: data, ctype: ctype, expires: time.Now().Add(iconMemTTL)}
+		st.memPutLocked(key, iconMemEntry{data: data, ctype: ctype, expires: time.Now().Add(iconMemTTL)})
 	}
 	if st.dir != "" {
 		if r, ok := st.index[key]; ok {
 			old := r.File
 			nr := iconDiskRef{File: diskIconFile(key, ctype), CT: ctype, TS: r.TS}
-			if err := os.WriteFile(filepath.Join(st.dir, nr.File), data, 0o644); err == nil {
+			if err := st.writeDisk(filepath.Join(st.dir, nr.File), data); err == nil {
 				st.index[key] = nr
 				if old != nr.File {
 					_ = os.Remove(filepath.Join(st.dir, old))
@@ -235,7 +305,7 @@ func (st *iconStore) healEntry(key string, data []byte, ctype string) {
 				st.dirty = true
 				st.scheduleSave()
 			} else {
-				log.Printf("[icon-store] 降采样落盘失败 %s: %v（保留旧文件，下次读重试）", nr.File, err)
+				st.logDiskErr("降采样落盘失败", nr.File, err, "保留旧文件，下次读重试")
 			}
 		}
 	}
@@ -253,16 +323,13 @@ func (st *iconStore) Put(key string, data []byte, ctype string) {
 	}
 	st.mu.Lock()
 	if st.memMax > 0 {
-		if len(st.mem) >= st.memMax {
-			st.evictMemLocked()
-		}
-		st.mem[key] = iconMemEntry{data: data, ctype: ctype, expires: time.Now().Add(iconMemTTL)}
+		st.memPutLocked(key, iconMemEntry{data: data, ctype: ctype, expires: time.Now().Add(iconMemTTL)})
 	}
 	if st.dir != "" {
 		st.load()
 		f := filepath.Join(st.dir, diskIconFile(key, ctype))
-		if werr := os.WriteFile(f, data, 0o644); werr != nil {
-			log.Printf("[icon-store] 图标落盘失败 %s: %v（仅内存层生效）", f, werr)
+		if werr := st.writeDisk(f, data); werr != nil {
+			st.logDiskErr("图标落盘失败", f, werr, "仅内存层生效")
 			st.mu.Unlock()
 			return
 		}
@@ -292,19 +359,37 @@ func (st *iconStore) Put(key string, data []byte, ctype string) {
 	st.mu.Unlock()
 }
 
-// evictMemLocked 内存层到顶时的两段淘汰（调用方已持 st.mu；
-// memMax=0 时 Put 不会进来，本函数天然 no-op）：
-// 先清过期；仍超则按 expires 保留最近的 memMax/2。
-// 0.6.313 B4：淘汰判定跟随 env 容量 st.memMax（默认 256）。
-// 不用 NS 的「整体清空」——warm 一轮 ~1300 Put 会把用户正在浏览的
-// 热图标连锅端，实测二次浏览 60 图标仍 103ms/个（全落回 NAS 磁盘）。
+// memPutLocked 写内存层（调用方已持 st.mu；0.6.335 B1）。
+// 单条超过 memEntryMax 只落磁盘（大图不再挤掉几十张小图）；写入后按
+// 「条数 + 字节」双预算淘汰——两条上限谁先到就按谁收，仍保留「不全清空」。
+func (st *iconStore) memPutLocked(key string, e iconMemEntry) {
+	if st.memMax <= 0 {
+		return
+	}
+	if old, ok := st.mem[key]; ok {
+		st.memBytes -= int64(len(old.data))
+		delete(st.mem, key)
+	}
+	if st.memEntryMax > 0 && len(e.data) > st.memEntryMax {
+		return // 超大条目只走磁盘层（Get 每次都从磁盘读，page cache 兜底）
+	}
+	st.mem[key] = e
+	st.memBytes += int64(len(e.data))
+	if len(st.mem) > st.memMax || (st.memMaxBytes > 0 && st.memBytes > st.memMaxBytes) {
+		st.evictMemLocked()
+	}
+}
+
+// evictMemLocked 内存层到顶时的两段淘汰（调用方已持 st.mu）：
+// 先清过期；仍超则保留最近的 memMax/2（用户热图标不被 warm 连锅端）；
+// 0.6.335 B1 追加字节预算：即便条数未超，字节超预算也继续从最旧丢。
 func (st *iconStore) evictMemLocked() {
 	now := time.Now()
 	type kv struct {
 		k string
 		e iconMemEntry
 	}
-	var live []kv
+	live := make([]kv, 0, len(st.mem))
 	for k, e := range st.mem {
 		if now.Before(e.expires) {
 			live = append(live, kv{k, e})
@@ -312,14 +397,24 @@ func (st *iconStore) evictMemLocked() {
 	}
 	sort.Slice(live, func(i, j int) bool { return live[i].e.expires.After(live[j].e.expires) })
 	keep := st.memMax / 2
+	if keep < 1 {
+		keep = 1
+	}
 	if keep > len(live) {
 		keep = len(live)
 	}
 	kept := make(map[string]iconMemEntry, keep)
+	var keptBytes int64
 	for i := 0; i < keep; i++ {
+		size := int64(len(live[i].e.data))
+		if st.memMaxBytes > 0 && keptBytes+size > st.memMaxBytes && len(kept) > 0 {
+			break // 字节预算优先：宁可再少留，也不超预算
+		}
 		kept[live[i].k] = live[i].e
+		keptBytes += size
 	}
 	st.mem = kept
+	st.memBytes = keptBytes
 }
 
 // scheduleSave 标记脏并触发防抖 saver（2s 批量落盘，避免每 Put 一次
@@ -547,6 +642,7 @@ func (s *Server) StartIconWarm(ctx context.Context) {
 	}
 	hit0, pend0 := s.warmIconsPass(ctx, 10*time.Minute)
 	s.warmReadmesPass(ctx, 10*time.Minute)
+	s.warmPreviewsPass(ctx, 10*time.Minute)
 	// 0.6.289 快速重试：整轮命中率 <20% 且待补量大 → 大概率处于网络故障
 	// 窗口（DNS 瞬断/镜像限流风暴，2026-10-06 部署当日实锤），2 分钟后重试，
 	// 图标墙分钟级恢复，而不是让用户对着空白墙等到下一轮 30 分钟。
@@ -572,6 +668,7 @@ func (s *Server) StartIconWarm(ctx context.Context) {
 			}
 			hit, pend := s.warmIconsPass(ctx, 5*time.Minute)
 			s.warmReadmesPass(ctx, 5*time.Minute)
+			s.warmPreviewsPass(ctx, 5*time.Minute)
 			if pend > 20 && hit*5 < pend {
 				delay = 2 * time.Minute
 			} else {
@@ -630,6 +727,7 @@ func (s *Server) warmVisibleNow() {
 	defer cancel()
 	s.warmIconsPass(ctx, 5*time.Minute)
 	s.warmReadmesPass(ctx, 5*time.Minute)
+	s.warmPreviewsPass(ctx, 5*time.Minute)
 }
 
 // warmIconsPass 预热一轮缺失图标（预算内、3 并发）；返回（命中数, 待补数）。

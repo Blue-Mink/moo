@@ -201,6 +201,12 @@ func main() {
 	if n := srcMgr.LoadCache(dataDir + "/cache/catalog.json"); n > 0 {
 		log.Printf("目录快照已恢复: %d 个源（后台自动刷新后更新）", n)
 	}
+	// 0.6.330 WP1：索引名记忆（每源记住上次命中的 moo.json/fnpack.json…）。
+	// 让每轮源刷新只打「记忆名 × raw + 少量镜像」，而不是 72~195 个候选。
+	// 文件缺失/损坏 = 退化为全量探测，不影响启动。
+	if n := srcMgr.SetPrefPath(dataDir + "/cache/indexpref.json"); n > 0 {
+		log.Printf("索引名记忆已恢复: %d 条", n)
+	}
 	// 下载目录：历史配置是相对名（dataDir/downloads）；设置页选择器落地后
 	// 为绝对路径（/volN/共享目录）。绝对路径直接使用。
 	dlDir := cfg.DownloadDir
@@ -218,8 +224,13 @@ func main() {
 		log.Fatalf("下载目录初始化失败: %v", err)
 	}
 	ops := operation.NewQueue()
+	// 0.6.347：最多 3 个操作并行（安装包下载可并行）；真正的平台操作
+	// （暂存/安装/升级/卸载/启停）由 gate 串行化。
+	ops.SetLimit(3)
+	gate := operation.NewGate()
 	pipe := pipeline.New(srcMgr, dataDir+"/staging", dlDir)
 	pipe.Engine = eng
+	pipe.Gate = gate
 
 	srv := &api.Server{
 		Version:   Version,
@@ -287,7 +298,13 @@ func main() {
 
 	// GitHub 仓库 fork 关系查询（0.6.326c 溯源补强：识别「整仓 fork 式搬运」）
 	srv.Forks = source.NewGHForks(dataDir + "/cache/ghforks.json")
+	// 0.6.334：可选 GitHub token（配置里存密文，Load 时已解密）——有则
+	// 5000 次/小时，冷装几分钟补满溯源；空 = 匿名 60 次/小时。
+	srv.Forks.SetToken(cfg.GithubToken)
 	go srv.StartGHForksRefresh(ctx)
+
+	// 0.6.335 B3：启动风暴结束后归还一次空闲堆（RSS 从峰值回落）
+	go srv.StartStartupMemReclaim(ctx)
 
 	// 上游仓「添加为源」可加性探测（0.6.326e：上游仓无索引时前端不再给死按钮）
 	srv.AddProbes = source.NewAddProbe(dataDir + "/cache/addprobe.json")

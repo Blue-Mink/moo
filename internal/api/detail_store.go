@@ -366,6 +366,34 @@ func (s *Server) DetailStoreSink(name string, apps map[string]*source.App) {
 		n++
 	}
 	if n > 0 {
-		log.Printf("[detail-store] 源「%s」: %d 个应用 changelog 移入磁盘层（移出常驻内存）", name, n)
+		s.detailSinkNote(n)
+	}
+}
+
+// detailSinkWindow 0.6.335 C2：detail-store 日志聚合窗口。
+const detailSinkWindow = time.Minute
+
+// detailSinkNote 把「某源 N 个应用移入磁盘层」并入当前窗口，窗口结束打 1 行。
+// 原实现每源一条 INFO（一轮 90-115 源 → 57% 日志占比），真实错误被淹没。
+func (s *Server) detailSinkNote(n int) {
+	s.detailSinkMu.Lock()
+	s.detailSinkApps += n
+	s.detailSinkSources++
+	if s.detailSinkTimer == nil {
+		s.detailSinkTimer = time.AfterFunc(detailSinkWindow, s.flushDetailSink)
+	}
+	s.detailSinkMu.Unlock()
+}
+
+// flushDetailSink 窗口结束：一行汇总（无数据则静默）。
+func (s *Server) flushDetailSink() {
+	s.detailSinkMu.Lock()
+	apps, srcs := s.detailSinkApps, s.detailSinkSources
+	s.detailSinkApps, s.detailSinkSources = 0, 0
+	s.detailSinkTimer = nil
+	s.detailSinkMu.Unlock()
+	if apps > 0 {
+		log.Printf("[detail-store] 近 %s: %d 个源 / %d 个应用 changelog 移入磁盘层（逐源明细已聚合）",
+			detailSinkWindow, srcs, apps)
 	}
 }

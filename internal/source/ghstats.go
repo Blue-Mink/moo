@@ -25,16 +25,21 @@ import (
 // 展示层零改动：目录合并时填入 AppInfo.DownloadCount，前端按
 // 「N 次下载」渲染（与官方下载量同款回退链的最优先位）。
 
-var ghReleaseURLRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/releases/download/[^/]+/(.+)$`)
+var ghReleaseURLRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/releases/download/(.+)/([^/]+)$`)
 
 // ParseGhReleaseURL 从 Release 下载链接解析 owner/repo/资产文件名。
 // 非 GitHub Release 链接（raw/jsDelivr/其它托管）返回 ok=false。
+//
+// 0.6.336：tag 允许包含 `/`（conversun/fnos-apps 的 tag 形如
+// `1panel/v1.10.34-lts-r8`）。旧正则把 tag 当单个路径段，asset 变成
+// `v1.10.34-lts-r8/1panel_..._x86.fpk` → 查 GitHub 资产元数据永远查不到
+// （下载量/大小两处都拿不到值）。
 func ParseGhReleaseURL(raw string) (owner, repo, asset string, ok bool) {
 	m := ghReleaseURLRe.FindStringSubmatch(strings.TrimSpace(raw))
 	if m == nil {
 		return "", "", "", false
 	}
-	asset = m[3]
+	asset = m[4]
 	if u, err := url.PathUnescape(asset); err == nil && u != "" {
 		asset = u
 	}
@@ -45,12 +50,16 @@ type ghRepoStats struct {
 	ETag      string         `json:"etag"`
 	FetchedAt string         `json:"fetched_at"`
 	Assets    map[string]int `json:"assets"` // 资产文件名 → download_count
+	// Sizes 资产文件名 → 字节数（GitHub Release asset.size）。
+	// 0.6.336：源索引不写 size 的应用（如 conversun/fnos-apps 的 apps.json）
+	// 用这里补「安装包大小」——同一次 releases 请求里就有，零额外请求。
+	Sizes map[string]int64 `json:"sizes,omitempty"`
 }
 
 type GHStats struct {
 	mu      sync.Mutex
 	path    string
-	apiBase string // 默认 https://api.github.com（测试可指向 httptest）
+	apiBase string                  // 默认 https://api.github.com（测试可指向 httptest）
 	stats   map[string]*ghRepoStats // repoKey(owner/repo) → 统计
 	queue   []string                // 待拉仓库（最旧优先轮换）
 	queued  map[string]bool
@@ -104,6 +113,19 @@ func (g *GHStats) Lookup(owner, repo, asset string) (int, bool) {
 	return n, ok
 }
 
+// LookupSize 查仓库里某资产的字节大小（GitHub Release 资产 size）。
+// 用于源索引未声明 size 的应用补「安装包大小」（0.6.336）。
+func (g *GHStats) LookupSize(owner, repo, asset string) (int64, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	rs, ok := g.stats[g.repoKey(owner, repo)]
+	if !ok || rs == nil || len(rs.Sizes) == 0 {
+		return 0, false
+	}
+	n, ok := rs.Sizes[asset]
+	return n, ok
+}
+
 // ErrRateLimited 限流余量耗尽（本轮停手，下一轮继续）。
 var ErrRateLimited = fmt.Errorf("GitHub API 限流余量为 0，本轮暂停")
 
@@ -112,7 +134,15 @@ var ErrRateLimited = fmt.Errorf("GitHub API 限流余量为 0，本轮暂停")
 func (g *GHStats) RefreshRound(ctx context.Context, maxRepos int) (int, error) {
 	g.mu.Lock()
 	// 最久未拉优先：按 FetchedAt 升序排（没拉过的最前）
+	// 0.6.336 迁移优先：历史缓存缺 sizes 的仓库排最前，尽快补齐体积数据。
+	needsSizes := func(k string) bool {
+		s, ok := g.stats[k]
+		return ok && s != nil && len(s.Assets) > 0 && len(s.Sizes) == 0
+	}
 	byAge := func(i, j int) bool {
+		if ni, nj := needsSizes(g.queue[i]), needsSizes(g.queue[j]); ni != nj {
+			return ni
+		}
 		fi, fj := "", ""
 		if s, ok := g.stats[g.queue[i]]; ok && s != nil {
 			fi = s.FetchedAt
@@ -179,6 +209,7 @@ func (g *GHStats) requeueOne(k string) {
 type ghReleaseAsset struct {
 	Name          string `json:"name"`
 	DownloadCount int    `json:"download_count"`
+	Size          int64  `json:"size"`
 }
 
 type ghRelease struct {
@@ -191,10 +222,20 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 	etag := ""
 	if s, ok := g.stats[g.repoKey(owner, repo)]; ok && s != nil {
 		etag = s.ETag
+		// 0.6.336 迁移：旧缓存只有 assets、没有 sizes → 忽略 ETag 强制重拉
+		// 一次，把资产字节数补齐（之后照常 304，不再额外消耗限流）。
+		// 只针对「有资产但没 sizes」的历史条目，空仓库不受影响。
+		if len(s.Assets) > 0 && len(s.Sizes) == 0 {
+			etag = ""
+		}
 	}
 	g.mu.Unlock()
 
-	for page := 1; page <= 3; page++ {
+	// 0.6.336：页上限 3→8。conversun/fnos-apps 有 466 个 Release（5 页），
+	// 只拉 3 页时 175 个应用里 37 个的资产不在窗口内 → 拿不到 size。
+	// 循环本身按「本页不足 100 条」提前结束，多数仓库仍只 1 次请求。
+	const ghStatsMaxPages = 8
+	for page := 1; page <= ghStatsMaxPages; page++ {
 		u := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=100", strings.TrimRight(g.apiBase, "/"), owner, repo)
 		if page > 1 {
 			u += fmt.Sprintf("&page=%d", page)
@@ -247,6 +288,9 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 			rs = &ghRepoStats{Assets: map[string]int{}}
 			g.stats[k] = rs
 		}
+		if rs.Sizes == nil {
+			rs.Sizes = map[string]int64{}
+		}
 		for _, r := range releases {
 			for _, a := range r.Assets {
 				if a.Name == "" {
@@ -255,9 +299,16 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 				if _, exists := rs.Assets[a.Name]; !exists {
 					rs.Assets[a.Name] = a.DownloadCount
 				}
+				if _, exists := rs.Sizes[a.Name]; !exists && a.Size > 0 {
+					rs.Sizes[a.Name] = a.Size
+				}
 			}
 		}
-		rs.ETag = resp.Header.Get("Etag")
+		// ETag 只取第 1 页：分页 URL 的 ETag 与首页请求不匹配，若把第 N 页
+		// 的 ETag 存下来，下次带 If-None-Match 请求首页永远 200（白耗限流）。
+		if page == 1 {
+			rs.ETag = resp.Header.Get("Etag")
+		}
 		rs.FetchedAt = time.Now().Format(time.RFC3339)
 		g.mu.Unlock()
 

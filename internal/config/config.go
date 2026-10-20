@@ -149,6 +149,10 @@ type Config struct {
 	PanelEnabled  bool   `json:"panel_enabled,omitempty"`
 	PanelUsername string `json:"panel_username,omitempty"`
 	PanelPassword string `json:"panel_password,omitempty"`
+	// GithubToken 可选 GitHub API token（0.6.334）：溯源用的 fork 关系查询
+	// 从匿名 60 次/小时提到 5000 次/小时，冷装可在 2 分钟内补满。空 = 匿名。
+	// 与面板口令同口径：落盘为 enc:v1 密文，绝不写日志、绝不下发前端。
+	GithubToken string `json:"github_token,omitempty"`
 	// 运行期状态（不落盘，0.6.220）：有凭据存在但解不开（换机/密钥文件丢失）
 	// → 已按「未设置」处理；设置页据此提示用户重填，而不是静默失效。
 	SecretDecryptFailed bool   `json:"-"`
@@ -372,6 +376,18 @@ func openSecrets(cfg *Config) {
 			migrationNeeded = true // 存量明文：下次 Save 自动改写为密文
 		}
 	}
+	if cfg.GithubToken != "" {
+		if secret.IsSealed(cfg.GithubToken) {
+			if plain, err := codec.Open(cfg.GithubToken); err == nil {
+				cfg.GithubToken = plain
+			} else {
+				log.Printf("GitHub token 解密失败（密钥变化或密文损坏），已按未设置处理，请在应用源页重新填写: %v", err)
+				cfg.GithubToken = ""
+			}
+		} else {
+			migrationNeeded = true // 存量明文：下次 Save 自动改写为密文
+		}
+	}
 	if extraCodec != nil {
 		if found, err := extraCodec(cfg, false); err != nil {
 			log.Printf("通知渠道凭据解密出错: %v", err)
@@ -405,6 +421,13 @@ func (c *Config) storageCopy() *Config {
 				snap.PanelPassword = sealed
 			} else {
 				log.Printf("面板口令加密失败（将以明文落盘，请检查数据目录写入权限）: %v", err)
+			}
+		}
+		if snap.GithubToken != "" {
+			if sealed, err := codec.Seal(snap.GithubToken); err == nil {
+				snap.GithubToken = sealed
+			} else {
+				log.Printf("GitHub token 加密失败（将以明文落盘，请检查数据目录写入权限）: %v", err)
 			}
 		}
 		if extraCodec != nil {

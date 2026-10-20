@@ -10,28 +10,59 @@ package api
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"moo/internal/config"
 	"moo/internal/source"
 )
 
-// 预算必须留在匿名 60 次/小时内：首轮 45（留 15 次余量给 ETag 复检与其它
-// GitHub API 调用方），其后 12/20min = 36/h。
-// 已知残余（非本测试可覆盖）：首小时名义 45+12+12=69 > 60 —— 靠「304 不计数
-// 额度」与「额满即 ErrRateLimited 提前停手」兜底，不会拉错数据，只是当轮少拉
-// 几个（下小时继续）。若未来要严格 ≤60，需把轮间隔从 20min 调大或首轮再降。
+// 预算必须留在匿名 60 次/小时内：首轮 55，其后 12/20min = 36/h。
+// 0.6.334：新增 token 档（5000/h）；0.6.340：token 档改为「待拉仓库一次给足」
+// （下限 400），冷启动/丢缓存在一轮内补满，不再走多轮。
+// 已知残余（非本测试可覆盖）：匿名首小时名义 55+12+12=79 > 60 —— 靠「304 不
+// 计数额度」与「额满即 ErrRateLimited 提前停手」兜底，不会拉错数据，只是当轮
+// 少拉几个（下轮继续）。稳态 36/h 才是长期约束。
 func TestGHForksBudgetWithinAnonymousLimit(t *testing.T) {
-	if got := ghForksBudget(true); got != 45 {
-		t.Fatalf("首轮预算 = %d, want 45", got)
+	if got := ghForksBudget(true, false, 159); got != 55 {
+		t.Fatalf("匿名首轮预算 = %d, want 55", got)
 	}
-	if got := ghForksBudget(false); got != 12 {
-		t.Fatalf("常规轮预算 = %d, want 12", got)
+	if got := ghForksBudget(false, false, 159); got != 12 {
+		t.Fatalf("匿名常规轮预算 = %d, want 12", got)
 	}
-	if ghForksBudget(true) > 60 {
-		t.Fatal("首轮预算不得单独超匿名上限")
+	if got := ghForksBudget(false, false, 159) * 3; got > 60 {
+		t.Fatalf("匿名稳态每小时 %d 次 > 60（匿名上限）", got)
 	}
-	if got := ghForksBudget(false) * 3; got > 60 {
-		t.Fatalf("稳态每小时 %d 次 > 60（匿名上限）", got)
+	// token 档：额度 5000/h，一轮给足（0.6.340）
+	if got := ghForksBudget(true, true, 159); got != 400 {
+		t.Fatalf("token 首轮预算 = %d, want 400（下限）", got)
+	}
+	if got := ghForksBudget(false, true, 159); got != 400 {
+		t.Fatalf("token 常规轮预算 = %d, want 400（下限）", got)
+	}
+	// 待拉仓库多于下限时按实际数放大（源暴涨后仍能一轮扫完）
+	if got := ghForksBudget(false, true, 900); got != 900 {
+		t.Fatalf("token 档大源集预算 = %d, want 900", got)
+	}
+	if got := ghForksBudget(false, true, 900); got > 5000 {
+		t.Fatalf("token 档单轮 %d 次 > 5000（token 上限）", got)
+	}
+}
+
+// ghForksInterval：本轮 0 个（队列空/全新鲜）→ 退避 6h；否则 token 档 15s、
+// 匿名档 20min。退避规则是 0.6.334 的核心修复之一（旧实现永远 20min 空转）；
+// 0.6.340 把 token 档从 1min 压到 15s（用户实测「溯源不够快」）。
+func TestGHForksIntervalBackoff(t *testing.T) {
+	if got := ghForksInterval(true, 0); got != 6*time.Hour {
+		t.Fatalf("队列空应退避 6h, got %v", got)
+	}
+	if got := ghForksInterval(false, 0); got != 6*time.Hour {
+		t.Fatalf("队列空应退避 6h（匿名）, got %v", got)
+	}
+	if got := ghForksInterval(true, 5); got != 15*time.Second {
+		t.Fatalf("token 档间隔 = %v, want 15s", got)
+	}
+	if got := ghForksInterval(false, 5); got != 20*time.Minute {
+		t.Fatalf("匿名档间隔 = %v, want 20m", got)
 	}
 }
 

@@ -90,7 +90,9 @@ func (c *Conversun) candidateURLs() (primary, fallback []string) {
 			primary = append(primary, fmt.Sprintf("%s/%s/%s/apps.json", m, conversunRawRepo, branch))
 		}
 	}
-	fallback = append(fallback, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s/apps.json",
+	// 0.6.331 P0：jsDelivr 兜底同样必须带 @main——无 @ref 形态会被 jsDelivr
+	// 的默认分支缓存长期钉在旧副本上（与 mooindex.go 的 GitHub 仓库形态同因）。
+	fallback = append(fallback, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s@main/apps.json",
 		conversunRepoOwner, conversunRepoName))
 	return primary, fallback
 }

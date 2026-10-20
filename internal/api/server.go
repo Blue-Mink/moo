@@ -66,6 +66,13 @@ type Server struct {
 
 	autoRefreshMu sync.Mutex // 自动源刷新协程互斥（防 main 重复启动）
 
+	// 0.6.335 C2：detail-store 逐源日志按 60s 窗口聚合（原每源一行，
+	// 一轮目录重建 ~90-115 行，占日志 57%）。
+	detailSinkMu      sync.Mutex
+	detailSinkApps    int
+	detailSinkSources int
+	detailSinkTimer   *time.Timer
+
 	// 刷新 single-flight（0.6.312 B1/F4）：后台刷新轮与手动「检查更新」
 	// 互斥——同一时刻最多一轮 157 源全量刷新（双轮并发=峰值 CPU 最差形态）。
 	refreshInflight atomic.Bool
@@ -358,7 +365,10 @@ func (s *Server) Handler(trust bool) http.Handler {
 
 	var core http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.Method != http.MethodGet {
-			fmt.Fprintf(os.Stderr, "[api] %s %s (remote=%s)\n", r.Method, r.URL.Path, r.RemoteAddr)
+			// 0.6.343：补时间戳——此前这行没有时间前缀，日志页时间列只能显示占位，
+			// 与 moo.log 其它行（YYYY/MM/DD HH:MM:SS.μs）格式不一致。
+			fmt.Fprintf(os.Stderr, "%s [api] %s %s (remote=%s)\n",
+				time.Now().Format("2006/01/02 15:04:05.000000"), r.Method, r.URL.Path, r.RemoteAddr)
 		}
 		mux.ServeHTTP(w, r)
 	})

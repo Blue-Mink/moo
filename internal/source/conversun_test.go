@@ -67,8 +67,8 @@ func TestConversunCandidateURLs(t *testing.T) {
 	if !strings.HasSuffix(primary[1], "conversun/fnos-apps/master/apps.json") {
 		t.Errorf("次选应为 raw master: %s", primary[1])
 	}
-	if !strings.HasSuffix(fallback[len(fallback)-1], "gh/conversun/fnos-apps/apps.json") {
-		t.Errorf("兜底应为 jsDelivr: %s", fallback[len(fallback)-1])
+	if !strings.HasSuffix(fallback[len(fallback)-1], "gh/conversun/fnos-apps@main/apps.json") {
+		t.Errorf("兜底应为带 @main 的 jsDelivr（0.6.331 P0：无 @ref 会拿到陈旧副本）: %s", fallback[len(fallback)-1])
 	}
 	for _, u := range append(primary, fallback...) {
 		if u == "" {

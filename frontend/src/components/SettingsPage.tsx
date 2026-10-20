@@ -101,6 +101,8 @@ function formatBytes(bytes: number): string {
 }
 
 function latencyColor(result: MirrorCheckResult): string {
+  // 0.6.333 F2：限流单列（琥珀），不再混进「失败」的灰/红
+  if (result.status === 'limited') return 'text-amber-500';
   if (result.status !== 'ok') return 'text-muted-foreground';
   if (result.latency_ms <= 300) return 'text-green-600';
   if (result.latency_ms <= 800) return 'text-yellow-600';
@@ -108,6 +110,7 @@ function latencyColor(result: MirrorCheckResult): string {
 }
 
 function latencyText(result: MirrorCheckResult): string {
+  if (result.status === 'limited') return '限流';
   if (result.status === 'timeout') return '超时';
   if (result.status === 'error') return '失败';
   return `${result.latency_ms}ms`;
@@ -187,20 +190,30 @@ const MirrorHealthPanel: React.FC<{
     });
     // 0.6.321r4：按测速自动排序（用户指令，GitHub/Docker 两组共用本面板）——
     // ok 在前（吞吐降序；无吞吐数据按首字节延迟升序，与后端 topSpeedKeys
-    // 优选序一致=「列表头≈当前优选源」）→ fail（连败少者先）→ 未测速殿后。
+    // 优选序一致=「列表头≈当前优选源」）→ 0.6.333 F4 新增 limited（429 限流，
+    // 按延迟升序；限流源没有吞吐数据，只按首字节延迟排）→ fail（连败少者先）
+    // → 未测速殿后。
     // 首屏无探测数据时全=未测速，stable sort 保持原选项序，无跳动。
-    const rank = (r: (typeof list)[number]) => (r.status === 'ok' ? 0 : r.status === 'fail' ? 1 : 2);
+    const rank = (r: (typeof list)[number]) =>
+      r.status === 'ok' ? 0 : r.status === 'limited' ? 1 : r.status === 'fail' ? 2 : 3;
     return list.sort((a, b) => {
       const d = rank(a) - rank(b);
       if (d !== 0) return d;
       if (a.status === 'ok') return (b.speed_bps - a.speed_bps) || (a.latency_ms - b.latency_ms);
+      if (a.status === 'limited') return a.latency_ms - b.latency_ms;
       if (a.status === 'fail') return a.consec_fails - b.consec_fails;
       return 0;
     });
   }, [options, health, customConfigured, includeDirect?.value]);
 
   const okCount = rows.filter((r) => r.status === 'ok').length;
+  // 0.6.333 F4：429 限流单列计数（不计入失败，也不计入正常）
+  const limitedCount = rows.filter((r) => r.status === 'limited').length;
   const failCount = rows.filter((r) => r.status === 'fail').length;
+  const tallyText = [
+    limitedCount > 0 ? `${limitedCount} 限流` : '',
+    failCount > 0 ? `${failCount} 失败` : '',
+  ].filter(Boolean).join('，');
 
   return (
     <div className="relative rounded-xl bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl border border-white/10 px-3 py-3">
@@ -276,7 +289,7 @@ const MirrorHealthPanel: React.FC<{
       )}
       {collapsed ? (
         <p className="text-[11px] text-muted-foreground">
-          {okCount}/{rows.length} 正常{failCount > 0 ? `（${failCount} 失败）` : ''}
+          {okCount}/{rows.length} 正常{tallyText ? `（${tallyText}）` : ''}
           {/* 0.6.321r：去掉 active!=='direct' 守卫——直连生效（智能模式直连胜出/
               全镜像 fail 兜底）时折叠摘要也如实显示「当前 直连 GitHub」（labelOf
               两组 options 均含 direct 条目，标签现成） */}
@@ -315,6 +328,8 @@ const MirrorHealthPanel: React.FC<{
                   className={cn(
                     "h-2 w-2 rounded-full shrink-0",
                     row.status === 'ok' && "bg-emerald-500",
+                    // 0.6.333 F4：限流 = 琥珀（链路可达但被临时限流，区别于真实故障的红）
+                    row.status === 'limited' && "bg-amber-500",
                     row.status === 'fail' && "bg-red-500",
                     !row.status && "bg-muted-foreground/30"
                   )}
@@ -330,9 +345,11 @@ const MirrorHealthPanel: React.FC<{
                 <span className="w-[64px] shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
                   {row.status === 'ok'
                     ? `${row.latency_ms}ms`
-                    : row.status === 'fail'
-                      ? row.consec_fails > 1 ? `失败×${row.consec_fails}` : '失败'
-                      : '未测速'}
+                    : row.status === 'limited'
+                      ? '限流'
+                      : row.status === 'fail'
+                        ? row.consec_fails > 1 ? `失败×${row.consec_fails}` : '失败'
+                        : '未测速'}
                 </span>
                 {showSpeed && (
                   <span className="w-[72px] shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
@@ -344,9 +361,17 @@ const MirrorHealthPanel: React.FC<{
                   </span>
                 )}
                 </div>
-                {/* 0.6.321 F6：失败原因第二行（短语，#4 可感知性） */}
-                {row.status === 'fail' && row.error && (
-                  <div className="pl-4 text-[10px] leading-tight text-red-400/80">{row.error}</div>
+                {/* 0.6.321 F6：失败原因第二行（短语，#4 可感知性）
+                    0.6.333 F4：限流也展示原因，用琥珀色与真实故障（红）区分 */}
+                {(row.status === 'fail' || row.status === 'limited') && row.error && (
+                  <div
+                    className={cn(
+                      'pl-4 text-[10px] leading-tight',
+                      row.status === 'fail' ? 'text-red-400/80' : 'text-amber-500/80'
+                    )}
+                  >
+                    {row.error}
+                  </div>
                 )}
               </div>
             ))}
@@ -1188,8 +1213,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const probeAge = before.last_probe ? Date.now() - new Date(before.last_probe).getTime() : Number.POSITIVE_INFINITY;
     const summarize = (h: MirrorHealth) => {
       const ok = (h.mirrors || []).filter((m) => m.status === 'ok').length;
+      // 0.6.333 F4：限流单列（既不算正常也不算失败），为 0 的项省略
+      const limited = (h.mirrors || []).filter((m) => m.status === 'limited').length;
       const fail = (h.mirrors || []).filter((m) => m.status === 'fail').length;
-      return `${ok} 个正常${fail > 0 ? `，${fail} 个失败` : ''}`;
+      return `${ok} 个正常${limited > 0 ? `，${limited} 个限流` : ''}${fail > 0 ? `，${fail} 个失败` : ''}`;
     };
     if (Number.isFinite(probeAge) && probeAge < 60000) {
       toast.success(`${label}：${summarize(before)}（${Math.max(1, Math.round(probeAge / 1000))} 秒前刚测过）`);
@@ -2846,7 +2873,9 @@ mdsSim && "mds-sim")}>
                  部分压扁壳（飞牛 app）用 liftPx 上抬残留覆盖量；
                  收起键盘随视口扩张连续滑回、无跳变。
               外框与内容卡片同宽（px-3 / sm:px-6）。 */}
-          {tab !== 'about' && !kbDockHidden && (
+          {/* 0.6.343：日志 tab 不显示底部「保存」——该页没有待保存项（行数选择即时
+              落库），此前悬浮胶囊会压在日志列表最后一行上（用户报「日志页面很乱」）。 */}
+          {tab !== 'about' && tab !== 'log' && !kbDockHidden && (
             // 0.6.319g（用户定稿）：absolute 悬浮 overlay（与详情页下载胶囊同款）。
             // 内容滚动框贯穿到底，文字从按钮下方滚过（按钮=307 定稿浅蓝玻璃
             // 半透）；按钮之外全 pointer-events-none=滚轮/触摸穿透。

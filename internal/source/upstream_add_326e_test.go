@@ -87,7 +87,7 @@ func TestBuildCandidatesIndexNameOrder(t *testing.T) {
 	for _, wantSub := range []string{
 		"raw.githubusercontent.com/Blue-Mink/FnDepot/main/fndepot.json",
 		"raw.githubusercontent.com/Blue-Mink/FnDepot/main/apps.json",
-		"cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/apps.json",
+		"cdn.jsdelivr.net/gh/Blue-Mink/FnDepot@main/apps.json",
 	} {
 		if !strings.Contains(joined, wantSub) {
 			t.Fatalf("缺少候选 %s\n实际：%v", wantSub, got)
