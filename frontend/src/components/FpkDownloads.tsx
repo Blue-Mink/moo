@@ -14,6 +14,24 @@ import {
   type WizardParam,
 } from '../api/client';
 
+/** 0.6.332 F4：列表副行取值——display_name → appname → 「解析中…」。 */
+function fpkSubLine(f: FpkDownloadFile): { text: string; pending?: boolean } | null {
+  const stem = f.name.replace(/\.fpk$/i, '').toLowerCase();
+  // 与文件名（去 .fpk）相同、空串、未展开的 ${...} 占位串都视为「无可用名字」
+  const usable = (v?: string): string => {
+    const t = (v || '').trim();
+    if (!t || t.startsWith('${') || t.toLowerCase() === stem) return '';
+    return t;
+  };
+  const dn = usable(f.display_name);
+  if (dn) return { text: dn };
+  const an = usable(f.appname);
+  if (an) return { text: an };
+  // manifest 后台解析中：先给占位，解析完自动换成真实名字（避免首开整列空白）
+  if (f.parsing) return { text: '解析中…', pending: true };
+  return null;
+}
+
 /** 与 SettingsPage 原本地实现逐字节同款（设置页行为零变化；0 返回空串）。 */
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '';
@@ -317,17 +335,24 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
           stableHeight ? 'h-60' : 'max-h-60',
         )}>
           {fpkFiles.map((f) => {
-            const dn = (f.display_name || '').trim();
-            const showName = !!dn && dn.toLowerCase() !== f.name.replace(/\.fpk$/i, '').toLowerCase();
+            // 0.6.332 F4：副行=display_name → appname → 「解析中…」（都不适用则不渲染）；
+            // 解析完成（含「包损坏/无 manifest」的负结果）后后端 parsing 转 false。
+            const sub = fpkSubLine(f);
             return (
             <div key={f.name} className="flex items-center gap-2.5 px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium" title={f.name}>
                   {f.name}
                 </div>
-                {showName && (
-                  <div className="truncate text-xs text-foreground/80" title={dn}>
-                    {dn}
+                {sub && (
+                  <div
+                    className={cn(
+                      'truncate text-xs',
+                      sub.pending ? 'text-muted-foreground italic' : 'text-foreground/80',
+                    )}
+                    title={sub.text}
+                  >
+                    {sub.text}
                   </div>
                 )}
                 <div className="text-[11px] text-muted-foreground">

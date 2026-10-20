@@ -41,7 +41,6 @@ import {
   Trash2,
   User,
   Images,
-  Hash,
   HardDrive,
   FileText,
   X,
@@ -50,13 +49,15 @@ import {
   Check,
   Star,
   ShieldCheck,
-  CalendarClock,
   Cpu,
   GitFork,
   // 0.6.326g：溯源第二行三钮恒显后的图标（与上方源/开发者/发布者胶囊同款 12px）
   Plus,
   Ban,
   EyeOff,
+  // 0.6.337（用户定稿）：信息行两列化后新增「应用类型 / 安装位置」两行
+  Boxes,
+  FolderOpen,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -210,8 +211,10 @@ interface AppDetailDialogProps {
   aurora?: boolean;
 }
 
-export const DetailRow: React.FC<{ icon: React.ElementType; label: string; children: React.ReactNode }> = ({ icon: Icon, label, children }) => (
-  <div className="flex items-start gap-3 py-2">
+export const DetailRow: React.FC<{ icon: React.ElementType; label: string; className?: string; children: React.ReactNode }> = ({ icon: Icon, label, className, children }) => (
+  /* 0.6.337（用户定稿）：信息行改两列网格后，行宽只有卡片一半（移动端约 150px）
+     → 图标与文字间距 12→8px（sm 以上恢复 12px），并允许整行被网格拉伸。 */
+  <div className={cn("flex items-start gap-2 sm:gap-3 py-2 min-w-0", className)}>
     <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
     <div className="flex-1 min-w-0">
       <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
@@ -996,6 +999,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     switch (status) {
       case 'running': return '运行中';
       case 'stopped': return '已停止';
+      // 0.6.348：daemon 的 start = 已启用但无服务态，探测不出真实进程时保留该值，
+      // 详情页不能再把英文原值直接甩给用户。
+      case 'start': return '已启用';
       default: return status || '未安装';
     }
   };
@@ -1409,7 +1415,12 @@ mdsSim && "mds-sim")}>
           </>
         )}
 
-        <div className="space-y-0">
+        {/* 0.6.337（用户定稿）：元信息区改**两列网格**（移动端与网页端一致），
+            简介 / README / 更新日志三个大块的布局均不动；长内容行（溯源、版本、
+            SHA256）跨两列，其余短字段两两并排。
+            0.6.337f（用户反馈）：两列间距拉大（桌面 24→48px、移动 12→16px），
+            列宽仍 grid-cols-2 严格平分，避免两列视觉上挤在一起。 */}
+        <div className="grid grid-cols-2 gap-x-4 sm:gap-x-12">
           {/* 0.6.326 应用溯源（用户定稿 + 0.6.326-ui 微调）：后端按内容血缘判定
               「本源的包来自其它 owner 仓库」时才下发 upstream_* —— 值优先显示 Moo
               已收录的上游源名，未收录回落 owner/repo。
@@ -1420,7 +1431,7 @@ mdsSim && "mds-sim")}>
               0.6.326f（用户定稿）：拆两行 —— 第一行「上游 xxx」（外链）；
               第二行依次「添加上游源 / 禁用fork源 / 禁用应用」（括号说明不上屏）。 */}
           {(app.upstream_source || app.upstream_repo) && (
-            <DetailRow icon={GitFork} label="溯源">
+            <DetailRow icon={GitFork} label="溯源" className="col-span-2">
               <div className="flex flex-col gap-1.5">
                 {/* 0.6.326f（用户定稿）：改两行 —— 第一行「上游 xxx」（外链）；
                     第二行依次「添加上游源 / 禁用fork源 / 禁用应用」（顺序固定）。 */}
@@ -1518,10 +1529,14 @@ mdsSim && "mds-sim")}>
             </DetailRow>
           )}
 
+          {/* 0.6.337（用户定稿·方案 A）：版本与架构同排（不再独占整行）。
+              同步源里的最新版本作为主值：未安装直接显示最新版本；已装旧版时
+              已装版降为次要值，箭头指向（并高亮）最新版本。
+              0.6.332 F3：非更新分支展示「目标版本」优先用 available_version
+              （跨源更新时 latest_version 可能是本源字符串，与实际落点不同），
+              缺失时才回落 latest_version。 */}
           <DetailRow icon={Tag} label="版本">
             <div className="flex items-center gap-2 flex-wrap">
-              {/* 同步源里的最新版本作为主值：未更新/未安装直接显示最新版本；
-                  已装旧版时已装版降为次要值，箭头指向（并高亮）最新版本 */}
               {isInstalled && canUpdate ? (
                 <>
                   <span className="text-muted-foreground">v{installedVersionLabel(app) || '-'}</span>
@@ -1529,7 +1544,7 @@ mdsSim && "mds-sim")}>
                   <span className="text-primary font-medium">v{availableVersionLabel(app)} (最新)</span>
                 </>
               ) : (
-                <span>{app.latest_version ? `v${app.latest_version}` : (isInstalled ? `v${installedVersionLabel(app) || '-'}` : '-')}</span>
+                <span>{availableVersionLabel(app) ? `v${availableVersionLabel(app)}` : (isInstalled ? `v${installedVersionLabel(app) || '-'}` : '-')}</span>
               )}
               {!isInstalled && (
                 <span className="text-muted-foreground text-xs">(最新)</span>
@@ -1539,8 +1554,7 @@ mdsSim && "mds-sim")}>
 
           {/* 0.6.303（arm 适配准备）：平台架构——源提供的全部架构（x86 / arm，
               展示序 x86 在前）；单架构源只显示一个。安装/下载由后端按本机
-              架构自动选包（arm 设备选中 arm 包，x86→all 回退），此行=依据。
-              源未提供架构信息（平铺单链接）时不显示该行。 */}
+              架构自动选包（arm 设备选中 arm 包，x86→all 回退），此行=依据。 */}
           {(app.archs?.length || app.arch) && (
             <DetailRow icon={Cpu} label="架构">
               {app.archs?.length
@@ -1549,38 +1563,11 @@ mdsSim && "mds-sim")}>
             </DetailRow>
           )}
 
-          {/* 0.6.312：同名候选表按用户要求整体移除（后端 same_name 字段保留，
-              冲突处理仍走列表页冲突对话框；显式引用逃生门不再需要）。 */}
-          {app.service_port ? (
-            <DetailRow icon={Network} label="服务端口">
-              {app.service_port}
-            </DetailRow>
-          ) : null}
-
           {(app.size_bytes || (hasPanelInfo && panelInfo?.app.appDetail?.installSize)) ? (
             <DetailRow icon={HardDrive} label="安装包大小">
               {formatSize(app.size_bytes || panelInfo?.app.appDetail?.installSize)}
             </DetailRow>
           ) : null}
-
-          {app.download_count ? (
-            <DetailRow icon={Download} label="下载次数">
-              {formatDownloads(app.download_count)}
-            </DetailRow>
-          ) : app.local_installs ? (
-            // 第三方源应用无全局下载量（官方规范不统计外部源）→ 本机安装次数回退
-            <DetailRow icon={Download} label="下载次数">
-              本机 {app.local_installs} 次
-            </DetailRow>
-          ) : null}
-
-          {/* moo.json 扩展（0.6.235）：运行方式（root / 用户空间等）与最早发布时间。
-              源未提供时不显示该行，保持与旧源一致的观感。 */}
-          {installTypeRow(app.install_type) && (
-            <DetailRow icon={ShieldCheck} label={installTypeRow(app.install_type)!.label}>
-              {installTypeRow(app.install_type)!.value}
-            </DetailRow>
-          )}
 
           {/* 官方目录不提供更新时间（面板契约无此字段），空值行不显示 */}
           {!isOfficial && app.updated_at && (
@@ -1589,9 +1576,96 @@ mdsSim && "mds-sim")}>
             </DetailRow>
           )}
 
-          {app.first_release_at && (
-            <DetailRow icon={CalendarClock} label="最早发布">
-              {formatDate(app.first_release_at)}
+          {/* 0.6.337（用户定稿）：端口——源声明的 service_port 与 daemon 下发的
+              web_port 去重后以「 / 」连接；两者都无则不占行。 */}
+          {(() => {
+            const ports = Array.from(new Set(
+              [app.service_port, app.web_port].filter((v): v is number => !!v && v > 0),
+            ));
+            return ports.length ? (
+              <DetailRow icon={Network} label="端口">
+                <span className="tabular-nums">{ports.join(' / ')}</span>
+              </DetailRow>
+            ) : null;
+          })()}
+
+          {/* 0.6.337（用户定稿）：运行方式 = 身份 + 位置（root 应用=系统空间，
+              package=用户空间）；源未声明但装在 /var/apps 的按系统空间算。 */}
+          {(() => {
+            const k = (app.install_type || '').trim().toLowerCase();
+            let mode = '';
+            if (['root', 'sudo', 'administrator', 'system', 'system-space', '系统空间', '系統空間', 'storage', 'volume', 'storage-space', '存储空间'].includes(k)) {
+              mode = '系统空间（root）';
+            } else if (['package', 'user', 'user-space', 'userspace', '用户空间'].includes(k)) {
+              mode = '用户空间（package）';
+            } else if (isInstalled && (app.install_path || '').startsWith('/var/apps/')) {
+              mode = '系统空间（root）';
+            }
+            return mode ? (<DetailRow icon={ShieldCheck} label="运行方式">{mode}</DetailRow>) : null;
+          })()}
+
+          {/* 0.6.337（用户定稿）：应用类型（Docker 容器 / 原生） */}
+          {app.app_type && (
+            <DetailRow icon={Boxes} label="应用类型">
+              {app.app_type.toLowerCase() === 'docker'
+                ? 'Docker 容器'
+                : ['native', 'fpk'].includes(app.app_type.toLowerCase()) ? '原生' : app.app_type}
+            </DetailRow>
+          )}
+
+          {/* 0.6.337（用户定稿）：安装位置——优先真实落盘（后端扫 /volN/@appcenter
+              与 /var/apps），显示「存储空间 N · /volN」；未安装时回落源声明。 */}
+          {(() => {
+            const vol = app.install_volume || 0;
+            let loc = '';
+            if (isInstalled && app.install_path && vol > 0) loc = `存储空间 ${vol} · /vol${vol}`;
+            else if (isInstalled && (app.install_path || '').startsWith('/var/apps/')) loc = '系统空间';
+            else {
+              const it = installTypeRow(app.install_type);
+              if (it && it.label === '安装位置') loc = it.value;
+              else if (isInstalled && (panelInfo?.volume || 0) > 0) loc = `存储空间 ${panelInfo!.volume}`;
+            }
+            return loc ? (<DetailRow icon={FolderOpen} label="安装位置">{loc}</DetailRow>) : null;
+          })()}
+
+          {/* 0.6.337（用户定稿）：官网——短链接（只显示域名，hover 看完整地址），
+              与「下载次数」同排，不再独占整行。 */}
+          {app.homepage && (
+            <DetailRow icon={Globe} label="官网">
+              <a
+                href={app.homepage}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={app.homepage}
+                className="text-primary hover:underline inline-flex items-center gap-1 break-all"
+              >
+                {(() => {
+                  try {
+                    return new URL(app.homepage).hostname.replace(/^www\./, '');
+                  } catch {
+                    return app.homepage.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '');
+                  }
+                })()}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            </DetailRow>
+          )}
+
+          {app.download_count ? (
+            <DetailRow icon={Download} label="下载次数">
+              {formatDownloads(app.download_count)}
+            </DetailRow>
+          ) : app.local_installs ? (
+            <DetailRow icon={Download} label="下载次数">
+              本机 {app.local_installs} 次
+            </DetailRow>
+          ) : null}
+
+          {/* 0.6.337（用户定稿）：更新源（跨源更新时目标版本来自哪个源；
+              无跨源更新时为空，不占行）。 */}
+          {app.update_from_source && (
+            <DetailRow icon={RefreshCw} label="更新源">
+              {app.update_from_source}
             </DetailRow>
           )}
 
@@ -1602,51 +1676,7 @@ mdsSim && "mds-sim")}>
             </DetailRow>
           )}
 
-          {app.min_fnos && (
-            <DetailRow icon={Network} label="系统最低版本">
-              fnOS {app.min_fnos}
-            </DetailRow>
-          )}
-
-          {hasPanelInfo && panelInfo?.app.appDetail?.osMinVersion && (
-            <DetailRow icon={Network} label="系统最低版本">
-              fnOS {panelInfo.app.appDetail.osMinVersion}
-            </DetailRow>
-          )}
-
-          {app.sha256 && (
-            <DetailRow icon={Hash} label="SHA256">
-              <code className="text-xs font-mono break-all text-muted-foreground">{app.sha256}</code>
-            </DetailRow>
-          )}
-
-          {app.homepage && (
-            <DetailRow icon={Globe} label="官网">
-              <a
-                href={app.homepage}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline inline-flex items-center gap-1 break-all"
-              >
-                {app.homepage.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                <ExternalLink className="h-3 w-3 shrink-0" />
-              </a>
-            </DetailRow>
-          )}
-
-          {app.release_url && (
-            <DetailRow icon={Tag} label="发布页">
-              <a
-                href={app.release_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline inline-flex items-center gap-1"
-              >
-                GitHub Release
-                <ExternalLink className="h-3 w-3 shrink-0" />
-              </a>
-            </DetailRow>
-          )}
+          {/* 0.6.337（用户定稿）：系统最低版本整行移除（用户明确不要，含源声明 min_fnos）。 */}
         </div>
 
         {/* README */}
@@ -1731,7 +1761,11 @@ mdsSim && "mds-sim")}>
                 <span className="truncate">更新日志</span>
                 {app.has_update && (
                   <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal shrink-0">
-                    可更新至 v{app.latest_version}
+                    可更新至 v{availableVersionLabel(app)}
+                    {/* 0.6.332 F3（全量测试 P2-3）：原用 app.latest_version——
+                        跨源更新时本源的 latest 与真正要装的 available_version
+                        可能不同（实测徽章写 0.5.104、实际目标 9.9.9），改用
+                        client.ts 的 availableVersionLabel（available 优先）。 */}
                     {/* 0.6.272：跨源同宗更新时标明来源源（供应链透明） */}
                     {app.update_from_source ? ` · 来自 ${app.update_from_source} 源` : ''}
                   </Badge>

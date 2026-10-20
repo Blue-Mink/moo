@@ -24,7 +24,7 @@ import FpkDownloads from './components/FpkDownloads';
 import { Dialog, DialogContent, DialogTitle } from './components/ui/dialog';
 import AppRowList from './components/AppRowList';
 import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
-import { fetchApps, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, hideApp, unhideApp, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads } from './api/client';
+import { fetchApps, fetchAppDetail, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, hideApp, unhideApp, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
@@ -624,13 +624,31 @@ const App: React.FC = () => {
     const t = setTimeout(() => setHighlightKey(null), 2500);
     return () => clearTimeout(t);
   }, [highlightKey]);
-  const handleViewApp = useCallback((appname: string) => {
-    // 任务视图给的是裸 appname，大小写容错匹配（daemon 记账名可能大小写漂移）
-    const found = apps.find(a => a.appname === appname)
-      || apps.find(a => (a.appname || '').toLowerCase() === (appname || '').toLowerCase());
-    if (!found) return;
+  const handleViewApp = useCallback(async (appname: string) => {
+    // 任务视图给的是裸 appname，大小写容错匹配（daemon 记账名可能大小写漂移）。
+    // 0.6.346：同名多卡（dedup=all 下同一 appname 有多张源卡）必须**优先已安装
+    // 那张**——旧实现取数组里第一张，实测点「1panel 安装成功」的「查看」会落到
+    // 别的源的未装卡：tab 不切、目标卡在 2 万像素外、视口被甩到列表末尾，
+    // 用户看到的就是「跳不过去 + 没有蓝色框选」。
+    const pick = (list: AppInfo[]) => {
+      const eq = (a: AppInfo) => (a.appname || '').toLowerCase() === (appname || '').toLowerCase();
+      return list.find(a => eq(a) && a.installed)
+        || list.find(eq)
+        || null;
+    };
+    let found = pick(appsRef.current);
+    if (!found) {
+      // 刚装完目录可能尚未刷新（SSE 完成到前端 loadApps 之间）：重拉一次再定位。
+      try { await loadAppsRef.current(false); } catch { /* 保持原列表 */ }
+      await new Promise(r => setTimeout(r, 60));
+      found = pick(appsRef.current);
+    }
+    if (!found) {
+      toast.info('应用已在后台完成，但当前目录里还没有它——请稍后下拉刷新');
+      return;
+    }
     // 详情对话框开着 → 直接切到该应用的内容（比列表定位更直达）
-    if (detailApp) { setDetailApp(found); return; }
+    if (detailApp) { setDetailApp(found); setHighlightKey(found.key || found.appname); return; }
     // 清掉会隐藏该应用的搜索/分类过滤，再落到必定展示它的 tab
     if (searchInput) setSearchInput('');
     setActiveCategory(null);
@@ -640,7 +658,7 @@ const App: React.FC = () => {
       switchFilter(target);
     }
     setHighlightKey(found.key || found.appname);
-  }, [apps, detailApp, searchInput, switchFilter]);
+  }, [detailApp, searchInput, switchFilter]);
 
   const setAppOp = useCallback((appname: string, op: AppOperation | null) => {
     setAppOperations(prev => {
@@ -759,6 +777,23 @@ const App: React.FC = () => {
       await controlApp(app.appname, action);
       toast.success(action === 'start' ? `已启动「${app.display_name}」` : `已停用「${app.display_name}」`);
       await loadAppsRef.current();
+      // 0.6.342：列表里点「启动」后 daemon 往往先报 starting，短暂停留在停止态；
+      // 轮询轻量详情端点（约 1.6KB）直到状态离开过渡/停止态，再刷一次列表，
+      // 让卡面从「启动中」及时变成「打开」（否则用户以为没反应）。
+      if (action === 'start') {
+        const key = app.key || app.appname;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 20000) {
+          await new Promise(r => setTimeout(r, 1200));
+          try {
+            const fresh = await fetchAppDetail(key);
+            const st = fresh.status || '';
+            if (st && st !== 'starting' && st !== 'stopping' && st !== 'stopped') break;
+          } catch { /* 单次失败继续轮询 */ }
+          if (Date.now() - t0 >= 20000) break;
+        }
+        await loadAppsRef.current();
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : `${action === 'start' ? '启动' : '停用'}失败`);
     } finally {
@@ -2214,6 +2249,8 @@ const App: React.FC = () => {
                               isFavorite={favoriteSet.has(app.key || app.appname)}
                               onToggleFavorite={handleToggleFavorite}
                               clickMode={clickMode}
+                              onControl={handleControl}
+                              controlling={controlling}
                             />
                           </Suspense>
                         ))}
@@ -2235,6 +2272,8 @@ const App: React.FC = () => {
                             onOpenApp={handleOpenApp}
                             isFavorite={favoriteSet.has(app.key || app.appname)}
                             onToggleFavorite={handleToggleFavorite}
+                            onControl={handleControl}
+                            controlling={controlling}
                           />
                           </div>
                         ))}
@@ -2416,9 +2455,9 @@ const App: React.FC = () => {
                   各自形态：桌面=卡网格 / 移动=行列表。交互：触屏单击开详情、
                   鼠标双击（见各卡组件的 coarse 分支）。 */}
               {viewMode === 'minimal' ? (
-                <MinimalIconGridM apps={displayApps} onDetail={setDetailApp} clickMode={clickMode} />
+                <MinimalIconGridM apps={displayApps} onDetail={setDetailApp} clickMode={clickMode} highlightKey={highlightKey} />
               ) : viewMode === 'aurora' ? (
-                <AuroraGridM apps={displayApps} onDetail={setDetailApp} clickMode={clickMode} />
+                <AuroraGridM apps={displayApps} onDetail={setDetailApp} clickMode={clickMode} highlightKey={highlightKey} />
               ) : isDesktop ? (
                 <AppList
                    apps={displayApps}
@@ -2440,6 +2479,8 @@ const App: React.FC = () => {
                    onToggleFavorite={handleToggleFavorite}
                    clickMode={clickMode}
                    highlightKey={highlightKey}
+                   onControl={handleControl}
+                   controlling={controlling}
                 />
               ) : (
                 <AppRowList
@@ -2460,6 +2501,8 @@ const App: React.FC = () => {
                   favoriteSet={favoriteSet}
                   onToggleFavorite={handleToggleFavorite}
                   highlightKey={highlightKey}
+                  onControl={handleControl}
+                  controlling={controlling}
                 />
               )}
             </>

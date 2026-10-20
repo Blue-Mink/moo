@@ -17,7 +17,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog"
-import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert, KeyRound } from 'lucide-react'
+import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert, KeyRound, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { shouldWarnPlainHttp } from '@/lib/sourceWarnings'
 import { copyTextToClipboard } from '@/lib/clipboard'
@@ -52,6 +52,30 @@ const overlapPct = (v?: number): string => `${Math.round((v ?? 0) * 100)}%`
 const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCounter = 0 }) => {
   const [sources, setSources] = useState<SourceEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  // 0.6.346（用户令）：应用源搜索——列表卡前面加搜索框，输入即筛选，
+  // 结果可点（或回车）一键直达：滚到该源行并高亮 2.5s。
+  const [srcQuery, setSrcQuery] = useState('');
+  const [srcJumpId, setSrcJumpId] = useState<string | null>(null);
+  const searching = srcQuery.trim() !== '';
+  useEffect(() => {
+    if (!srcJumpId) return;
+    const t = setTimeout(() => setSrcJumpId(null), 2500);
+    return () => clearTimeout(t);
+  }, [srcJumpId]);
+  const srcMatches = React.useMemo(() => {
+    const q = srcQuery.trim().toLowerCase();
+    if (!q) return sources;
+    return sources.filter(s =>
+      [s.name, s.url, s.homepage].some(v => (v || '').toLowerCase().includes(q)));
+  }, [sources, srcQuery]);
+  const jumpToSource = useCallback((src: SourceEntry) => {
+    setSrcJumpId(src.id);
+    // 等一帧让筛选后的列表落盘，再滚（设置页的滚动容器是对话框内部 div）
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-source-id="${CSS.escape(src.id)}"]`);
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 60);
+  }, []);
   const [input, setInput] = useState('');
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -73,6 +97,11 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [listAuto, setListAuto] = useState(true);
   // 0.6.325 安全加固 R1：允许列表同步添加内网/环回源（默认关）
   const [listAllowPrivate, setListAllowPrivate] = useState(false);
+  // 0.6.334：GitHub API token（可选）——服务端只回传「是否已配置」，
+  // token 本身永不下发；保存/清除均即时生效（无需重启）。
+  const [tokenSet, setTokenSet] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [savingToken, setSavingToken] = useState(false);
   const [syncingList, setSyncingList] = useState(false);
   const [savingList, setSavingList] = useState(false);
   // 0.6.318：删除默认源（dry_run 预检 → 确认弹窗 → 真删）
@@ -196,10 +225,12 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   };
 
   const handleCollapse = () => {
-    setCollapsed((v) => {
-      try { localStorage.setItem('new-store.sources.collapsed', v ? '0' : '1'); } catch { /* ignore */ }
-      return !v;
-    });
+    const next = !collapsed;
+    // 0.6.347（用户令）：折叠时清空搜索——搜索框随列表一起收起，
+    // 否则残留关键字会让列表在折叠状态下仍然显示。
+    if (next) setSrcQuery('');
+    setCollapsed(next);
+    try { localStorage.setItem('new-store.sources.collapsed', next ? '1' : '0'); } catch { /* ignore */ }
   };
 
   const handleToggle = async (src: SourceEntry, enabled: boolean) => {
@@ -235,6 +266,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         setListAuto(!(s.source_list_disabled ?? false));
         setListAllowPrivate(s.source_list_allow_private ?? false);
         setAutoCare(!(s.source_auto_care_disabled ?? false));
+        setTokenSet(!!s.github_token_set);
       })
       .catch(() => {});
   }, [load]);
@@ -298,6 +330,46 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       toast.error(e instanceof Error ? e.message : '保存设置失败');
     } finally {
       setSavingCare(false);
+    }
+  };
+
+  // 0.6.334：GitHub token（可选）——保存后后端立即 SetToken，无需重启。
+  // 只影响「上游溯源」的 fork 关系查询额度（匿名 60/h → 5000/h），
+  // 不改动任何源/目录数据；空串 = 清除回匿名。
+  const handleSaveToken = async () => {
+    const tok = tokenInput.trim();
+    if (!tok) {
+      toast.error('请先填写 GitHub token');
+      return;
+    }
+    if (!/^(ghp_|github_pat_)/.test(tok)) {
+      toast.error('token 应以 ghp_ 或 github_pat_ 开头');
+      return;
+    }
+    setSavingToken(true);
+    try {
+      await updateSettings({ github_token: tok });
+      setTokenSet(true);
+      setTokenInput('');
+      toast.success('已保存 GitHub token，上游溯源补全将加速');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '保存 token 失败');
+    } finally {
+      setSavingToken(false);
+    }
+  };
+
+  const handleClearToken = async () => {
+    setSavingToken(true);
+    try {
+      await updateSettings({ github_token: '' });
+      setTokenSet(false);
+      setTokenInput('');
+      toast.success('已清除 GitHub token（回到匿名额度）');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '清除 token 失败');
+    } finally {
+      setSavingToken(false);
     }
   };
 
@@ -426,6 +498,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   // 短按行体 = 退出排序。行体长按 500ms（手指不动）进入抖动模式。
   const onRowPointerDown = (idx: number, e: React.PointerEvent<HTMLDivElement>) => {
     if (savingOrder) return;
+    // 0.6.346：搜索筛选时允许的索引与完整列表不一致，禁用长按排序
+    if (searching) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     // 长按右侧控制组/手柄/链接 不进入排序模式，避免误触；
     // 信息区（含 URL 复制按钮）允许长按进入——移动端窄屏下它占行体大部分
@@ -823,17 +897,80 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         </div>
       </div>
 
-      {!collapsed && (loading ? (
+      {/* 0.6.346（用户令）：应用源搜索框——列表卡前面，输入即筛选；命中项可
+          单击（或回车跳第一个）一键直达该源：列表滚到对应行并高亮 2.5s。
+          0.6.347（用户令）：折叠时搜索框一并收起，展开后与列表一起出现。 */}
+      {!collapsed && (
+      <div className="space-y-1.5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={srcQuery}
+            onChange={(e) => { setSrcQuery(e.target.value); if (wiggle) exitWiggle(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); if (srcMatches.length > 0) jumpToSource(srcMatches[0]); }
+              if (e.key === 'Escape') setSrcQuery('');
+            }}
+            placeholder="搜索应用源（名称 / 地址）"
+            aria-label="搜索应用源"
+            className="h-9 pl-8 pr-8 text-sm"
+          />
+          {srcQuery !== '' && (
+            <button
+              type="button"
+              onClick={() => setSrcQuery('')}
+              aria-label="清空应用源搜索"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {searching && (
+          <div className="rounded-lg border border-border/40 bg-card/80 p-1">
+            {srcMatches.length === 0 ? (
+              <p className="px-2 py-1.5 text-[11px] text-muted-foreground">没有匹配的应用源</p>
+            ) : (
+              <>
+                <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                  匹配 {srcMatches.length} 个 · 点击直达（回车跳到第一个）
+                </p>
+                <div className="max-h-44 overflow-auto">
+                  {srcMatches.slice(0, 30).map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => jumpToSource(s)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted/60"
+                    >
+                      <span className="max-w-[38%] truncate text-xs font-medium">{s.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{s.url}</span>
+                      {s.app_count > 0 && (
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{s.app_count} 个</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      )}
+
+      {(!collapsed || searching) && (loading ? (
         <div className="flex justify-center py-3">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
-      ) : sources.length === 0 ? (
+      ) : srcMatches.length === 0 ? (
         <p className="text-xs leading-relaxed text-muted-foreground">
-          暂无外部应用源。添加后，源中的应用会并入商店目录，来源与作者会在应用上标注。
+          {searching
+            ? `没有匹配「${srcQuery.trim()}」的应用源。`
+            : '暂无外部应用源。添加后，源中的应用会并入商店目录，来源与作者会在应用上标注。'}
         </p>
       ) : (
         <div className="space-y-2">
-          {sources.map((src) => {
+          {srcMatches.map((src) => {
             const isOfficialSrc = src.id === 'fnos-official';
             const disabled = src.enabled === false;
             // ── 抖动排序（knock 子域排序同款）：本行拖拽状态；官方源 idx=-1 固定最顶 ──
@@ -1040,7 +1177,11 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             if (isOfficialSrc) {
               // 飞牛应用中心：固定最顶部，不参与抖动/排序
               return (
-                <div key={src.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${disabled ? 'opacity-55' : ''}`}>
+                <div
+                  key={src.id}
+                  data-source-id={src.id}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${disabled ? 'opacity-55' : ''} ${srcJumpId === src.id ? 'border-primary/50 ring-2 ring-primary/40' : ''}`}
+                >
                   {rowContent}
                 </div>
               );
@@ -1049,6 +1190,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             return (
               <div
                 key={src.id}
+                data-source-id={src.id}
                 ref={(el) => { rowElsRef.current[idx] = el; }}
                 onPointerDown={(e) => onRowPointerDown(idx, e)}
                 onPointerMove={(e) => onRowPointerMove(idx, e)}
@@ -1070,7 +1212,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 }}
               >
                 <div
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${disabled ? 'opacity-55' : ''} ${isDragging ? 'shadow-lg' : ''} ${wiggle && !isDragging ? 'animate-wiggle' : ''}`}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${disabled ? 'opacity-55' : ''} ${isDragging ? 'shadow-lg' : ''} ${wiggle && !isDragging ? 'animate-wiggle' : ''} ${srcJumpId === src.id ? 'border-primary/50 ring-2 ring-primary/40' : ''}`}
                   style={wiggle && !isDragging ? { animationDelay: `${idx * 40}ms` } : undefined}
                 >
                   {rowContent}
@@ -1263,6 +1405,56 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
           </Button>
         </div>
       </div>
+
+      {/* 0.6.334：GitHub API token（可选）——「上游溯源」靠 GitHub 仓库 fork
+          关系判定搬运来源；匿名 60 次/小时补满 159 个源仓要数小时（用户实测
+          覆盖率掉到 45%、picoclaw 33 张卡全无溯源）。配置 token 后 5000 次/小时，
+          冷装几分钟内补满。token 加密保存、只在本机进程内使用，界面只回显
+          「已配置」，不回显内容。 */}
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+          GitHub Token（可选）
+          <Badge variant={tokenSet ? 'secondary' : 'outline'} className="h-5 px-1.5 text-[10px] font-normal">
+            {tokenSet ? '已配置' : '未配置 · 匿名 60 次/小时'}
+          </Badge>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          用于加速「上游溯源」的 fork 关系探测：配置后额度 5000 次/小时，冷装几分钟内补满；不配置也能工作，只是补全更慢。Token 加密保存、仅本机使用，不会下发到页面。
+        </p>
+        <div className="flex items-center gap-2">
+          <Input
+            type="password"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder={tokenSet ? '已配置（重新填写可覆盖）' : 'ghp_… 或 github_pat_…'}
+            className="h-9 min-w-0 flex-1 text-xs"
+            autoComplete="off"
+          />
+          <Button
+            variant="outline"
+            className="h-9 shrink-0 gap-1.5 text-xs"
+            onClick={handleSaveToken}
+            disabled={savingToken || !tokenInput.trim()}
+            title="保存 GitHub token（立即生效，无需重启）"
+          >
+            <KeyRound className={`h-3.5 w-3.5 ${savingToken ? 'animate-pulse text-primary' : ''}`} />
+            保存
+          </Button>
+          {tokenSet && (
+            <Button
+              variant="ghost"
+              className="h-9 shrink-0 text-xs text-muted-foreground"
+              onClick={handleClearToken}
+              disabled={savingToken}
+              title="清除 token，回到匿名额度"
+            >
+              清除
+            </Button>
+          )}
+        </div>
+      </div>
+
     </div>
   );
 };

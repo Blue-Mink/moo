@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"moo/internal/operation"
 	"moo/internal/platform"
 	"moo/internal/source"
 	"moo/internal/task"
@@ -32,6 +33,27 @@ type Pipeline struct {
 	// 0.6.325：由 api 层注入，pipeline 不反向依赖 config/api。
 	// 只作用于新装；升级沿用应用当前所在卷（UpgradeFpk 内部逻辑）。
 	InstallVolumeFn func() int
+	// Gate 平台通道闸门（0.6.347）：下载阶段可并行，但暂存/安装/升级/
+	// 卸载/启停必须经这道容量 1 的闸门串行（daemon 任务表只容得下一个任务）。
+	// nil = 不加锁（单测/老路径）。
+	Gate *operation.Gate
+}
+
+// enterPlatform 进入平台通道：先让出队列并发额度（下载阶段已结束），
+// 再按先进先出排队；需要等待时报告「前面还有 N 个任务」。
+// 返回 release（幂等），调用方用 defer 释放。
+func (p *Pipeline) enterPlatform(ctx context.Context, progress ProgressFn, waitMsg string, pct float64) (func(), error) {
+	if p.Gate == nil {
+		return func() {}, nil
+	}
+	operation.Detach(ctx)
+	release, err := p.Gate.Acquire(ctx, func(pos int) {
+		progress(fmt.Sprintf("%s（前面还有 %d 个任务）…", waitMsg, pos), pct)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("等待平台通道失败: %w", err)
+	}
+	return release, nil
 }
 
 func New(src *source.Manager, staging, downloads string) *Pipeline {
@@ -65,12 +87,20 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 		return fmt.Errorf("该应用没有下载链接")
 	}
 
-	// 1) 本地 FPK
+	// 1) 本地 FPK（下载/复用不占平台闸门——多个应用可以同时下载）
 	progress("准备安装包…", 2)
 	fpkPath, err := p.ensureFpk(ctx, app, progress)
 	if err != nil {
 		return err
 	}
+
+	// 1.5) 平台闸门（0.6.347）：从暂存开始就要独占 daemon 通道，
+	// 多个应用并行下载完成后在这里按先进先出排队安装。
+	release, err := p.enterPlatform(ctx, progress, "下载完成，等待安装队列", 35)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	// 2) 暂存
 	// 0.6.325 H4(D2)：daemon 进度可能是千分比（2110=21.1%），先归一到
@@ -168,6 +198,12 @@ func (p *Pipeline) StageOnly(ctx context.Context, sourceName, appName string, pr
 	if err != nil {
 		return nil, err
 	}
+	// 0.6.347：暂存也走平台通道，需排队（下载已完成，先让出并发额度）
+	release, err := p.enterPlatform(ctx, progress, "下载完成，等待暂存队列", 90)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	return platform.StageFpk(ctx, fpkPath, func(f float64) {
 		// 0.6.325 H4(D2)：同款千分位归一（StageOnly 与 InstallWithParams
 		// 消费同一个 daemon 进度字段，量纲一致）。
@@ -354,6 +390,11 @@ func (p *Pipeline) Uninstall(ctx context.Context, appname string, deleteData boo
 	if deleteData {
 		what = "卸载并删除数据"
 	}
+	release, err := p.enterPlatform(ctx, progress, "等待平台通道空闲", 5)
+	if err != nil {
+		return err
+	}
+	defer release()
 	progress(fmt.Sprintf("%s %s…", what, appname), 5)
 	return platform.Uninstall(ctx, appname, deleteData, func(f float64) {
 		progress("卸载中…", 5+f*0.9)
@@ -365,6 +406,11 @@ func (p *Pipeline) StartApp(ctx context.Context, appname string, progress Progre
 	if progress == nil {
 		progress = func(string, float64) {}
 	}
+	release, err := p.enterPlatform(ctx, progress, "等待平台通道空闲", 10)
+	if err != nil {
+		return err
+	}
+	defer release()
 	progress(fmt.Sprintf("启动 %s…", appname), 10)
 	return platform.StartApp(ctx, appname)
 }
@@ -374,6 +420,11 @@ func (p *Pipeline) StopApp(ctx context.Context, appname string, progress Progres
 	if progress == nil {
 		progress = func(string, float64) {}
 	}
+	release, err := p.enterPlatform(ctx, progress, "等待平台通道空闲", 10)
+	if err != nil {
+		return err
+	}
+	defer release()
 	progress(fmt.Sprintf("停用 %s…", appname), 10)
 	return platform.StopApp(ctx, appname)
 }

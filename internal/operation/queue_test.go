@@ -1,8 +1,8 @@
 package operation
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -141,54 +141,119 @@ func TestQueue_RemoveTerminalOp(t *testing.T) {
 	}
 }
 
-// 0.6.312 B1/F1：StartSync 同步语义——①调用返回时操作已终态且 current
-// 已清空（阻塞式，供自动更新批次逐条统计）；②运行中拒绝新操作（与
-// Start 同互斥）；③失败操作终态 error 入 history 不阻塞下一项。
-func TestQueue_StartSyncBlockingAndMutex(t *testing.T) {
+// 0.6.346（用户反馈「同时装多个应用只报错、不排队」）：提交顺序串行执行。
+// ①第二个操作不再被拒，返回 queued 视图且 Position=1；②前一个完成后自动
+// 轮到自己；③history 按完成顺序记录，later 可逐个弹「XX 安装成功」。
+func TestQueue_SecondOpQueuedAndRunsInOrder(t *testing.T) {
 	q := NewQueue()
-	done := make(chan struct{})
-	// 手动操作（异步 Start）先占住队列
-	if _, err := q.Start("update", "manual-app", func(ctx context.Context, progress func(string, float64)) error {
-		<-done
+	gate := make(chan struct{})
+	if _, err := q.Start("install", "app-a", func(ctx context.Context, progress func(string, float64)) error {
+		<-gate
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// StartSync 应被拒绝（已有活动操作）
-	if _, err := q.StartSync(context.Background(), "update", "auto-app", func(ctx context.Context, progress func(string, float64)) error {
+	v2, err := q.Start("install", "app-b", func(ctx context.Context, progress func(string, float64)) error {
 		return nil
-	}); err == nil {
-		t.Fatal("活动操作存在时 StartSync 应拒绝")
+	})
+	if err != nil {
+		t.Fatalf("第二个操作不应报错: %v", err)
 	}
-	close(done)
+	if v2.State != StateQueued {
+		t.Fatalf("第二个操作应为 queued，实际 %q", v2.State)
+	}
+	if pos := q.Position(v2.ID); pos != 1 {
+		t.Fatalf("队位应为 1，实际 %d", pos)
+	}
+	if st := q.Status(v2.ID); st == nil || st.State != StateQueued {
+		t.Fatalf("Status 应能查到排队中的操作: %+v", st)
+	}
+	close(gate)
 	deadline := time.Now().Add(3 * time.Second)
-	for q.Current() != nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	for time.Now().Before(deadline) && len(q.History()) < 2 {
+		time.Sleep(10 * time.Millisecond)
 	}
-	if q.Current() != nil {
-		t.Fatal("手动操作完成后 Current() 应为 nil")
+	hist := q.History()
+	if len(hist) != 2 || hist[0].Target != "app-b" || hist[1].Target != "app-a" {
+		t.Fatalf("应按提交顺序串行完成（history 最新在前），实际 %+v", hist)
 	}
-	// 空闲时 StartSync 阻塞执行：返回时已完成
-	started := time.Now()
-	v, err := q.StartSync(context.Background(), "update", "auto-app", func(ctx context.Context, progress func(string, float64)) error {
-		time.Sleep(50 * time.Millisecond)
+}
+
+// 排队中的操作可删除（=取消）：出队、终态 error「已取消」入 history，
+// 等待中的 SSE 才能按 ID 取到取消结果而不是无限轮询。
+func TestQueue_RemoveQueuedCancels(t *testing.T) {
+	q := NewQueue()
+	gate := make(chan struct{})
+	if _, err := q.Start("install", "app-a", func(ctx context.Context, progress func(string, float64)) error {
+		<-gate
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	v2, err := q.Start("install", "app-b", func(ctx context.Context, progress func(string, float64)) error {
+		t.Fatal("已取消的排队任务不应被执行")
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if time.Since(started) < 40*time.Millisecond {
-		t.Fatal("StartSync 应阻塞到操作完成（返回时已终态）")
+	ok, rerr := q.Remove(v2.ID)
+	if !ok || rerr != nil {
+		t.Fatalf("排队中的任务应可删除: ok=%v err=%v", ok, rerr)
 	}
-	if v.State != StateDone {
-		t.Fatalf("StartSync 返回视图应为 done，实际 %q", v.State)
+	if len(q.Pending()) != 0 {
+		t.Fatalf("删除后队列应为空，实际 %+v", q.Pending())
+	}
+	if st := q.Status(v2.ID); st == nil || st.State != StateError || st.Err != "已取消" {
+		t.Fatalf("取消应落 error「已取消」终态，实际 %+v", st)
+	}
+	close(gate)
+}
+
+// 0.6.312 B1/F1 + 0.6.346：StartSync 同步语义——调用返回时本操作已终态；
+// 前面有操作时不再拒绝，而是排队等轮到自己（供自动更新批次逐条统计）。
+func TestQueue_StartSyncQueuesBehindRunningOp(t *testing.T) {
+	q := NewQueue()
+	gate := make(chan struct{})
+	if _, err := q.Start("update", "manual-app", func(ctx context.Context, progress func(string, float64)) error {
+		<-gate
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	res := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		v, err := q.StartSync(context.Background(), "update", "auto-app", func(ctx context.Context, progress func(string, float64)) error {
+			return nil
+		})
+		if err == nil && v.State != StateDone {
+			err = fmt.Errorf("StartSync 返回视图应为 done，实际 %q", v.State)
+		}
+		res <- err
+	}()
+	time.Sleep(120 * time.Millisecond) // 确保已入队
+	if p := q.Pending(); len(p) != 1 || p[0].Target != "auto-app" {
+		t.Fatalf("排队视图应含 auto-app，实际 %+v", p)
+	}
+	close(gate)
+	select {
+	case err := <-res:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("StartSync 未在手动操作结束后完成")
+	}
+	if time.Since(started) < 100*time.Millisecond {
+		t.Fatal("StartSync 应等前一个操作结束（排队）后才返回")
 	}
 	if q.Current() != nil {
 		t.Fatal("StartSync 完成后 current 应清空")
 	}
 	hist := q.History()
-	if len(hist) != 2 || hist[0].State != StateDone || hist[0].Target != "auto-app" {
-		t.Fatalf("history 应为 [auto-app done, manual-app done]，实际 %+v", hist)
+	if len(hist) != 2 || hist[0].Target != "auto-app" || hist[1].Target != "manual-app" {
+		t.Fatalf("history 顺序错误，实际 %+v", hist)
 	}
 	// 失败项：同步返回错误 + 终态 error 入 history，且不阻塞下一项
 	if _, err := q.StartSync(context.Background(), "update", "fail-app", func(ctx context.Context, progress func(string, float64)) error {
