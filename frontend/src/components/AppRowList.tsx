@@ -5,9 +5,12 @@ import { cn, formatSpeed, formatProgress } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
-  Download, Package, X, BellOff, Globe, User, Check, Star,
+  Download, Package, X, BellOff, Globe, User, Check, Star, Play, Loader2,
 } from 'lucide-react';
 import { CheckCircle2, RefreshCw as UpdateIcon, Search } from 'lucide-react';
+// 0.6.342：已停止/启动中 的列表口径（与桌面卡、极简/极光网格共用）
+import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRunState';
+import { centerAppRow } from '@/lib/jumpToApp';
 import AppIcon from './AppIcon';
 import { DockerIcon } from './DockerIcon';
 
@@ -35,6 +38,10 @@ interface AppRowListProps {
   onToggleFavorite?: (app: AppInfo) => void;
   /** 321R7 B：需要滚动定位并高亮的应用 key（「XX 安装成功」→「查看」） */
   highlightKey?: string | null;
+  /** 0.6.342：已装应用启动（列表「已停止」→ 置灰「启动」按钮直接启动） */
+  onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
+  /** 正在执行启停操作的应用名（按钮转圈） */
+  controlling?: string | null;
 }
 
 // 渐进渲染批量：首批只渲染这么多行，滚动接近底部再追加（同 AppList）。
@@ -49,7 +56,7 @@ const PAGE_SIZE = 48;
  * 的 e2e heading 选择器冲突（桌面布局下本组件 display:none）。
  */
 const AppRowList: React.FC<AppRowListProps> = ({
-  apps, onInstall, onUpdate, onDetail, onCancelOp, appOperations, searchQuery, filterType, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, highlightKey,
+  apps, onInstall, onUpdate, onDetail, onCancelOp, appOperations, searchQuery, filterType, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, highlightKey, onControl, controlling,
 }) => {
   // 渐进渲染（与 AppCard 网格同款）：1624 行一次性挂载 + 每次交互全量
   // reconcile 是移动端「触屏反馈慢」的根因（实测点击→详情 356ms vs
@@ -85,19 +92,13 @@ const AppRowList: React.FC<AppRowListProps> = ({
 
   // 321R7 B：「XX 安装成功」→「查看」定位——展开渐进渲染覆盖目标行，
   // 行挂载后滚到视口中央；高亮样式由行内 highlightKey 判定（父组件 2.5s 后清除）。
+  // 0.6.346：滚动改走 centerAppRow（分帧校正），单次 scrollIntoView 在渐进
+  // 渲染期间会把视口甩到列表末尾（实测 scrollY 溢出 5 万像素）。
   const highlightIdx = highlightKey ? apps.findIndex(a => (a.key || a.appname) === highlightKey) : -1;
   useEffect(() => {
-    if (highlightIdx < 0) return;
+    if (highlightIdx < 0 || !highlightKey) return;
     setVisible(v => Math.max(v, highlightIdx + 1));
-    const t = setTimeout(() => {
-      document.querySelectorAll('[data-app-key]').forEach(el => {
-        const e = el as HTMLElement;
-        if (e.dataset.appKey !== highlightKey) return;
-        if (e.getClientRects().length === 0) return; // 隐藏实例跳过
-        e.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      });
-    }, 180);
-    return () => clearTimeout(t);
+    centerAppRow(highlightKey);
   }, [highlightKey, highlightIdx]);
 
   if (apps.length === 0) {
@@ -134,6 +135,11 @@ const AppRowList: React.FC<AppRowListProps> = ({
           !!openUrl || ((app.start_stop ?? true) && app.status !== 'nostart' &&
             (app.status === 'stopped' || app.status === 'starting' || app.status === 'stopping'))
         );
+        // 0.6.342（用户令）：停用的已装应用在列表直接显示「已停止」，
+        // 「打开」换成置灰「启动」按钮，点击即启动（不必先打开再隐式启动）。
+        const canStart = canStartInList(app) && !!onControl;
+        const controlBusy = app.status === 'starting' || app.status === 'stopping';
+        const stateLabel = installedStateLabel(app);
         return (
           <div
             key={app.key || app.appname}
@@ -232,12 +238,15 @@ const AppRowList: React.FC<AppRowListProps> = ({
                     <span
                       className={cn(
                         "absolute top-1/2 -translate-y-1/2 w-14 text-center text-xs font-medium whitespace-nowrap",
-                        isInstalled ? "text-emerald-600 dark:text-emerald-500" : "text-muted-foreground/50"
+                        // 0.6.348：nostart（系统组件，无独立启停）用中性灰，别用绿色冒充在运行
+                        (!isInstalled || app.status === 'nostart') ? "text-muted-foreground/50"
+                          : isStoppedState(app) ? "text-amber-600 dark:text-amber-500"
+                          : "text-emerald-600 dark:text-emerald-500"
                       )}
                       style={{ left: -70 }}
-                      title={isInstalled ? '已安装' : '未安装'}
+                      title={stateLabel}
                     >
-                      {isInstalled ? '已安装' : '未安装'}
+                      {stateLabel}
                     </span>
                     <div className="flex items-start flex-wrap gap-1 min-w-0 mt-0.5">
                     {src && onSourceFilter && (
@@ -339,6 +348,30 @@ const AppRowList: React.FC<AppRowListProps> = ({
                   >
                     {upgradeAllowed ? '更新' : '需手动'}
                   </button>
+                ) : controlBusy ? (
+                  // 启动中 / 停用中：禁用态转圈，避免重复下发启停指令
+                  <button
+                    disabled
+                    aria-label={app.status === 'starting' ? '启动中' : '停用中'}
+                    className="pill h-7 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground inline-flex items-center gap-1"
+                  >
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {app.status === 'starting' ? '启动中' : '停用中'}
+                  </button>
+                ) : canStart ? (
+                  // 0.6.342（用户令）：已停止 → 置灰「启动」按钮，点击直接启动
+                  <button
+                    onClick={() => onControl?.(app, 'start')}
+                    disabled={controlling === app.appname}
+                    aria-label={`启动 ${app.display_name}`}
+                    title={`「${app.display_name}」已停止，点击启动`}
+                    className="pill h-7 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground active:bg-muted disabled:opacity-60 inline-flex items-center gap-1"
+                  >
+                    {controlling === app.appname
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Play className="h-3 w-3 fill-current" />}
+                    启动
+                  </button>
                 ) : canOpen ? (
                   <button
                     onClick={() => onOpenApp(app)}
@@ -354,7 +387,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
                   onClick={() => onToggleFavorite(app)}
                   className={cn(
                     "absolute top-0 p-1 rounded-full transition-colors focus:outline-none focus-visible:outline-none", /* 0.6.146 星标去焦点环（触屏点按留常驻圆环） */
-                    !operation && (!isInstalled || canUpdate || canOpen)
+                    !operation && (!isInstalled || canUpdate || controlBusy || canStart || canOpen)
                       ? "left-1/2 -translate-x-1/2"
                       : "right-0",
                     favoriteSet?.has(app.key || app.appname) ? "text-amber-500" : "text-muted-foreground/50 hover:text-amber-500" /* 0.6.128 去圆圈底（hover 在触屏卡住会留常驻圆圈） */

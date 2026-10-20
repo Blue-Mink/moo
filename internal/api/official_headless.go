@@ -48,7 +48,7 @@ func (s *Server) headlessAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	// 1) 一次性临时客户端 + 面板登录（手动动作，等同 AppsForce：
 	// 不受自动退避窗口约束）。凭据只活在本次请求里。
-	client := panel.NewClient("", body.Username, body.Password)
+	client := panel.NewClient(panel.ResolveBaseCached("").URL, body.Username, body.Password)
 	if err := client.EnsureLoggedIn(ctx); err != nil {
 		writeErr(w, http.StatusBadGateway, errors.New("面板登录失败（可能在限流窗口，约 1 小时后重试）: "+err.Error()))
 		return

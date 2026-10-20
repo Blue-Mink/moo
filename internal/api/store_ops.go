@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"moo/internal/config"
@@ -132,6 +133,32 @@ func catalogByKeyIn(catalog []AppInfo, key string) (AppInfo, bool) {
 	// 裸 appname 回退：纯官方卡 Key 带 @fnos-official 后缀，但前端多处按
 	// 裸 appname 请求（panel-detail 取 poster 等）。只认官方卡——社区重名
 	// 条目 Source 不同，不会误命中。
+	for _, a := range catalog {
+		if a.AppName == key && a.Source == OfficialSourceID {
+			return a, true
+		}
+	}
+	return AppInfo{}, false
+}
+
+// officialCatalogByKey 只解析官方应用中心条目（0.6.350 F1）。
+// 背景：社区源可能存在与官方应用同名的条目，其裸 key 恰好等于 appname
+// （如社区源里的 1Panel），catalogByKeyIn 的「精确 key 优先」会先命中社区卡，
+// 使 panel-detail 恒 404 并报「未连接」误导排查。本函数跳过非官方条目：
+// 精确 key（官方）→ appname@fnos-official → 裸 appname（仅官方）。
+func officialCatalogByKey(catalog []AppInfo, key string) (AppInfo, bool) {
+	for _, a := range catalog {
+		if a.Key == key && a.Source == OfficialSourceID {
+			return a, true
+		}
+	}
+	if rest, ok := strings.CutSuffix(key, "@"+OfficialSourceID); ok {
+		for _, a := range catalog {
+			if a.AppName == rest && a.Source == OfficialSourceID {
+				return a, true
+			}
+		}
+	}
 	for _, a := range catalog {
 		if a.AppName == key && a.Source == OfficialSourceID {
 			return a, true
@@ -309,6 +336,16 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 		ai, _ := s.catalogByKey(r.PathValue("key"))
 		f := sseStart(w)
 		sseRunOpDownload := func(ctx context.Context, progress func(string, float64)) error {
+			// 0.6.347：官方云下载同样占 daemon 通道，需过平台闸门
+			if s.Pipe != nil && s.Pipe.Gate != nil {
+				release, err := s.Pipe.Gate.Acquire(ctx, func(pos int) {
+					progress(fmt.Sprintf("等待平台通道空闲（前面还有 %d 个任务）…", pos), 1)
+				})
+				if err != nil {
+					return err
+				}
+				defer release()
+			}
 			// 0.6.261：不再按 app_type 拦截——TPK 型官方应用（原生/docker）
 			// 下载产物是目录，由 copyOfficialFpk 重打包为标准 FPK；真正无法
 			// 产包的应用由 daemon 下载环节给出诚实报错。
@@ -665,35 +702,28 @@ func (s *Server) appStartStop(w http.ResponseWriter, r *http.Request, start bool
 	// 注意：Queue 在操作完成时会清空 current，Current() 随后返回 nil——
 	// 直接解引用 nil 会 panic 掐断连接（停用/启动按钮空响应事故，
 	// 操作其实已执行但客户端收到网络错误并误报「失败」）。
-	// nil 即完成（与 sseRunOp 同款语义），终态从 history 按 ID 取回，
-	// 保留错误信息用于回报。
-	for op.State == operation.StateRunning {
+	// 0.6.346：改为按 ID 查 Status（当前/排队/历史），并发提交时不会被
+	// 别的应用的操作视图顶掉；排队中的启动/停用也在这里等同轮询。
+	for op.State == operation.StateRunning || op.State == operation.StateQueued {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-time.After(700 * time.Millisecond):
 		}
-		if cur := s.Ops.Current(); cur != nil {
+		if cur := s.Ops.Status(op.ID); cur != nil {
 			op = *cur
 			continue
 		}
-		found := false
-		for _, h := range s.Ops.History() {
-			if h.ID == op.ID {
-				op = h
-				found = true
-				break
-			}
-		}
-		if !found && op.State == operation.StateRunning {
-			// 极端情况（历史被 20 条上限挤出）：按完成处理
-			op.State = operation.StateDone
-		}
+		// 极端情况（历史被 20 条上限挤出）：按完成处理
+		op.State = operation.StateDone
 	}
 	if op.State == operation.StateError {
 		writeErr(w, http.StatusBadGateway, errors.New(orAnon(op.Err)))
 		return
 	}
+	// 0.6.348：启停后真实运行态变了，目录与 /api/apps 响应体必须重建，
+	// 否则列表仍显示旧状态（体缓存只在 invalidateCatalog 时失效）。
+	s.invalidateCatalog()
 	writeJSON(w, op)
 }
 
@@ -704,10 +734,18 @@ func (s *Server) appPanelDetail(w http.ResponseWriter, r *http.Request) {
 	// （此前每次 buildCatalog ~50ms，isOfficialKey/catalogByKey 各自再
 	// 构建会把本请求拖到 ~300ms——详情页「卡一下」的主因之一）。
 	catalog := s.cachedCatalog(lang.From(r.Context()))
-	ai, ok := catalogByKeyIn(catalog, key)
+	ai, ok := officialCatalogByKey(catalog, key)
 	// 0.6.255：官方源恒存在（纯 OAuth；未连接时 panelDetail 内部透传「未连接」）
-	if !ok || ai.Source != OfficialSourceID {
-		writeErr(w, http.StatusNotFound, errors.New("官方应用中心尚未连接，或该应用不走官方通道"))
+	if !ok {
+		// 0.6.350 F1：区分「未连接官方源」与「没有官方条目/同名社区卡不走官方通道」，
+		// 避免已连接时仍报「尚未连接」把排查带偏。
+		msg := "该应用没有官方应用中心条目（同名卡可能来自社区源，不走官方通道）"
+		if s.Official != nil {
+			if au, _ := s.Official.Status(time.Now())["authorized"].(bool); !au {
+				msg = "官方应用中心尚未连接（未找到该应用的官方条目）"
+			}
+		}
+		writeErr(w, http.StatusNotFound, errors.New(msg))
 		return
 	}
 	s.panelDetail(w, r, ai.AppName, catalog)
@@ -969,6 +1007,50 @@ func normalizeReadmeURL(raw string) string {
 	return raw
 }
 
+// jsdelivrToRaw 0.6.331 A：把 jsDelivr 的 GitHub 直链反推回 raw 直链。
+//
+// 背景：readmeCandidateURLs 此前只做 raw → jsDelivr 的单向展开；源索引里
+// 直接写 cdn.jsdelivr.net/gh/<o>/<r>@<ref>/<path> 的条目（README 与预览图都有）
+// 候选恒为 1 个——jsDelivr 403/301/挂起时无任何退路（实测日志「[race] 候选 1 个」）。
+// 反推出 raw 后，既多一条直连，也能让 mirrorVariants 正常生成镜像候选。
+//
+// 形态：https://cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}
+//
+//	{ref} 可以是分支、tag、commit sha —— raw 全支持。
+//	无 @{ref}（包根/非 @ref 形态）无法推定分支 → 返回空，不制造噪点候选。
+func jsdelivrToRaw(u string) string {
+	const prefix = "https://cdn.jsdelivr.net/gh/"
+	if !strings.HasPrefix(u, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(u, prefix)
+	if i := strings.IndexAny(rest, "?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	slash := strings.IndexByte(rest, '/')
+	if slash <= 0 {
+		return ""
+	}
+	owner := rest[:slash]
+	rest = rest[slash+1:]
+	at := strings.IndexByte(rest, '@')
+	if at <= 0 {
+		return ""
+	}
+	repo := rest[:at]
+	rest = rest[at+1:]
+	slash = strings.IndexByte(rest, '/')
+	if slash <= 0 {
+		return ""
+	}
+	ref := rest[:slash]
+	path := rest[slash+1:]
+	if owner == "" || repo == "" || ref == "" || path == "" {
+		return ""
+	}
+	return "https://raw.githubusercontent.com/" + owner + "/" + repo + "/" + ref + "/" + path
+}
+
 // readmeRepoPageCandidates 把 GitHub「仓库页面」链接展开为 README 文件直链候选。
 //
 // 只接受两种页面形态（其余保持原有行为，绝不猜测）：
@@ -1101,6 +1183,14 @@ func (s *Server) readmeCandidateURLs(raw string, withMirrors bool) []string {
 	} else if u := strings.Replace(raw, "/master/", "/main/", 1); u != raw {
 		cands = append(cands, u)
 	}
+	// 0.6.331 A：候选里出现的 jsDelivr 地址反推回 raw（源索引直接写 jsDelivr
+	// 的条目此前只有 1 个候选）。必须在 mirrorVariants 之前——反推出的 raw
+	// 才能参与镜像展开；用副本遍历，避免边遍历边追加。
+	for _, u := range append([]string(nil), cands...) {
+		if rev := jsdelivrToRaw(u); rev != "" {
+			cands = append(cands, rev)
+		}
+	}
 	const rawPrefix = "https://raw.githubusercontent.com/"
 	if strings.HasPrefix(raw, rawPrefix) {
 		parts := strings.SplitN(strings.TrimPrefix(raw, rawPrefix), "/", 3)
@@ -1112,7 +1202,7 @@ func (s *Server) readmeCandidateURLs(raw string, withMirrors bool) []string {
 		// 0.6.326（审计 MEDIUM-1）：自动发现不挂镜像候选——一个未命中应用
 		// main+master 会放大成 24 个镜像请求，sweep 实测 7 分钟把 gh-proxy
 		// 打成 4088 条 429，还会连带拖慢图标/已声明 README。
-		cands = append(cands, s.mirrorVariants(cands, 3)...)
+		cands = append(cands, s.mirrorVariants(cands, 2)...)
 	}
 	return dedupeMirrors(cands)
 }
@@ -1123,9 +1213,25 @@ func (s *Server) readmeCandidateURLs(raw string, withMirrors bool) []string {
 // 单轮竞速 13s 封顶（2026-09-23 实锤：源同步风暴触发 GitHub raw
 // 限流窗口，单轮竞速全部候选非 200，重试窗口内即恢复）。
 func (s *Server) fetchReadmeRace(ctx context.Context, rawURL string, withMirrors bool) ([]byte, string, bool, string, error) {
+	return s.fetchReadmeRaceN(ctx, rawURL, withMirrors, 2)
+}
+
+// fetchReadmeRaceN 同上，attempts 控制重试轮数。
+// 0.6.331 P1：预览图用 attempts=1——总预算 15s，失败让下一次请求重试，
+// 避免「两轮各 13s」把用户等待顶到 25s（实测最坏 21.9s 才拿到 502）。
+func (s *Server) fetchReadmeRaceN(ctx context.Context, rawURL string, withMirrors bool, attempts int) ([]byte, string, bool, string, error) {
+	return s.fetchReadmeRaceNFast(ctx, rawURL, withMirrors, attempts, false)
+}
+
+// fetchReadmeRaceNFast 同 fetchReadmeRaceN，fastDead=true 时启用预览图快判死
+// （0.6.335 C1：声明地址 raw 直链 404 → 立即判死，不等慢候选吃满 15s 预算）。
+func (s *Server) fetchReadmeRaceNFast(ctx context.Context, rawURL string, withMirrors bool, attempts int, fastDead bool) ([]byte, string, bool, string, error) {
+	if attempts < 1 {
+		attempts = 1
+	}
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		body, mime, dead, winner, err := s.raceFetch(ctx, s.readmeCandidateURLs(rawURL, withMirrors))
+	for attempt := 0; attempt < attempts; attempt++ {
+		body, mime, dead, winner, err := s.raceFetchWith(ctx, s.readmeCandidateURLs(rawURL, withMirrors), fastDead)
 		if err == nil {
 			return body, mime, false, winner, nil
 		}
@@ -1324,6 +1430,92 @@ func (s *Server) proxyReadme(w http.ResponseWriter, r *http.Request, rawURL stri
 // proxyPreview 代理详情页预览图：与 README 同一套「镜像竞速 + 两级缓存」，
 // 缓存键 preview|<url>（7 天磁盘层，预览图随版本走、不常变）。
 // 魔数终审：抓到的不是图片（HTML 页/文本）拒服不入缓存。
+// 0.6.331 P1：预览图的两道并发闸门。
+//
+// 现象（2026-10-18 深度测试）：源同步风暴期间（sync-all 160 源）抽样 20 次
+// 预览请求，12 次 502、平均等待 21.9s——每个详情页会并发打 10+ 个候选，
+// 叠加起来把出网连接打满，竞速预算（13s×2 轮）被吃光。
+// 处置：用户请求限 8 并发、后台预热限 4 并发，单张图在 15s 预算内跑完，
+// 而不是互相拖死；失败交由下一次请求重试（single-flight + 瞬态负缓存兜底）。
+const (
+	previewUserSem = 8
+	previewWarmSem = 4
+	// previewBudget 单次预览请求的总预算（旧=25s，用户实测最坏要等 21.9s）。
+	previewBudget = 15 * time.Second
+)
+
+var previewUserSemCh = make(chan struct{}, previewUserSem)
+
+// 0.6.331 C：预览图失败负缓存分档（与 README 同一精神）。
+// 确定性 404 走 MarkNegative（30min）；瞬态失败（超时/429/5xx）只压 60s，
+// 窗口过后自动重试，不会把限流当「没有预览图」长期隐藏。
+const previewTransientNegTTL = 60 * time.Second
+
+// errPreviewNotImage 上游返回的不是图片（网页/文本），属确定性无效地址。
+var errPreviewNotImage = errors.New("预览图地址无效（非图片）")
+
+// previewFastDeadGrace 0.6.335 C1：声明地址（raw 直链）无响应、而其余候选
+// 已全部失败时，最多再等这么久就判死。实测 1Panel 预览：raw master 挂到
+// 12s 超时，镜像们 0.4s 就全 404——旧逻辑要陪挂满 13s 预算。
+const previewFastDeadGrace = 4 * time.Second
+
+// previewRaceFetch 是可替换的抓取入口：生产走 fetchReadmeRace（镜像竞速 +
+// 两级缓存外的纯取层），单测注入假 fetcher 以避开真实网络（netguard 会拒内网）。
+var previewRaceFetch = func(s *Server, ctx context.Context, rawURL string) ([]byte, string, bool, string, error) {
+	// 0.6.331 P1：单轮竞速（预算 15s 内跑完，不在请求线程里重试两轮）。
+	// 0.6.335 C1：预览启用快判死（声明 raw 直链 404 → 立即 404）。
+	return s.fetchReadmeRaceNFast(ctx, rawURL, true, 1, true)
+}
+
+// previewCall 是一次预览图抓取的共享结果（0.6.331 C）。
+// 详情页轮播多张、灯箱重试、多标签页会并发请求同一 URL；没有去重时每个
+// 请求都各跑一遍候选竞速（实测同一张图 3 秒内被重复抓 3 次）。
+type previewCall struct {
+	done chan struct{}
+	body []byte
+	mime string
+	dead bool
+	err  error
+}
+
+var (
+	previewMu    sync.Mutex
+	previewCalls = map[string]*previewCall{}
+)
+
+// fetchPreviewShared 同 URL 并发只抓一次，其余等待者共享结果。
+func (s *Server) fetchPreviewShared(ctx context.Context, rawURL string) ([]byte, string, bool, error) {
+	previewMu.Lock()
+	if call := previewCalls[rawURL]; call != nil {
+		previewMu.Unlock()
+		select {
+		case <-call.done:
+			return call.body, call.mime, call.dead, call.err
+		case <-ctx.Done():
+			return nil, "", false, ctx.Err()
+		}
+	}
+	call := &previewCall{done: make(chan struct{})}
+	previewCalls[rawURL] = call
+	previewMu.Unlock()
+	defer func() {
+		previewMu.Lock()
+		delete(previewCalls, rawURL)
+		previewMu.Unlock()
+		close(call.done) // 结果已写入，唤醒等待者
+	}()
+	// 共享抓取跑在脱离请求的 ctx 上：某个等待者取消不应连累其它等待者。
+	workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), previewBudget+5*time.Second)
+	defer cancel()
+	body, mime, dead, _, err := previewRaceFetch(s, workCtx, rawURL)
+	if err == nil && !looksLikeImage(body) {
+		err = errPreviewNotImage
+		body, mime = nil, ""
+	}
+	call.body, call.mime, call.dead, call.err = body, mime, dead, err
+	return call.body, call.mime, call.dead, call.err
+}
+
 func (s *Server) proxyPreview(w http.ResponseWriter, r *http.Request, rawURL string) {
 	rawURL = strings.TrimSpace(rawURL)
 	cacheKey := "preview|" + rawURL
@@ -1332,15 +1524,24 @@ func (s *Server) proxyPreview(w http.ResponseWriter, r *http.Request, rawURL str
 		servePreview(w, body, ct)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	// 0.6.331 C：负缓存先判——确定性 404 与瞬态失败都不再重付竞速预算。
+	if st.IsNegative(cacheKey) {
+		writeErr(w, http.StatusNotFound, errors.New("该应用没有预览图"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), previewBudget)
 	defer cancel()
-	body, mime, dead, _, err := s.fetchReadmeRace(ctx, rawURL, true)
+	// 0.6.331 P1：用户请求闸门。源同步风暴期详情页会同时开多张图，
+	// 不限并发时每张图 10+ 候选会把出网连接打满、竞速预算被吃光。
+	select {
+	case previewUserSemCh <- struct{}{}:
+		defer func() { <-previewUserSemCh }()
+	case <-ctx.Done():
+		writeErr(w, http.StatusBadGateway, errors.New("预览图拉取排队超时"))
+		return
+	}
+	body, mime, dead, err := s.fetchPreviewShared(ctx, rawURL)
 	if err == nil {
-		if !looksLikeImage(body) {
-			// 上游声明的预览图地址指向了非图片内容（网页/文本）：拒服
-			writeErr(w, http.StatusNotFound, errors.New("预览图地址无效（非图片）"))
-			return
-		}
 		st.Put(cacheKey, body, mime)
 		servePreview(w, body, mime)
 		return
@@ -1349,10 +1550,17 @@ func (s *Server) proxyPreview(w http.ResponseWriter, r *http.Request, rawURL str
 		servePreview(w, body, ct)
 		return
 	}
+	if errors.Is(err, errPreviewNotImage) {
+		st.MarkNegative(cacheKey)
+		writeErr(w, http.StatusNotFound, errors.New("预览图地址无效（非图片）"))
+		return
+	}
 	if dead {
+		st.MarkNegative(cacheKey)
 		writeErr(w, http.StatusNotFound, errors.New("该应用没有预览图"))
 		return
 	}
+	st.markNegativeTTL(cacheKey, previewTransientNegTTL)
 	writeErr(w, http.StatusBadGateway, errors.New(err.Error()))
 }
 
@@ -1489,14 +1697,50 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 
 // raceFetch 通用候选竞速（README/图片共用）：任一 200 即胜，全败带
 // dead404 判定（仅原始 URL 404 算真缺失）。
+// 0.6.332 F2（全量测试 P2-1）：逐轮「候选 N 个」与逐候选「状态码 URL t=」
+// 改为进程内 60s 聚合（见 race_stats.go），单次 ≥3s 的慢命中仍单独告警。
 func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string, bool, string, error) {
+	return s.raceFetchWith(ctx, cands, false)
+}
+
+// fastDeadOnDeclared 0.6.335 C1：预览图快判死判定。
+// 条件：①状态 404；②返回者就是**声明地址本身**（cands[0]，不是镜像变体）；
+// ③该地址是 raw.githubusercontent.com 直链（镜像 1:1 代理同一路径，
+// raw 明确没有 = 镜像也没有；jsDelivr 对未收录仓库的 404 有歧义，不参与）。
+// 仅预览图启用：README 有 main/master、README.md/readme.md 变体候选，
+// 按首候选判死会误杀慢候选的 200。
+func fastDeadOnDeclared(decl, resURL string, status int) bool {
+	if status != http.StatusNotFound || resURL != decl {
+		return false
+	}
+	u := mustParseURL(decl)
+	if u == nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "raw.githubusercontent.com")
+}
+
+// raceFetchWith 竞速（fastDead 仅预览图使用，见 fastDeadOnDeclared）。
+func (s *Server) raceFetchWith(ctx context.Context, cands []string, fastDead bool) ([]byte, string, bool, string, error) {
+	raceAgg.begin()
+	body, mime, dead, winner, err := s.raceFetchOnce(ctx, cands, fastDead)
+	if err != nil {
+		raceAgg.fail()
+	} else {
+		raceAgg.hit()
+	}
+	return body, mime, dead, winner, err
+}
+
+// raceFetchOnce 竞速本体（只在聚合器里记数；具体失败仍走 logagg）。
+func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead bool) ([]byte, string, bool, string, error) {
 	type rres struct {
 		u      string
 		body   []byte
 		mime   string
 		status int
+		t      time.Duration
 	}
-	log.Printf("[race] 候选 %d 个: %v", len(cands), cands)
 	ch := make(chan rres, len(cands))
 	for _, u := range cands {
 		go func(u string) {
@@ -1523,7 +1767,7 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 				return
 			}
 			defer resp.Body.Close()
-			log.Printf("[race] %d %s (t=%v)", resp.StatusCode, u, time.Since(t0).Round(time.Millisecond))
+			elapsed := time.Since(t0)
 			if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusForbidden {
 				b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 				mime := resp.Header.Get("Content-Type")
@@ -1533,10 +1777,10 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 						mime = "application/octet-stream"
 					}
 				}
-				ch <- rres{u, b, mime, resp.StatusCode}
+				ch <- rres{u: u, body: b, mime: mime, status: resp.StatusCode, t: elapsed}
 				return
 			}
-			ch <- rres{u, nil, "", resp.StatusCode}
+			ch <- rres{u: u, status: resp.StatusCode, t: elapsed}
 		}(u)
 	}
 	deadline := time.After(13 * time.Second)
@@ -1556,6 +1800,10 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 	sawNonJd := false
 	nonJdAll404 := true
 	sawResult := false
+	// 0.6.335 C1（fastDead）：声明地址是否已回、其余候选失败数、宽限计时器
+	declaredSeen := false
+	othersFailed := 0
+	var graceCh <-chan time.Time
 	allDead := func() bool {
 		if len(deadPaths) == 0 || len(deadPaths) < len(paths) {
 			return false
@@ -1566,6 +1814,7 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 		select {
 		case res := <-ch:
 			sawResult = true
+			raceAgg.cand(res.t, res.u)
 			isJd := strings.Contains(res.u, "cdn.jsdelivr.net")
 			if !isJd {
 				sawNonJd = true
@@ -1577,7 +1826,24 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 				nonJdAll404 = false
 			}
 			if res.status == http.StatusOK && len(res.body) > 0 {
+				raceAgg.slowHit(res.t, res.u)
 				return res.body, res.mime, false, res.u, nil
+			}
+			// 0.6.335 C1：预览图快判死——声明地址（cands[0]）是 raw 直链且明确
+			// 404 时，镜像只是同一路径的代理，不再等慢候选吃满预算（实测 13s）。
+			if fastDead && len(cands) > 0 {
+				if res.u == cands[0] {
+					declaredSeen = true
+				} else if res.status != http.StatusOK {
+					othersFailed++
+				}
+				if fastDeadOnDeclared(cands[0], res.u, res.status) {
+					return nil, "", true, "", errors.New("源 404（首候选）")
+				}
+				// 其余候选全失败 + 声明地址仍无响应 → 给 4s 宽限后判死
+				if !declaredSeen && len(cands) > 1 && othersFailed >= len(cands)-1 && graceCh == nil {
+					graceCh = time.After(previewFastDeadGrace)
+				}
 			}
 			// 404 证据：仅认直链/镜像（路径 1:1 语义）；jsDelivr 对
 			// 非默认分支/未收录仓库的 404/301 有歧义，不作证据。
@@ -1596,6 +1862,9 @@ func (s *Server) raceFetch(ctx context.Context, cands []string) ([]byte, string,
 					}
 				}
 			}
+		case <-graceCh:
+			// 0.6.335 C1：镜像全败、声明地址（raw）挂住 → 不再陪满 13s。
+			return nil, "", true, "", errors.New("预览图快判死（声明地址无响应）")
 		case <-ctx.Done():
 			all404 = false
 			return nil, "", allDead(), "", errors.New("拉取超时")
@@ -1731,6 +2000,17 @@ func iconCacheKey(a *source.App) string {
 	return a.Source + "@" + a.Name + "@" + a.Version
 }
 
+const (
+	// iconFetchPerCand 单候选子超时（0.6.338 E）：直连 raw 被黑洞时
+	// 5s 内必须让位，旧值 8s 会把整轮尾巴拖到 8~10s。
+	iconFetchPerCand = 5 * time.Second
+	// iconMirrorGrace 镜像 200 的交叉验证宽限（0.6.338 E）：旧实现把镜像
+	// 200 一直挂起到全部候选结束/10s 兜底——直连 IPv4 SYN 黑洞时，镜像
+	// 明明 0.9s 就拿到图，用户却要等 8~10s 图标才出现。直链 404 通常在
+	// 1s 内回来，超过该窗口仍无直链证据就直接采用镜像结果。
+	iconMirrorGrace = 1200 * time.Millisecond
+)
+
 func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string, error) {
 	cacheKey := iconCacheKey(a)
 	stalePrefix := a.Source + "@" + a.Name + "@"
@@ -1760,8 +2040,8 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 		}
 	}
 	cands = append(cands, iconCandidates(a.Name, s.sourceBaseURL(a.Source))...)
-	// raw 直链加 2 个最健康镜像进竞速（直连挂起时镜像兜底）
-	cands = append(cands, s.mirrorVariants(cands, 2)...)
+	// raw 直链加 3 个最健康镜像进竞速（直连挂起时镜像兜底；0.6.338 E 由 2 提至 3）
+	cands = append(cands, s.mirrorVariants(cands, 3)...)
 	cands = dedupeMirrors(cands)
 
 	// 镜像交叉验证：镜像变体形如 "<镜像前缀>https://raw.githubusercontent.com/…"，
@@ -1796,8 +2076,8 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	ch := make(chan result, len(cands))
 	for _, u := range cands {
 		go func(rawURL string) {
-			// 单候选 8s 子超时：挂起的候选不拖住整体
-			cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			// 单候选 5s 子超时（0.6.338 E）：挂起的候选不拖住整体
+			cctx, cancel := context.WithTimeout(ctx, iconFetchPerCand)
 			data, ctype, ok, miss := fetchIconBytes(cctx, rawURL)
 			cancel()
 			ch <- result{u: rawURL, data: data, ctype: ctype, ok: ok, defMiss: miss}
@@ -1805,6 +2085,13 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	}
 	// ctx 15s 封顶 + 10s 兜底防挂起候选
 	deadline := time.After(10 * time.Second)
+	// 0.6.338 E：首个镜像 200 起算宽限窗口，到点直接采用（除非直链已明确 404）
+	var graceC <-chan time.Time
+	startGrace := func() {
+		if graceC == nil {
+			graceC = time.After(iconMirrorGrace)
+		}
+	}
 	defMissPaths := map[string]bool{}
 	var pending []result // 挂起的镜像 200（等待直链交叉验证）
 	resolved := 0
@@ -1837,7 +2124,11 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 				continue // 直链已明确 404 → 这是占位图
 			}
 			pending = append(pending, r)
+			startGrace()
 		case <-ctx.Done():
+			giveUp = true
+		case <-graceC:
+			// 宽限到点：采用已挂起的镜像 200（下面统一过滤直链 404 否决）
 			giveUp = true
 		case <-deadline:
 			giveUp = true
@@ -1920,6 +2211,13 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 		case <-ctx.Done():
 		}
 	}
+	// 0.6.339：最后一层确定性兜底——源仓目录名大小写变体 + 同 owner
+	// 自动构建仓（apps/<name>/fnos/ICON.PNG）。只在以上全部候选失败后
+	// 串行执行；规则与边界见 icon_fallback_339.go。
+	if data, ct, ok := s.resolveIconFallbackExtra(ctx, a, defMissPaths); ok {
+		st.Put(cacheKey, data, ct)
+		return data, ct, nil
+	}
 	// 负缓存只认真实缺失的确定性证据（明确 404/403 或占位图拒绝）：
 	// 纯网络超时（镜像风暴/限流/直连挂起）不能记负，否则健康图标会被
 	// 误判缺失 30 分钟（2026-09 预热风暴实测：igame 等被瞬时故障误杀）
@@ -1935,11 +2233,70 @@ func (s *Server) resolveIcon(ctx context.Context, a *source.App) ([]byte, string
 	// 0.6.321 F3：区分「确定缺失」（defMiss=true：候选全有 404/403/410/占位
 	// 图确定性证据）与「瞬态失败」（DNS 超时/限流/挂起）——icon handler 据此
 	// 给错误响应挂短负缓存头（UI 重请放大=B10）；文案不变，只换错误类型。
-	log.Printf("[iconfail] %s@%s decl=%q 候选=%v", a.Source, a.Name, a.IconURL, tried)
+	iconFailLog(a.Source+"@"+a.Name, "[iconfail] %s@%s decl=%q 候选=%s", a.Source, a.Name, a.IconURL, summarizeTried(tried))
 	if len(defMissPaths) > 0 {
 		return nil, "", &iconFetchErr{msg: "图标不存在或拉取失败", defMiss: true}
 	}
 	return nil, "", &iconFetchErr{msg: "图标不存在或拉取失败", defMiss: false}
+}
+
+// iconFailEvery 0.6.335 C3：同一应用图标失败日志的最小间隔。
+// 原实现每轮预热都为同一批确证缺失的图标各打一行（42 分钟 65 行），
+// 真实故障被噪声掩盖；6 小时足够让「一直失败」仍可观测。
+var iconFailEvery = 6 * time.Hour
+
+var (
+	iconFailMu   sync.Mutex
+	iconFailSeen = map[string]time.Time{}
+)
+
+// iconFailAllow 同一 key 在 iconFailEvery 内只允许返回 true 一次。
+// 抽成函数便于单测（TTL 可改小）；表超 2000 条时顺手清过期项。
+func iconFailAllow(key string) bool {
+	iconFailMu.Lock()
+	defer iconFailMu.Unlock()
+	now := time.Now()
+	if t, ok := iconFailSeen[key]; ok && now.Sub(t) < iconFailEvery {
+		return false
+	}
+	if len(iconFailSeen) > 2000 {
+		for k, t := range iconFailSeen {
+			if now.Sub(t) >= iconFailEvery {
+				delete(iconFailSeen, k)
+			}
+		}
+	}
+	iconFailSeen[key] = now
+	return true
+}
+
+// iconFailLog 限频后的失败日志。
+// summarizeTried 0.6.343：候选清单压缩打印（用户报「日志页面很乱」）。
+// 原实现把 24 条候选 URL 原样展开 → 单行 3~4KB：200 行日志里 96 行超长、
+// 占日志字符量 90%+，日志页一屏只能看一条，5MB 轮转也被这类行迅速吃满。
+// 保留前 2 条完整 URL（排障够用）+ 总数与「确定缺失 / 网络失败」计数。
+func summarizeTried(tried []string) string {
+	if len(tried) == 0 {
+		return "[]"
+	}
+	miss := 0
+	for _, t := range tried {
+		if strings.Contains(t, "miss=true") {
+			miss++
+		}
+	}
+	const keep = 2
+	if len(tried) <= keep {
+		return fmt.Sprintf("[%s]（共 %d 条，确定缺失 %d）", strings.Join(tried, " "), len(tried), miss)
+	}
+	return fmt.Sprintf("[%s …]（共 %d 条，确定缺失 %d / 其它 %d）",
+		strings.Join(tried[:keep], " "), len(tried), miss, len(tried)-miss)
+}
+
+func iconFailLog(key, format string, args ...any) {
+	if iconFailAllow(key) {
+		log.Printf(format, args...)
+	}
 }
 
 // iconFetchErr 区分图标确定的缺失（defMiss=true）与瞬态失败（0.6.321 F3）。
@@ -2421,52 +2778,44 @@ func (s *Server) sseRunOp(r *http.Request, w http.ResponseWriter, f http.Flusher
 			return // 客户端断开，操作在后台继续
 		case <-time.After(700 * time.Millisecond):
 		}
-		cur := s.Ops.Current()
-		if cur != nil && cur.ID == myID {
-			switch cur.State {
-			case operation.StateDone:
-				s.invalidateCatalog() // 安装/更新/卸载/启停都改变目录内容
-				// 安装/更新成功累计本机次数（第三方源应用无全局下载量，列表回退展示）
-				if kind == "install" || kind == "update" {
-					s.bumpLocalInstalls(cur.Target)
-				}
-				sseSend(w, f, map[string]any{"step": "done", "progress": 100, "message": cur.Msg})
-				return
-			case operation.StateError:
-				msg := cur.Err
-				if msg == "" {
-					msg = "操作失败"
-				}
-				sseSend(w, f, map[string]any{"step": "error", "error": msg})
-				return
-			default:
-				// running：进度/消息变化才推送（避免刷屏）
-				pct := int(cur.Progress / 2)
-				if cur.Msg != lastMsg || pct != lastPct {
-					sseSend(w, f, map[string]any{"step": kind, "progress": cur.Progress, "message": cur.Msg})
-					lastMsg, lastPct = cur.Msg, pct
-				}
-			}
-			continue
+		// 0.6.346：按 ID 取状态（当前/排队/历史三态），并发提交时不会被
+		// 别的应用的操作视图顶掉；排队中如实回报排位而非假装在跑。
+		st := s.Ops.Status(myID)
+		if st == nil {
+			continue // 刚入队 / 刚入 history 的极短窗口，等下一轮
 		}
-		// current 已不是本操作：它已结束（current 清空与 history 入列原子完成）。
-		// 终态从 history 按 ID 取回——绝不能默认「完成」。
-		if h := s.Ops.Find(myID); h != nil {
-			if h.State == operation.StateError {
-				msg := h.Err
-				if msg == "" {
-					msg = "操作失败"
-				}
-				sseSend(w, f, map[string]any{"step": "error", "error": msg})
-				return
+		switch st.State {
+		case operation.StateQueued:
+			msg := "排队中…"
+			if pos := s.Ops.Position(myID); pos > 0 {
+				msg = fmt.Sprintf("排队中（前面还有 %d 个任务）", pos)
 			}
-			s.invalidateCatalog()
+			if msg != lastMsg {
+				sseSend(w, f, map[string]any{"step": "queued", "progress": 0, "message": msg})
+				lastMsg = msg
+			}
+		case operation.StateRunning:
+			// running：进度/消息变化才推送（避免刷屏）
+			pct := int(st.Progress / 2)
+			if st.Msg != lastMsg || pct != lastPct {
+				sseSend(w, f, map[string]any{"step": kind, "progress": st.Progress, "message": st.Msg})
+				lastMsg, lastPct = st.Msg, pct
+			}
+		case operation.StateDone:
+			s.invalidateCatalog() // 安装/更新/卸载/启停都改变目录内容
+			// 安装/更新成功累计本机次数（第三方源应用无全局下载量，列表回退展示）
 			if kind == "install" || kind == "update" {
-				s.bumpLocalInstalls(target)
+				s.bumpLocalInstalls(st.Target)
 			}
-			sseSend(w, f, map[string]any{"step": "done", "progress": 100, "message": h.Msg})
+			sseSend(w, f, map[string]any{"step": "done", "progress": 100, "message": st.Msg})
+			return
+		case operation.StateError:
+			msg := st.Err
+			if msg == "" {
+				msg = "操作失败"
+			}
+			sseSend(w, f, map[string]any{"step": "error", "error": msg})
 			return
 		}
-		// 尚未入 history（结束动作的极短窗口）：等下一轮轮询
 	}
 }

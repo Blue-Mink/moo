@@ -891,6 +891,8 @@ func Uninstall(ctx context.Context, appname string, deleteData bool, onProgress 
 
 // StartApp start/check → start/task → 轮询。
 func StartApp(ctx context.Context, appname string) error {
+	// 0.6.348：启停后真实运行态必然变化，清掉探测缓存，下一次列表即刷新。
+	defer InvalidateRunProbe()
 	var chk struct {
 		IsSystemVersionMatch bool `json:"isSystemVersionMatch"`
 	}
@@ -905,6 +907,7 @@ func StartApp(ctx context.Context, appname string) error {
 
 // StopApp stop/check → stop/task → 轮询（含依赖检查）。
 func StopApp(ctx context.Context, appname string) error {
+	defer InvalidateRunProbe()
 	var chk struct {
 		IsSystemVersionMatch bool `json:"isSystemVersionMatch"`
 		DependentApps        struct {
@@ -930,7 +933,45 @@ func submitControl(ctx context.Context, route, appname, what string) error {
 	if err := daemonCall(ctx, route, map[string]any{"appName": appname}, &task); err != nil {
 		return fmt.Errorf("%s失败: %w", what, err)
 	}
-	return WaitTask(ctx, task.TaskID, what, 5*time.Minute, nil)
+	err := WaitTask(ctx, task.TaskID, what, 5*time.Minute, nil)
+	if err == nil {
+		return nil
+	}
+	// 0.6.342：daemon 会很快回收「秒完成」的启停任务记录，轮询拿到 status=5
+	//（unknown task）→ WaitTask 返回 ErrTaskOutcomeUnknown（"无法确认操作结果"），
+	// 但应用实际已启动/停用（实测 dog-dev 启动成功却报错）。对「结果未知」
+	// 用权威已装列表复核一次：达到目标状态即视为成功；确定失败保留原错误。
+	if errors.Is(err, ErrTaskOutcomeUnknown) {
+		wantRunning := what == "启动"
+		if st, known := installedRunStatus(ctx, appname); known {
+			switch st {
+			case "running", "start", "starting":
+				if wantRunning {
+					return nil
+				}
+			case "stopped", "stopping":
+				if !wantRunning {
+					return nil
+				}
+			}
+		}
+	}
+	return err
+}
+
+// installedRunStatus 查询 daemon 权威已装列表里该应用的运行状态。
+// known=false 表示列表取不到或应用不在列表（无法用于判定）。
+func installedRunStatus(ctx context.Context, appname string) (status string, known bool) {
+	list, err := ListInstalled(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, a := range list {
+		if strings.EqualFold(a.AppName, appname) {
+			return a.Status, true
+		}
+	}
+	return "", false
 }
 
 // UpgradeInfo 是平台权威的「有更新」信息（与应用中心 UI 的「更新」角标
@@ -954,6 +995,8 @@ type InstalledApp struct {
 	SourceID    string `json:"sourceID,omitempty"`
 	Status      string `json:"status"`
 	Icon        string `json:"icon"`
+	// Docker 标记该应用是 Docker 类（0.6.348：真实运行态探测用它选判定通道）。
+	Docker      bool   `json:"docker"`
 	IsOpen      bool   `json:"isOpen"`
 	IsStartStop bool   `json:"isStartStop"`
 	IsUninstall bool   `json:"isUninstall"`
@@ -994,6 +1037,7 @@ func ListInstalled(ctx context.Context) ([]InstalledApp, error) {
 			SourceID    string `json:"sourceID"`
 			Status      string `json:"status"`
 			Icon        string `json:"icon"`
+			Docker      bool   `json:"docker"`
 			UpgradeInfo *UpgradeInfo `json:"upgradeInfo"`
 			Control struct {
 				IsOpen      bool `json:"isOpen"`
@@ -1022,7 +1066,7 @@ func ListInstalled(ctx context.Context) ([]InstalledApp, error) {
 		a := InstalledApp{
 			AppName: d.AppName, Name: d.Name, Version: d.Version, Source: d.Source,
 			SourceID: d.SourceID,
-			Status: d.Status, Icon: d.Icon,
+			Status: d.Status, Icon: d.Icon, Docker: d.Docker,
 			IsOpen: d.Control.IsOpen, IsStartStop: d.Control.IsStartStop,
 			IsUninstall: d.Control.IsUninstall, Upgrade: d.Control.Upgrade,
 		}
@@ -1069,7 +1113,36 @@ func ListInstalled(ctx context.Context) ([]InstalledApp, error) {
 		}
 		apps = append(apps, a)
 	}
+	applyRealRunStates(ctx, apps)
 	return apps, nil
+}
+
+// applyRealRunStates 校正 daemon 报 "start" 的应用：
+// 该值只表示「用户没停用它」，不保证进程/容器真的在跑（实测 sub-store 容器
+// 已退出 20h 仍报 start，而 magic-qinglong 正常运行时也报 start）。
+// 探测出明确结论才改写为 running/stopped；判定不出保持原样，绝不误标。
+func applyRealRunStates(ctx context.Context, apps []InstalledApp) {
+	cand := make(map[string]bool, 8)
+	for _, a := range apps {
+		if a.Status == "start" {
+			cand[a.AppName] = a.Docker
+		}
+	}
+	if len(cand) == 0 {
+		return
+	}
+	states := ProbeStartStates(ctx, cand)
+	if len(states) == 0 {
+		return
+	}
+	for i := range apps {
+		if apps[i].Status != "start" {
+			continue
+		}
+		if st, ok := states[apps[i].AppName]; ok && st != "" {
+			apps[i].Status = st
+		}
+	}
 }
 
 // FindInstalled 查单个应用的已安装记录（未安装返回 nil, nil）。

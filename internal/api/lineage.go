@@ -182,10 +182,10 @@ func (s *Server) sourceRepoByKey() map[string]string {
 // originSourceOf 取卡片的「本源来源」源名。
 //
 // 0.6.326z3（用户规则「飞牛官方源不参与溯源」）：官方目录是权威来源，官方
-// 收录的应用（Source == fnos-official）不显示「溯源/搬运」标记——即使它是
-// 官方目录与社区源同名合并来的（OriginSource 有社区源），也一律不溯源。
+// 收录的应用（Source == fnos-official）不显示「溯源/搬运」标记。
 // 故 source 为官方时直接返回空，applyUpstreamLineage 据此整卡跳过。
-// （0.6.326y 的「按 OriginSource 反查」已按此规则废止。）
+// 0.6.336（C 方案）起官方卡与同名的社区卡各自独立成卡：社区卡按自己的
+// Source 正常溯源，官方卡保持不溯源——不再需要 0.6.326y 的「原来源」中转。
 func originSourceOf(a *AppInfo) string {
 	if a == nil {
 		return ""
@@ -277,9 +277,8 @@ func (s *Server) applyUpstreamLineage(out []AppInfo) {
 	verCache := map[string]map[string]upstreamCard{}
 	for i := range out {
 		a := &out[i]
-		// 0.6.326y（G1）：按**本源来源**反查本源仓库 —— 官方目录也有同名应用
-		// 时 mergeOfficialCards 已把 Source 改写成 fnos-official，真来源在
-		// OriginSource（见 originSourceOf）。旧实现只看 a.Source，这类卡整卡跳过。
+		// 按**本源来源**反查本源仓库（见 originSourceOf）：官方卡不溯源，
+		// 其余卡按自身 Source 反查（0.6.336 起官方卡与社区卡各自独立）。
 		srcName := originSourceOf(a)
 		if srcName == "" {
 			continue
@@ -669,6 +668,146 @@ func republishedByOther(a *AppInfo, owner string) bool {
 		return false
 	}
 	return !strings.EqualFold(sig, owner)
+}
+
+// applyMirrorFingerprint 0.6.351（方案 A）：「脚本同步（非 fork 搬运）」溯源兜底。
+//
+// 背景：fork=false、download_url 改写/清空、maintainer_url 非 repo 形态的
+// 脚本同步镜像仓，四条现有信号（内容血缘 / fork / 作者声明 / 打包者字段）
+// 全失效 → 漏判。本函数用内容指纹：若一张**尚无 UpstreamRepo** 的卡，其
+// (appname, sha256) 与**另一已收录源**的同名卡完全相同、且两源 owner 不同，
+// 则判为搬运，上游 = 对方源。
+//
+// 安全边界：
+//   - 只作用于 UpstreamRepo=="" 的卡（绝不覆盖已正确溯源）；
+//   - sha256 非空才参与（flat fnpack 老格式 sha256 为空 → 跳过，诚实不可比）；
+//   - 同 owner 不判（分仓发布）；
+//   - 组内选「根」用打包者字段交叉印证 + 确定性排序打破对称，根自身不指向他人，
+//     无环。
+//
+// 现网影响：当前 160 源里无 (appname,sha256) 完全相同的跨源组（唯一 7 张
+// 双胞胎卡 sha256 为空），故对现有目录零改动；价值是封住未来脚本同步镜像。
+func (s *Server) applyMirrorFingerprint(out []AppInfo) {
+	if s == nil || s.Src == nil {
+		return
+	}
+	repoToSource := s.sourceRepoByKey()
+	if len(repoToSource) == 0 {
+		return
+	}
+	srcByRepo := map[string]string{}
+	for k, n := range repoToSource {
+		if _, ok := srcByRepo[n]; !ok {
+			srcByRepo[n] = k
+		}
+	}
+
+	// 指纹分组：(appname 归一, sha256) → 各源一张卡的下标。
+	type fpKey struct{ app, sha string }
+	groups := map[fpKey]map[string]int{}
+	for i := range out {
+		a := &out[i]
+		if a.Sha256 == "" {
+			continue
+		}
+		sn := originSourceOf(a)
+		if sn == "" {
+			continue
+		}
+		key := fpKey{normAppName(a.AppName), a.Sha256}
+		m := groups[key]
+		if m == nil {
+			m = map[string]int{}
+			groups[key] = m
+		}
+		if _, dup := m[sn]; !dup {
+			m[sn] = i
+		}
+	}
+
+	verCache := map[string]map[string]upstreamCard{}
+	for _, bySource := range groups {
+		if len(bySource) < 2 {
+			continue
+		}
+		root := chooseMirrorRoot(bySource, out, srcByRepo)
+		if root == "" {
+			continue
+		}
+		rootRepo := trimHost(srcByRepo[root])
+		if rootRepo == "" {
+			continue
+		}
+		for sn, i := range bySource {
+			if sn == root {
+				continue
+			}
+			a := &out[i]
+			if a.UpstreamRepo != "" {
+				continue // 已有正确溯源，不覆盖
+			}
+			if ownerOf(srcByRepo[sn]) == ownerOf(rootRepo) {
+				continue // 同 owner 分仓，不算搬运
+			}
+			a.UpstreamRepo = rootRepo
+			a.UpstreamURL = "https://github.com/" + rootRepo
+			a.UpstreamSource = root
+			a.UpstreamVersion = upstreamVersionOf(verCache, s, root, a.AppName, a.DisplayName)
+		}
+	}
+}
+
+// chooseMirrorRoot 在同 (appname,sha256) 组里选「真源」：
+//  1. 若某成员卡片的打包者字段（distributor/maintainer）等于**另一成员** owner，
+//     则该成员是「复制方」，不选它当根（交叉印证打破对称）；
+//  2. 其余按确定性排序（仓库 key 字典序最小）选根。
+// 若全体成员都被判复制方（脏数据/自环），放弃交叉印证退回纯确定性。
+// 返回根源名；无法决定返回 ""。
+func chooseMirrorRoot(bySource map[string]int, out []AppInfo, srcByRepo map[string]string) string {
+	ownerOfSource := map[string]string{}
+	for sn := range bySource {
+		if r := srcByRepo[sn]; r != "" {
+			ownerOfSource[sn] = ownerOf(r)
+		}
+	}
+	mirror := map[string]bool{}
+	for sn, i := range bySource {
+		a := &out[i]
+		sig := strings.ToLower(strings.TrimSpace(a.Distributor))
+		if sig == "" {
+			sig = strings.ToLower(strings.TrimSpace(a.Maintainer))
+		}
+		if sig == "" || sig == ownerOfSource[sn] {
+			continue // 无打包者 或 自述 owner（自建/自打包）→ 不是复制方
+		}
+		// 打包者名命中**另一**成员 owner → 该成员是复制方（交叉印证打破对称）
+		for other, o := range ownerOfSource {
+			if other != sn && o == sig {
+				mirror[sn] = true
+			}
+		}
+	}
+	// 全体成员都被判复制方（互指/脏数据）→ 放弃交叉印证，退回纯确定性。
+	allMirror := true
+	for sn := range bySource {
+		if !mirror[sn] {
+			allMirror = false
+			break
+		}
+	}
+	if allMirror {
+		mirror = map[string]bool{}
+	}
+	best := ""
+	for sn := range bySource {
+		if mirror[sn] {
+			continue
+		}
+		if best == "" || srcByRepo[sn] < srcByRepo[best] {
+			best = sn
+		}
+	}
+	return best
 }
 
 // applyHiddenApps 应用级「禁用」展示层（0.6.326）：命中 config.HiddenApps

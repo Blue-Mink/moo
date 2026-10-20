@@ -3,6 +3,7 @@ import type { AppInfo, AppOperation } from '../api/client';
 import { PackageSearch, CheckCircle2, RefreshCw, Search } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { WebAppDetailCardSkeleton } from './webCardSkeleton';
+import { centerAppRow } from '@/lib/jumpToApp';
 
 // 详情卡片含 README markdown 渲染依赖，与详情对话框共分包（懒加载不进主包）。
 const WebAppDetailCard = React.lazy(() => import('./WebAppDetailCard'));
@@ -39,6 +40,10 @@ interface AppListProps {
   clickMode?: 'single' | 'double';
   /** 321R7 B：需要滚动定位并高亮的应用 key（「XX 安装成功」→「查看」） */
   highlightKey?: string | null;
+  /** 0.6.342：已装应用启动（卡面「已停止」→ 置灰「启动」按钮直接启动） */
+  onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
+  /** 正在执行启停操作的应用名（按钮转圈） */
+  controlling?: string | null;
 }
 
 const getEmptyMessage = (filterType?: string) => {
@@ -52,7 +57,7 @@ const getEmptyMessage = (filterType?: string) => {
   }
 };
 
-const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double', highlightKey }) => {
+const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double', highlightKey, onControl, controlling }) => {
   // 渐进渲染：apps 集合变化（搜索/筛选/刷新后首尾不同）时回到首批；
   // 内容相同的重复拉取（安装/启停后刷新）不重置，避免用户滚动位置被弹回。
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -82,19 +87,12 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
   }, [apps.length, visible]);
 
   // 321R7 B：「XX 安装成功」→「查看」定位（桌面网格同款：展开渲染 + 滚到居中）
+  // 0.6.346：滚动改走 centerAppRow（分帧校正，见 lib/jumpToApp）
   const highlightIdx = highlightKey ? apps.findIndex(a => (a.key || a.appname) === highlightKey) : -1;
   useEffect(() => {
-    if (highlightIdx < 0) return;
+    if (highlightIdx < 0 || !highlightKey) return;
     setVisible(v => Math.max(v, highlightIdx + 1));
-    const t = setTimeout(() => {
-      document.querySelectorAll('[data-app-key]').forEach(el => {
-        const e = el as HTMLElement;
-        if (e.dataset.appKey !== highlightKey) return;
-        if (e.getClientRects().length === 0) return;
-        e.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      });
-    }, 180);
-    return () => clearTimeout(t);
+    centerAppRow(highlightKey);
   }, [highlightKey, highlightIdx]);
 
   if (loading) {
@@ -160,6 +158,8 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
             isFavorite={favoriteSet?.has(app.key || app.appname)}
             onToggleFavorite={onToggleFavorite}
             clickMode={clickMode}
+            onControl={onControl}
+            controlling={controlling}
           />
         </Suspense>
         </div>

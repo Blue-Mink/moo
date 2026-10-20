@@ -19,9 +19,13 @@ import {
   Globe,
   User,
   ExternalLink,
+  Play,
+  Loader2,
   Check,
   Star,
 } from 'lucide-react';
+// 0.6.342：已停止 → 置灰「启动」按钮（与行列表/桌面卡同一口径）
+import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRunState';
 
 interface AppCardProps {
   app: AppInfo;
@@ -55,7 +59,7 @@ interface AppCardProps {
   clickMode?: 'single' | 'double';
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite, clickMode = 'double' }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite, clickMode = 'double', onControl, controlling }) => {
   const isInstalled = app.installed;
   // 0.6.319F：细指针的「头部区/简介区 → 详情」打开方式受习惯开关控制；触屏恒单击
   const singleOpen = useCoarsePointer() || clickMode === 'single';
@@ -69,6 +73,10 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
     !!openUrl || ((app.start_stop ?? true) && app.status !== 'nostart' &&
       (app.status === 'stopped' || app.status === 'starting' || app.status === 'stopping'))
   );
+  // 0.6.342（用户令）：停用的已装应用 → 卡面状态标签「已停止」+ 置灰「启动」按钮
+  const canStart = canStartInList(app) && !!onControl;
+  const controlBusy = app.status === 'starting' || app.status === 'stopping';
+  const stateLabel = installedStateLabel(app);
 
   const getStepText = (step: string): string => {
     switch (step) {
@@ -175,12 +183,15 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
               <span
                 className={cn(
                   "absolute top-1/2 -translate-y-1/2 w-14 text-center text-xs font-medium whitespace-nowrap",
-                  isInstalled ? "text-emerald-600 dark:text-emerald-500" : "text-muted-foreground/50"
+                  // 0.6.348：nostart 用中性灰（系统组件无独立启停）
+                  (!isInstalled || app.status === 'nostart') ? "text-muted-foreground/50"
+                    : isStoppedState(app) ? "text-amber-600 dark:text-amber-500"
+                    : "text-emerald-600 dark:text-emerald-500"
                 )}
                 style={{ left: -68 }}
-                title={isInstalled ? '已安装' : '未安装'}
+                title={stateLabel}
               >
-                {isInstalled ? '已安装' : '未安装'}
+                {stateLabel}
               </span>
               <div className="flex items-start flex-wrap gap-1 min-w-0">
               {(() => {
@@ -287,7 +298,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
           </div>
         ) : (() => {
           // 底栏只留主操作按钮（状态标签已移到徽章行）；无可操作按钮时整行不出
-          if (!isInstalled || canUpdate || canOpen) {
+          if (!isInstalled || canUpdate || controlBusy || canStart || canOpen) {
             return (
               <div className="pt-2 border-t border-border/20">
                 {!isInstalled ? (
@@ -310,6 +321,29 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                   >
                     <RefreshCw className="mr-1 h-3.5 w-3.5" />
                     {upgradeAllowed ? '更新' : '需手动更新'}
+                  </Button>
+                ) : controlBusy ? (
+                  <Button
+                    disabled
+                    aria-label={app.status === 'starting' ? '启动中' : '停用中'}
+                    className="pill w-full h-8 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground"
+                  >
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    {app.status === 'starting' ? '启动中' : '停用中'}
+                  </Button>
+                ) : canStart ? (
+                  // 0.6.342（用户令）：置灰「启动」——点击即启动
+                  <Button
+                    onClick={() => onControl?.(app, 'start')}
+                    disabled={controlling === app.appname}
+                    aria-label={`启动 ${app.display_name}`}
+                    title={`「${app.display_name}」已停止，点击启动`}
+                    className="pill w-full h-8 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    {controlling === app.appname
+                      ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      : <Play className="mr-1 h-3.5 w-3.5 fill-current" />}
+                    启动
                   </Button>
                 ) : (
                   <Button

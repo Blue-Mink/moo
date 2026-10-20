@@ -164,7 +164,7 @@ func (m *Manager) UISupportStatus() (support, known bool) {
 	// 触发一次后台探测（面板不可达等失败按不支持处理）。
 	m.uiSupportProbing = true
 	go func() {
-		s := ProbeUISupport(context.Background(), m.baseURL)
+		s := ProbeUISupport(context.Background(), m.currentBase())
 		m.uiSupportMu.Lock()
 		m.uiSupport = s
 		m.uiSupportKnown = true

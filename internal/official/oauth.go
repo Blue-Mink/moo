@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,6 +32,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"moo/internal/panel"
 )
 
 const (
@@ -76,6 +79,8 @@ type PendingAuthorization struct {
 type Manager struct {
 	mu      sync.Mutex
 	baseURL string
+	baseAt  time.Time
+	dynamic bool // true = 未显式指定基址，按 panel.ResolveBaseCached 自适应
 	client  *http.Client
 	dataDir string // session.json 所在目录（@appdata/moo）
 
@@ -91,17 +96,73 @@ type Manager struct {
 	uiSupportProbing bool
 }
 
+// NewManager 生产构造：基址自适应（0.6.349，issue moo#7）。
+//
+// 历史实现写死 http://127.0.0.1:5666 → 用户自定义面板端口后，授权页能
+// 打开、code 也能拿到，但换 token / 刷新 / 业务代理全部打空。现在基址由
+// panel.ResolveBaseCached 解析（env → 网关配置端口 → 探测 → 5666），并带
+// 5 分钟缓存；连接失败时 InvalidateBaseCache + 重解析一次。
 func NewManager(dataDir string) *Manager {
-	return NewManagerWithBase(dataDir, "http://127.0.0.1:5666")
-}
-
-// NewManagerWithBase 指定面板基址（测试/多实例用；生产默认 127.0.0.1:5666）。
-func NewManagerWithBase(dataDir, baseURL string) *Manager {
+	info := panel.ResolveBaseCached("")
+	log.Printf("[panel] 官方源通道面板基址: %s（来源 %s）", info.URL, info.Source)
 	return &Manager{
-		baseURL: baseURL,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		baseURL: info.URL,
+		baseAt:  time.Now(),
+		dynamic: true,
+		client:  panel.HTTPClientForBase(info.URL, 30*time.Second),
 		dataDir: dataDir,
 	}
+}
+
+// NewManagerWithBase 指定面板基址（测试/多实例用，固定不再重解析）。
+func NewManagerWithBase(dataDir, baseURL string) *Manager {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	return &Manager{
+		baseURL: baseURL,
+		client:  panel.HTTPClientForBase(baseURL, 30*time.Second),
+		dataDir: dataDir,
+	}
+}
+
+// currentBase 返回当前生效的面板基址。dynamic 时每次问 panel 缓存
+// （缓存自身带 5 分钟 TTL + env 变化检测，成本极低）。
+func (m *Manager) currentBase() string {
+	if !m.dynamic {
+		return m.baseURL
+	}
+	info := panel.ResolveBaseCached("")
+	if info.URL == "" {
+		return m.baseURL
+	}
+	m.mu.Lock()
+	m.baseURL, m.baseAt = info.URL, time.Now()
+	m.mu.Unlock()
+	return info.URL
+}
+
+// rebase 连接失败后强制重解析；返回 false 表示固定基址（测试）无需重试。
+func (m *Manager) rebase() bool {
+	if !m.dynamic {
+		return false
+	}
+	panel.InvalidateBaseCache()
+	info := panel.ResolveBaseCached("")
+	m.mu.Lock()
+	old := m.baseURL
+	m.baseURL, m.baseAt = info.URL, time.Now()
+	m.mu.Unlock()
+	if old != info.URL {
+		log.Printf("[panel] 面板基址重解析: %s → %s（来源 %s）", old, info.URL, info.Source)
+	}
+	return true
+}
+
+// httpClientFor 按基址取 http.Client（https 回环放宽证书校验）。
+func (m *Manager) httpClientFor(base string) *http.Client {
+	if !m.dynamic && m.client != nil {
+		return m.client
+	}
+	return panel.HTTPClientForBase(base, 30*time.Second)
 }
 
 // SessionFile 路径。
@@ -185,7 +246,7 @@ func newDeviceID() string {
 
 // BeginAuthorization 生成 PKCE 对并构造 /signin 授权 URL（本机基址）。
 func (m *Manager) BeginAuthorization() (string, error) {
-	return m.beginAuthorizationAt(m.baseURL)
+	return m.beginAuthorizationAt(m.currentBase())
 }
 
 // BeginAuthorizationAt 生成 PKCE 对并构造用户浏览器可达的授权 URL。
@@ -194,7 +255,7 @@ func (m *Manager) BeginAuthorization() (string, error) {
 func (m *Manager) BeginAuthorizationAt(browserBase string) (string, error) {
 	base := strings.TrimRight(strings.TrimSpace(browserBase), "/")
 	if base == "" {
-		base = m.baseURL
+		base = m.currentBase()
 	}
 	return m.beginAuthorizationAt(base)
 }
@@ -262,14 +323,26 @@ func (m *Manager) postJSON(ctx context.Context, path string, body any) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+path, bytes.NewReader(b))
-	if err != nil {
-		return nil, err
+	var resp *http.Response
+	for attempt := 0; attempt < 2; attempt++ {
+		base := m.currentBase()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err = m.httpClientFor(base).Do(req)
+		if err != nil {
+			// 0.6.349：面板端口变了但缓存还没过期 → 强制重解析后重试一次。
+			if attempt == 0 && m.rebase() {
+				continue
+			}
+			return nil, err
+		}
+		break
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := m.client.Do(req)
-	if err != nil {
-		return nil, err
+	if resp == nil {
+		return nil, fmt.Errorf("面板请求失败")
 	}
 	defer resp.Body.Close()
 	var out map[string]any
@@ -385,23 +458,30 @@ func (m *Manager) Do(ctx context.Context, method, bizPath string, query url.Valu
 	}
 	var respBody []byte
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	rebased, refreshed := false, false
+	for attempt := 0; attempt < 3; attempt++ {
+		base := m.currentBase()
 		var req *http.Request
 		var err error
 		if body != nil {
-			req, err = http.NewRequestWithContext(ctx, method, m.baseURL+path, bytes.NewReader(body))
+			req, err = http.NewRequestWithContext(ctx, method, base+path, bytes.NewReader(body))
 			if err == nil {
 				req.Header.Set("Content-Type", "application/json")
 			}
 		} else {
-			req, err = http.NewRequestWithContext(ctx, method, m.baseURL+path, nil)
+			req, err = http.NewRequestWithContext(ctx, method, base+path, nil)
 		}
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+s.AccessToken)
-		resp, err := m.client.Do(req)
+		resp, err := m.httpClientFor(base).Do(req)
 		if err != nil {
+			// 0.6.349：端口变更 → 重解析再试一次。
+			if !rebased && m.rebase() {
+				rebased = true
+				continue
+			}
 			return nil, err
 		}
 		respBody, err = readAll(resp)
@@ -409,7 +489,8 @@ func (m *Manager) Do(ctx context.Context, method, bizPath string, query url.Valu
 		if err != nil {
 			return nil, err
 		}
-		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
+		if resp.StatusCode == http.StatusUnauthorized && !refreshed {
+			refreshed = true
 			lastErr = fmt.Errorf("401: %s", strings.TrimSpace(string(respBody)))
 			if err := m.Refresh(ctx); err != nil {
 				return nil, lastErr

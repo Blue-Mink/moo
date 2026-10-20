@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"moo/internal/official"
+	"moo/internal/panel"
 )
 
 var errKeywordRequired = errors.New("keyword 不能为空")
@@ -77,6 +78,11 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 		st["ui_known"] = known
 		// 0.6.259：面板账号兜底是否已启用（老面板无 OAuth 时 headless 授权会置位）。
 		st["panel_fallback"] = s.Panel.Enabled()
+		// 0.6.349：下发解析后的面板基址（前端局域网分支据此填默认值，
+		// 不再靠猜 5666/5667；issue moo#7 自定义端口）。
+		pb := panel.ResolveBaseCached("")
+		st["panel_base"] = pb.URL
+		st["panel_base_source"] = pb.Source
 		writeJSON(w, st)
 	})
 	mux.HandleFunc("GET /api/official/authorize", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {

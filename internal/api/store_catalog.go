@@ -28,11 +28,12 @@ const catalogRebuildWait = 2 * time.Second
 //     并发调用方等 done channel（等待上限 2s，超时也返回旧数据不阻塞）；
 //   - 过期且 catalogData==nil（刚失效）→ 同步重建（失效后无旧数据可给，
 //     保安装/更新/档位切换反馈即时）。
+//
 // 重建（ListInstalled unix socket RPC + 1700+ 条目合并，实测 200-750ms）
 // 在锁外跑，其他目录端点（详情/dedup/recommended）不再排队等它。
 // l = 目录语言（0.6.269）：请求路径传 lang.From(r.Context())，
 // 后台路径传 s.bgLang()。只读约束：调用方不得修改元素字段
-//（列表瘦身等写操作先 cachedCatalogCopy）。
+// （列表瘦身等写操作先 cachedCatalogCopy）。
 func (s *Server) cachedCatalog(l string) []AppInfo {
 	s.catalogMu.Lock()
 	ttl := s.catalogTTLValueLocked()
@@ -89,7 +90,7 @@ func (s *Server) cachedCatalog(l string) []AppInfo {
 }
 
 // finishCatalogRebuild 锁外执行重建，完成后锁内原子交换结果
-//（building 标志 + done channel 统一在此收尾）。buildCatalog 自身不取
+// （building 标志 + done channel 统一在此收尾）。buildCatalog 自身不取
 // catalogMu，锁外调用安全。
 func (s *Server) finishCatalogRebuild(l string, done chan struct{}) {
 	defer close(done)
@@ -329,14 +330,15 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	}
 
 	// 官方应用中心目录（0.6.255 起恒并入，纯 OAuth 通道；未授权时
-	// Apps 返回空列表 + 错误，下方 len>0 守卫自然跳过）：
-	// - 已装但无源 → 补官方源信息（可更新判断/官方徽章）
-	// - 社区源也有 → 跨源取最高版本（官方版本更高时更新 has_update）
-	// 0.6.312 B3/F7：O(官方×目录) 嵌套扫描 → O(n) map 查找（388×2556≈100 万次比较 → 数千次 hash）。
+	// Apps 返回空列表 + 错误，下方 len>0 守卫自然跳过）。
+	// 0.6.336（C 方案）：官方条目**独立成卡**，不再吞并同名社区卡——社区源
+	// 卡恢复正常可见与可筛（fnos-store 175 条全部可见），官方卡走面板通道、
+	// 社区卡走 FPK 通道，源徽章与安装通道自洽。byName 用于给新造的官方卡
+	// 复用 daemon 安装态（否则官方卡永远显示未装）。
 	if s.Panel != nil {
 		// 0.6.269：官方目录条目按请求/配置语言取名称与简介
 		if official, _ := s.Panel.Apps(lang.WithContext(context.Background(), l)); len(official) > 0 {
-			out = mergeOfficialCards(out, official, seen)
+			out = mergeOfficialCards(out, official, byName)
 		}
 	}
 
@@ -393,6 +395,20 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 				}
 			}
 		}
+		// 安装包大小兜底（0.6.336）：源索引不声明 size 时（conversun 的
+		// apps.json 全 175 条都没有 size 字段），用同一个 Release 资产的
+		// size 补——已有 size（源声明 / 包级解析）优先，绝不被覆盖。
+		for i := range out {
+			ai := &out[i]
+			if ai.SizeBytes > 0 || ai.ReleaseURL == "" {
+				continue
+			}
+			if o, r, asset, ok := source.ParseGhReleaseURL(ai.ReleaseURL); ok {
+				if n, ok := s.GHStats.LookupSize(o, r, asset); ok && n > 0 {
+					ai.SizeBytes = n
+				}
+			}
+		}
 	}
 	// 本机安装次数（下载量展示回退链：源/Release 都无下载量时）。
 	// 已安装的应用本机至少装过一次 → 下限 1，避免「装过但不显示任何数字」。
@@ -426,6 +442,14 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	// 本源仓库属性（0.6.326f）：SourceIsFork / SourceDisabled —— 与上游判定
 	// 独立（ReleaseURL 为空的卡也要算），供详情页「禁用fork源」按钮。
 	s.applySourceLineage(out)
+
+	// 0.6.351（方案 A）：脚本同步（非 fork）镜像仓溯源兜底——内容指纹。
+	// 必须在 applyUpstreamLineage 之后（只补尚未有上游的卡、不覆盖正确溯源）、
+	// applyDedupPolicy 之前（ReleaseURL/Sha256 仍在，且列表瘦身尚未剥字段）。
+	s.applyMirrorFingerprint(out)
+
+	// 详情页信息行兜底（0.6.337）：官网 + 架构两条纯内存补齐（见 detail_fallback_337.go）。
+	applyDetailFallback(out)
 
 	// 更新目标（0.6.326x 单轴化）：update_policy 四档互斥
 	// strict / origin / lineage / upstream（强制上游）。必须在
@@ -487,88 +511,157 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	return out
 }
 
-// mergeOfficialCards 0.6.312 B3/F7：官方应用中心目录并入 catalog
-// （自 buildCatalog 内联循环抽出；合并逻辑逐行保持原样）。
+// mergeOfficialCards 官方应用中心目录**独立成卡**（0.6.336 C 方案）。
 //
-// 性能：原实现每个官方条目线性扫全目录（388×2556≈100 万次比较/次重建）；
-// 现按 AppName 建 map（O(n)）——查找语义与嵌套循环**严格等价**：
-//   - 每个官方条目取**首个**同名卡（map 只记首现下标）；
-//   - 官方目录重名条目追加新卡后立即登记 map——后续同名官方条目命中刚
-//     追加的卡，等价于原循环「扫描 out（含本轮新追加）取首个」。
-func mergeOfficialCards(out []AppInfo, official []AppInfo, seen map[string]bool) []AppInfo {
-	idxByApp := make(map[string]int, len(out))
+// 旧行为（≤0.6.335，0.6.312 B3/F7 引入）：官方条目并入「第一个同名卡」并把
+// 那张卡的 Source 改写成 fnos-official。后果——社区源那张卡被吞掉：
+// fnos-store 175 条里 22 条不可见（按源徽章筛选只剩 153），全目录共 80 条
+// 社区卡被吞；且「谁被吞」取决于源列表顺序（同一情形不同源结果不同）。
+//
+// 新契约：官方条目不再改写/吞并任何社区卡，而是自建一张 fnos-official 卡；
+// 同名社区卡原样保留（源徽章、版本、安装通道各自自洽——官方卡走面板通道，
+// 社区卡走 FPK 通道）。官方卡缺简介/开发者/发布者时从同名社区卡回填
+// （面板 app/list 不带这些字段，详情回填是异步的，回填完成前不能空白）；
+// 官方卡按 appname 复用 daemon 安装态，供 markInstalledCanonical 选为已装
+// 代表卡（该函数优先官方卡），社区同名卡随即降级为未装。
+//
+// 性能：官方条目按 appname 建 map，O(官方 + 目录)。
+func mergeOfficialCards(out []AppInfo, official []AppInfo, byName map[string]platform.InstalledApp) []AppInfo {
+	offIdx := make(map[string]int, len(official))
 	for i := range out {
-		if _, ok := idxByApp[out[i].AppName]; !ok {
-			idxByApp[out[i].AppName] = i // 首现优先（与嵌套循环取首个一致）
+		if out[i].Source != OfficialSourceID {
+			continue
+		}
+		if _, ok := offIdx[out[i].AppName]; !ok {
+			offIdx[out[i].AppName] = i
+		}
+	}
+	// 无源卡索引（已装但任何源都查不到 → Source==""）：这类卡**没有社区源
+	// 可保留**，官方条目仍按旧口径吸收进去（改写 Source 为官方、补元数据），
+	// 否则会多出一张同名的空源卡 + 一张官方卡（实测 21 个系统应用/已装应用）。
+	noSrcIdx := make(map[string]int, 8)
+	for i := range out {
+		if out[i].Source != "" {
+			continue
+		}
+		if _, ok := noSrcIdx[out[i].AppName]; !ok {
+			noSrcIdx[out[i].AppName] = i
+		}
+	}
+
+	// 社区卡捐赠者：同名里**字段最全**的一张（只借展示字段，不借版本/包）。
+	type donor struct {
+		desc, maint, maintURL, dist, distURL string
+	}
+	donors := make(map[string]*donor, len(official))
+	for i := range out {
+		e := &out[i]
+		if e.Source == "" || e.Source == OfficialSourceID {
+			continue
+		}
+		d := donors[e.AppName]
+		if d == nil {
+			d = &donor{}
+			donors[e.AppName] = d
+		}
+		if d.desc == "" {
+			d.desc = e.Description
+		}
+		if d.maint == "" && e.Maintainer != "" {
+			d.maint, d.maintURL = e.Maintainer, e.MaintainerURL
+		}
+		if d.dist == "" && e.Distributor != "" {
+			d.dist, d.distURL = e.Distributor, e.DistributorURL
 		}
 	}
 	for _, oa := range official {
-		idx, ok := idxByApp[oa.AppName]
-		if !ok {
-			if seen[oa.AppName] {
-				continue
+		if idx, ok := offIdx[oa.AppName]; ok {
+			// 官方目录重名条目（正常不该出现）：只补空字段，不再造卡
+			e := &out[idx]
+			if e.DisplayName == "" {
+				e.DisplayName = oa.DisplayName
 			}
-			seen[oa.AppName] = true
-			out = append(out, oa)
-			idxByApp[oa.AppName] = len(out) - 1
+			if e.IconURL == "" {
+				e.IconURL = oa.IconURL
+			}
+			if e.Category == "" {
+				e.Category = oa.Category
+			}
+			if e.AppType == "" {
+				e.AppType = oa.AppType
+			}
+			if e.DownloadCount == nil {
+				e.DownloadCount = oa.DownloadCount
+			}
+			if e.Installed && oa.LatestVersion != "" {
+				// 已装官方应用：更新目标只认官方目录版本（社区同名条目的
+				// 更高版本不得冒充官方更新，0.6.56 规则）。
+				applyOfficialUpdateForInstalled(e, oa)
+			} else if e.LatestVersion == "" {
+				e.LatestVersion = oa.LatestVersion
+			}
 			continue
 		}
-		e := &out[idx]
-		if e.Source == "" {
-			// 已装无源 → 采用官方条目元数据（保留已装状态）
+		if idx, ok := noSrcIdx[oa.AppName]; ok {
+			// 已装但无源（系统应用/源被删）：官方条目直接吸收该卡，
+			// 改写 Source 为官方并补齐官方元数据（保留已装状态）。
+			e := &out[idx]
+			e.Source = OfficialSourceID
+			e.Key = oa.Key
 			e.Category = oa.Category
 			e.AppType = oa.AppType
-			e.DownloadCount = oa.DownloadCount
-			if e.LatestVersion == "" {
+			if oa.DownloadCount != nil {
+				e.DownloadCount = oa.DownloadCount
+			}
+			if e.Installed && oa.LatestVersion != "" {
+				applyOfficialUpdateForInstalled(e, oa)
+			} else if e.LatestVersion == "" {
 				e.LatestVersion = oa.LatestVersion
 			}
+			if e.Description == "" {
+				e.Description = oa.Description
+			}
+			if oa.Maintainer != "" {
+				e.Maintainer = oa.Maintainer
+				if oa.MaintainerURL != "" {
+					e.MaintainerURL = oa.MaintainerURL
+				}
+			}
+			if oa.Distributor != "" {
+				e.Distributor = oa.Distributor
+				if oa.DistributorURL != "" {
+					e.DistributorURL = oa.DistributorURL
+				}
+			}
+			offIdx[oa.AppName] = idx
+			delete(noSrcIdx, oa.AppName)
+			continue
 		}
-		// 0.6.326y（G1）：改写 Source 之前先把原来源记到 OriginSource ——
-		// 溯源按本源仓库反查（lineage.go originSourceOf）时需要它，否则
-		// 「官方目录也有同名应用」的搬运卡会整卡跳过溯源（实测 15 张本应
-		// 溯源的卡缺「溯源」行）。只记一次（幂等）；Source 已是官方值时跳过。
-		if e.OriginSource == "" && e.Source != "" && e.Source != OfficialSourceID {
-			e.OriginSource = e.Source
+		out = append(out, oa)
+		i := len(out) - 1
+		offIdx[oa.AppName] = i
+		if ia, ok := byName[oa.AppName]; ok {
+			fillInstalled(&out[i], ia)
 		}
-		// 应用存在于官方目录 → 源徽章统一「飞牛应用中心源」：
-		// 官方版本已并入本卡作为更新目标，卡片代表官方应用，
-		// 不能顶着社区源的徽章（1Panel/OpenList 等官方重名应用）
-		e.Source = OfficialSourceID
-		// 官方下载量是面板权威统计，有则覆盖（社区源无此数据或不准）
-		if oa.DownloadCount != nil {
-			e.DownloadCount = oa.DownloadCount
+	}
+	// 社区元数据回填（append 之后，官方卡才在 out 里）
+	for i := range out {
+		e := &out[i]
+		if e.Source != OfficialSourceID {
+			continue
 		}
-		// 官方详情回填（ensureBackfill 预热）：目录条目缺简介/归属时
-		// 用官方条目补齐——否则官方应用（如 1Panel）列表里永远没有简介
+		d := donors[e.AppName]
+		if d == nil {
+			continue
+		}
 		if e.Description == "" {
-			e.Description = oa.Description
+			e.Description = d.desc
 		}
-		// 开发者/发布者以官方为准（官方值非空时覆盖社区值）；
-		// 回填预热完成前官方值为空则保留社区值
-		if oa.Maintainer != "" {
-			e.Maintainer = oa.Maintainer
-			if oa.MaintainerURL != "" {
-				e.MaintainerURL = oa.MaintainerURL
-			}
+		if e.Maintainer == "" {
+			e.Maintainer, e.MaintainerURL = d.maint, d.maintURL
 		}
-		if oa.Distributor != "" {
-			e.Distributor = oa.Distributor
-			if oa.DistributorURL != "" {
-				e.DistributorURL = oa.DistributorURL
-			}
-		}
-		if e.Installed && oa.LatestVersion != "" {
-			// 已装官方应用：卡片即官方应用，更新判定只认官方目录版本。
-			// 社区源同名条目的更高版本不构成「更新」——官方应用中心
-			// 不显示更新时 Moo 也不能显示，更不能用社区包冒充官方
-			// 应用的更新目标（实测 nodejs_v22/python312 等 5 个官方
-			// 应用被社区同名条目污染出假更新，更新目标还是社区包）。
-			applyOfficialUpdateForInstalled(e, oa)
-		} else if !e.Installed {
-			// 未安装卡：跨源取最高版本（保留既有行为）
-			if oa.LatestVersion != "" && compareVersions(oa.LatestVersion, e.LatestVersion) > 0 {
-				e.LatestVersion = oa.LatestVersion
-			}
+		if e.Distributor == "" {
+			e.Distributor, e.DistributorURL = d.dist, d.distURL
 		}
 	}
 	return out
@@ -682,6 +775,7 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 		Distributor:    a.Distributor,
 		Changelog:      a.Changelog,
 		SizeBytes:      sizeBytes,
+		ServicePort:    parseInt(a.ServicePort),
 		InstallType:    a.InstallType,
 		FirstReleaseAt: a.FirstReleaseAt,
 		DescHTML:       a.DescHTML,
@@ -793,6 +887,12 @@ func fillInstalled(ai *AppInfo, ia platform.InstalledApp) {
 	ai.Status = ia.Status
 	ai.StartStop = &ia.IsStartStop
 	ai.Uninstallable = &ia.IsUninstall
+	// 0.6.337：真实安装位置（/volN/@appcenter/<app> 或 /var/apps/<app>）。
+	// 目录扫描带 1 分钟缓存，仅对已装应用查（≤ 几十个），成本可忽略。
+	if loc := installLocCache.lookup(ia.AppName); loc.Path != "" {
+		ai.InstallVolume = loc.Volume
+		ai.InstallPath = loc.Path
+	}
 
 	// Web 入口：iframe 类型多为面板网关路径（/app/xxx 或 /cgi/xxx，无端口），
 	// url 类型是应用自有服务端口；也可能 iframe 带端口（kspeeder:5003 等）。
@@ -997,44 +1097,16 @@ func normalizePlatformChangelog(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// compareVersions 比较点分版本号：>0 a 更高，<0 a 更低，0 相同。
-// 忽略 -rc/_ 后缀；数字段逐段比较，非数字段按字符串比较。
-func compareVersions(a, b string) int {
-	as, bs := splitVer(a), splitVer(b)
-	n := len(as)
-	if len(bs) > n {
-		n = len(bs)
-	}
-	for i := 0; i < n; i++ {
-		var av, bv string
-		if i < len(as) {
-			av = as[i]
-		}
-		if i < len(bs) {
-			bv = bs[i]
-		}
-		an, aerr := strconv.Atoi(av)
-		bn, berr := strconv.Atoi(bv)
-		switch {
-		case aerr == nil && berr == nil:
-			if an != bn {
-				if an > bn {
-					return 1
-				}
-				return -1
-			}
-		default:
-			if av != bv {
-				if av > bv {
-					return 1
-				}
-				return -1
-			}
-		}
-	}
-	return 0
-}
+// compareVersions 比较版本号：>0 a 更高，<0 a 更低，0 相等或不可比。
+// 0.6.330：唯一实现 = internal/source.CompareVersion（见 version.go 的解析规则：
+// 数字修订号 `-N`、预发布 rc/beta 递增与「预发布 < 正式版」、段数零填充、
+// `+build` 忽略、`latest-…` 这类标签串视为不可比）。这里只做薄封装，
+// 目录判定与安装守卫从此共用同一口径，不再出现「徽章与守卫打架」。
+func compareVersions(a, b string) int { return source.CompareVersion(a, b) }
 
+// splitVer 把版本串投影成**数字段**（供 comparableVersion 判断「是否可解析」）。
+// 注意：0.6.330 起它不再参与大小比较——排序/更新判定统一走
+// internal/source.CompareVersion；此处保留仅为兼容既有可解析性契约。
 func splitVer(v string) []string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	// 0.6.326k（F7=K3）：剥前导 `v`。否则 compareVersions("2.5.0","v1.9.0") 的第 0
@@ -1042,6 +1114,13 @@ func splitVer(v string) []string {
 	// =「2.5.0 更低」，v 前缀版本被系统性低估（更新判定、自动纠正、去重排序全会
 	// 受影响）。FPK manifest / 索引里的版本常带 v 前缀，必须两口径同值。
 	v = strings.TrimPrefix(v, "v")
+	// 0.6.330：fnOS/Debian 式**数字修订号** `-N`（1.13.0-1、3.12.4-11）必须参与比较，
+	// 转成第 4 段。此前被下面的 `-` 截断规则整段丢弃 → `1.13.0-1` 剥成 `1.13.0`
+	// 与已装判等（实测 wb2api：源 1.13.0-1、已装 1.13.0，has_update=false，徽章不亮），
+	// 而安装管道用的是 internal/source 的 versionLess（把 `-1` 当修订后缀）→
+	// IsNewer("1.13.0-1","1.13.0")=true —— 两套比较器结论相反：点了能装，但不给点。
+	// 非数字后缀（`-x86`、`-panel` 等）维持原有「整段忽略」行为，不制造假更新。
+	v = expandNumericRevision(v)
 	for _, sep := range []string{"-rc", "_rc", "-beta", "-alpha", "-"} {
 		if i := strings.Index(v, sep); i > 0 {
 			v = v[:i]
@@ -1052,6 +1131,22 @@ func splitVer(v string) []string {
 	// 不显示 + 自动纠正静默跳过；同处比较器还会把 1.8.0_99 vs 1.8.0_100 退化成
 	// 字符串比较（"0_99" > "0_100"）而判反。`_rc` 已在上面按预发布剥掉，行为不变。
 	return strings.Split(strings.ReplaceAll(v, "_", "."), ".")
+}
+
+// expandNumericRevision 把「尾部纯数字修订后缀」`-N` 变成第 4 段（1.13.0-1 → 1.13.0.1）。
+// 只认最后一段且后缀全为数字的情形：`-rc1`/`-beta`/`-x86` 等一律原样返回，
+// 交给 splitVer 既有的预发布/忽略规则处理，避免把分支名/架构名当版本号。
+func expandNumericRevision(v string) string {
+	i := strings.LastIndex(v, "-")
+	if i <= 0 || i == len(v)-1 {
+		return v
+	}
+	for _, c := range v[i+1:] {
+		if c < '0' || c > '9' {
+			return v
+		}
+	}
+	return v[:i] + "." + v[i+1:]
 }
 
 // markInstalledCanonical 已装规范条目（就地修改）：每个已装应用（appname）
@@ -1143,6 +1238,10 @@ func markInstalledCanonical(out []AppInfo, upgVer map[string]string) {
 			a.Uninstallable = nil
 			a.HasUpdate = false
 			a.AvailableVersion = ""
+			// 0.6.337：降级卡不再代表本机安装态，安装位置也必须清掉
+			// （否则未装卡会显示「存储空间 1 · /vol1」）。
+			a.InstallVolume = 0
+			a.InstallPath = ""
 		}
 	}
 }
@@ -1340,7 +1439,7 @@ func applyLineageUpdates(out []AppInfo, policy string, byName map[string]platfor
 // one 档：每个 appname 留一张代表。
 //
 // 代表卡阶梯（两档通用）：① 已装规范卡 → ② 官方目录卡 → ③ 本机可装卡
-//（archs 含当前架构/all；未提供架构信息不否决）→ ④ 最高版本 → ⑤ 下载量
+// （archs 含当前架构/all；未提供架构信息不否决）→ ④ 最高版本 → ⑤ 下载量
 // → ⑥ slice 顺序（= 源顺序，确定性，ETag 稳定）。
 func applyDedupPolicy(out []AppInfo, policy string) (mergedVisible, oneVisible int) {
 	groupIdx := map[string][]int{}

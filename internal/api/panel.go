@@ -93,6 +93,11 @@ func NewPanel(cfg *config.Config) *Panel {
 			base = ""
 		}
 	}
+	// 0.6.349：未显式配置时按本机网关端口自适应（issue moo#7：
+	// 面板自定义端口后 5666 写死会打空）。
+	if base == "" {
+		base = panel.ResolveBaseCached("").URL
+	}
 	client := panel.NewClient(base, "", "")
 	return &Panel{
 		client:      client,
@@ -494,6 +499,17 @@ func (s *Server) runPanelInstall(ctx context.Context, appName string, pparams pa
 	volume := pparams.VolumeID
 	if volume <= 0 {
 		volume = s.panelDefaultVolume()
+	}
+	// 0.6.347：官方云通道（依赖预装 / 下载 / 安装）与 FPK 安装共用同一道
+	// 容量 1 闸门——daemon 任务表同一时刻只认一个任务。
+	if s.Pipe != nil && s.Pipe.Gate != nil {
+		release, err := s.Pipe.Gate.Acquire(ctx, func(pos int) {
+			progress(fmt.Sprintf("等待安装队列（前面还有 %d 个任务）…", pos), 1)
+		})
+		if err != nil {
+			return fmt.Errorf("等待平台通道失败: %w", err)
+		}
+		defer release()
 	}
 
 	// 已安装官方应用 → 就地升级（与应用中心 UI「更新」按钮同一路径）。

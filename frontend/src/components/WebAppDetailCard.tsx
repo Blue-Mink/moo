@@ -6,6 +6,7 @@ import {
 } from '../api/client';
 import { META_PILL } from './AppDetailDialog';
 import AppIcon from './AppIcon';
+import { installedStateLabel } from '@/lib/appRunState';
 import { DockerIcon } from './DockerIcon';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,8 +16,10 @@ import { useCoarsePointer } from '@/lib/hooks';
 import { categoryLabel } from '@/lib/categories';
 import {
   BellOff, Download, Globe, Loader2, Package,
-  RefreshCw, Star, Tag, User, X,
+  Play, RefreshCw, Star, Tag, User, X,
 } from 'lucide-react';
+// 0.6.342：已停止 → 置灰「启动」按钮（与行列表/网格同一口径）
+import { canStartInList } from '@/lib/appRunState';
 
 /* 0.6.285（用户定稿·第四轮）：首页卡面「只留一个动作」——未安装=安装、
    已安装=打开（头部 GET 位，统一主色）；更新/启停/卸载/忽略全部撤下卡面
@@ -43,14 +46,15 @@ interface WebAppDetailCardProps {
   onToggleFavorite?: (app: AppInfo) => void;
   /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
   clickMode?: 'single' | 'double';
+  /** 0.6.342：已装应用启动（列表「已停止」→ 置灰「启动」按钮直接启动） */
+  onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
+  /** 正在执行启停操作的应用名（按钮转圈） */
+  controlling?: string | null;
 }
 
 const STATUS_DOT: Record<string, string> = {
   running: 'bg-emerald-500', stopped: 'bg-muted-foreground/50',
   starting: 'bg-amber-500', stopping: 'bg-amber-500',
-};
-const STATUS_TEXT: Record<string, string> = {
-  running: '运行中', stopped: '已停止', starting: '启动中', stopping: '停用中', nostart: '未启动',
 };
 
 const getStepText = (step: string): string => {
@@ -72,6 +76,7 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
   activeTerms, onOpenApp,
   isFavorite, onToggleFavorite,
   clickMode = 'double',
+  onControl, controlling,
 }) => {
   const isInstalled = app.installed;
   const canUpdate = isInstalled && app.has_update;
@@ -104,6 +109,9 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
   const canOpen = isInstalled && !!onOpenApp && (!!openUrl ||
     ((app.start_stop ?? true) && app.status !== 'nostart' &&
       (app.status === 'stopped' || app.status === 'starting' || app.status === 'stopping')));
+  // 0.6.342（用户令）：已停止 → 卡面给置灰「启动」，点击即启动（不再先走「打开」隐式启动）
+  const canStart = canStartInList(app) && !!onControl;
+  const controlBusy = app.status === 'starting' || app.status === 'stopping';
 
   // 双击非功能区域 → 详情对话框；功能区域 = 任意按钮/链接/输入（closest 拦截）
   const onRootDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -190,6 +198,25 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
             className="h-8 px-4 rounded-full text-[13px] font-semibold gap-1.5 shrink-0 border-primary/40 bg-primary/15 text-primary hover:bg-primary/25 disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground">
             <RefreshCw className="h-3.5 w-3.5" />{upgradeAllowed ? '更新' : '需手动'}
           </Button>
+        ) : controlBusy ? (
+          <button disabled className="h-8 px-3 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 shrink-0 border border-border/60 bg-muted/40 text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {app.status === 'starting' ? '启动中' : '停用中'}
+          </button>
+        ) : canStart ? (
+          // 0.6.342（用户令）：置灰「启动」——点击即启动，不弹详情、不隐式打开
+          <Button
+            onClick={() => onControl?.(app, 'start')}
+            disabled={controlling === app.appname}
+            aria-label={`启动 ${app.display_name}`}
+            title={`「${app.display_name}」已停止，点击启动`}
+            className="h-8 px-4 rounded-full text-[13px] font-semibold shrink-0 gap-1.5 border border-border/60 bg-muted/60 text-muted-foreground shadow-none hover:bg-muted hover:opacity-100 disabled:opacity-60"
+          >
+            {controlling === app.appname
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Play className="h-3.5 w-3.5 fill-current" />}
+            启动
+          </Button>
         ) : canOpen ? (
           <Button onClick={() => onOpenApp?.(app)} className="h-8 px-4 rounded-full text-[13px] font-semibold shrink-0 shadow-sm hover:opacity-90">
             打开
@@ -203,7 +230,9 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
           {isInstalled ? (
             <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground">
               <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', STATUS_DOT[app.status] || 'bg-muted-foreground/50')} />
-              {STATUS_TEXT[app.status] || '已安装'}
+              {/* 0.6.348：文案统一走 appRunState（此前本地字典与移动端漂移，
+                  同一应用桌面「运行中」/手机「已安装」） */}
+              {installedStateLabel(app)}
             </div>
           ) : (
             <span className="text-[11px] text-muted-foreground/60">未安装</span>

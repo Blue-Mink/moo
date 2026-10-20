@@ -3,6 +3,8 @@ import type { AppInfo } from '../api/client';
 import { descriptionPlainText } from '../api/client';
 import { useCoarsePointer } from '../lib/hooks';
 import { cn } from '../lib/utils';
+import { centerAppRow } from '../lib/jumpToApp';
+import { installedStateLabel, isStoppedState } from '../lib/appRunState';
 import AppIcon from './AppIcon';
 
 /**
@@ -21,7 +23,15 @@ interface GridProps {
   onDetail: (app: AppInfo) => void;
   /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
   clickMode?: 'single' | 'double';
+  /** 0.6.346：顶部通知「查看」的定位目标——匹配卡滚到视口中央并高亮 2.5s。
+   * 此前极简/极光网格既不认这个 key 也没有 data-app-key，用户点「查看」后
+   * 界面毫无反应（切了 tab 却看不到目标卡，更没有蓝色框）。 */
+  highlightKey?: string | null;
 }
+
+/** 当前卡是否是「查看」定位目标 */
+const isJumpTarget = (app: AppInfo, key?: string | null) =>
+  !!key && (app.key || app.appname) === key;
 
 /** 取应用简介首行作为副标题（与 FeaturedShowcase 同规则） */
 const tagline = (app: AppInfo) => {
@@ -30,25 +40,36 @@ const tagline = (app: AppInfo) => {
 };
 
 // 0.6.319F（用户定稿）：「安装」→「已安装」（与未安装对仗，消除歧义）
-const statusLabel = (app: AppInfo) => (app.installed ? '已安装' : '未安装');
+// 0.6.342（用户令）：已安装但停用 →「已停止」（与行列表/卡面同一口径）
+const statusLabel = (app: AppInfo) => installedStateLabel(app);
 
 /* ── 极简模式：App Store「热门应用」行卡同构 —— 只有图标 + 名称 + 状态 ── */
-export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double' }) => {
+export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double', highlightKey }) => {
   const coarse = useCoarsePointer();
   // 0.6.319F：细指针打开方式受习惯开关控制；触屏恒单击
   const singleOpen = coarse || clickMode === 'single';
+  // 0.6.346：「查看」定位——目标可见后才滚，避免对不存在的卡空转
+  React.useEffect(() => {
+    if (!highlightKey) return;
+    if (!apps.some(a => (a.key || a.appname) === highlightKey)) return;
+    centerAppRow(highlightKey);
+  }, [highlightKey, apps]);
   return (
   <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-3 gap-y-6 justify-items-center text-center">
     {apps.map(app => (
       <div
         key={app.key || app.appname}
+        data-app-key={app.key || app.appname}
         role="button"
         tabIndex={0}
         title={app.display_name}
         onClick={singleOpen ? () => onDetail(app) : undefined}
         onDoubleClick={singleOpen ? undefined : () => onDetail(app)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onDetail(app); }}
-        className="group w-full cursor-pointer focus-visible:outline-none [touch-action:manipulation]"
+        className={cn(
+          'group w-full cursor-pointer rounded-2xl p-1 focus-visible:outline-none [touch-action:manipulation]',
+          isJumpTarget(app, highlightKey) && 'bg-primary/10 ring-2 ring-inset ring-primary/50',
+        )}
       >
         <AppIcon
           app={app}
@@ -56,8 +77,12 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode
           iconClassName="h-9 w-9"
         />
         <p className="mt-2 text-[13px] font-medium leading-tight truncate">{app.display_name}</p>
-        {/* 0.6.319n（用户令）：两态颜色对调——已安装=primary 蓝（突出「我有的」），未安装=灰 */}
-        <p className={cn('mt-0.5 text-[11px] truncate', app.installed ? 'text-primary' : 'text-muted-foreground')}>
+        {/* 0.6.319n（用户令）：两态颜色对调——已安装=primary 蓝（突出「我有的」），未安装=灰
+            0.6.348：nostart（系统组件）也用灰，避免「未启动」被当成在用 */}
+        <p className={cn('mt-0.5 text-[11px] truncate',
+          (!app.installed || app.status === 'nostart') ? 'text-muted-foreground'
+            : isStoppedState(app) ? 'text-amber-600 dark:text-amber-500'
+            : 'text-primary')}>
           {statusLabel(app)}
         </p>
       </div>
@@ -82,15 +107,22 @@ export const auroraFor = (name: string) => {
   return AURORAS[Math.abs(h) % AURORAS.length];
 };
 
-export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double' }) => {
+export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double', highlightKey }) => {
   const coarse = useCoarsePointer();
   // 0.6.319F：细指针打开方式受习惯开关控制；触屏恒单击
   const singleOpen = coarse || clickMode === 'single';
+  // 0.6.346：「查看」定位（同极简模式，滚动逻辑抽在 lib/jumpToApp）
+  React.useEffect(() => {
+    if (!highlightKey) return;
+    if (!apps.some(a => (a.key || a.appname) === highlightKey)) return;
+    centerAppRow(highlightKey);
+  }, [highlightKey, apps]);
   return (
   <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
     {apps.map(app => (
       <div
         key={app.key || app.appname}
+        data-app-key={app.key || app.appname}
         role="button"
         tabIndex={0}
         title={`${singleOpen ? (coarse ? '点按' : '单击') : '双击'}打开 ${app.display_name} 详情`}
@@ -103,6 +135,8 @@ export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'd
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
           'touch-manipulation',
           auroraFor(app.appname || app.display_name),
+          // 渐变卡上用白色粗描边才看得见（primary 蓝压在彩底上几乎不可辨）
+          isJumpTarget(app, highlightKey) && 'ring-[3px] ring-white/95 ring-offset-2 ring-offset-background',
         )}
       >
         <div className="flex items-start gap-4">

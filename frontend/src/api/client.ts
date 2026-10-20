@@ -112,6 +112,10 @@ export interface AppInfo {
    *  内嵌 fnOS Web UI 时"打开"走壳窗口 openApp(serviceName) 在壳内打开。 */
   web_service_name?: string;
   service_port?: number;
+  /** 0.6.337：已装应用真实安装位置（Volume>0=/volN/@appcenter/<app>；
+   *  Volume=0 且 install_path 非空=/var/apps/<app> 系统空间）。 */
+  install_volume?: number;
+  install_path?: string;
   homepage?: string;
   icon_url?: string;
   updated_at?: string;
@@ -702,6 +706,8 @@ export interface Settings {
   source_list_disabled?: boolean;
   // 0.6.325 安全加固 R1：允许源列表同步添加内网/环回源（默认 false）
   source_list_allow_private?: boolean;
+  // 0.6.334：是否已配置 GitHub API token（只回传布尔，token 本身不下发）
+  github_token_set?: boolean;
   // FPK 下载目录 + 应用源自动监测（缺省 = 目录默认 / 监测开启）
   download_dir?: string;
   source_auto_care_disabled?: boolean;
@@ -783,7 +789,7 @@ export interface MirrorCheckResult {
   latency_ms: number;
   /** 吞吐测速（字节/秒，仅 GitHub 文件加速源） */
   speed_bps?: number;
-  status: 'ok' | 'timeout' | 'error';
+  status: 'ok' | 'limited' | 'timeout' | 'error';
   /** 0.6.321 F6：失败原因短语（429 限流/403 拒绝/慢/连接被拒/DNS/资产 404） */
   error?: string;
 }
@@ -810,8 +816,9 @@ export interface MirrorStat {
   latency_ms: number;
   /** 吞吐测速（字节/秒，仅 GitHub 文件加速源；0 = 未测出） */
   speed_bps?: number;
-  status: 'ok' | 'fail' | '';
-  /** 0.6.321 F6：失败原因短语（仅 fail 时有值） */
+  /** 0.6.333 F2：ok 正常 / limited 429 限流（临时、链路可达）/ fail 真实故障 / '' 未探测 */
+  status: 'ok' | 'limited' | 'fail' | '';
+  /** 0.6.321 F6：原因短语（fail 与 limited 时有值） */
   error?: string;
   last_check: string;
   consec_fails: number;
@@ -1094,6 +1101,8 @@ export interface FpkDownloadFile {
   appname?: string;
   /** 包 manifest 的 display_name（中文名/正式名；后台索引未就绪时为空）。 */
   display_name?: string;
+  /** 0.6.332 F4：manifest 正在后台解析（首开列表的前几秒）。true 时副行显示「解析中…」。 */
+  parsing?: boolean;
   /** 该应用当前是否已安装（含官方中心/其他方式安装）。 */
   installed?: boolean;
 }
@@ -1319,7 +1328,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1851,6 +1860,13 @@ export interface OfficialStatus {
   ui_supported?: boolean;
   /** ui_supported 是否已探测完成（false = 检测中） */
   ui_known?: boolean;
+  /**
+   * 0.6.349：后端解析出的本机面板基址（含用户自定义端口，issue moo#7）。
+   * 局域网直连时前端优先用它，不再猜 5666/5667。
+   */
+  panel_base?: string;
+  /** 解析来源：env / explicit / gateway-conf / probe / default */
+  panel_base_source?: string;
 }
 
 export async function fetchOfficialStatus(): Promise<OfficialStatus> {

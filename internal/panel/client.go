@@ -84,7 +84,8 @@ func NewClient(base, username, password string) *Client {
 		BaseURL:  strings.TrimRight(strings.TrimSpace(base), "/"),
 		Username: username,
 		Password: password,
-		http:     &http.Client{Timeout: 30 * time.Second},
+		// 0.6.349：https 回环（面板 force_https）放宽证书校验，见 base.go。
+		http: HTTPClientForBase(base, 30*time.Second),
 	}
 }
 

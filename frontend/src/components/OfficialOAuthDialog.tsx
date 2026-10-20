@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -15,6 +15,7 @@ import {
   type OfficialStatus,
 } from '../api/client';
 import { toast } from 'sonner';
+import { panelBaseForBrowser } from '../lib/panelBase';
 
 // 官方应用中心 OAuth 免登录连接（0.6.253）。
 //
@@ -46,7 +47,9 @@ type View = 'status' | 'iframe' | 'code';
 //     base = 浏览器当前 origin —— 端口天然跟随（7999/443/免端口全对，
 //     不写死任何网关端口）。
 //  ③ 内网主机（私网 IP/.local/.home.arpa/回环）= 局域网直连：
-//     面板 = 同主机 5666(http)/5667(https)。
+//     面板 = 同主机 5666(http)/5667(https)；0.6.349 起状态接口返回后端
+//     解析的 panel_base（读网关配置端口 / 探测 / 5666 兜底），打开对话框
+//     后自动替换为真实端口 → 自定义面板端口不再需要手填（issue moo#7）。
 // 输入框仍可手动覆盖任意地址（最终兜底）。
 
 const PANEL_BASE_KEY = 'moo.officialPanelBase';
@@ -88,10 +91,20 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
   // 0.6.255：无头授权的临时面板账号（旧版 fnOS 前端无授权 UI 时用；不保存）
   const [hhUser, setHhUser] = useState('');
   const [hhPass, setHhPass] = useState('');
+  // 0.6.349：用户手动改过面板地址 → 不被后端解析值覆盖
+  const baseDirtyRef = useRef(false);
 
   const refreshStatus = useCallback(async () => {
     try {
-      setStatus(await fetchOfficialStatus());
+      const s = await fetchOfficialStatus();
+      setStatus(s);
+      // 0.6.349（issue moo#7）：后端解析出的面板基址带用户自定义端口，
+      // 局域网直连时优先于前端猜测（回环 → 页面主机名，端口保留）；
+      // 网关/中继模式仍用当前 origin（端口天然跟随）。用户手改/已记忆不覆盖。
+      if (s.panel_base && !baseDirtyRef.current && !loadSavedBase()
+          && isLanHost(window.location.hostname.toLowerCase())) {
+        setBase(panelBaseForBrowser(s.panel_base, window.location.hostname));
+      }
     } catch {
       setStatus(null);
     }
@@ -119,8 +132,14 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
   // 0.6.270：清掉记忆地址，回到自动探测（域名→origin / IP→5666/5667）
   const resetBaseAuto = useCallback(() => {
     clearSavedBase();
-    setBase(guessPanelBase());
-  }, []);
+    baseDirtyRef.current = false;
+    // 局域网直连且后端已解析出端口 → 回到解析值；否则回自动识别
+    if (status?.panel_base && isLanHost(window.location.hostname.toLowerCase())) {
+      setBase(panelBaseForBrowser(status.panel_base, window.location.hostname));
+    } else {
+      setBase(guessPanelBase());
+    }
+  }, [status]);
 
   // ── 发起授权（生成链接 → 切 iframe 视图） ──
   const startAuthorize = useCallback(async () => {
@@ -286,13 +305,13 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
               {status?.ui_supported !== false && (
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground" htmlFor="official-panel-base">
-                  面板地址（授权页打开位置，自动识别：网关入口=当前地址，局域网 IP=5666/5667）
+                  面板地址（授权页打开位置，自动识别：网关入口=当前地址，局域网 IP=本机面板端口）
                 </label>
                 <div className="flex gap-1.5">
                   <Input
                     id="official-panel-base"
                     value={base}
-                    onChange={(e) => setBase(e.target.value)}
+                    onChange={(e) => { baseDirtyRef.current = true; setBase(e.target.value); }}
                     placeholder="http://192.168.x.x:5666"
                     className="h-9 flex-1 font-mono text-xs"
                   />
