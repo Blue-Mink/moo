@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.352": {
+     "updated_at": "2026-10-20T19:35:00+08:00",
+     "changelog": "修复应用详情页架构显示：源同时提供顶层单链接与多架构包时，正确显示全部架构（x86 / arm）",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.352/moo_0.6.352_x86.fpk",
+       "size": 5155868,
+       "size_mb": 4.9,
+       "sha256": "6195f04156df69317fbdf6ce57470575abff90ba3e86472bc362cc967afb313f"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.352/moo_0.6.352_arm.fpk",
+       "size": 4693688,
+       "size_mb": 4.5,
+       "sha256": "122af50843172986cffbedf76dc3b7003643d58e0e515d0fd9acf24b20e6ce00"
+      }
+     }
+    },
     "0.6.351": {
      "updated_at": "2026-10-20T13:20:00+08:00",
      "changelog": "溯源补强：脚本同步（非 fork 搬运）镜像仓增加内容指纹识别，同名同包自动归到上游原作者",
@@ -45,7 +63,7 @@
      "changelog": "修复同名社区卡导致官方应用详情接口（panel-detail）返回 404 且错误提示误导的问题"
     }
    },
-   "sha256": "a63509744115a40f363687cb87453cc64eff62c95696e01d5f1425ec123735ac",
+   "sha256": "6195f04156df69317fbdf6ce57470575abff90ba3e86472bc362cc967afb313f",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -57,10 +75,10 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-20T13:20:00+08:00",
-   "version": "0.6.351",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.351/moo_0.6.351_x86.fpk",
-   "size": 5155053,
+   "updated_at": "2026-10-20T19:35:00+08:00",
+   "version": "0.6.352",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.352/moo_0.6.352_x86.fpk",
+   "size": 5155868,
    "service_port": "38100",
    "size_mb": 4.9
   }

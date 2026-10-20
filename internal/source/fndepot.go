@@ -597,11 +597,27 @@ func isDockerFlag(m map[string]any) string {
 }
 
 // currentArch 把 Go 运行时架构映射到 fnpack 架构名（amd64→x86，arm64→arm）。
+// archOverride 测试钩子（0.6.352）：单测模拟非 x86 设备（nil 时走 runtime.GOARCH）。
+var archOverride *string
+
 func currentArch() string {
+	if archOverride != nil {
+		return *archOverride
+	}
 	if runtime.GOARCH == "arm64" || runtime.GOARCH == "arm" {
 		return "arm"
 	}
 	return "x86"
+}
+
+// SetArchForTest 测试钩子（0.6.352）：模拟设备架构，空串恢复默认。
+func SetArchForTest(a string) {
+	if a == "" {
+		archOverride = nil
+	} else {
+		v := a
+		archOverride = &v
+	}
 }
 
 // ArchFromAssetName 从 Release 资产文件名推断架构（0.6.337 详情页「架构」兜底）。
@@ -897,6 +913,44 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 				}
 			}
 		}
+		// 0.6.352：架构清单无条件提取。顶层 download_url（单架构便捷链接）
+		// + releases.packages（多架构）混合形态下，Arch/Archs 也要从
+		// packages 提取，否则详情页只显示顶层单架构（0.6.303 起该提取
+		// 门控在 DownloadURL=="" 里，混合形态漏掉）。
+		if len(a.Archs) == 0 {
+			if ver, hitArch, _ := bestRelease(rel, currentArch()); ver != "" {
+				if a.Arch == "" {
+					a.Arch = hitArch
+				}
+				if rm, ok := rel[ver].(map[string]any); ok {
+					if pkgs, ok2 := rm["packages"].(map[string]any); ok2 {
+						a.Archs = pkgsWithDownload(pkgs)
+					}
+				}
+			}
+		}
+		// 0.6.352 GAP-1：混合形态下，顶层 download_url 架构与本机架构不符时，
+		// 从 releases 按本机架构选包覆盖（arm 设备选 arm 包）；架构一致或
+		// 无法推断（非 GitHub release URL / 文件名无架构标识）时保留顶层链接
+		//（可能是作者指定的加速镜像/特定 CDN，覆盖会失去加速）。
+		if a.DownloadURL != "" && len(a.Archs) > 0 {
+			if _, _, asset, ok := ParseGhReleaseURL(a.DownloadURL); ok {
+				if arch := ArchFromAssetName(asset); arch != "" && arch != currentArch() {
+					if ver, hitArch, pkg := bestRelease(rel, currentArch()); ver != "" {
+						a.DownloadURL = str(pkg, "download_url")
+						a.Arch = hitArch
+						if s := str(pkg, "sha256"); s != "" {
+							a.Sha256 = s
+						}
+						if n := anyInt(pkg, "size_bytes"); n > 0 {
+							a.SizeBytes = int64(n)
+						} else if n := anyInt(pkg, "size"); n > 0 {
+							a.SizeBytes = int64(n)
+						}
+					}
+				}
+			}
+		}
 	}
 	// arch_diff: 旧格式变体源把 download_url 按 x86/arm/all 分列（无顶层链接）。
 	if a.DownloadURL == "" {
@@ -913,6 +967,23 @@ func translateEntry(name string, m map[string]any, srcName, repoURL, base string
 						}
 						// 0.6.303：选中架构 + 全架构清单
 						a.Arch = k
+						a.Archs = pkgsWithDownload(ad)
+						break
+					}
+				}
+			}
+		}
+	}
+	// 0.6.352：arch_diff 混合形态（顶层 download_url + arch_diff）下，
+	// Arch/Archs 也要无条件提取（与 releases 同款修复）。
+	if len(a.Archs) == 0 {
+		if ad, ok := m["arch_diff"].(map[string]any); ok {
+			for _, k := range []string{currentArch(), "all"} {
+				if p, ok2 := ad[k].(map[string]any); ok2 {
+					if str(p, "download_url") != "" {
+						if a.Arch == "" {
+							a.Arch = k
+						}
 						a.Archs = pkgsWithDownload(ad)
 						break
 					}
