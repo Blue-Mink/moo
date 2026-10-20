@@ -60,12 +60,16 @@ func TestBuildCandidatesGitHubCoverage(t *testing.T) {
 	for _, want := range []string{
 		"raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json",
 		"raw.githubusercontent.com/Blue-Mink/FnDepot/master/moo.json",
-		"cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/moo.json",
+		"cdn.jsdelivr.net/gh/Blue-Mink/FnDepot@main/moo.json",
 		"raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("缺少候选 %s\n实际：%v", want, got)
 		}
+	}
+	// 0.6.331 P0：无 @ref 形态必须不出现（陈旧索引来源，见 mooindex.go 注释）。
+	if strings.Contains(joined, "cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/moo.json") {
+		t.Fatalf("候选仍含无 @ref 的 jsDelivr 形态")
 	}
 	seen := map[string]bool{}
 	for _, u := range got {

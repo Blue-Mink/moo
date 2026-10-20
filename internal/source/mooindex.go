@@ -75,7 +75,20 @@ func indexNameOf(u string) string {
 // 浏览器地址栏直接复制 `github.com/owner/repo/tree/main`，旧实现把
 // "repo/tree/main" 整个当仓库名，候选全落在 `.../FnDepot/tree/main/main/moo.json`
 // 上，一律 404（「有些添加不了」的第二个成因）。
-func buildCandidates(u string) []string {
+// fastMirrorCount 首波（tier0）参与的固定镜像前缀数量。
+//
+// 0.6.330 WP2（方案见 MOO_LOADING_REFACTOR_PLAN_20261018.md）：普通刷新只打
+// 「raw + jsDelivr + 前 2 个健康镜像」（config 顺序 = 实测延迟序），命中即
+// return 并取消其余；只有首波全败时才由后台全量重探（mirrorLimit=-1）。
+// 目的：把单源每轮的固定扫描从 72~195 个请求降到个位数，同时减少把公益镜像
+// 打成 429 的概率（429 会连带拖慢图标/README/下载）。
+const fastMirrorCount = 2
+
+// buildCandidates 全量候选（所有镜像）。保留给后台全量重探、添加为源探测与单测。
+func buildCandidates(u string) []string { return buildCandidatesLimited(u, -1) }
+
+// buildCandidatesLimited 展开候选；mirrorLimit < 0 表示全部镜像，>=0 只用前 N 个。
+func buildCandidatesLimited(u string, mirrorLimit int) []string {
 	var out []string
 	switch {
 	case strings.HasSuffix(u, ".json"):
@@ -85,7 +98,7 @@ func buildCandidates(u string) []string {
 		// （2026-10-05 主 NAS 一天 11 次超时实锤），而仓库形态源有全套镜像
 		// 竞速。非 GitHub 主机维持原行为（仅原 URL）。
 		out = append(out, u)
-		out = append(out, ghJSONVariants(u)...)
+		out = append(out, ghJSONVariantsLimited(u, mirrorLimit)...)
 	case strings.Contains(u, "github.com/"):
 		trimmed := strings.TrimPrefix(u, "https://")
 		trimmed = strings.TrimPrefix(trimmed, "http://")
@@ -104,10 +117,15 @@ func buildCandidates(u string) []string {
 						out = append(out, raw+branch+"/"+name)
 					}
 				}
+				used := 0
 				for _, opt := range config.GitHubMirrorOptions() {
 					if opt.URL == "" { // auto = 非直连项
 						continue
 					}
+					if mirrorLimit >= 0 && used >= mirrorLimit {
+						break
+					}
+					used++
 					m := strings.TrimRight(opt.URL, "/") + "/" + raw
 					for _, branch := range []string{"main", "master"} {
 						for _, name := range jsonNamesFor(true) {
@@ -115,8 +133,19 @@ func buildCandidates(u string) []string {
 						}
 					}
 				}
-				for _, name := range jsonNamesFor(true) {
-					out = append(out, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s/%s", owner, repo, name))
+				// 0.6.331 P0：jsDelivr 候选必须带 @<分支>。
+				//
+				// 无 @ref 形态（`cdn.jsdelivr.net/gh/<o>/<r>/<索引>`）走 jsDelivr
+				// 的「默认分支」解析 + 长期边缘缓存，实测会返回**陈旧副本**：
+				// RROrg/fn-apps 9 vs 正确 31、wabisabi926/FnDepot 58 vs 109、
+				// Blue-Mink/FnDepot 10 vs 14、xianyu110 86 vs 87（2026-10-18 实锤）。
+				// 而竞速是「首个 200 胜出」——快而陈旧的副本会压过 raw 直连，
+				// 重启后健康数据冷时尤其明显（实测卡片 2156→2081 / 1836→1814）。
+				// 带 @main/@master 的形态缓存键含 ref，内容与 raw 一致。
+				for _, branch := range []string{"main", "master"} {
+					for _, name := range jsonNamesFor(true) {
+						out = append(out, fmt.Sprintf("https://cdn.jsdelivr.net/gh/%s/%s@%s/%s", owner, repo, branch, name))
+					}
 				}
 			}
 		}
@@ -145,7 +174,11 @@ func buildCandidates(u string) []string {
 // （镜像前缀 + 规范化 raw 直链 + jsDelivr 兜底）。识别四种入口形态：
 // raw 域直链、镜像前缀包裹的 raw、jsDelivr（带/不带 @分支）、
 // github.com 的 /raw/ 与 /blob/ 路径；其余主机返回 nil（原行为）。
-func ghJSONVariants(u string) []string {
+// ghJSONVariants 全量变体（兼容旧调用/单测）。
+func ghJSONVariants(u string) []string { return ghJSONVariantsLimited(u, -1) }
+
+// ghJSONVariantsLimited 生成直链的补充候选；mirrorLimit 控制镜像数量。
+func ghJSONVariantsLimited(u string, mirrorLimit int) []string {
 	p := "/" + u // 前缀哨兵，保证主机名从 "/" 边界开始匹配
 	low := strings.ToLower(p)
 	const rawHost = "/raw.githubusercontent.com/"
@@ -157,7 +190,7 @@ func ghJSONVariants(u string) []string {
 			return nil
 		}
 		raw := "https://raw.githubusercontent.com/" + rest
-		return ghVariants(ownerRepo, branch, file, raw)
+		return ghVariants(ownerRepo, branch, file, raw, mirrorLimit)
 	}
 	if i := strings.Index(low, jdHost); i >= 0 {
 		rest := p[i+len(jdHost):]
@@ -170,13 +203,13 @@ func ghJSONVariants(u string) []string {
 		file := segs[2]
 		if hasRef {
 			raw := "https://raw.githubusercontent.com/" + ownerRepo + "/" + branch + "/" + file
-			return ghVariants(ownerRepo, branch, file, raw)
+			return ghVariants(ownerRepo, branch, file, raw, mirrorLimit)
 		}
 		// 不带 @ref 的 jsDelivr：分支未知，main/master 双探（与仓库形态一致）
 		var out []string
 		for _, b := range []string{"main", "master"} {
 			raw := "https://raw.githubusercontent.com/" + ownerRepo + "/" + b + "/" + file
-			out = append(out, ghVariants(ownerRepo, b, file, raw)...)
+			out = append(out, ghVariants(ownerRepo, b, file, raw, mirrorLimit)...)
 		}
 		return out
 	}
@@ -190,7 +223,7 @@ func ghJSONVariants(u string) []string {
 		}
 		ownerRepo := parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
 		rawURL := "https://raw.githubusercontent.com/" + ownerRepo + "/" + parts[3] + "/" + parts[4]
-		return ghVariants(ownerRepo, parts[3], parts[4], rawURL)
+		return ghVariants(ownerRepo, parts[3], parts[4], rawURL, mirrorLimit)
 	}
 	return nil
 }
@@ -205,12 +238,17 @@ func splitRawPath(rest string) (ownerRepo, branch, file string, ok bool) {
 }
 
 // ghVariants 给定规范化 raw 直链，产出镜像前缀候选 + raw 本体 + jsDelivr。
-func ghVariants(ownerRepo, branch, file, rawURL string) []string {
+func ghVariants(ownerRepo, branch, file, rawURL string, mirrorLimit int) []string {
 	var out []string
+	used := 0
 	for _, opt := range config.GitHubMirrorOptions() {
 		if opt.URL == "" { // auto/custom/direct = 无固定前缀
 			continue
 		}
+		if mirrorLimit >= 0 && used >= mirrorLimit {
+			break
+		}
+		used++
 		out = append(out, strings.TrimRight(opt.URL, "/")+"/"+rawURL)
 	}
 	out = append(out, rawURL)

@@ -13,9 +13,9 @@ func TestVersionHelpers(t *testing.T) {
 		{"1.10.0", "1.9.0", false, false}, // 数字段比较（非字典序）
 		{"0.8.0", "0.7.16", false, false},
 		{"2.4.0", "2.5.5", true, false},
-		// 既有 versionLess 语义：非数字后缀按字典序比空后缀大
-		// （为 -N 构建号服务，rc 场景与之相反但极少见，保持一致）
-		{"1.2.3-rc1", "1.2.3", false, false},
+		// 0.6.330 语义变更：预发布 < 同底数正式版（旧实现按后缀字典序把 rc 判更高，
+		// 会允许「1.2.3 已装 → 1.2.3-rc1 更新」这种降级；wb2api 事故同源）。
+		{"1.2.3-rc1", "1.2.3", true, false},
 	}
 	for _, c := range cases {
 		if got := VersionLess(c.a, c.b); got != c.less {

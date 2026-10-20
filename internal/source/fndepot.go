@@ -19,12 +19,45 @@ import (
 type FnDepot struct {
 	name string
 	url  string
+
+	// 0.6.330 WP1/WP2：索引名记忆 + 镜像分级（见 indexpref.go / mooindex.go）。
+	prefName    string // 非空 = 只试这个索引名（记忆命中路径）
+	mirrorLimit int    // >=0 只用前 N 个镜像；-1 = 全部（后台重探/探测）
+	lastIndex   string // 本次 Fetch 命中的索引文件名（写记忆用）
+	lastStage   int    // 命中所在阶段（1=常规名，2=扩展名，3=CDN，4=apps.json）
+	lastWinner  string // 命中地址（判断是否 CDN 兜底）
+	noCDN       bool   // 0.6.331 P0：真源复核模式——候选里剔除 jsDelivr（见 withRawOnly）
 }
 
 // NewFnDepot 创建一个 FnDepot 源。url 可以是 fnpack.json 直链，
 // 也可以是仓库地址（github.com/user/repo 或任意托管根）。
 func NewFnDepot(name, url string) *FnDepot {
-	return &FnDepot{name: name, url: strings.TrimRight(url, "/")}
+	ml := fastMirrorCount
+	if !mirrorFastEnabled() {
+		ml = -1 // MOO_MIRROR_FAST=0：回到全量镜像（回滚路径）
+	}
+	return &FnDepot{name: name, url: strings.TrimRight(url, "/"), mirrorLimit: ml}
+}
+
+// withPref 限定只尝试记忆中的索引名（找不到候选时自动回退全量）。
+func (f *FnDepot) withPref(name string) *FnDepot {
+	f.prefName = name
+	return f
+}
+
+// withFullMirrors 放开全部镜像（后台全量重探/添加为源探测使用）。
+func (f *FnDepot) withFullMirrors() *FnDepot {
+	f.mirrorLimit = -1
+	return f
+}
+
+// withRawOnly 0.6.331 P0：剔除 jsDelivr 候选与记忆限制，只走 raw/镜像直连。
+// 用于「条目数异常下降」时的真源复核——CDN 与镜像都可能返回陈旧副本，
+// 只有作者仓库的 raw 是权威（允许真实下架，但不允许缓存滞后缩表）。
+func (f *FnDepot) withRawOnly() *FnDepot {
+	f.noCDN = true
+	f.prefName = ""
+	return f
 }
 
 // NewSource 按地址自动选择源适配器：conversun/fnos-apps 目录走 Conversun
@@ -45,8 +78,36 @@ var fetchClient = netx.NewClient(30 * time.Second)
 // candidateURLs 把用户给的地址展开成一组候选 JSON 地址，按优先级排列。
 // 0.6.233：实际展开逻辑移到 mooindex.go 的 buildCandidates（moo.json 优先、
 // fnpack.json 回退），本处保留为薄封装以免改动调用点。
+//
+// 0.6.330：镜像按 f.mirrorLimit 分级（默认 fastMirrorCount=2）；有记忆时
+// 只保留该索引名的候选（0 条则回退全量，避免记忆写坏后永久失败）。
 func (f *FnDepot) candidateURLs() []string {
-	return buildCandidates(f.url)
+	cands := buildCandidatesLimited(f.url, f.mirrorLimit)
+	if f.noCDN {
+		// 0.6.331 P0：真源复核模式——jsDelivr 边缘缓存可能是陈旧副本，
+		// 复核必须只看作者仓库（raw 与镜像前缀），否则「复核」等于再赌一次。
+		kept := make([]string, 0, len(cands))
+		for _, u := range cands {
+			if strings.Contains(u, "cdn.jsdelivr.net") {
+				continue
+			}
+			kept = append(kept, u)
+		}
+		cands = kept
+	}
+	if f.prefName == "" {
+		return cands
+	}
+	out := make([]string, 0, 4)
+	for _, u := range cands {
+		if indexNameOf(u) == f.prefName {
+			out = append(out, u)
+		}
+	}
+	if len(out) == 0 {
+		return cands
+	}
+	return out
 }
 
 // fetchJSON 拉取源索引：见 fetchIndex（分阶段），本处只把胜出的索引地址
@@ -105,10 +166,41 @@ func (f *FnDepot) fetchIndex() ([]byte, string, error) {
 	// 0.6.326：按索引名优先级竞速（moo.json / 用户直链先发，700ms 窗口后
 	// 才放开 fnpack.json 等）——见 raceFetchOrdered 注释：旧实现是同时打、
 	// 谁先回谁赢，同仓库并存两个索引时「moo.json 优先」并不成立。
-	pctx, pcancel := context.WithTimeout(context.Background(), 12*time.Second)
+	// 0.6.330 WP1：有记忆时只试一个索引名，预算收紧到 4s（当轮快速失败，
+	// 失败由 Manager 触发后台全量重探）；无记忆仍是 12s。
+	budget := 12 * time.Second
+	if f.prefName != "" {
+		budget = 4 * time.Second
+	}
+	pctx, pcancel := context.WithTimeout(context.Background(), budget)
 	data, winner, err := raceFetchOrdered(plain, 700*time.Millisecond, pctx)
+	// 0.6.330 WP2：首波只用了前 fastMirrorCount 个镜像。首波全败时立刻放开
+	// 全部镜像补打一轮（等价于「窗口后放开其余」的批处理版，避免为了少数
+	// 长尾镜像在命中路径上多发几个数量级的请求）。
+	if err != nil && f.mirrorLimit >= 0 {
+		tried := make(map[string]bool, len(plain))
+		for _, u := range plain {
+			tried[u] = true
+		}
+		f.mirrorLimit = -1
+		var extra []string
+		for _, u := range f.candidateURLs() {
+			if tried[u] {
+				continue
+			}
+			if n := indexNameOf(u); n == MooIndexFile || n == "fnpack.json" {
+				extra = append(extra, u)
+			}
+		}
+		if len(extra) > 0 {
+			if d, w, e := raceFetchOrdered(extra, 300*time.Millisecond, pctx); e == nil {
+				data, winner, err = d, w, nil
+			}
+		}
+	}
 	pcancel()
 	if err == nil {
+		f.lastStage, f.lastIndex, f.lastWinner = 1, indexNameOf(winner), winner
 		return data, winner, nil
 	}
 	lastErr := err
@@ -119,6 +211,7 @@ func (f *FnDepot) fetchIndex() ([]byte, string, error) {
 
 	if len(plainExt) > 0 {
 		if d, w, e := raceFetchOrdered(plainExt, 500*time.Millisecond, rctx); e == nil {
+			f.lastStage, f.lastIndex, f.lastWinner = 2, indexNameOf(w), w
 			return d, w, nil
 		} else {
 			lastErr = e
@@ -126,6 +219,7 @@ func (f *FnDepot) fetchIndex() ([]byte, string, error) {
 	}
 	if all := append(append([]string{}, cdn...), cdnExt...); len(all) > 0 {
 		if d, w, e := raceFetchOrdered(all, 500*time.Millisecond, rctx); e == nil {
+			f.lastStage, f.lastIndex, f.lastWinner = 3, indexNameOf(w), w
 			return d, w, nil
 		} else {
 			lastErr = e
@@ -141,6 +235,7 @@ func (f *FnDepot) fetchIndex() ([]byte, string, error) {
 			continue
 		}
 		if looksLikeApps(d) {
+			f.lastStage, f.lastIndex, f.lastWinner = 4, indexNameOf(w), w
 			return d, w, nil
 		}
 		lastErr = fmt.Errorf("%s: 内容不是应用集合", w)
@@ -509,6 +604,26 @@ func currentArch() string {
 	return "x86"
 }
 
+// ArchFromAssetName 从 Release 资产文件名推断架构（0.6.337 详情页「架构」兜底）。
+// 源未声明 releases.packages 架构信息时，从 GitHub Release 资产名（如
+// `1panel_1.0_x86.fpk`、`foo_arm.fpk`、`bar_amd64.fpk`）推断，识别不出返回空串。
+// 按 `_` / `-` 分词逐段精确匹配，避免「harmony / alarm」这类含 arm 的词误判。
+func ArchFromAssetName(name string) string {
+	base := name
+	if i := strings.LastIndex(base, "."); i >= 0 {
+		base = base[:i]
+	}
+	for _, f := range strings.FieldsFunc(base, func(r rune) bool { return r == '_' || r == '-' }) {
+		switch strings.ToLower(f) {
+		case "x86", "amd64", "x64", "x86_64":
+			return "x86"
+		case "arm", "arm64", "aarch64", "armv7", "armhf":
+			return "arm"
+		}
+	}
+	return ""
+}
+
 // bestRelease 从 releases 里按版本降序挑当前架构（回退 all）第一个带
 // download_url 的包，返回版本号、命中的架构键与该包（download_url/sha256/size 等）。
 // 0.6.303：返回命中架构键（详情页展示 + 安装自动识别的依据）。
@@ -517,7 +632,23 @@ func bestRelease(rel map[string]any, arch string) (string, string, map[string]an
 	for v := range rel {
 		versions = append(versions, v)
 	}
-	sort.Slice(versions, func(i, j int) bool { return versionLess(versions[j], versions[i]) })
+	// 0.6.330：必须是**确定性**排序。map 迭代顺序随机，若用 sort.Slice + 只有
+	// 「版本更高」一个判据，判等（1.0 vs 1.0.0）或不可比（latest-… vs 1.0）时
+	// 相对顺序不定 → 同一个源两次请求可能挑到不同「最新版」。
+	// 这里改成稳定排序 + 判等时按字面序兜底，保证同一份数据永远选同一个包。
+	sort.SliceStable(versions, func(i, j int) bool {
+		oi, oj := ParseVersion(versions[i]).OK, ParseVersion(versions[j]).OK
+		switch {
+		case oi && !oj:
+			return true // 可解析的版本排在前面
+		case !oi && oj:
+			return false
+		}
+		if c := CompareVersion(versions[i], versions[j]); c != 0 {
+			return c > 0 // 版本降序
+		}
+		return versions[i] > versions[j] // 判等：字面序兜底（确定性）
+	})
 	for _, v := range versions {
 		rv, _ := rel[v].(map[string]any)
 		pkgs, _ := rv["packages"].(map[string]any)
@@ -617,47 +748,16 @@ func releaseFor(rel map[string]any, want string) (string, string, map[string]any
 	return bestRelease(rel, currentArch())
 }
 
-// versionLess 报告版本 a 是否小于 b：去掉 v 前缀后按点分段数值比较，
-// 非数字后缀（如 -1、rc1）按整段字典序兜底。
-func versionLess(a, b string) bool {
-	as, aRest := splitVersionSuffix(strings.TrimPrefix(strings.TrimSpace(a), "v"))
-	bs, bRest := splitVersionSuffix(strings.TrimPrefix(strings.TrimSpace(b), "v"))
-	ai, bi := splitVersionNums(as), splitVersionNums(bs)
-	for i := 0; i < len(ai) || i < len(bi); i++ {
-		x, y := 0, 0
-		if i < len(ai) {
-			x = ai[i]
-		}
-		if i < len(bi) {
-			y = bi[i]
-		}
-		if x != y {
-			return x < y
-		}
-	}
-	return aRest < bRest
-}
+// versionLess 报告版本 a 是否小于 b。
+// 0.6.330：实现统一到 version.go 的 CompareVersion（此前这里是第二套比较器，
+// 与 api 层splitVer 口径不同，导致「徽章不亮 / 亮了装不上」两类事故）。
+func versionLess(a, b string) bool { return CompareVersion(a, b) < 0 }
 
-// splitVersionSuffix 把 "4.8.8-1" 拆成 ("4.8.8", "-1")。
-func splitVersionSuffix(s string) (string, string) {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !((c >= '0' && c <= '9') || c == '.') {
-			return s[:i], s[i:]
-		}
-	}
-	return s, ""
-}
-
-// splitVersionNums 把 "4.8.8" 拆成 [4 8 8]（非数字段按 0）。
-func splitVersionNums(s string) []int {
-	parts := strings.Split(s, ".")
-	out := make([]int, len(parts))
-	for i, p := range parts {
-		n, _ := strconv.Atoi(strings.TrimSpace(p))
-		out[i] = n
-	}
-	return out
+// FetchWithIndex 与 Fetch 相同，额外返回本次命中的索引文件名（空 = 未命中）。
+// 0.6.330 WP1：Manager 用它写入「索引名记忆」。
+func (f *FnDepot) FetchWithIndex() (map[string]*App, string, error) {
+	apps, err := f.Fetch()
+	return apps, f.lastIndex, err
 }
 
 func (f *FnDepot) Fetch() (map[string]*App, error) {

@@ -31,10 +31,17 @@ type MirrorStat struct {
 	// 2026-09-22 实测：延迟相近的镜像吞吐差可达 400 倍（57MB/s ↔ 139KB/s），
 	// 故选路以 SpeedBPS 为准、LatencyMS（首字节延迟）仅作参考。
 	SpeedBPS int64  `json:"speed_bps,omitempty"`
-	Status   string `json:"status"` // ok | fail | ""（未探测）
-	// Error 失败原因短语（0.6.321 F6，issue #4「失败原因不可见」缺口闭合）：
-	// 429 限流 / 403 拒绝 / HTTP 5xx / 慢（低于吞吐门槛）/ 连接被拒 /
-	// DNS 解析失败 / 探测资产 404。仅 Status=fail 时有值；可选字段，旧前端忽略。
+	// Status 健康状态（0.6.333 F2 扩为三态）：
+	//   ok      = 探测通过（参与优选排名）
+	//   limited = 429 限流（链路可达但被限流，临时性；不算故障——冻结连败
+	//             计数、不计入「全部加速源不可用」判定、不参与优选排名）
+	//   fail    = 真实故障（403/5xx/超时/慢/404）
+	//   ""      = 未探测
+	Status string `json:"status"`
+	// Error 原因短语（0.6.321 F6，issue #4「失败原因不可见」缺口闭合）：
+	// 429 限流（临时）/ 403 拒绝 / HTTP 5xx / 慢（低于吞吐门槛）/ 连接被拒 /
+	// DNS 解析失败 / 探测资产 404。Status=fail 或 limited 时有值；
+	// 可选字段，旧前端忽略。
 	Error       string `json:"error,omitempty"`
 	LastCheck   string `json:"last_check"`
 	ConsecFails int    `json:"consec_fails"`
@@ -46,7 +53,7 @@ type MirrorCheckResult struct {
 	Label     string `json:"label"`
 	LatencyMS int64  `json:"latency_ms"`
 	SpeedBPS  int64  `json:"speed_bps,omitempty"`
-	Status    string `json:"status"` // ok | timeout | error
+	Status    string `json:"status"` // ok | limited（429 限流）| timeout | error
 	Error     string `json:"error,omitempty"`
 }
 
@@ -99,7 +106,13 @@ func NewMirrorMonitor() *mirrorMonitor { return newMirrorMonitor() }
 // ghProbeAssets 吞吐测速用的固定大文件（pinned release 资产，永不过期）。
 // 探测只读前 2MB（10s 上限）——镜像可能忽略 Range 而发整份文件，
 // 读完即主动截断，每次探测每镜像浪费不超过几 MB 带宽。
+//
+// 0.6.333 F3：首位改为 Moo 自有 release 资产（4.98MB，实测直连与各代理均
+// 200）——第三方 pinned 资产（ollama 等）一旦被上游下线/移动，全部镜像会
+// 同时「探测资产 404」被误判为故障。旧资产保留在后作为后备（404 时自动
+// 顺延试下一个，逻辑未变）。
 var ghProbeAssets = []string{
+	"github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_x86.fpk",
 	"github.com/ollama/ollama/releases/download/v0.34.2/ollama-linux-amd64.tar.zst",
 	"github.com/ollama/ollama/releases/download/v0.12.6/ollama-linux-amd64.tgz",
 }
@@ -151,6 +164,111 @@ func shortNetErr(err error) string {
 	return s
 }
 
+// ghProbeURL 把探测资产拼成完整 URL（0.6.333 F1）。
+//
+// 加速镜像的 URL 是「前缀」形态（如 https://gh-proxy.com/），直接拼
+// github.com/owner/repo/... 资产路径即可；而 direct 没有前缀（其 URL 为空），
+// 资产本身就是 github.com/... 的裸路径，必须补 https:// 协议头。
+//
+// 旧实现给 direct 塞了一个 raw.githubusercontent.com 前缀，拼出来是
+// https://raw.githubusercontent.com/github.com/ollama/... —— 非法地址，恒 404，
+// 导致「直连 GitHub」永远显示失败（0.6.321 F7 引入的回归）。
+func ghProbeURL(opt config.MirrorOption, asset string) string {
+	// 资产已是绝对 URL（备用资产若写成直链）→ 原样使用
+	if strings.HasPrefix(asset, "https://") || strings.HasPrefix(asset, "http://") {
+		return asset
+	}
+	if opt.Key == "direct" {
+		return "https://" + asset
+	}
+	return opt.URL + asset
+}
+
+// probeGhOne 探测单个 GitHub 加速源（0.6.333：从 probeGh 内闭包抽出为方法，
+// 便于用 httptest 直测 429/404/慢 等分支）。返回该源的 MirrorStat。
+func (m *mirrorMonitor) probeGhOne(ctx context.Context, opt config.MirrorOption) MirrorStat {
+	// 0.6.321 F6：失败带原因短语（面板状态列展示；旧前端忽略可选字段）
+	fail := func(reason string) MirrorStat {
+		return MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail", Error: reason}
+	}
+	// 0.6.333 F2：429 限流单列「limited」——链路本身可达，属临时性限流，
+	// 既不算故障（冻结连败计数、不触发「全部不可用」告警），也不参与优选。
+	limited := func(reason string) MirrorStat {
+		return MirrorStat{Key: opt.Key, Label: opt.Label, Status: "limited", Error: reason}
+	}
+	assets, minBytes := ghProbeAssets, int64(ghProbeMinBytes)
+	if opt.Key == "conversun" {
+		assets, minBytes = ghProbeAssetsConversun, ghProbeConversunMinBytes
+	}
+	pctx, pcancel := context.WithTimeout(ctx, ghProbeReadTimeout)
+	defer pcancel()
+	for _, asset := range assets {
+		start := time.Now()
+		req, err := http.NewRequestWithContext(pctx, http.MethodGet, ghProbeURL(opt, asset), nil)
+		if err != nil {
+			return fail(shortNetErr(err))
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return fail(shortNetErr(err))
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			resp.Body.Close()
+			continue // 资产下线 → 试下一个
+		}
+		switch resp.StatusCode {
+		case http.StatusTooManyRequests:
+			resp.Body.Close()
+			return limited("429 限流（临时）")
+		case http.StatusForbidden:
+			resp.Body.Close()
+			return fail("403 拒绝")
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+			resp.Body.Close()
+			return fail(fmt.Sprintf("HTTP %d", resp.StatusCode))
+		}
+		ttfb := time.Now()
+		var read int64
+		buf := make([]byte, 256*1024)
+		for read < ghProbeMaxBytes {
+			n, rerr := resp.Body.Read(buf)
+			if n > 0 {
+				read += int64(n)
+			}
+			if rerr != nil {
+				break
+			}
+		}
+		resp.Body.Close() // 主动截断（镜像可能发整份文件）
+		elapsed := time.Since(start)
+		st := MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail"}
+		if read >= minBytes && elapsed > 0 {
+			st.Status = "ok"
+			st.LatencyMS = ttfb.Sub(start).Milliseconds() // 首字节延迟
+			st.SpeedBPS = read * int64(time.Second) / int64(elapsed)
+		} else {
+			st.Error = fmt.Sprintf("慢（%ds 读 %dKB < %dKB 门槛）", int(ghProbeReadTimeout/time.Second), read>>10, minBytes>>10)
+		}
+		return st
+	}
+	return fail("探测资产 404（资产下线或未代理）")
+}
+
+// bumpGhFail 单源连败计数（0.6.333 F2 三态语义，调用方须持有 m.mu）：
+// ok → 清零；limited（429 临时限流）→ 冻结（不清零也不累加）；其余 → 累加。
+func (m *mirrorMonitor) bumpGhFail(st *MirrorStat) {
+	switch st.Status {
+	case "ok":
+		m.ghFails[st.Key] = 0
+	case "limited":
+		// 冻结：保持原计数不变
+	default:
+		m.ghFails[st.Key]++
+	}
+	st.ConsecFails = m.ghFails[st.Key]
+}
+
 // probeGh GitHub 加速组测速（0.6.148 从 ensureFresh 拆出）：并发探测全部 gh
 // 镜像（读前 2MB 测 MB/s），更新 ghStats/ghFails/lastProbeGh。
 // 后台间隔由 mirrorProbeLoopGh 按配置（gh_probe_hours/minutes）驱动。
@@ -161,73 +279,7 @@ func (m *mirrorMonitor) probeGh() {
 	gh := make(chan mirrorProbeRes, 32)
 
 	ghProbe := func(ch chan mirrorProbeRes, opt config.MirrorOption) {
-		// 0.6.321 F6：失败带原因短语（面板状态列展示；旧前端忽略可选字段）
-		fail := func(reason string) {
-			ch <- mirrorProbeRes{opt.Key, MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail", Error: reason}}
-		}
-		assets, minBytes := ghProbeAssets, int64(ghProbeMinBytes)
-		if opt.Key == "conversun" {
-			assets, minBytes = ghProbeAssetsConversun, ghProbeConversunMinBytes
-		}
-		pctx, pcancel := context.WithTimeout(ctx, ghProbeReadTimeout)
-		defer pcancel()
-		for _, asset := range assets {
-			start := time.Now()
-			req, err := http.NewRequestWithContext(pctx, http.MethodGet, opt.URL+asset, nil)
-			if err != nil {
-				fail(shortNetErr(err))
-				return
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				fail(shortNetErr(err))
-				return
-			}
-			if resp.StatusCode == http.StatusNotFound {
-				resp.Body.Close()
-				continue // 资产下线 → 试下一个
-			}
-			switch resp.StatusCode {
-			case http.StatusTooManyRequests:
-				resp.Body.Close()
-				fail("429 限流")
-				return
-			case http.StatusForbidden:
-				resp.Body.Close()
-				fail("403 拒绝")
-				return
-			}
-			if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-				resp.Body.Close()
-				fail(fmt.Sprintf("HTTP %d", resp.StatusCode))
-				return
-			}
-			ttfb := time.Now()
-			var read int64
-			buf := make([]byte, 256*1024)
-			for read < ghProbeMaxBytes {
-				n, rerr := resp.Body.Read(buf)
-				if n > 0 {
-					read += int64(n)
-				}
-				if rerr != nil {
-					break
-				}
-			}
-			resp.Body.Close() // 主动截断（镜像可能发整份文件）
-			elapsed := time.Since(start)
-			st := MirrorStat{Key: opt.Key, Label: opt.Label, Status: "fail"}
-			if read >= minBytes && elapsed > 0 {
-				st.Status = "ok"
-				st.LatencyMS = ttfb.Sub(start).Milliseconds() // 首字节延迟
-				st.SpeedBPS = read * int64(time.Second) / int64(elapsed)
-			} else {
-				st.Error = fmt.Sprintf("慢（%ds 读 %dKB < %dKB 门槛）", int(ghProbeReadTimeout/time.Second), read>>10, minBytes>>10)
-			}
-			ch <- mirrorProbeRes{opt.Key, st}
-			return
-		}
-		fail("探测资产 404（资产下线或未代理）")
+		ch <- mirrorProbeRes{opt.Key, m.probeGhOne(ctx, opt)}
 	}
 
 	var wg sync.WaitGroup
@@ -245,6 +297,7 @@ func (m *mirrorMonitor) probeGh() {
 	// 候选 direct——探同一 pinned 资产（raw 直链），bestKey 可返回 direct
 	// = 直连参与排名而非仅兜底（#4 建议 #1 承接；知情开启，大陆无代理场景
 	// 直连常态慢，开关默认关）。
+	// 0.6.333 F1：URL 留空——地址由 ghProbeURL 按 key=direct 拼 https://+资产。
 	m.mu.Lock()
 	includeDirect := m.ghIncludeDirect
 	m.mu.Unlock()
@@ -252,7 +305,7 @@ func (m *mirrorMonitor) probeGh() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ghProbe(gh, config.MirrorOption{Key: "direct", Label: "直连 GitHub", URL: "https://raw.githubusercontent.com/"})
+			ghProbe(gh, config.MirrorOption{Key: "direct", Label: "直连 GitHub"})
 		}()
 	}
 	wg.Wait()
@@ -273,13 +326,8 @@ func (m *mirrorMonitor) probeGh() {
 	now := time.Now()
 	m.mu.Lock()
 	for i := range ghOut {
-		st := &ghOut[i]
-		if st.Status == "ok" {
-			m.ghFails[st.Key] = 0
-		} else {
-			m.ghFails[st.Key]++
-		}
-		st.ConsecFails = m.ghFails[st.Key]
+		// 0.6.333 F2：三态连败计数见 bumpGhFail（ok 清零 / limited 冻结 / fail 累加）
+		m.bumpGhFail(&ghOut[i])
 	}
 	m.ghStats = ghOut
 	m.lastProbeGh = now
@@ -772,6 +820,8 @@ func bestKey(stats []MirrorStat) string {
 }
 
 // topSpeedKeys 按吞吐降序返回全部 ok 镜像 key（无速度数据时按首字节延迟升序兜底）。
+// 0.6.333 F2：只收 ok——limited（限流）与 fail 均不参与优选排名（限流源没有
+// 吞吐数据，纳入排名会把它顶到「最快」位置，与实际可用性相反）。
 func topSpeedKeys(stats []MirrorStat) []string {
 	type e struct {
 		key   string
@@ -825,6 +875,8 @@ func (s *Server) evaluateMirror(selected, group string, stats []MirrorStat) (act
 	case selected == "direct" || selected == "custom":
 		active = selected
 	default:
+		// 0.6.333 F2：只有真实故障（fail）才判手选源失效并自动切换；
+		// limited（429 临时限流）视为可用 → 保持手选，不弹「已失效，自动切换」。
 		if statusOf(stats, selected) == "fail" {
 			active = bestKey(stats)
 			if active == "" {
@@ -938,6 +990,7 @@ func (s *Server) ghOrderedKeys() []string {
 		out = append(out, "custom")
 		return append(out, tops...)
 	default:
+		// 0.6.333 F2：limited（限流）不剔除手选源，与 evaluateMirror 同口径。
 		if statusOf(s.Mirrors.gh(), mirror) == "fail" {
 			return tops
 		}

@@ -2,6 +2,7 @@ package source
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +22,9 @@ type Manager struct {
 	// 刷新失败不计）。进程内计数，重启归零（连续 5 轮按默认 24h 间隔约 5 天）。
 	careEmpty map[string]int
 
+	// 0.6.330 WP1：源索引名记忆（见 indexpref.go）。path 为空 = 不落盘。
+	prefs *prefStore
+
 	// OnFetched 0.6.312 B3/F8：源抓取成功回调（调用方设置，如 api 层把
 	// changelog 全文/releases 明细写入详情磁盘层并从 App 常驻内存移除）。
 	// 在 Refresh 内、缓存赋值前同步调用；可修改 apps 内容（未发布前的新
@@ -35,6 +39,7 @@ func NewManager(cfg *config.Config) *Manager {
 		cache:     map[string]map[string]*App{},
 		fresh:     map[string]time.Time{},
 		careEmpty: map[string]int{},
+		prefs:     newPrefStore(),
 	}
 }
 
@@ -48,8 +53,23 @@ func (m *Manager) SetConfig(cfg *config.Config) {
 	m.mu.Unlock()
 }
 
+// SetPrefPath 设置「索引名记忆」落盘路径并加载（main 在构造后调用）。
+// 返回恢复的条数。
+func (m *Manager) SetPrefPath(path string) int {
+	if m.prefs == nil {
+		m.prefs = newPrefStore()
+	}
+	return m.prefs.Load(path)
+}
+
+// exploreSem 限制后台全量重探的并发（记忆失效的源可能同时出现，避免风暴）。
+var exploreSem = make(chan struct{}, 2)
+
 // Refresh 拉取单个源的目录并更新缓存。
-func (m *Manager) Refresh(name string) error {
+func (m *Manager) Refresh(name string) error { return m.refresh(name, false) }
+
+// refresh forceFull=true 时忽略记忆、放开全部镜像（后台重探路径）。
+func (m *Manager) refresh(name string, forceFull bool) error {
 	m.mu.RLock()
 	var ref *config.SourceRef
 	for i := range m.cfg.Sources {
@@ -62,9 +82,67 @@ func (m *Manager) Refresh(name string) error {
 	if ref == nil {
 		return &ErrNoSuchSource{Name: name}
 	}
-	apps, err := NewSource(name, ref.URL).Fetch()
+	// 0.6.330 WP1：有记忆时只试记忆中的索引名（4s 预算、fast 镜像）；
+	// 失败 → 当轮快速失败 + 清记忆 + 后台全量重探（不阻塞本轮调用方）。
+	prefName := ""
+	if !forceFull && indexPrefEnabled() {
+		prefName, _ = m.prefs.Get(name, ref.URL)
+	}
+	src := NewSource(name, ref.URL)
+	if fd, ok := src.(*FnDepot); ok {
+		if forceFull {
+			fd.withFullMirrors()
+		}
+		if prefName != "" {
+			fd.withPref(prefName)
+		}
+	}
+	apps, err := src.Fetch()
 	if err != nil {
+		if prefName != "" {
+			m.prefs.Clear(name, ref.URL)
+			m.scheduleExplore(name, ref.URL)
+		}
 		return err
+	}
+	// 0.6.331 P0：陈旧索引拦截。
+	//
+	// 现象（2026-10-18 深度测试实锤）：重启后健康数据冷，fast 镜像/记忆 4s
+	// 预算下「快但陈旧」的副本先回（jsDelivr 无 @ref 形态、个别镜像旧副本），
+	// 竞速首个 200 胜出 → 卡片数骤降（2156→2081 / 1836→1814，RROrg 31→9 等）。
+	// 判定：条目数较缓存下降超过 20%（原基数 ≥5 才判，小源噪声大）。
+	// 处置：强制 raw 直连（无 jsDelivr、全镜像）复核一次——
+	//   · 复核更多 → 采信真源；
+	//   · 复核不通 → 保留旧缓存（宁可用旧数据，也不用疑似陈旧副本缩表）；
+	//   · 复核确认变少 → 采信（允许真实下架）。
+	verifiedIdx := ""
+	if prevCount := m.cacheCount(name); !forceFull && staleDrop(prevCount, len(apps)) {
+		fresh, idx := m.verifyFreshOnly(name, ref.URL)
+		switch decideStale(prevCount, len(apps), fresh != nil, len(fresh)) {
+		case staleKeepOld:
+			log.Printf("[sync] %s 条目 %d→%d（降幅>20%%）且 raw 复核失败：保留旧缓存并安排重探", name, prevCount, len(apps))
+			m.prefs.Clear(name, ref.URL)
+			m.scheduleExplore(name, ref.URL)
+			return nil
+		case staleUseVerify:
+			log.Printf("[sync] %s 条目 %d→%d（降幅>20%%）疑似陈旧索引，已用 raw 直连复核结果 %d 覆盖", name, prevCount, len(apps), len(fresh))
+			apps = fresh
+			verifiedIdx = idx
+		default:
+			// 复核确认确实变少（真实下架）或未触发复核：采信本轮结果。
+			if fresh != nil {
+				log.Printf("[sync] %s 条目 %d→%d 经 raw 直连复核确认为真（允许下架）", name, prevCount, len(apps))
+				verifiedIdx = idx
+			}
+		}
+	}
+	// 写记忆的三条约束：阶段 1（常规名）命中、非 jsDelivr 兜底、确有文件名。
+	if fd, ok := src.(*FnDepot); ok && indexPrefEnabled() {
+		if verifiedIdx != "" {
+			m.prefs.Put(name, ref.URL, verifiedIdx)
+		} else if fd.lastIndex != "" && fd.lastStage == 1 && !strings.Contains(fd.lastWinner, "cdn.jsdelivr.net") {
+			m.prefs.Put(name, ref.URL, fd.lastIndex)
+		}
 	}
 	// 0.6.312 B3/F8：缓存赋值前的后处理钩子（详情磁盘层写入 + 重字段剥离）
 	if m.OnFetched != nil {
@@ -76,6 +154,75 @@ func (m *Manager) Refresh(name string) error {
 	m.mu.Unlock()
 	m.saveIfConfigured() // 成功后落盘（首开/重启秒开的底气）
 	return nil
+}
+
+// cacheCount 当前缓存里该源的条目数（陈旧判定的对照基线）。
+func (m *Manager) cacheCount(name string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.cache[name])
+}
+
+// staleDrop 判定「疑似陈旧索引」：条目数较基线下降超过 20%，且基线 ≥5
+// （小于 5 条的源单条变化即 >20%，噪声太大不拦）。
+func staleDrop(prev, cur int) bool {
+	return prev >= 5 && cur*5 < prev*4
+}
+
+// staleDecision 陈旧索引复核后的处置。
+type staleDecision int
+
+const (
+	staleAccept    staleDecision = iota // 采信本轮结果（未触发复核 / 复核确认变少）
+	staleUseVerify                      // 采信复核结果（真源条目更多）
+	staleKeepOld                        // 复核不可用：保留旧缓存，不用疑似陈旧副本缩表
+)
+
+func decideStale(prev, cur int, verifyOK bool, verifyCount int) staleDecision {
+	if !staleDrop(prev, cur) {
+		return staleAccept
+	}
+	if !verifyOK {
+		return staleKeepOld
+	}
+	if verifyCount > cur {
+		return staleUseVerify
+	}
+	return staleAccept
+}
+
+// verifyFreshOnly 用作者仓库的 raw/镜像直连（剔除 jsDelivr、忽略记忆）复核
+// 一次索引。返回 (应用集合, 命中的索引文件名)；复核不可用返回 (nil, "")。
+// conversun 形态（apps.json 单一来源）不走这条路径。
+func (m *Manager) verifyFreshOnly(name, url string) (map[string]*App, string) {
+	if IsConversunURL(url) {
+		return nil, ""
+	}
+	fd := NewFnDepot(name, url)
+	fd.withFullMirrors()
+	fd.withRawOnly()
+	apps, err := fd.Fetch()
+	if err != nil || len(apps) == 0 {
+		return nil, ""
+	}
+	return apps, fd.lastIndex
+}
+
+// scheduleExplore 记忆失效后的后台全量重探：同一源 10min 内最多一次，
+// 全局最多 2 个在跑。成功路径与普通刷新一致（写回记忆 + 更新目录缓存）。
+func (m *Manager) scheduleExplore(name, url string) {
+	if m.prefs == nil || !m.prefs.AllowedExplore(name, url) {
+		return
+	}
+	go func() {
+		select {
+		case exploreSem <- struct{}{}:
+		case <-time.After(time.Second):
+			return // 本次让位，下轮刷新再探
+		}
+		defer func() { <-exploreSem }()
+		_ = m.refresh(name, true)
+	}()
 }
 
 // RefreshAll 拉取全部已配置源；单个源失败不影响其他源。

@@ -515,16 +515,32 @@ func (f *fpkLocal) DisplayFor(path string) (localFpkInfo, bool) {
 		}()
 		info, perr := parseFpkManifest(path)
 		st, serr := os.Stat(path)
-		if perr != nil || serr != nil {
+		if serr != nil {
 			return
 		}
 		f.mu.Lock()
 		if _, exists := f.byPath[path]; !exists && len(f.byPath) >= byPathCap {
 			f.gcByPath()
 		}
+		if perr != nil {
+			// 0.6.332 F4：损坏/非 FPK 包也落负结果（随 mtime 失效）——否则每次
+			// 列表请求都为它重开一次解析，且前端会永远停在「解析中…」。
+			f.byPath[path] = pathEntry{mod: st.ModTime(), ok: false}
+			f.mu.Unlock()
+			return
+		}
 		f.byPath[path] = pathEntry{mod: st.ModTime(), info: info, ok: true}
 		f.fillIndex(info)
 		f.mu.Unlock()
 	}()
 	return localFpkInfo{}, false
+}
+
+// Pending 报告某个 FPK 文件的 manifest 是否正在后台解析（0.6.332 F4）。
+// listDownloads 在 DisplayFor 未命中后调用：true=前端显示「解析中…」；
+// 解析失败会落负缓存并清掉标记，之后恒为 false（不会永远「解析中」）。
+func (f *fpkLocal) Pending(path string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.parsingPath[path]
 }
