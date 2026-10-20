@@ -209,11 +209,13 @@ Moo 采用**两层防线**：
 
 Docker 组同构（`/api/mirrors/docker/health`）。
 
+`mirrors[].status` = `ok | limited | fail | ""`（0.6.333 F2 起新增 `limited` = 429 限流：链路可达但临时受限——冻结连败计数、不计入「全部加速源不可用」判定、不参与优选排名；`error` 在 fail/limited 时给原因短语）。
+
 ### 3.5 Settings（设置页全量视图）
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `github_token`（0.6.334，只写；GET 仅回 `github_token_set` 布尔）, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -557,8 +559,8 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 ```
 
 - 顶层恒两键 `github_mirrors` / `docker_mirrors`（单点 writeJSON，结构上不可能缺键）；字段名是 **`github_mirrors`**，不是选项 key 前缀——按 `gh_mirrors` 之类子串查找会 0 命中。
-- `status` = `ok | error`（服务端 `checkStatus` 映射：ok→ok，其余→error）；`error`（0.6.321 F6，可选字段）仅 fail 时有值：`429 限流` / `403 拒绝` / `HTTP 5xx` / `慢（10s 读 NKB < 512KB 门槛）` / `连接被拒` / `DNS 解析失败` / `探测资产 404（资产下线或未代理）`。
-- `direct` / `auto` / `custom` 无探测 URL、不入池、不出现在响应；例外：设置 `mirror_include_direct=true`（0.6.321 F7，默认关）时 `direct` 以合成候选（raw 直链探同一 pinned 资产）出现并参与排名。
+- `status` = `ok | limited | error`（服务端 `checkStatus` 映射：ok→ok、**429 限流→limited（0.6.333 F2，链路可达、临时性）**、其余→error）；`error`（0.6.321 F6，可选字段）在 fail 与 limited 时有值：`429 限流（临时）` / `403 拒绝` / `HTTP 5xx` / `慢（10s 读 NKB < 512KB 门槛）` / `连接被拒` / `DNS 解析失败` / `探测资产 404（资产下线或未代理）`。
+- `direct` / `auto` / `custom` 无探测 URL、不入池、不出现在响应；例外：设置 `mirror_include_direct=true`（0.6.321 F7，默认关）时 `direct` 以合成候选（0.6.333 F1 起直接用 `https://` + release 资产探同一 pinned 文件）出现并参与排名。
 - `speed_bps` 仅 GitHub 组（吞吐测速）；Docker 组测速只影响速度列、不改可达判定。
 
 ---
