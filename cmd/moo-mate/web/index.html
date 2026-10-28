@@ -4,6 +4,23 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Moo Mate</title>
+<script>
+/* 2026-10-28 私人补丁：主题三态默认「跟随系统」，首帧前先钉住 <html class="dark">，
+   否则暗色系统下会先闪一帧亮色再被 JS 切过去（FOUC）。 */
+(function () {
+  try {
+    var m = localStorage.getItem('moo-mate-theme');
+    if (m !== 'light' && m !== 'dark' && m !== 'system') m = 'system';
+    var dark = m === 'system'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : m === 'dark';
+    if (dark) {
+      document.documentElement.classList.add('dark');
+      document.documentElement.style.colorScheme = 'dark';
+    }
+  } catch (e) {}
+})();
+</script>
 <style>
 :root {
   color-scheme: light;
@@ -665,25 +682,42 @@ const ICON_UPLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
-const applyTheme = mode => {
-  const dark = mode === 'dark';
+// 2026-10-28 私人补丁：主题三态 亮色 → 暗色 → 跟随系统（**默认跟随系统**），
+// 循环顺序与文案对齐 Moo 侧 ThemeToggle。原实现二值翻转 + 默认亮色 +
+// 不监听系统变化 —— 点过一次就再也回不到跟随系统。
+const ICON_MONITOR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>';
+const THEME_ORDER = ['light', 'dark', 'system'];
+const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+const readStoredTheme = () => {
+  const v = localStorage.getItem(themeKey);
+  return (v === 'light' || v === 'dark' || v === 'system') ? v : 'system';
+};
+let themeMode = readStoredTheme();
+const resolveTheme = m => (m === 'system')
+  ? (mqDark.matches ? 'dark' : 'light')
+  : m;
+
+const applyTheme = () => {
+  const dark = resolveTheme(themeMode) === 'dark';
+  const isSystem = themeMode === 'system';
   document.documentElement.classList.toggle('dark', dark);
-  $('themeToggle').innerHTML = dark ? ICON_SUN : ICON_MOON;
-  $('themeToggle').title = dark ? '切换到亮色' : '切换到暗色';
-  $('themeToggle').setAttribute('aria-label', dark ? '切换到亮色' : '切换到暗色');
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  const btn = $('themeToggle');
+  btn.innerHTML = isSystem ? ICON_MONITOR : (dark ? ICON_SUN : ICON_MOON);
+  const label = isSystem
+    ? '跟随系统（当前' + (dark ? '暗色' : '亮色') + '）· 点击切换到' + (dark ? '亮' : '暗') + '色'
+    : (dark ? '暗色 · 点击切换到跟随系统' : '亮色 · 点击切换到暗色');
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
 };
 // 主题切换过渡：对齐 Moo 0.6.302「即时切换 + 单层遮罩交叉淡切」——
 // 点击→主题瞬间切（重绘被不透明遮罩盖住）→60ms 后遮罩 200ms 淡出；
 // 只动画 1 元素 opacity=纯合成器零 paint。320ms 连点锁。
 let themeLock = 0;
-const toggleTheme = () => {
-  const now = Date.now();
-  if (now - themeLock < 320) return;
-  themeLock = now;
+// 遮罩交叉淡切：先抓旧底色 → 立刻换主题 → 旧底色遮罩 200ms 淡出
+const crossfadeTheme = () => {
   const prevBg = getComputedStyle(document.body).backgroundColor;
-  const dark = !document.documentElement.classList.contains('dark');
-  localStorage.setItem(themeKey, dark ? 'dark' : 'light');
-  applyTheme(dark ? 'dark' : 'light');
+  applyTheme();
   const m = document.createElement('div');
   m.setAttribute('aria-hidden', 'true');
   m.style.cssText = 'position:fixed;inset:0;z-index:9999;pointer-events:none;background:' + prevBg + ';opacity:1;transition:opacity 200ms ease-out';
@@ -693,8 +727,27 @@ const toggleTheme = () => {
     setTimeout(() => m.remove(), 240);
   }, 60);
 };
+const setThemeMode = next => {
+  const before = resolveTheme(themeMode);
+  themeMode = next;
+  localStorage.setItem(themeKey, themeMode);
+  // 解析结果没变（例：系统本就是亮色时 system→light）= 无视觉跳变，免遮罩
+  if (before === resolveTheme(themeMode)) { applyTheme(); return; }
+  crossfadeTheme();
+};
+// 三态循环：light → dark → system → light…
+const toggleTheme = () => {
+  const now = Date.now();
+  if (now - themeLock < 320) return;
+  themeLock = now;
+  setThemeMode(THEME_ORDER[(THEME_ORDER.indexOf(themeMode) + 1) % THEME_ORDER.length]);
+};
 $('themeToggle').onclick = toggleTheme;
-applyTheme(localStorage.getItem(themeKey) === 'dark' ? 'dark' : 'light');
+// 跟随系统档：系统在明暗之间切换时实时跟随（旧实现完全没有这条监听）
+mqDark.addEventListener('change', () => {
+  if (themeMode === 'system') crossfadeTheme();
+});
+applyTheme();
 
 // 弹窗（promise 化）
 let modalResolve = null;
