@@ -484,6 +484,16 @@ daemon.json 损坏时拒绝写入。
 
 ---
 
+### 11.8 `GET /api/mate/github-token`（admin，0.6.354）
+供本机 **Moo Mate** 复用 Moo 已配置的 GitHub API token（伴侣侧不再单独保存凭据）。
+必须额外携带 `X-Moo-Mate: 1`（伴侣专用标记）；缺头 → 403。
+```json
+响应：{"github_token_set": true, "github_token": "ghp_…"}   // 未配置时 set=false、token=""
+```
+token 只出现在响应体，不写日志；Moo Mate 侧缓存 2 分钟，不会逐请求调用。
+
+---
+
 ## 12. 备份与缓存清理
 
 | 端点 | 权限 | 说明 |

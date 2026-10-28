@@ -1420,7 +1420,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
           </Badge>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          用于加速「上游溯源」的 fork 关系探测：配置后额度 5000 次/小时，冷装几分钟内补满；不配置也能工作，只是补全更慢。Token 加密保存、仅本机使用，不会下发到页面。
+          用于加速「上游溯源」的 fork 关系探测：配置后额度 5000 次/小时，冷装几分钟内补满；不配置也能工作，只是补全更慢。Token 加密保存、仅本机使用，不会下发到页面。Moo Mate 会自动复用这里的 Token，无需在伴侣侧重复填写。
         </p>
         <div className="flex items-center gap-2">
           <Input

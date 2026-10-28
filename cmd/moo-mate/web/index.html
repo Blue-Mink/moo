@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moo Mate</title>
+<style>
+:root {
+  color-scheme: light;
+  --background: 240 14% 90%;
+  --foreground: 240 3% 11%;
+  --card: 240 20% 99%;
+  --popover: 240 20% 99%;
+  --primary: 210 100% 52%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 12% 87%;
+  --muted: 240 12% 87%;
+  --muted-foreground: 240 2% 53%;
+  --accent: 240 12% 87%;
+  --destructive: 4 100% 59%;
+  --border: 240 4% 83%;
+  --input: 240 4% 83%;
+  --ring: 210 100% 52%;
+  --radius: 1.125rem;
+}
+:root.dark {
+  color-scheme: dark;
+  --background: 240 6% 5%;
+  --foreground: 240 5% 93%;
+  --card: 240 5% 12%;
+  --popover: 240 5% 13%;
+  --primary: 215 85% 58%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 17%;
+  --muted: 240 5% 17%;
+  --muted-foreground: 240 3% 62%;
+  --accent: 240 5% 20%;
+  --destructive: 4 75% 58%;
+  --border: 240 4% 20%;
+  --input: 240 4% 20%;
+  --ring: 215 85% 65%;
+}
+* { box-sizing:border-box; }
+html, body { margin:0; padding:0; }
+/* 对齐 Moo：触屏首击立即生效、去点击高亮、断开滚动链（index.css html,body 同款） */
+html, body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  /* 对齐 Moo --font-sans（Apple 系统字体栈） */
+  font: 14px/1.65 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+/* 对齐 Moo .app-ambient（0.6.306 用户定稿）：页面环境光——毛玻璃的「透光底」，
+   纯平底色下 backdrop-blur 无内容可透，玻璃=假实心。静态径向渐变，一次渲染。 */
+.ambient { position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    radial-gradient(560px 420px at 16% 6%, rgba(10,132,255,.10), transparent 70%),
+    radial-gradient(680px 500px at 88% 96%, rgba(124,92,240,.09), transparent 72%);
+}
+:root.dark .ambient {
+  background-image:
+    radial-gradient(560px 420px at 16% 6%, rgba(74,144,236,.20), transparent 70%),
+    radial-gradient(680px 500px at 88% 96%, rgba(124,92,240,.15), transparent 72%);
+}
+.wrap { max-width:820px; margin:0 auto; padding:28px 16px 96px; position:relative; z-index:1; }
+
+/* 对齐 Moo 0.6.291 全局滚动条（用户定稿：极简一根细条、两端无箭头）。
+   Chrome/Safari 只走 ::-webkit-scrollbar 纯自定义；标准属性仅给 Firefox。 */
+@supports (-moz-appearance: none) {
+  * { scrollbar-width: thin; scrollbar-color: rgb(127 127 127 / 0.4) transparent; }
+}
+::-webkit-scrollbar { width:10px; height:10px; background:transparent; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-button { display:none; width:0; height:0; }
+::-webkit-scrollbar-corner { background:transparent; }
+::-webkit-scrollbar-thumb { background:rgb(127 127 127 / 0.4); border-radius:8px; border:2.5px solid transparent; background-clip:padding-box; }
+::-webkit-scrollbar-thumb:hover { background:rgb(127 127 127 / 0.65); background-clip:padding-box; }
+.topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.topbar h1 { font-size:22px; margin:0; letter-spacing:-0.025em; font-weight:700; } /* 对齐 Moo 标题 font-bold tracking-tight */
+.sub { color:hsl(var(--muted-foreground)); margin:0 0 24px; font-size:13px; }
+
+/* 卡片：对齐 Moo 设置页玻璃卡（bg-card/55 + backdrop-blur-xl 24px +
+   white/10 描边 + shadow-appstore，rounded-[18px]，px-4 py-4） */
+.card {
+  background: hsl(var(--card) / 0.55);
+  backdrop-filter: blur(24px) saturate(1.1);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  border: 1px solid hsl(0 0% 100% / 0.1);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.03), 0 4px 16px rgb(0 0 0 / 0.05);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.card-head { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:500; margin-bottom:14px; flex-wrap:wrap; }
+/* 对齐 Moo 卡头图标（h-4 w-4 text-muted-foreground） */
+.card-head .hi { width:16px; height:16px; color:hsl(var(--muted-foreground)); flex:none; }
+.card-desc { color:hsl(var(--muted-foreground)); font-size:12.5px; margin:-6px 0 14px; line-height:1.6; }
+.step-badge { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); font-size:12px; font-weight:700; flex:none; }
+.count { color:hsl(var(--muted-foreground)); font-weight:400; font-size:12px; margin-left:2px; }
+
+/* 可折叠卡片（使用流程）：card-head 整行可点，箭头折叠态朝右（-90deg） */
+.collapsible .card-head { cursor:pointer; user-select:none; }
+.collapsible .head-arrow { margin-left:auto; color:hsl(var(--muted-foreground)); flex:none; display:inline-flex; align-items:center; }
+.collapsible .head-arrow svg { width:14px; height:14px; transition: transform .15s; }
+.collapsible.collapsed .collapse-body { display:none; }
+.collapsible.collapsed .head-arrow svg { transform: rotate(-90deg); }
+.collapsible.collapsed { margin-bottom:16px; }
+
+/* 深浅按钮：Moo ThemeToggle 图标圆钮 */
+.theme-btn {
+  width:32px; height:32px; flex:none;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:none; border-radius:9999px;
+  background:transparent; color:hsl(var(--muted-foreground));
+  cursor:pointer;
+  transition: transform .2s, color .2s, background-color .2s;
+}
+.theme-btn:hover { color:hsl(var(--foreground)); background:hsl(var(--accent)); transform:translateY(-1px); }
+.theme-btn svg { width:16px; height:16px; }
+
+input[type=text], input[type=password], input[type=number], select {
+  height: 36px; width:100%; padding: 0 12px;
+  background: transparent; border: 1px solid hsl(var(--input));
+  border-radius: 12px; color: hsl(var(--foreground)); font-size: 14px;
+}
+input::placeholder { color:hsl(var(--muted-foreground)); }
+input:focus, select:focus { outline:none; border-color:hsl(var(--ring)); box-shadow: 0 0 0 1px hsl(var(--ring)); }
+select { cursor:pointer; }
+textarea {
+  width:100%; min-height:72px; padding:8px 12px;
+  background:transparent; border:1px solid hsl(var(--input));
+  border-radius:12px; color:hsl(var(--foreground)); font-size:13px; line-height:1.6;
+  resize:vertical; font-family:inherit;
+}
+textarea::placeholder { color:hsl(var(--muted-foreground)); }
+textarea:focus { outline:none; border-color:hsl(var(--ring)); box-shadow:0 0 0 1px hsl(var(--ring)); }
+/* 按钮：对齐 Moo Button default（0.6.307 浅蓝玻璃胶囊语言 + rounded-md 12px：
+   bg-primary/15 + 蓝字 + primary/40 描边，h-9 px-4 text-sm font-medium） */
+button {
+  height: 36px; padding: 0 16px; border: 1px solid hsl(var(--primary) / 0.4); border-radius: 12px;
+  background: hsl(var(--primary) / 0.15); color: hsl(var(--primary)); font-size: 14px; font-weight:500;
+  cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  transition: background .15s, border-color .15s, color .15s;
+}
+button svg { width:14px; height:14px; flex:none; }
+button:hover { background: hsl(var(--primary) / 0.25); }
+/* ghost：对齐 Moo variant=ghost（无边框，hover 仅 accent 底） */
+button.ghost { background:transparent; border-color:transparent; color: hsl(var(--foreground)); }
+button.ghost:hover { background: hsl(var(--accent)); border-color:transparent; color: hsl(var(--foreground)); }
+button.ghost.danger { color: hsl(var(--destructive)); }
+button.ghost.danger:hover { background: hsl(var(--destructive) / 0.12); color: hsl(var(--destructive)); }
+button.small { height: 32px; padding: 0 12px; font-size: 12px; border-radius: 12px; }
+button.small svg { width:13px; height:13px; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+
+.row { display:flex; gap:10px; align-items:center; }
+.row input { flex:1; }
+/* 顶部通知栏（对齐 Moo sonner：top-center / 3000ms 自动消失 / 24px 圆角玻璃） */
+.toast {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%) translateY(-16px);
+  z-index: 100; display: flex; align-items: center; gap: 8px;
+  width: min(92vw, 788px);
+  padding: 11px 18px; border-radius: 24px;
+  border: 1px solid hsl(0 0% 100% / 0.1);
+  background: hsl(var(--card) / 0.55);
+  backdrop-filter: blur(24px) saturate(1.1);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  box-shadow: 0 24px 48px -12px hsl(var(--foreground) / 0.4);
+  color: hsl(var(--foreground)); font-size: 14px; line-height:1.5;
+  white-space: pre-wrap; word-break: break-word;
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* 软仓源切换（个人源 / Gitee 源 选择框，位于索引列表分组头内）：
+   靠右排布，与折叠箭头之间留 12px 间距防误触；对齐 Moo 分类胶囊语言
+   （rounded-full + 玻璃材质：未选 bg-card/55+white/10 描边、选中 bg-primary/15+primary/40 描边）。 */
+/* 软仓源切换（个人源 / Gitee 源）：0.2.13 统一为 button.plain 同形（12px 圆角方形 +
+   13px 字 + var(--border) 描边），消除「与其他按钮胶囊不一样」；选中态 = plain.on 同款。 */
+.src-switch { display:flex; flex:1; gap:8px; margin-left:10px; margin-right:49px; min-width:0; justify-content:flex-end; }
+.src-opt-mini {
+  flex:none; height:auto; font-size:13px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px solid hsl(var(--border)); background:transparent; padding:3px 10px; border-radius:12px;
+  color:hsl(var(--muted-foreground)); font-weight:400; cursor:pointer; white-space:nowrap;
+  transition: color .15s, border-color .15s, background-color .15s;
+}
+.src-opt-mini:hover { background:hsl(var(--accent) / 0.6); border-color:hsl(var(--muted-foreground) / 0.4); color:hsl(var(--foreground)); }
+.src-opt-mini.active { color:hsl(var(--primary)); border-color:hsl(var(--primary) / 0.4); background:hsl(var(--primary) / 0.12); font-weight:500; }
+.head-actions { margin-left:auto; display:flex; gap:8px; flex:none; }
+.head-btn { margin-left:auto; flex:none; }
+.soft-status { font-size:12.5px; color:hsl(var(--muted-foreground)); margin-top:12px; }
+.soft-status.err { color:hsl(var(--destructive)); }
+
+/* 批量操作条：进入批量推送/删除模式后显示（全选 / 已选 N / 取消 / 执行） */
+.batch-bar { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border:1px dashed hsl(var(--primary) / 0.4); border-radius:12px; background:hsl(var(--primary) / 0.06); }
+.batch-count { font-size:12.5px; color:hsl(var(--muted-foreground)); }
+/* 批量模式行首圆圈选择框 */
+.sel-dot { width:20px; height:20px; border-radius:50%; border:1.5px solid hsl(var(--border)); flex:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition: background .15s, border-color .15s; }
+.sel-dot.on { border-color:hsl(var(--primary)); background:hsl(var(--primary)); }
+.sel-dot.on::after { content:""; width:8px; height:8px; border-radius:50%; background:hsl(var(--primary-foreground)); }
+.sel-dot.dis { opacity:.4; cursor:not-allowed; }
+.app-item.batch { cursor:pointer; }
+
+/* 齿轮时间选择框（0.2.24 单段化：只留中间选中格，去掉上下渐隐段，更简洁省空间） */
+.gear-row { display:flex; align-items:center; gap:14px; padding:2px 0 16px; flex-wrap:wrap; }
+.gear-label { font-size:13px; font-weight:500; color:hsl(var(--foreground)); }
+.gear { display:flex; align-items:center; gap:4px; }
+.gear-col { display:flex; flex-direction:column; align-items:center; }
+.gear-wrap {
+  position:relative; width:44px; height:26px; overflow:hidden;
+  border:1px solid hsl(var(--border) / 0.4); border-radius:8px;
+  background: hsl(var(--muted) / 0.4);
+}
+.gear-scroll {
+  height:100%; overflow-y:auto; overscroll-behavior:contain;
+  scroll-snap-type:y mandatory; scrollbar-width:none; -ms-overflow-style:none;
+}
+.gear-scroll::-webkit-scrollbar { display:none; }
+.gear-item {
+  height:24px; display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-variant-numeric:tabular-nums; color:hsl(var(--muted-foreground) / 0.5);
+  scroll-snap-align:start; cursor:pointer; user-select:none;
+}
+.gear-item.sel { color:hsl(var(--foreground)); font-weight:600; }
+.gear-highlight {
+  position:absolute; left:0; right:0; top:0; bottom:0;
+  border-top:1px solid hsl(var(--primary) / 0.25); border-bottom:1px solid hsl(var(--primary) / 0.25);
+  background: hsl(var(--primary) / 0.1); pointer-events:none; z-index:1;
+}
+.gear-sep { font-size:13px; color:hsl(var(--muted-foreground)); }
+.gear-unit { margin-top:4px; font-size:10px; line-height:1; color:hsl(var(--muted-foreground)); }
+.gear-hint { font-size:11px; color:hsl(var(--muted-foreground) / 0.8); }
+
+/* 应用索引列表 */
+.idx-list { display:flex; flex-direction:column; gap:10px; }
+.src-group { border:1px solid hsl(var(--border)); border-radius:12px; overflow:hidden; } /* 对齐 Moo rounded-md 语言 */
+.src-head { display:flex; align-items:center; gap:8px; padding:7px 12px; background:hsl(var(--muted) / 0.5); border-bottom:1px solid hsl(var(--border)); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; }
+.src-head .dot { width:6px; height:6px; border-radius:50%; background:hsl(var(--primary)); flex:none; }
+.src-head .srcname { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto; }
+.src-head .src-count { color:hsl(var(--muted-foreground)); font-weight:400; font-size:11px; flex:none; }
+.src-head .srcurl { color:hsl(var(--muted-foreground)); font-weight:400; font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto; }
+.src-head .collapse-arrow { margin-left:auto; color:hsl(var(--muted-foreground)); flex:none; display:inline-flex; align-items:center; }
+.src-head .collapse-arrow svg { width:14px; height:14px; transition: transform .15s; }
+.src-group.collapsed .app-item { display:none; }
+.src-group.collapsed .collapse-arrow svg { transform: rotate(-90deg); }
+.src-group.collapsed .src-head { border-bottom:none; }
+.app-item { display:flex; align-items:center; gap:10px; padding:6px 12px; border-bottom:1px solid hsl(var(--border)); }
+.app-item:last-child { border-bottom:none; }
+.app-icon { width:26px; height:26px; border-radius:7px; background:hsl(var(--muted)); flex:none; display:flex; align-items:center; justify-content:center; color:hsl(var(--muted-foreground)); font-size:12px; }
+.app-icon-img { width:26px; height:26px; border-radius:7px; object-fit:cover; flex:none; background:hsl(var(--muted)); }
+.app-main { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.app-name { font-size:13.5px; font-weight:600; }
+.app-meta { color:hsl(var(--muted-foreground)); font-size:11.5px; }
+.app-ops { display:flex; align-items:center; gap:8px; flex:none; }
+.badge { display:inline-block; padding:0 7px; border-radius:999px; font-size:10.5px; line-height:18px; }
+.badge.synced { background:hsl(142 71% 45% / 0.12); color:hsl(142 71% 45%); }
+.badge.unsynced { background:hsl(var(--muted) / 0.6); color:hsl(var(--muted-foreground)); }
+
+/* 两段式删除：第一下变红确认，再点真删（对齐 Moo FpkDownloads 行内删除） */
+button.danger { background:transparent; border-color: hsl(var(--border)); color: hsl(var(--muted-foreground)); }
+button.danger:hover { border-color: hsl(var(--destructive)); color: hsl(var(--destructive)); background: hsl(var(--destructive) / 0.08); }
+button.danger.confirm { border-color: hsl(var(--destructive) / 0.4); background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); }
+
+/* 小按钮（同步 / 推送 / 删除 / 源选择）：四角圆角方形外框（对齐 Moo 按钮 rounded-md 12px），比主按钮更轻 */
+button.plain {
+  height:auto; padding:3px 10px; border:1px solid hsl(var(--border)); background:transparent; border-radius:12px;
+  color:hsl(var(--muted-foreground)); font-size:13px; font-weight:400; gap:3px; line-height:1.5;
+}
+button.plain:hover { background:hsl(var(--accent) / 0.6); border-color:hsl(var(--muted-foreground) / 0.4); color:hsl(var(--foreground)); }
+button.plain svg { width:12px; height:12px; }
+button.plain.confirm { border-color:hsl(var(--destructive) / 0.4); background:hsl(var(--destructive) / 0.08); color:hsl(var(--destructive)); }
+/* 已推送 = 选中态（对齐 Moo default 按钮：蓝字 + 蓝边框 + 浅蓝底） */
+button.plain.on { border-color: hsl(var(--primary) / 0.4); color: hsl(var(--primary)); background: hsl(var(--primary) / 0.12); }
+button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(--primary)); background: hsl(var(--primary) / 0.2); }
+
+.empty { color:hsl(var(--muted-foreground)); text-align:center; padding:22px 0; font-size:13px; }
+.steps { counter-reset:s; margin:0; padding:0; display:flex; flex-direction:column; }
+.steps li { list-style:none; display:flex; gap:12px; align-items:flex-start; padding:12px 0; position:relative; }
+.steps li:not(:last-child)::after { content:""; position:absolute; left:15px; top:40px; bottom:-2px; width:2px; background:hsl(var(--border)); }
+.steps .num { width:32px; height:32px; border-radius:8px; background:hsl(var(--muted)); border:1px solid hsl(var(--border)); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:hsl(var(--primary)); flex:none; z-index:1; }
+.steps .step-body { flex:1; min-width:0; }
+.steps .step-title { font-size:14px; font-weight:600; margin:0 0 3px; }
+.steps .step-desc { color:hsl(var(--muted-foreground)); font-size:12.5px; margin:0; line-height:1.55; }
+
+.modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; padding:20px; }
+.modal.show { display:flex; }
+.modal-box {
+  background: hsl(var(--background) / 0.70); /* 对齐 Moo 对话框 sm:bg-background/70 */
+  backdrop-filter: blur(40px) saturate(1.1); /* sm:backdrop-blur-2xl = 40px */
+  -webkit-backdrop-filter: blur(40px) saturate(1.1);
+  border: 1px solid hsl(var(--border)); border-radius: var(--radius); padding: 22px;
+  max-width: 420px; width:100%; box-shadow: 0 24px 48px -12px hsl(var(--foreground) / 0.25);
+}
+.modal-title { font-size:15px; font-weight:700; margin:0 0 10px; }
+.modal-text { color:hsl(var(--muted-foreground)); font-size:13px; margin:0 0 18px; line-height:1.6; word-break:break-all; }
+.modal-ops { display:flex; gap:10px; justify-content:flex-end; }
+
+/* 可点击路径（数据路径 / 备份目录）：整行即按钮，右侧箭头提示可改） */
+.path-pick {
+  display:flex; align-items:center; gap:8px; width:100%; height:auto; min-height:38px;
+  padding:8px 12px; border:1px solid hsl(var(--border)); background:hsl(var(--muted) / 0.35);
+  border-radius:12px; color:hsl(var(--foreground)); font-size:12.5px; font-weight:400;
+  text-align:left; justify-content:flex-start; cursor:pointer; line-height:1.45;
+}
+.path-pick:hover { background:hsl(var(--accent) / 0.5); border-color:hsl(var(--muted-foreground) / 0.4); }
+.path-pick .path-text { flex:1; min-width:0; word-break:break-all; }
+.path-pick .chev { width:14px; height:14px; flex:none; color:hsl(var(--muted-foreground)); }
+.backup-ops { flex-wrap:wrap; }
+.backup-ops button { flex:1 1 30%; min-width:96px; }
+
+/* 恢复备份弹窗：设备切换（本 NAS / 本机设备） + 备份列表 */
+.restore-tabs { display:flex; gap:8px; margin:0 0 12px; }
+.restore-tabs button {
+  flex:1 1 0; height:auto; padding:7px 10px; border:1px solid hsl(var(--border));
+  background:transparent; border-radius:12px; color:hsl(var(--muted-foreground));
+  font-size:13px; font-weight:400;
+}
+.restore-tabs button.on { border-color:hsl(var(--primary) / 0.4); color:hsl(var(--primary)); background:hsl(var(--primary) / 0.12); }
+.backup-item {
+  display:flex; flex-direction:column; gap:2px; width:100%; height:auto; min-height:44px;
+  padding:8px 12px; border:0; border-bottom:1px solid hsl(var(--border) / 0.5);
+  background:transparent; color:hsl(var(--foreground)); font-size:12.5px; text-align:left;
+  border-radius:0; justify-content:flex-start; cursor:pointer;
+}
+.backup-item:last-child { border-bottom:none; }
+.backup-item:hover { background:hsl(var(--accent) / 0.6); }
+.backup-item.on { background:hsl(var(--primary) / 0.12); color:hsl(var(--primary)); }
+.backup-item .b-meta { color:hsl(var(--muted-foreground)); font-size:11px; }
+
+/* 目录选择器（选择备份目录）：面包屑 + 下钻列表 */
+.dir-crumb { font-size:12px; color:hsl(var(--muted-foreground)); margin-bottom:8px; word-break:break-all; }
+.dir-list { max-height:280px; overflow-y:auto; border:1px solid hsl(var(--border)); border-radius:12px; }
+.dir-item {
+  display:flex; align-items:center; gap:8px; width:100%; height:auto; min-height:36px;
+  padding:6px 12px; border:0; border-bottom:1px solid hsl(var(--border) / 0.5);
+  background:transparent; color:hsl(var(--foreground)); font-size:13px; cursor:pointer;
+  text-align:left; border-radius:0; justify-content:flex-start;
+}
+.dir-item:last-child { border-bottom:none; }
+.dir-item:hover { background:hsl(var(--accent) / 0.6); }
+.dir-item .dir-icon { color:hsl(var(--muted-foreground)); flex:none; display:inline-flex; }
+.dir-item .dir-icon svg { width:15px; height:15px; }
+.dir-empty { padding:16px 12px; color:hsl(var(--muted-foreground)); font-size:12.5px; text-align:center; }
+
+/* —— 底部 dock 栏（对齐 Moo MobileDock / Agent2API dock-bar：悬浮居中胶囊 +
+   图标上文字下 + 键盘弹出时钉在物理屏幕底边不随之上移）—— */
+.dock {
+  position: fixed; bottom:8px; left:50%; z-index:40;   /* 对齐 Moo 桌面 dock bottom-2=8px */
+  /* 铁律：dock 恒定贴物理屏底、绝不随键盘弹出而上移。真机 fnOS WebView 的 fixed 元素
+     锚在会随键盘缩小的 visual viewport 底（bottom:0 会被顶上去），故用 translateY 下移
+     同量（= 键盘高 --kb-shift）抵消，使 dock 物理位置恒定、键盘弹出时被软键盘盖住即可。 */
+  transform: translateX(-50%) translateY(var(--kb-shift, 0px));
+  display:flex; justify-content:center; align-items:flex-end; gap:16px;  /* 对齐 Moo 桌面 gap-4 */
+  padding: 14px 20px;   /* 对齐 Moo 桌面 px-5 py-3.5；桌面无安全区，距底由 bottom:8px 承担 */
+  background: hsl(var(--card) / 0.55);
+  backdrop-filter: blur(24px) saturate(1.1);
+  -webkit-backdrop-filter: blur(24px) saturate(1.1);
+  border: 1px solid hsl(0 0% 100% / 0.1);
+  border-radius: 28px;  /* 对齐 Moo 桌面 rounded-[28px] */
+  box-shadow: 0 24px 48px -12px hsl(var(--foreground) / 0.4);
+}
+.dock-btn {
+  height:auto;  /* 覆盖全局 button{height:36px}：dock 按钮内容自适应（图标+标签），否则标签被压成 0 高不可见 */
+  width:100px; flex:none; border-radius:16px;  /* 对齐 Moo 桌面 w-[100px] rounded-2xl：定宽让选中框接近正方形，非长条 */
+  border:1px solid transparent; background:transparent;
+  color:hsl(var(--muted-foreground)); font-size:12px; font-weight:500; line-height:1;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; /* 对齐 Moo gap-1.5 */
+  padding:8px;  /* 对齐 Moo 桌面 px-2 py-2 */
+  cursor:pointer; transition: background .15s, color .15s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.dock-btn:active { transform: scale(.9); } /* 对齐 Moo active:scale-90 */
+.dock-btn .di { display:grid; place-items:center; width:32px; height:32px; } /* 对齐 Moo 桌面 h-8 w-8 */
+.dock-btn .di svg { width:32px; height:32px; display:block; }
+.dock-btn .dl { flex:none; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } /* flex:none：防 overflow:hidden 触发 min-size=0 被压缩成不可见 */
+.dock-btn.active { background:hsl(var(--primary) / 0.15); color:hsl(var(--primary)); font-weight:600; }
+
+/* 视图切换 */
+.view { display:none; }
+.view.active { display:block; }
+.hidden { display:none !important; }
+
+
+.field { margin-bottom:14px; }
+.field-label { display:block; font-size:12px; color:hsl(var(--muted-foreground)); margin-bottom:6px; font-weight:500; }
+.field-hint { font-size:11.5px; color:hsl(var(--muted-foreground)); margin-top:6px; line-height:1.5; }
+
+@media (max-width:640px) {
+  .wrap { padding:16px 16px 112px; }
+  .topbar h1 { font-size:19px; }
+  /* 对齐 Moo 移动端卡片（0.6.315 起）：bg-card/95 近实心、去毛玻璃、18px 圆角 + p-4 16px 内边距 */
+  .card { padding:16px; border-radius:18px; background:hsl(var(--card) / 0.95); backdrop-filter:none; -webkit-backdrop-filter:none; }
+  input[type=text], input[type=password], select { height:40px; font-size:16px; }
+  /* 0.2.13：删 button min-height:38px —— 它把行内小按钮/源切换胶囊也撑大到 38px，
+     是「移动端按钮胶囊变大」的根因；Moo 移动端按钮无此全局撑大，尺寸与桌面一致 */
+  .app-item { flex-wrap:wrap; }
+  .app-ops { width:100%; justify-content:flex-end; }
+  /* 卡头在窄屏换行：标题/计数保持横排，按钮组（同步更新/批量推送/批量删除）整体落到第二行，
+     否则三个 flex:none 按钮把「应用索引列表」标题挤成一字一行竖排 */
+  .card-head { flex-wrap:wrap; }
+  .head-actions { width:100%; margin-left:0; margin-top:8px; justify-content:stretch; gap:10px; }
+  .head-actions button { flex:1 1 0; justify-content:center; }
+  /* 移动端隐藏源地址（长 URL word-break 竖排），只显示源名 + 应用数目 */
+  .src-head .srcurl { display:none; }
+  /* 对齐 Moo MobileDock：移动端 dock 恢复满宽窄胶囊（最宽 380px，贴底 0+安全区内边距），
+     按钮 flex:1 均分、图标 24px、标签 10px（与桌面 100px 定宽/32px 图标分离） */
+  .dock { bottom:0; width:calc(100% - 24px); max-width:380px; gap:8px; padding:10px 12px max(10px, env(safe-area-inset-bottom)); border-radius:24px; align-items:stretch; }
+  .dock-btn { width:auto; flex:1 1 0; min-width:0; gap:4px; font-size:10px; line-height:1.2; padding:6px 8px; }
+  .dock-btn .di { width:24px; height:24px; }
+  .dock-btn .di svg { width:24px; height:24px; }
+}
+</style>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"></div>
+<div class="wrap">
+  <header>
+    <div class="topbar">
+      <h1 id="topTitle">Moo Mate</h1>
+      <button id="themeToggle" class="theme-btn" title="切换主题" aria-label="切换主题"></button>
+    </div>
+    <p class="sub" id="topSub">粘贴飞牛应用仓库链接，自动探测 → 发现 → 生成 → 同步到本机 Moo</p>
+  </header>
+
+  <div class="view active" id="view-list">
+
+  <section class="card">
+    <div class="card-head"><span class="step-badge">1</span> 粘贴仓库链接</div>
+    <textarea id="url" rows="3" placeholder="每行一个仓库链接，可一次粘贴多个（最多 10 个）&#10;https://github.com/owner/repo&#10;https://github.com/owner/repo2"></textarea>
+    <div class="field-hint" style="margin:6px 0 0;">每行一个链接，Ctrl/⌘ + Enter 或点「开始」批量处理（最多 10 个）</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button id="start">开始</button></div>
+  </section>
+
+  <section class="card collapsible collapsed">
+    <div class="card-head" data-collapse><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/><path d="M10 9v6"/><path d="M7 12h6"/></svg>使用流程 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
+    <div class="collapse-body">
+      <ol class="steps">
+        <li><span class="num">1</span><div class="step-body"><p class="step-title">粘贴仓库链接</p><p class="step-desc">贴入 GitHub / Gitee 飞牛应用仓库地址，Moo Mate 自动探测它是否已发布 moo / fnpack 索引。</p></div></li>
+        <li><span class="num">2</span><div class="step-body"><p class="step-title">自动比对与发现</p><p class="step-desc">已发布索引 → 与 Moo 现有源比对去重，无重复则弹窗询问是否加入；无索引 → 自动扫描 release 里的 .fpk 并解析生成索引。</p></div></li>
+        <li><span class="num">3</span><div class="step-body"><p class="step-title">按需推送</p><p class="step-desc">在下方索引列表里，逐个应用选择「推送」加入 Moo Mate 源，或「删除」移除；「同步上游更新」检查该应用上游是否有新版本。</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><span class="step-badge">2</span> 应用索引列表 <span class="count" id="idxCount"></span><span class="head-actions"><button id="syncSoftstore" class="plain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>同步更新</button><button id="batchPushBtn" class="plain">批量推送</button><button id="batchDelBtn" class="plain">批量删除</button></span></div>
+    <div class="batch-bar" id="batchBar" style="display:none;">
+      <button class="plain" id="batchSelectAll">全选</button>
+      <span class="batch-count" id="batchCount">已选 0 个</span>
+      <span style="flex:1"></span>
+      <button class="ghost" id="batchCancel">取消</button>
+      <button id="batchApply">推送</button>
+    </div>
+    <div class="soft-status" id="softstoreStatus"></div>
+    <div id="idxList" class="idx-list"></div>
+  </section>
+
+  </div><!-- /view-list -->
+
+
+  <!-- 设置视图 -->
+  <div class="view" id="view-settings">
+    <div id="tab-app">
+      <section class="card">
+        <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>同步</div>
+        <div class="gear-row">
+          <span class="gear-label">自动同步间隔</span>
+          <div class="gear">
+            <div class="gear-col">
+              <div class="gear-wrap">
+                <div class="gear-highlight"></div>
+                <div class="gear-scroll" id="gearHoursScroll"></div>
+              </div>
+              <span class="gear-unit">时</span>
+            </div>
+            <span class="gear-sep">:</span>
+            <div class="gear-col">
+              <div class="gear-wrap">
+                <div class="gear-highlight"></div>
+                <div class="gear-scroll" id="gearMinutesScroll"></div>
+              </div>
+              <span class="gear-unit">分</span>
+            </div>
+          </div>
+          <span class="gear-hint">0:00 = 手动（不自动）</span>
+        </div>
+      </section>
+      <section class="card">
+        <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>数据</div>
+        <div class="field">
+          <label class="field-label">数据路径</label>
+          <button type="button" class="path-pick" id="pickDataDir">
+            <span class="path-text" id="dataDir"></span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <div class="field-hint" id="dataDirHint"></div>
+        </div>
+        <div class="field">
+          <label class="field-label">备份目录</label>
+          <button type="button" class="path-pick" id="pickBackupDir">
+            <span class="path-text" id="backupDir"></span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <div class="field-hint">点击路径选择目录（空 = 数据目录下 backups/）</div>
+        </div>
+        <div class="row backup-ops">
+          <button id="backupNowBtn" class="ghost">立即备份</button>
+          <button id="backupBtn" class="ghost">下载数据备份</button>
+          <button id="restoreBtn" class="ghost">恢复备份</button>
+        </div>
+        <div class="field-hint" id="backupResult"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清理</div>
+        <div class="field">
+          <label class="field-label">清除数据</label>
+          <div class="field-hint">清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）</div>
+          <button id="clearDataBtn" class="ghost danger">清除数据</button>
+        </div>
+      </section>
+    </div><!-- /tab-app -->
+  </div><!-- /view-settings -->
+</div>
+<nav class="dock">
+  <button class="dock-btn active" data-view="list"><span class="di"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span><span class="dl">探索</span></button>
+  <button class="dock-btn" data-view="settings"><span class="di"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="dl">设置</span></button>
+</nav>
+<div id="toast" class="toast"></div>
+<div id="modal" class="modal">
+  <div class="modal-box">
+    <p class="modal-title" id="modalTitle">确认</p>
+    <p class="modal-text" id="modalText"></p>
+    <div class="modal-ops">
+      <button class="ghost" id="modalCancel">取消</button>
+      <button id="modalOk">确定</button>
+    </div>
+  </div>
+</div>
+<div id="dirModal" class="modal">
+  <div class="modal-box" style="max-width:440px;">
+    <p class="modal-title" id="dirTitle">选择目录</p>
+    <div class="field-hint" id="dirHint" style="margin:0 0 8px;"></div>
+    <div class="dir-crumb" id="dirCrumb"></div>
+    <div class="dir-list" id="dirList"></div>
+    <div class="modal-ops" style="margin-top:14px;">
+      <button class="ghost" id="dirUp">上级</button>
+      <span style="flex:1"></span>
+      <button class="ghost" id="dirCancel">取消</button>
+      <button id="dirOk">选此目录</button>
+    </div>
+  </div>
+</div>
+<div id="restoreModal" class="modal">
+  <div class="modal-box" style="max-width:460px;">
+    <p class="modal-title">恢复备份</p>
+    <div class="restore-tabs" id="restoreTabs">
+      <button type="button" data-dev="nas" class="on">本 NAS</button>
+      <button type="button" data-dev="device">本机设备</button>
+    </div>
+    <div id="restoreNas">
+      <div class="dir-list" id="backupList"></div>
+      <div class="field-hint">从备份目录里选一份，恢复应用索引数据（不动当前路径与同步设置）</div>
+    </div>
+    <div id="restoreDevice" style="display:none;">
+      <input type="file" id="restoreFile" accept=".tar.gz,.tgz,application/gzip" style="display:none;">
+      <button type="button" class="ghost" id="restorePickFile" style="width:100%;">选择手机 / 电脑上的备份文件</button>
+      <div class="sub" id="restoreFileName" style="margin:8px 0 0;"></div>
+      <div class="field-hint">支持 .tar.gz / .tgz（Moo Mate 数据备份）</div>
+    </div>
+    <div class="modal-ops" style="margin-top:14px;">
+      <button class="ghost" id="restoreCancel">取消</button>
+      <button id="restoreOk" disabled>恢复</button>
+    </div>
+  </div>
+</div>
+<div id="downloadModal" class="modal">
+  <div class="modal-box" style="max-width:460px;">
+    <p class="modal-title">下载数据备份</p>
+    <div class="restore-tabs" id="downloadTabs">
+      <button type="button" data-dev="nas" class="on">本 NAS</button>
+      <button type="button" data-dev="device">本机设备</button>
+    </div>
+    <div id="downloadNas">
+      <div class="dir-list" id="downloadList"></div>
+      <div class="field-hint">点一份备份即可下载到本机；也可以现在生成一份最新备份。</div>
+      <button type="button" class="ghost" id="downloadFreshNas" style="width:100%;margin-top:10px;">生成最新备份并保存到 NAS</button>
+    </div>
+    <div id="downloadDevice" style="display:none;">
+      <button type="button" class="ghost" id="downloadFreshDevice" style="width:100%;">生成最新备份并下载到本机</button>
+      <div class="field-hint">把当前数据导出到手机 / 电脑。</div>
+    </div>
+    <div class="modal-ops" style="margin-top:14px;">
+      <button class="ghost" id="downloadCancel">关闭</button>
+    </div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// 顶部通知栏（对齐 Moo sonner：top-center / 3000ms 自动消失）
+let toastTimer = null;
+const msg = (t, cls) => {
+  const el = $('toast');
+  el.textContent = t;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+};
+const msgHide = () => { const el = $('toast'); el.classList.remove('show'); };
+const post = async (path, body) => {
+  const r = await fetch(path.replace(/^\//,''), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{}) });
+  const d = await r.json().catch(()=>({error:'非 JSON 响应'}));
+  if (!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+  return d;
+};
+const getJSON = async (path) => {
+  const r = await fetch(path.replace(/^\//,''));
+  const d = await r.json().catch(()=>({error:'非 JSON 响应'}));
+  if (!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+  return d;
+};
+const del = async (path) => {
+  const r = await fetch(path.replace(/^\//,''), { method:'DELETE' });
+  const d = await r.json().catch(()=>({error:'非 JSON 响应'}));
+  if (!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+  return d;
+};
+// 多链接解析：每行一个链接，去空白/去重；上限 10（探测→发现→生成每条链路都较重，
+// 一次贴太多会耗时过长，10 条既能覆盖「贴一批仓库」又可控）。
+const MAX_LINKS = 10;
+const urlLines = () => {
+  const raw = $('url').value || '';
+  const seen = new Set();
+  const out = [];
+  for (const line of raw.split('\n')) {
+    const u = line.trim();
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    out.push(u);
+  }
+  return out;
+};
+const updateStartLabel = () => {
+  const n = urlLines().length;
+  $('start').textContent = n > 1 ? ('开始（' + n + ' 个）') : '开始';
+};
+const busy = (btn, text) => { btn.dataset.label = btn.innerHTML; btn.textContent = text; btn.disabled = true; return () => { btn.innerHTML = btn.dataset.label; btn.disabled = false; }; };
+
+// 主题（Moo ThemeToggle：图标圆钮，亮=月亮/暗=太阳）
+const themeKey = 'moo-mate-theme';
+const ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>';
+const ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+const ICON_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>';
+const ICON_UPLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>';
+const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
+const applyTheme = mode => {
+  const dark = mode === 'dark';
+  document.documentElement.classList.toggle('dark', dark);
+  $('themeToggle').innerHTML = dark ? ICON_SUN : ICON_MOON;
+  $('themeToggle').title = dark ? '切换到亮色' : '切换到暗色';
+  $('themeToggle').setAttribute('aria-label', dark ? '切换到亮色' : '切换到暗色');
+};
+// 主题切换过渡：对齐 Moo 0.6.302「即时切换 + 单层遮罩交叉淡切」——
+// 点击→主题瞬间切（重绘被不透明遮罩盖住）→60ms 后遮罩 200ms 淡出；
+// 只动画 1 元素 opacity=纯合成器零 paint。320ms 连点锁。
+let themeLock = 0;
+const toggleTheme = () => {
+  const now = Date.now();
+  if (now - themeLock < 320) return;
+  themeLock = now;
+  const prevBg = getComputedStyle(document.body).backgroundColor;
+  const dark = !document.documentElement.classList.contains('dark');
+  localStorage.setItem(themeKey, dark ? 'dark' : 'light');
+  applyTheme(dark ? 'dark' : 'light');
+  const m = document.createElement('div');
+  m.setAttribute('aria-hidden', 'true');
+  m.style.cssText = 'position:fixed;inset:0;z-index:9999;pointer-events:none;background:' + prevBg + ';opacity:1;transition:opacity 200ms ease-out';
+  document.body.appendChild(m);
+  setTimeout(() => {
+    m.style.opacity = '0';
+    setTimeout(() => m.remove(), 240);
+  }, 60);
+};
+$('themeToggle').onclick = toggleTheme;
+applyTheme(localStorage.getItem(themeKey) === 'dark' ? 'dark' : 'light');
+
+// 弹窗（promise 化）
+let modalResolve = null;
+const ask = (title, text, okText='确定') => new Promise(res => {
+  $('modalTitle').textContent = title;
+  $('modalText').textContent = text;
+  $('modalOk').textContent = okText;
+  $('modal').classList.add('show');
+  modalResolve = res;
+});
+$('modalOk').onclick = () => { $('modal').classList.remove('show'); if (modalResolve) modalResolve(true); };
+$('modalCancel').onclick = () => { $('modal').classList.remove('show'); if (modalResolve) modalResolve(false); };
+
+// 主流程（支持多链接）：逐个探测 → 命中且未重复的批量加源（一次确认）→
+// 未命中索引的逐个发现 + 生成 → 汇总。
+const start = async () => {
+  const urls = urlLines();
+  if (!urls.length) return msg('请先粘贴仓库链接','err');
+  if (urls.length > MAX_LINKS) return msg('最多支持 ' + MAX_LINKS + ' 个链接，请分批处理','err');
+  msgHide();
+  const multi = urls.length > 1;
+  const done = busy($('start'), multi ? '处理中 0/' + urls.length : '探测中…');
+  let addList = [], missList = [], dupCount = 0, addCount = 0, built = 0, skippedTotal = 0;
+  const fails = [];
+  try {
+    for (let i = 0; i < urls.length; i++) {
+      const u = urls[i];
+      if (multi) $('start').textContent = '处理中 ' + (i + 1) + '/' + urls.length;
+      try {
+        const p = await post('/api/probe', {url:u});
+        if (p.hit) { if (p.duplicate) dupCount++; else addList.push(u); }
+        else missList.push(u);
+      } catch(e) { fails.push(u + '：' + e.message); }
+    }
+    // 已发布索引的仓库：批量加源（一次确认）
+    if (addList.length) {
+      const ok = multi
+        ? await ask('加入 Moo 应用源', '发现 ' + addList.length + ' 个已发布索引的仓库，是否全部加入 Moo 应用源列表？', '全部加入')
+        : await ask('加入 Moo 应用源', '该仓库已发布索引，是否加入 Moo 应用源列表？', '加入');
+      if (ok) {
+        for (const u of addList) {
+          try { await post('/api/add-direct', {url:u}); addCount++; }
+          catch(e) { fails.push(u + '：' + e.message); }
+        }
+      }
+    }
+    // 未命中索引：逐个发现 + 生成（可能较慢）
+    for (const u of missList) {
+      try {
+        const d = await post('/api/build', {url:u});
+        built += (d.count || 0);
+        if (d.skipped && d.skipped.length) skippedTotal += d.skipped.length;
+      } catch(e) { fails.push(u + '：' + e.message); }
+    }
+    await loadIndex();
+    const parts = [];
+    if (addCount) parts.push('加源 ' + addCount);
+    if (built) parts.push('生成 ' + built + ' 个应用');
+    if (dupCount) parts.push('跳过重复 ' + dupCount);
+    if (parts.length) {
+      msg('✅ ' + parts.join('，') + (skippedTotal ? ('（跳过 ' + skippedTotal + ' 个）') : ''), 'ok');
+    } else if (fails.length) {
+      msg('❌ ' + fails.join('；'), 'err');
+    } else if (dupCount) {
+      msg('⏸ 全部为已存在源', 'warn');
+    } else {
+      msg('未发现可加入的仓库', 'info');
+    }
+  } catch(e) { msg('探测失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+$('start').onclick = start;
+$('url').addEventListener('input', updateStartLabel);
+$('url').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); start(); } });
+
+// 两段式删除状态（对齐 Moo FpkDownloads：点一次变红确认，3s 内再点真删）
+let confirmDel = null;
+let confirmDelTimer = null;
+const paintDelButtons = () => {
+  document.querySelectorAll('[data-op="delete"]').forEach(x => {
+    const confirming = x.dataset.app === confirmDel;
+    x.classList.toggle('confirm', confirming);
+    x.innerHTML = ICON_TRASH + (confirming ? '再点删除' : '删除');
+  });
+};
+const clearConfirmDel = () => {
+  if (confirmDelTimer) clearTimeout(confirmDelTimer);
+  confirmDelTimer = null;
+  confirmDel = null;
+  paintDelButtons();
+};
+
+// 记住各分组折叠/展开状态（key=分组名），操作后重渲染不丢失
+const expandedGroups = new Set();
+
+// 批量操作状态：batchMode = null | 'push' | 'delete'，selectedApps = 已选 appname 集合
+let batchMode = null;
+const selectedApps = new Set();
+let lastApps = [];
+
+// 可被批量选中的应用（推送模式下已推送的应用不可选，删除模式下全部可选）
+const selectableApps = () => lastApps.filter(a => batchMode !== 'push' || !a.synced);
+
+// 索引列表（按发布者分组）
+const loadIndex = async () => {
+  try {
+    const d = await getJSON('/api/index');
+    lastApps = d.apps || [];
+    renderIndex();
+  } catch(e) {}
+};
+
+const renderIndex = () => {
+  const apps = lastApps;
+  $('idxCount').textContent = apps.length ? ('共 ' + apps.length + ' 个应用') : '';
+  clearConfirmDel();
+  if (!apps.length) {
+    $('idxList').innerHTML = '<div class="empty">还没有索引。粘贴仓库链接后，发现的应用会出现在这里。</div>';
+    updateBatchUI();
+    return;
+  }
+  const groups = {};
+  for (const a of apps) {
+    const k = a.publisher || a.source || '未知来源';
+    (groups[k] = groups[k] || []).push(a);
+  }
+  // 固定排序：分组按显示名 A-Z，组内应用按名称 A-Z（点击按钮重渲染不再跳序）
+  const sortName = a => String(a.display_name || a.appname || '').toLowerCase();
+  const groupLabel = pub => (pub === 'softstore' ? '软仓' : pub).toLowerCase();
+  for (const list of Object.values(groups)) list.sort((x, y) => sortName(x).localeCompare(sortName(y), 'zh-Hans-CN'));
+  const sortedKeys = Object.keys(groups).sort((x, y) => groupLabel(x).localeCompare(groupLabel(y), 'zh-Hans-CN'));
+  let h = '';
+  for (const pub of sortedKeys) {
+    const list = groups[pub];
+    // 软仓分组头（publisher=softstore）：显示「软仓」+ 个人源/Gitee 源两个选择框（私有地址不暴露）
+    const srcCtrl = pub === 'softstore'
+      ? '<span class="src-switch">'
+        + '<button type="button" class="src-opt-mini' + (softstoreSource === 'personal' ? ' active' : '') + '" data-src="personal">个人源</button>'
+        + '<button type="button" class="src-opt-mini' + (softstoreSource === 'gitee' ? ' active' : '') + '" data-src="gitee">Gitee 源</button>'
+        + '</span>'
+      : '<span class="srcurl">' + esc(list[0].source || '') + '</span>';
+    // 批量模式强制展开全部分组，保证能看到并选中所有应用
+    const collapsed = batchMode ? false : !expandedGroups.has(pub);
+    h += '<div class="src-group' + (collapsed ? ' collapsed' : '') + '" data-group="' + esc(pub) + '"><div class="src-head" data-collapse><span class="dot"></span><span class="srcname">' + esc(pub === 'softstore' ? '软仓' : pub) + '</span><span class="src-count">' + list.length + '</span>' + srcCtrl + '<span class="collapse-arrow">' + ICON_CHEVRON + '</span></div>';
+    for (const a of list) h += appRow(a);
+    h += '</div>';
+  }
+  $('idxList').innerHTML = h;
+  updateBatchUI();
+};
+
+// 批量条 UI 刷新：已选计数、全选/取消全选文案、执行按钮禁用态
+const updateBatchUI = () => {
+  if (!batchMode) return;
+  const selectable = selectableApps();
+  const allSel = selectable.length > 0 && selectable.every(a => selectedApps.has(a.appname));
+  $('batchCount').textContent = '已选 ' + selectedApps.size + ' 个';
+  $('batchSelectAll').textContent = allSel ? '取消全选' : '全选';
+  $('batchApply').disabled = selectedApps.size === 0;
+};
+
+// 进入/退出批量模式（点击批量推送/批量删除；再次点击同一按钮 = 退出）
+const enterBatch = mode => {
+  batchMode = mode;
+  selectedApps.clear();
+  $('batchBar').style.display = 'flex';
+  $('batchApply').textContent = mode === 'push' ? '推送' : '删除';
+  $('batchApply').classList.toggle('danger', mode === 'delete');
+  $('batchPushBtn').classList.toggle('on', mode === 'push');
+  $('batchDelBtn').classList.toggle('on', mode === 'delete');
+  renderIndex();
+};
+const exitBatch = () => {
+  batchMode = null;
+  selectedApps.clear();
+  $('batchBar').style.display = 'none';
+  $('batchPushBtn').classList.remove('on');
+  $('batchDelBtn').classList.remove('on');
+  renderIndex();
+};
+
+// 切换单个应用选中态（推送模式下已推送应用不可选）
+const toggleSelect = appname => {
+  const a = lastApps.find(x => x.appname === appname);
+  if (!a) return;
+  if (batchMode === 'push' && a.synced) return;
+  if (selectedApps.has(appname)) selectedApps.delete(appname);
+  else selectedApps.add(appname);
+  renderIndex();
+};
+
+// 全选 / 取消全选（只作用于可选应用）
+const selectAll = () => {
+  const selectable = selectableApps();
+  const allSel = selectable.length > 0 && selectable.every(a => selectedApps.has(a.appname));
+  if (allSel) selectedApps.clear();
+  else selectable.forEach(a => selectedApps.add(a.appname));
+  renderIndex();
+};
+
+// 执行批量操作：推送（无确认） / 删除（弹窗确认）
+const applyBatch = async () => {
+  const names = [...selectedApps];
+  if (!names.length) return;
+  if (batchMode === 'push') {
+    const done = busy($('batchApply'), '推送中…');
+    try {
+      const d = await post('/api/batch-sync', { appnames: names });
+      exitBatch();
+      await loadIndex();
+      msg('✅ 已批量推送 ' + (d.synced ?? names.length) + ' 个应用', 'ok');
+    } catch(e) { msg('批量推送失败：' + e.message, 'err'); }
+    finally { done(); }
+  } else {
+    const yes = await ask('批量删除', '确定删除选中的 ' + names.length + ' 个应用？此操作不可撤销。', '删除');
+    if (!yes) return;
+    const done = busy($('batchApply'), '删除中…');
+    try {
+      const d = await post('/api/batch-delete', { appnames: names });
+      exitBatch();
+      await loadIndex();
+      msg('✅ 已删除 ' + (d.deleted ?? names.length) + ' 个应用', 'ok');
+    } catch(e) { msg('批量删除失败：' + e.message, 'err'); }
+    finally { done(); }
+  }
+};
+
+const fmtSize = b => {
+  if (!b) return '';
+  if (b < 1024*1024) return (b/1024).toFixed(0) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+};
+const archsOf = a => {
+  const keys = (a.packages && Object.keys(a.packages)) || a.platform || [];
+  return keys.length ? keys.join('/') : '';
+};
+const appRow = a => {
+  const name = a.display_name || a.appname || '';
+  const ver = a.version || '';
+  const arch = archsOf(a);
+  const size = fmtSize(a.size_bytes) || (a.size ? a.size + ' MB' : '');
+  const synced = !!a.synced;
+  const pushBtn = synced
+    ? '<button class="plain on" data-op="unsync" data-app="' + esc(a.appname) + '">' + ICON_CHECK + '已推送</button>'
+    : '<button class="plain" data-op="sync" data-app="' + esc(a.appname) + '">' + ICON_UPLOAD + '未推送</button>';
+  // 真实小图标：有 icon_url 渲 img（失败回退首字母占位），无则直接首字母占位
+  const letter = esc((name || '?').slice(0,1));
+  const iconHtml = a.icon_url
+    ? '<img class="app-icon-img" src="api/icon/' + encodeURIComponent(a.appname) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">'
+      + '<div class="app-icon" style="display:none">' + letter + '</div>'
+    : '<div class="app-icon">' + letter + '</div>';
+  const metaParts = [esc(a.appname || ''), ver ? 'v' + esc(ver) : '', arch, size].filter(Boolean);
+  // 批量模式：行首加圆圈选择框（推送模式下已推送应用禁用），隐藏行内操作按钮
+  const disabled = batchMode === 'push' && synced;
+  const sel = selectedApps.has(a.appname);
+  const selHtml = batchMode
+    ? '<span class="sel-dot' + (sel ? ' on' : '') + (disabled ? ' dis' : '') + '" data-sel="' + esc(a.appname) + '"></span>'
+    : '';
+  const opsHtml = batchMode
+    ? ''
+    : '<div class="app-ops">'
+    + '<button class="plain" data-op="check-update" data-app="' + esc(a.appname) + '">' + ICON_REFRESH + '同步上游更新</button>'
+    + pushBtn
+    + '<button class="plain" data-op="delete" data-app="' + esc(a.appname) + '">' + ICON_TRASH + '删除</button></div>';
+  return '<div class="app-item' + (batchMode ? ' batch' : '') + '" data-app="' + esc(a.appname) + '">'
+    + selHtml
+    + iconHtml
+    + '<div class="app-main"><span class="app-name">' + esc(name) + '</span>'
+    + (metaParts.length ? ' <span class="app-meta">' + metaParts.join(' · ') + '</span>' : '')
+    + '</div>'
+    + opsHtml
+    + '</div>';
+};
+
+const opApp = async (op, appname) => {
+  if (op === 'delete') {
+    // 第一下 → 红色确认态；3s 内再点 → 真删（对齐 FpkDownloads）
+    if (confirmDel !== appname) {
+      if (confirmDelTimer) clearTimeout(confirmDelTimer);
+      confirmDel = appname;
+      confirmDelTimer = setTimeout(clearConfirmDel, 3000);
+      paintDelButtons();
+      return;
+    }
+    clearConfirmDel();
+  }
+  if (op === 'check-update') msg('正在检查上游更新（可能需数十秒）…', 'info');
+  try {
+    let d;
+    if (op === 'sync') d = await post('/api/sync-app', {appname});
+    else if (op === 'unsync') d = await post('/api/unsync-app', {appname});
+    else if (op === 'check-update') d = await post('/api/check-update', {appname});
+    else d = await del('/api/index/' + encodeURIComponent(appname));
+    await loadIndex();
+    msg('✅ ' + (d.message || '完成'), d.updated ? 'ok' : 'info');
+  } catch(e) { msg('操作失败：' + e.message, 'err'); }
+};
+
+// 软仓源选择（个人源 / Gitee 源）：点击即切即存，私有地址不暴露
+let softstoreSource = 'personal';
+const paintSource = () => {
+  document.querySelectorAll('[data-src]').forEach(b => {
+    b.classList.toggle('active', b.dataset.src === softstoreSource);
+  });
+};
+const saveSource = async (src) => {
+  await fetch('api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ softstore_source: src }) });
+};
+const switchSource = async (src) => {
+  if (softstoreSource === src) return;
+  softstoreSource = src;
+  paintSource();
+  msg('软仓源切换为「' + (src === 'gitee' ? 'Gitee 源' : '个人源') + '」…', 'info');
+  try { await saveSource(src); msg('✅ 软仓源已保存', 'ok'); }
+  catch(e) { msg('保存失败：' + e.message, 'err'); }
+};
+
+// 齿轮时间选择（对齐 Moo GearTimePicker：时 0-23 / 分 0-59，滚轮吸附）
+const GEAR_ITEM_H = 24;
+let gearH = 0, gearM = 0, gearReady = false;
+let gearSaveTimer = null;
+const durFmt = (h, m) => (h === 0 && m === 0) ? 'manual' : ((h ? h + 'h' : '') + (m ? m + 'm' : ''));
+const durParse = s => {
+  if (!s || s === 'manual') return { h: 0, m: 0 };
+  const hm = /(\d+)h/.exec(s); const mm = /(\d+)m/.exec(s);
+  return { h: hm ? +hm[1] : 0, m: mm ? +mm[1] : 0 };
+};
+function buildGearCol(scrollEl, max, getVal, setVal) {
+  let html = '';
+  for (let i = 0; i <= max; i++) html += '<div class="gear-item" data-v="' + i + '">' + i + '</div>';
+  scrollEl.innerHTML = html;
+  const paint = () => {
+    scrollEl.querySelectorAll('[data-v]').forEach(it => it.classList.toggle('sel', +it.dataset.v === getVal()));
+  };
+  const setScroll = v => scrollEl.scrollTo({ top: v * GEAR_ITEM_H, behavior: 'smooth' });
+  let acc = 0;
+  scrollEl.addEventListener('wheel', e => {
+    e.preventDefault();
+    acc += e.deltaY;
+    const TH = 50;
+    if (acc > TH) acc = TH + 1;
+    if (acc < -TH) acc = -TH - 1;
+    if (Math.abs(acc) <= TH) return;
+    const step = acc > 0 ? 1 : -1;
+    acc -= step * TH;
+    const next = Math.max(0, Math.min(max, getVal() + step));
+    if (next !== getVal()) { setVal(next); setScroll(next); }
+  }, { passive: false });
+  scrollEl.addEventListener('scroll', () => {
+    const idx = Math.max(0, Math.min(max, Math.round(scrollEl.scrollTop / GEAR_ITEM_H)));
+    if (idx !== getVal()) setVal(idx);
+    paint();
+    if (gearReady) scheduleGearSave();
+  });
+  scrollEl.querySelectorAll('[data-v]').forEach(it => {
+    it.onclick = () => { setVal(+it.dataset.v); setScroll(+it.dataset.v); };
+  });
+  paint();
+}
+function scheduleGearSave() {
+  if (gearSaveTimer) clearTimeout(gearSaveTimer);
+  gearSaveTimer = setTimeout(async () => {
+    try {
+      await fetch('api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sync_interval: durFmt(gearH, gearM) }) });
+    } catch(e) { /* ignore */ }
+  }, 800);
+}
+
+// RFC3339 → 「YYYY-MM-DD HH:MM」可读格式（去时区/秒后缀）
+const fmtTime = s => {
+  if (!s) return '';
+  const t = String(s).replace('T', ' ');
+  return t.length > 16 ? t.slice(0, 16) : t;
+};
+const loadSyncStatus = async () => {
+  try {
+    const s = await getJSON('/api/status');
+    const el = $('softstoreStatus');
+    const parts = [];
+    if (s.last_sync) parts.push('上次同步：' + fmtTime(s.last_sync));
+    if (s.sync_error) parts.push('错误：' + s.sync_error);
+    el.textContent = parts.join(' · ') || '尚未同步';
+    el.className = 'soft-status' + (s.sync_error ? ' err' : '');
+  } catch(e) {}
+};
+const loadSoftstore = async () => {
+  try {
+    const c = await getJSON('/api/config');
+    softstoreSource = c.softstore_source || 'personal';
+    paintSource();
+    const { h, m } = durParse(c.sync_interval);
+    gearH = h; gearM = m;
+    $('gearHoursScroll').scrollTop = gearH * GEAR_ITEM_H;
+    $('gearMinutesScroll').scrollTop = gearM * GEAR_ITEM_H;
+    gearReady = true;
+    await loadSyncStatus();
+  } catch(e) { gearReady = true; }
+};
+$('syncSoftstore').onclick = async () => {
+  const done = busy($('syncSoftstore'), '同步中…');
+  try {
+    const d = await post('/api/softstore-sync', {});
+    await loadSyncStatus();
+    msg('✅ 同步完成：新增 ' + (d.added ?? 0) + '、更新 ' + (d.updated ?? 0), 'ok');
+  } catch(e) { msg('同步失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+
+// 启动：构建齿轮 → 加载索引 + token + 软仓 + 状态提示
+buildGearCol($('gearHoursScroll'), 23, () => gearH, v => { gearH = v; });
+buildGearCol($('gearMinutesScroll'), 59, () => gearM, v => { gearM = v; });
+// 索引列表事件委托：源选择框（不折叠）→ 折叠分组头 → 批量勾选 → 行内操作
+$('idxList').addEventListener('click', e => {
+  const srcBtn = e.target.closest('[data-src]');
+  if (srcBtn) { e.stopPropagation(); switchSource(srcBtn.dataset.src); return; }
+  const head = e.target.closest('[data-collapse]');
+  if (head) {
+    if (batchMode) return; // 批量模式保持全部展开，禁止折叠
+    const grp = head.parentElement;
+    grp.classList.toggle('collapsed');
+    const key = grp.dataset.group;
+    if (key !== undefined) {
+      if (grp.classList.contains('collapsed')) expandedGroups.delete(key);
+      else expandedGroups.add(key);
+    }
+    return;
+  }
+  const selDot = e.target.closest('[data-sel]');
+  if (selDot) { toggleSelect(selDot.dataset.sel); return; }
+  const op = e.target.closest('[data-op]');
+  if (op) { opApp(op.dataset.op, op.dataset.app); return; }
+  // 批量模式：点行任意空白处切换选中（方便移动端点选）
+  if (batchMode) {
+    const item = e.target.closest('.app-item');
+    if (item && item.dataset.app) toggleSelect(item.dataset.app);
+  }
+});
+// 批量推送/删除：点击进入对应模式；再次点击同一按钮退出
+$('batchPushBtn').onclick = () => { batchMode === 'push' ? exitBatch() : enterBatch('push'); };
+$('batchDelBtn').onclick = () => { batchMode === 'delete' ? exitBatch() : enterBatch('delete'); };
+$('batchSelectAll').onclick = selectAll;
+$('batchCancel').onclick = exitBatch;
+$('batchApply').onclick = applyBatch;
+// 使用流程卡片折叠/展开（默认折叠）
+document.querySelectorAll('.collapsible [data-collapse]').forEach(h => {
+  h.addEventListener('click', () => h.closest('.collapsible').classList.toggle('collapsed'));
+});
+(async () => {
+  await loadIndex();
+  loadSoftstore();
+  try {
+    const s = await getJSON('/api/status');
+    if (!s.moo_ok) msg('⚠️ 本机 Moo 不可达，请检查 -moo-base 配置', 'warn');
+  } catch(e) {}
+})();
+
+// —— dock 栏三视图切换 ——
+const TOP_TITLES = {
+  list:     { title: 'Moo Mate', sub: '粘贴飞牛应用仓库链接，自动探测 → 发现 → 生成 → 同步到本机 Moo' },
+  settings: { title: '设置', sub: '管理数据备份与同步设置' },
+};
+let curView = 'list';
+const switchView = v => {
+  curView = v;
+  document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
+  document.querySelectorAll('.dock-btn').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  const t = TOP_TITLES[v] || TOP_TITLES.list;
+  $('topTitle').textContent = t.title;
+  $('topSub').textContent = t.sub;
+  if (v === 'settings') { loadSettings(); $('gearHoursScroll').scrollTop = gearH * GEAR_ITEM_H; $('gearMinutesScroll').scrollTop = gearM * GEAR_ITEM_H; }
+};
+document.querySelectorAll('.dock-btn').forEach(b => { b.onclick = () => switchView(b.dataset.view); });
+
+// —— 键盘补偿：dock 钉在屏幕物理底边，不随软键盘弹出上移 ——
+// 对齐 Agent2API dock-bar.js：三源取键盘压占高度（VirtualKeyboard API /
+// visualViewport 高度差 / 0），写进 --kb-shift，CSS 用 translateY 把 dock
+// 下移同量——键盘升起时被键盘盖住（位置不变），收起时已就位，全程不「飘」。
+let kbBase = 0, vkApi = null;
+const keyboardInset = () => {
+  if (vkApi && vkApi.boundingRect && vkApi.boundingRect.height > 0) return vkApi.boundingRect.height;
+  const vv = window.visualViewport;
+  const h = vv ? Math.min(window.innerHeight, vv.height) : window.innerHeight;
+  if (h > kbBase) kbBase = h;                    // 变高 = 键盘收起
+  const pan = vv ? Math.max(0, vv.offsetTop || 0) : 0;
+  if (pan > 20) return 0;                         // pan 模式（fixed 本就被盖住）不补偿
+  const raw = Math.max(0, kbBase - h);
+  // 0.2.15：低于 150px 的高差视为移动端浏览器地址栏伸缩（约 60~90px），不是键盘
+  //（主流软键盘 ≥220px）——否则地址栏收起抬高 kbBase 后，展开时 dock 被误判「键盘弹出」
+  // 而整体下移出可视区（用户实报「dock 栏下移了」的根因）。
+  return raw >= 150 ? raw : 0;
+};
+let kbSmooth = 0;
+const applyInset = (inset) => {
+  document.documentElement.style.setProperty('--kb-shift', inset + 'px');
+};
+// 0.2.19：rAF 每帧采样 + 指数平滑（lerp）——软键盘高度即使被 WebView 离散上报（resize
+// 信号不可靠），也被拉成每帧连续缓动，根治「上移速度不均匀 / 收起到底速度怪」。
+// 参考 Telegram Web / Discord：输入栏位置随 visualViewport 每帧向目标收敛，非离散跳变。
+const kbFrame = () => {
+  const target = Math.max(0, Math.min(keyboardInset(), 1600));
+  kbSmooth += (target - kbSmooth) * 0.2;             // 0.2 ≈ 250ms 缓动到目标，与软键盘弹出时长相当
+  if (Math.abs(target - kbSmooth) < 0.6) kbSmooth = target;
+  const inset = Math.round(kbSmooth);
+  const prev = parseFloat(document.documentElement.style.getPropertyValue('--kb-shift')) || 0;
+  if (inset !== prev) applyInset(inset);
+  requestAnimationFrame(kbFrame);
+};
+const watchKeyboard = () => {
+  try {
+    const nav = navigator;
+    if (nav.virtualKeyboard && 'overlaysContent' in nav.virtualKeyboard) {
+      nav.virtualKeyboard.overlaysContent = true;   // 键盘「覆盖」内容，不压缩视口
+      vkApi = nav.virtualKeyboard;
+    }
+  } catch { /* 不支持则忽略 */ }
+  window.addEventListener('orientationchange', () => { kbBase = 0; kbSmooth = 0; applyInset(0); });
+  requestAnimationFrame(kbFrame);   // 单条 rAF 连续采样，替代 200ms 轮询与冗余 resize 监听
+};
+watchKeyboard();
+
+
+// —— 数据路径 + 备份 ——
+let dataDefault = '';
+const loadDataDir = async () => {
+  try {
+    const d = await getJSON('/api/datadir');
+    dataDefault = d.default_dir || '';
+    $('dataDir').textContent = d.dir || '';
+    $('backupDir').textContent = d.backup_dir || '（默认：数据目录下 backups/）';
+    $('dataDirHint').textContent = (d.files && d.files.length)
+      ? ('共 ' + d.files.length + ' 个文件 · ' + (fmtSize(d.total_bytes) || d.total_bytes + ' B') + ' · 点击路径可更换')
+      : '点击路径可更换数据目录';
+  } catch(e) { $('dataDir').textContent = '读取失败'; }
+};
+$('backupBtn').onclick = () => openDownload();
+$('backupNowBtn').onclick = async () => {
+  const done = busy($('backupNowBtn'), '备份中…');
+  $('backupResult').textContent = '';
+  try {
+    const d = await post('/api/backup', {});
+    $('backupResult').textContent = '✅ 已备份到 ' + d.path + '（' + (fmtSize(d.size) || d.size + ' B') + '）';
+  } catch(e) { $('backupResult').textContent = '❌ 备份失败：' + e.message; }
+  finally { done(); }
+};
+
+// —— 目录选择器（数据路径 / 备份目录共用）——
+let dirCur = '/';
+let dirMode = 'backup';
+const ICON_DIR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+const openDirModal = async (mode, start) => {
+  dirMode = mode;
+  $('dirTitle').textContent = mode === 'data' ? '选择数据目录' : '选择备份目录';
+  $('dirHint').textContent = mode === 'data'
+    ? '选择后会把现有数据复制到新目录并立即切换；旧目录保留，可手动回滚。'
+    : '备份 tar.gz 保存到该目录（选存储卷根 = 恢复默认）';
+  $('dirModal').classList.add('show');
+  await loadDir(start || '/');
+};
+const closeDirModal = () => { $('dirModal').classList.remove('show'); };
+const loadDir = async (path) => {
+  try {
+    const d = await getJSON('/api/dirs?path=' + encodeURIComponent(path));
+    dirCur = d.path;
+    $('dirCrumb').textContent = d.path === '/' ? '存储卷（选择根 = 默认目录）' : d.path;
+    const list = $('dirList');
+    const items = d.entries || [];
+    if (!items.length) {
+      list.innerHTML = '<div class="dir-empty">（空目录）</div>';
+    } else {
+      list.innerHTML = items.map(it =>
+        '<button type="button" class="dir-item" data-path="' + esc(it.path) + '"><span class="dir-icon">' + ICON_DIR + '</span>' + esc(it.name) + '</button>'
+      ).join('');
+    }
+    $('dirUp').disabled = (d.parent === '');
+  } catch(e) { $('dirList').innerHTML = '<div class="dir-empty">读取失败：' + esc(e.message) + '</div>'; }
+};
+$('pickDataDir').onclick = () => openDirModal('data', '/');
+$('pickBackupDir').onclick = () => openDirModal('backup', '/');
+$('dirCancel').onclick = closeDirModal;
+$('dirUp').onclick = async () => {
+  try {
+    const d = await getJSON('/api/dirs?path=' + encodeURIComponent(dirCur));
+    if (d.parent) await loadDir(d.parent);
+  } catch(e) {}
+};
+$('dirOk').onclick = async () => {
+  const target = dirCur === '/' ? '' : dirCur;
+  if (dirMode === 'data') {
+    const yes = await ask('切换数据目录', '将把当前数据复制到：' + (target || dataDefault) + '，切换后立即生效（旧目录保留，可手动回滚）。继续？', '切换');
+    if (!yes) return;
+    const done = busy($('dirOk'), '切换中…');
+    try {
+      const d = await post('/api/datadir', { path: target });
+      closeDirModal();
+      await loadDataDir();
+      msg('✅ 数据目录已切换到 ' + d.dir + '（' + (d.apps || 0) + ' 个应用）', 'ok');
+      setTimeout(() => location.reload(), 900);
+    } catch(e) { msg('切换失败：' + e.message, 'err'); }
+    finally { done(); }
+    return;
+  }
+  const done = busy($('dirOk'), '保存中…');
+  try {
+    await fetch('api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ backup_dir: target }) });
+    closeDirModal();
+    await loadDataDir();
+    msg('✅ 备份目录已保存' + (target ? '（' + target + '）' : '（默认）'), 'ok');
+  } catch(e) { msg('保存失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+$('dirList').addEventListener('click', e => {
+  const it = e.target.closest('.dir-item');
+  if (!it) return;
+  loadDir(it.dataset.path);
+});
+
+// —— 下载数据备份（本 NAS 历史备份 / 本机设备生成下载）——
+let dlDev = 'nas';
+const paintDownloadTabs = () => {
+  document.querySelectorAll('#downloadTabs button').forEach(b => b.classList.toggle('on', b.dataset.dev === dlDev));
+  $('downloadNas').style.display = dlDev === 'nas' ? '' : 'none';
+  $('downloadDevice').style.display = dlDev === 'device' ? '' : 'none';
+};
+const loadDownloadList = async () => {
+  const list = $('downloadList');
+  list.innerHTML = '<div class="dir-empty">读取中…</div>';
+  try {
+    const d = await getJSON('/api/backups');
+    const items = d.backups || [];
+    if (!items.length) { list.innerHTML = '<div class="dir-empty">备份目录里还没有备份</div>'; return; }
+    list.innerHTML = items.map(it =>
+      '<button type="button" class="backup-item" data-name="' + esc(it.name) + '"><span>' + esc(it.name) + '</span><span class="b-meta">' + (fmtSize(it.size) || (it.size + ' B')) + ' · ' + esc(fmtTime(it.mtime)) + ' · 点击下载</span></button>'
+    ).join('');
+  } catch(e) { list.innerHTML = '<div class="dir-empty">读取失败：' + esc(e.message) + '</div>'; }
+};
+const openDownload = async () => {
+  dlDev = 'nas';
+  paintDownloadTabs();
+  $('downloadModal').classList.add('show');
+  await loadDownloadList();
+};
+$('downloadCancel').onclick = () => $('downloadModal').classList.remove('show');
+$('downloadTabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-dev]');
+  if (!b) return;
+  dlDev = b.dataset.dev;
+  paintDownloadTabs();
+});
+$('downloadList').addEventListener('click', e => {
+  const it = e.target.closest('.backup-item');
+  if (!it) return;
+  window.location.href = 'api/backup/download?name=' + encodeURIComponent(it.dataset.name);
+});
+$('downloadFreshNas').onclick = async () => {
+  const done = busy($('downloadFreshNas'), '备份中…');
+  try {
+    const d = await post('/api/backup', {});
+    msg('✅ 已备份到 ' + d.name + '（' + (fmtSize(d.size) || d.size + ' B') + '）', 'ok');
+    await loadDownloadList();
+  } catch(e) { msg('备份失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+$('downloadFreshDevice').onclick = () => { window.location.href = 'api/backup'; };
+
+// —— 恢复备份（本 NAS / 本机设备）——
+let restoreDev = 'nas';
+let restoreSel = '';
+const paintRestoreTabs = () => {
+  document.querySelectorAll('#restoreTabs button').forEach(b => b.classList.toggle('on', b.dataset.dev === restoreDev));
+  $('restoreNas').style.display = restoreDev === 'nas' ? '' : 'none';
+  $('restoreDevice').style.display = restoreDev === 'device' ? '' : 'none';
+};
+const loadBackupList = async () => {
+  const list = $('backupList');
+  list.innerHTML = '<div class="dir-empty">读取中…</div>';
+  try {
+    const d = await getJSON('/api/backups');
+    const items = d.backups || [];
+    if (!items.length) { list.innerHTML = '<div class="dir-empty">备份目录里还没有备份</div>'; return; }
+    list.innerHTML = items.map(it =>
+      '<button type="button" class="backup-item" data-name="' + esc(it.name) + '"><span>' + esc(it.name) + '</span><span class="b-meta">' + (fmtSize(it.size) || (it.size + ' B')) + ' · ' + esc(fmtTime(it.mtime)) + '</span></button>'
+    ).join('');
+  } catch(e) { list.innerHTML = '<div class="dir-empty">读取失败：' + esc(e.message) + '</div>'; }
+};
+const openRestore = async () => {
+  restoreDev = 'nas'; restoreSel = '';
+  $('restoreFile').value = '';
+  $('restoreFileName').textContent = '';
+  $('restoreOk').disabled = true;
+  paintRestoreTabs();
+  $('restoreModal').classList.add('show');
+  await loadBackupList();
+};
+const closeRestore = () => $('restoreModal').classList.remove('show');
+$('restoreBtn').onclick = openRestore;
+$('restoreCancel').onclick = closeRestore;
+$('restoreTabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-dev]');
+  if (!b) return;
+  restoreDev = b.dataset.dev;
+  paintRestoreTabs();
+  $('restoreOk').disabled = restoreDev === 'nas' ? !restoreSel : !$('restoreFile').files.length;
+});
+$('backupList').addEventListener('click', e => {
+  const it = e.target.closest('.backup-item');
+  if (!it) return;
+  restoreSel = it.dataset.name;
+  document.querySelectorAll('.backup-item').forEach(b => b.classList.toggle('on', b === it));
+  if (restoreDev === 'nas') $('restoreOk').disabled = false;
+});
+$('restorePickFile').onclick = () => $('restoreFile').click();
+$('restoreFile').onchange = () => {
+  const f = $('restoreFile').files[0];
+  $('restoreFileName').textContent = f ? (f.name + ' · ' + (fmtSize(f.size) || (f.size + ' B'))) : '';
+  $('restoreOk').disabled = !f;
+};
+$('restoreOk').onclick = async () => {
+  const text = restoreDev === 'nas'
+    ? ('将用「' + restoreSel + '」覆盖当前应用索引数据，恢复后立即生效。继续？')
+    : '将用本机设备上传的备份覆盖当前应用索引数据，恢复后立即生效。继续？';
+  const yes = await ask('恢复备份', text, '恢复');
+  if (!yes) return;
+  const done = busy($('restoreOk'), '恢复中…');
+  try {
+    let d;
+    if (restoreDev === 'nas') {
+      d = await post('/api/backup/restore', { name: restoreSel });
+    } else {
+      const f = $('restoreFile').files[0];
+      const fd = new FormData();
+      fd.append('file', f);
+      const r = await fetch('api/backup/restore-upload', { method:'POST', body: fd });
+      d = await r.json().catch(() => ({ error: '非 JSON 响应' }));
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    }
+    closeRestore();
+    await loadIndex();
+    await loadDataDir();
+    msg('✅ 已恢复 ' + (d.apps ?? '?') + ' 个应用', 'ok');
+  } catch(e) { msg('恢复失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+
+const loadSettings = async () => { loadDataDir(); };
+
+// —— 清除数据（二次确认，防误触）——
+$('clearDataBtn').onclick = async () => {
+  const yes = await ask('清除数据', '将清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）。此操作不可撤销，确认清除？', '清除');
+  if (!yes) return;
+  const done = busy($('clearDataBtn'), '清除中…');
+  try {
+    await post('/api/clear-data', {});
+    msg('✅ 应用数据已清除', 'ok');
+    await loadIndex();
+  } catch(e) { msg('清除失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+
+</script>
+</body>
+</html>

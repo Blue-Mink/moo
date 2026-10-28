@@ -260,8 +260,8 @@ const pill = (active: boolean) => cn(META_PILL, 'shrink-0', active && 'bg-primar
                 </button>
               )}
               {app.distributor && app.distributor !== author && onDistributorFilter && (
-                <button onClick={() => onDistributorFilter(app.distributor!)} className={pill(aDist)} title={`发布：${app.distributor}`}>
-                  <Package className="h-3 w-3 mt-px shrink-0" /><span className="min-w-0 break-words">发布：{app.distributor}</span>
+                <button onClick={() => onDistributorFilter(app.distributor!)} className={pill(aDist)} title={`只看「${app.distributor}」发布的应用`}>
+                  <Package className="h-3 w-3 mt-px shrink-0" /><span className="min-w-0 break-words">{app.distributor}</span>
                 </button>
               )}
               {app.category && (

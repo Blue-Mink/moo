@@ -1213,10 +1213,10 @@ mdsSim && "mds-sim")}>
               <button
                 onClick={() => { if (onDistributorFilter) { onOpenChange(false); onDistributorFilter(app.distributor!); } }}
                 className={cn(META_PILL, aDist && "bg-primary/15 text-primary border-primary/40")}
-                title={onDistributorFilter ? (aDist ? `正在筛选「${app.distributor}」· 点击清除` : `只看「${app.distributor}」发布的应用`) : `发布：${app.distributor}`}
+                title={onDistributorFilter ? (aDist ? `正在筛选「${app.distributor}」· 点击清除` : `只看「${app.distributor}」发布的应用`) : `${app.distributor}`}
               >
                 <Package className="h-3 w-3 mt-px shrink-0" />
-                <span className="min-w-0 break-words">发布：{app.distributor}</span>
+                <span className="min-w-0 break-words">{app.distributor}</span>
                 {aDist && <Check className="h-2.5 w-2.5 mt-px shrink-0" />}
                 {app.distributor_url && (
                   <a href={app.distributor_url} target="_blank" rel="noreferrer" className="inline-flex mt-px hover:text-primary" onClick={(e) => e.stopPropagation()}>

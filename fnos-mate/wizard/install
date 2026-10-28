@@ -1,0 +1,33 @@
+[
+  {
+    "stepTitle": "开源许可",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "Moo Mate 以 <strong>MIT License</strong> 开源（© 2026 Blue-Mink）：可免费使用、复制、修改、合并、发布、分发、再授权与用于商业用途，不附带任何明示或暗示的担保。<br>完整许可文本：<a href=\"https://github.com/Blue-Mink/moo/blob/main/LICENSE\">LICENSE</a>"
+      },
+      {
+        "type": "text",
+        "field": "wizard_license_agree",
+        "label": "输入「同意」以接受 MIT 许可协议",
+        "initValue": "",
+        "rules": [
+          {
+            "required": true,
+            "message": "须接受许可协议后才能继续安装"
+          }
+        ],
+        "helpText": "安装即视为已阅读并接受 MIT 许可条款。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "关于 Moo Mate",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "<strong>Moo Mate</strong> 是 Moo 应用源的辅助工具：<br><br>粘贴任意 GitHub 飞牛应用仓库链接，自动探测索引、扫描 release 里的 .fpk 资产、解析 manifest 与 sha256，生成协议合规的 moo.json 应用源索引，并<strong>一键同步到本机 Moo 应用源列表</strong>。<br><br>无需把 moo.json 上传到自己的 GitHub 仓库——索引由 Moo Mate 在本地托管（回环地址 127.0.0.1:38108），Moo 直接从本机拉取。<br><br>Moo Mate 由人类与 AI 协作开发，随 Moo 一同开源。"
+      }
+    ]
+  }
+]

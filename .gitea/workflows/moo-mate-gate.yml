@@ -1,0 +1,26 @@
+# 存档门禁 workflow —— 当前（2026-10-24）未启用：
+# 需 Gitea 配置 [actions] ENABLED=true 并注册 act_runner 后才会执行；
+# 启用前运行入口 = 本地脚本：bash cmd/moo-mate/gate.sh
+# 启用时请按 Gitea 28.2.0 实际 Actions 镜像核对 action 名称。
+name: moo-mate-gate
+
+on:
+  push:
+    paths:
+      - "cmd/moo-mate/**"
+      - "fnos-mate/**"
+      - "build-mate.sh"
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: gitea
+    steps:
+      - name: checkout
+        uses: gitea/checkout@v2
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - name: gate（脱敏 + vet + test）
+        run: bash cmd/moo-mate/gate.sh

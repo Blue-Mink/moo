@@ -1,0 +1,15 @@
+{
+    ".url": {
+        "moo-mate.Application": {
+            "title": "Moo Mate",
+            "desc": "免上传 GitHub 的应用源生成器",
+            "icon": "images/ICON.PNG",
+            "type": "iframe",
+            "protocol": "http",
+            "gatewaySocket": "mate.sock",
+            "gatewayPrefix": "/app/moo-mate",
+            "url": "/app/moo-mate/",
+            "allUsers": false
+        }
+    }
+}

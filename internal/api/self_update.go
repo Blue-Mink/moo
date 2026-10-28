@@ -36,7 +36,8 @@ import (
 // GitHub 域名仍由 netx 全局代理生效——仅本机代理，信任边界不变）。
 //
 // 检测：GET /api/store-update → 探测 releases/latest（10min 缓存 + 30min 后台轮询），
-// 严格版本比较（只升不降，防恶意源/镜像回灌旧版），仅 amd64（官方只发 x86 FPK）。
+// 严格版本比较（只升不降，防恶意源/镜像回灌旧版），架构取包：amd64 → _x86，
+// arm64/arm → _arm（0.6.355 起双架构发布；此前仅 amd64 有自更新）。
 //
 // 更新：POST /api/store-update（SSE）→ 下载 FPK → sha256 校验（0.6.328 起 fail-closed）→
 // 飞牛 appcenter daemon 的 RPC 升级通道就地升级（参考 conversun/fnos-store
@@ -110,6 +111,54 @@ var selfUpdatePubkey = func() minisign.PublicKey {
 	}
 	return pk
 }()
+
+// selfUpdateArchSuffix 返回本机架构对应的 FPK 资产后缀（0.6.355）：
+// 发布约定 moo_<ver>_x86.fpk / moo_<ver>_arm.fpk。
+// 0.6.329~0.6.354 一律只认 x86（当时官方只发 x86 包，非 amd64 直接关闭自更新）；
+// 0.6.355 起 Moo 正式发布双架构 FPK，arm 设备按自己的架构取包。
+func selfUpdateArchSuffix() string { return selfUpdateArchSuffixFor(runtime.GOARCH) }
+
+// selfUpdateArchSuffixFor 与 GOARCH 解耦，便于单测覆盖 arm 分支。
+func selfUpdateArchSuffixFor(goarch string) string {
+	switch goarch {
+	case "arm64", "arm":
+		return "_arm"
+	default:
+		return "_x86"
+	}
+}
+
+// selfUpdateArchSupported 自更新只对有发布资产的双架构开放；
+// 其它架构（386 等）没有对应 FPK，保持 0.6.354 前的行为：不提供自更新。
+func selfUpdateArchSupported() bool {
+	switch runtime.GOARCH {
+	case "amd64", "arm64", "arm":
+		return true
+	}
+	return false
+}
+
+// selfUpdateAsset release 里的一个资产（只为把「按架构选包」抽成可单测的纯函数）。
+type selfUpdateAsset struct{ Name, URL string }
+
+// pickSelfUpdateAsset 按架构后缀挑 FPK 资产（0.6.355）：
+//   - 后缀命中（如 arm64 机器取 moo_x_arm.fpk）优先；
+//   - 没有同架构资产时回落到第一个 .fpk（保持 0.6.354 前的可用性行为）。
+func pickSelfUpdateAsset(assets []selfUpdateAsset, suffix string) (url, name string) {
+	fallbackURL, fallbackName := "", ""
+	for _, a := range assets {
+		if a.URL == "" || !strings.HasSuffix(a.Name, ".fpk") {
+			continue
+		}
+		if fallbackURL == "" {
+			fallbackURL, fallbackName = a.URL, a.Name
+		}
+		if strings.Contains(a.Name, suffix) {
+			return a.URL, a.Name
+		}
+	}
+	return fallbackURL, fallbackName
+}
 
 type selfUpdateProbe struct {
 	srv *Server
@@ -249,23 +298,13 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, minisigURL, body strin
 		if tag == "" {
 			return "", "", "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
 		}
-		// 选 x86 FPK 资产（官方只发 x86；arm 资产出现时兜底选任意 fpk）
-		fallback := ""
+		// 选本机架构对应的 FPK 资产（0.6.355：x86 与 arm 都发布；
+		// 找不到同架构资产时兜底选任意 fpk，保持旧行为的可用性）
+		assets := make([]selfUpdateAsset, 0, len(rel.Assets))
 		for _, a := range rel.Assets {
-			if !strings.HasSuffix(a.Name, ".fpk") || a.URL == "" {
-				continue
-			}
-			if fallback == "" {
-				fallback = a.URL
-				assetURL, asset = a.URL, a.Name
-			}
-			if strings.Contains(a.Name, "_x86") {
-				assetURL, asset = a.URL, a.Name
-			}
+			assets = append(assets, selfUpdateAsset{Name: a.Name, URL: a.URL})
 		}
-		if assetURL == "" {
-			assetURL, asset = fallback, ""
-		}
+		assetURL, asset = pickSelfUpdateAsset(assets, selfUpdateArchSuffix())
 		// D1：release 附 .sha256 资产（资产同名 + .sha256 后缀）→ 下载后验哈希
 		for _, a := range rel.Assets {
 			if a.URL != "" && a.Name == asset+".sha256" {
@@ -288,16 +327,16 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, minisigURL, body strin
 	if werr == nil {
 		log.Printf("[selfupdate] API 通道失败（%v），web 兜底命中 v%s", apiErr, wtag)
 		return wtag,
-			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, wtag, wtag),
-			"moo_" + wtag + "_x86.fpk", "", "", "", rateLimitUntil, nil
+			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s%s.fpk", selfUpdateWebBase, selfUpdateRepo, wtag, wtag, selfUpdateArchSuffix()),
+			"moo_" + wtag + selfUpdateArchSuffix() + ".fpk", "", "", "", rateLimitUntil, nil
 	}
 	// 兜底 2：FnDepot 公开源版本号（raw CDN，不受 moo 仓负缓存 404 影响）
 	jtag, jerr := s.probeFnDepotLatest()
 	if jerr == nil {
 		log.Printf("[selfupdate] API/web 通道失败（%v / %v），FnDepot 源兜底命中 v%s", apiErr, werr, jtag)
 		return jtag,
-			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, jtag, jtag),
-			"moo_" + jtag + "_x86.fpk", "", "", "", rateLimitUntil, nil
+			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s%s.fpk", selfUpdateWebBase, selfUpdateRepo, jtag, jtag, selfUpdateArchSuffix()),
+			"moo_" + jtag + selfUpdateArchSuffix() + ".fpk", "", "", "", rateLimitUntil, nil
 	}
 	// 兜底 3（0.6.300）：FnDepot 源经用户 GitHub 加速镜像。国内 NAS 直连
 	// GitHub 常整体断流（API 403 + web/raw 超时，0.6.299 实测），而 gh-proxy
@@ -307,8 +346,8 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, minisigURL, body strin
 	if merr == nil {
 		log.Printf("[selfupdate] API/web/FnDepot 直连全失败（%v / %v / %v），镜像兜底命中 v%s", apiErr, werr, jerr, mtag)
 		return mtag,
-			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s_x86.fpk", selfUpdateWebBase, selfUpdateRepo, mtag, mtag),
-			"moo_" + mtag + "_x86.fpk", "", "", "", rateLimitUntil, nil
+			fmt.Sprintf("%s/%s/releases/download/v%s/moo_%s%s.fpk", selfUpdateWebBase, selfUpdateRepo, mtag, mtag, selfUpdateArchSuffix()),
+			"moo_" + mtag + selfUpdateArchSuffix() + ".fpk", "", "", "", rateLimitUntil, nil
 	}
 	return "", "", "", "", "", "", rateLimitUntil,
 		fmt.Errorf("%w（web 兜底: %v；FnDepot 源兜底: %v；镜像兜底: %v）", apiErr, werr, jerr, merr)
@@ -538,8 +577,8 @@ func (s *Server) selfUpdateCurrentVersion() string {
 func (s *Server) storeUpdateInfo(w http.ResponseWriter, r *http.Request) {
 	cur := s.selfUpdateCurrentVersion()
 	out := map[string]any{"current_version": cur, "has_update": false}
-	if runtime.GOARCH != "amd64" {
-		writeJSON(w, out) // 官方只发 x86 FPK，非 amd64 不提供自更新
+	if !selfUpdateArchSupported() {
+		writeJSON(w, out) // 0.6.355：amd64/arm64/arm 都提供自更新；其它架构无对应 FPK 资产
 		return
 	}
 	// 0.6.299：?force=1 强制重探（设置页版本 chip 告警态的点击重试入口）

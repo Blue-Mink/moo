@@ -1,0 +1,8 @@
+#!/bin/bash
+# Moo Mate 安装 init（骨架版）。
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+mkdir -p "${TRIM_PKGVAR}" /var/log/apps 2>/dev/null
+echo "moo-mate install_init" >> "${LOG_FILE:-/var/log/apps/moo-mate.log}" 2>/dev/null
+exit 0

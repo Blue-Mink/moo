@@ -313,6 +313,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 
 	mux.HandleFunc("GET /api/settings", s.requireAdmin(s.getSettings))
 	mux.HandleFunc("PUT /api/settings", s.requireAdmin(s.putSettings))
+	// 0.6.354：Moo Mate 读取 Moo 的 GitHub token（伴侣专用，见 mate.go）
+	mux.HandleFunc("GET /api/mate/github-token", s.requireAdmin(s.mateGithubToken))
 	mux.HandleFunc("POST /api/settings/proxy-test", s.requireAdmin(s.proxyTestHandler))
 	mux.HandleFunc("GET /api/backups", s.requireAdmin(s.getBackups))
 	mux.HandleFunc("GET /api/logs", s.requireAdmin(s.getLogs)) // 0.6.249 设置页「日志」在线查看

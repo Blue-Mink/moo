@@ -4,9 +4,9 @@
   "name": "Moo 应用商店",
   "homepage": "https://github.com/Blue-Mink/moo",
   "distributor": "Blue-Mink",
-  "generated_by": "gen-repo-moo-json (github) + 手工裁剪（仅留 Moo 自索引）",
-  "description": "Moo 自索引（仅含 Moo 应用商店自身条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-20T13:20:00+08:00"
+  "generated_by": "gen-repo-moo-json (github) + 手工裁剪（Moo 自索引 + Moo Mate 条目）",
+  "description": "Moo 生态自索引（含 Moo 应用商店与 Moo Mate 伴侣工具两个条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
+  "updated_at": "2026-10-28T09:29:16+08:00"
  },
  "apps": {
   "moo": {
@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.355": {
+     "updated_at": "2026-10-28T10:30:00+08:00",
+     "changelog": "arm 设备支持应用内自更新（按 CPU 架构自动选 x86 / arm 安装包）；应用卡片与详情页去掉「发布：」文字前缀，分发者徽章只显示名字；Moo Mate 自动复用本机 Moo 的 GitHub Token，伴侣侧不再单独配置；修复应用溯源误判：聚合索引源（如 moo-mate）不再被当作上游打包者。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_x86.fpk",
+       "size": 5164516,
+       "size_mb": 4.9,
+       "sha256": "2e304765f190af2fce5b105ff051da91cd6c416ae1c415471b427b505492cd17"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_arm.fpk",
+       "size": 4702611,
+       "size_mb": 4.5,
+       "sha256": "427d83be201464f133976eeb4d3cecd5d69899910cafd1610eaa399d20ce1378"
+      }
+     }
+    },
     "0.6.352": {
      "updated_at": "2026-10-20T19:35:00+08:00",
      "changelog": "修复应用详情页架构显示：源同时提供顶层单链接与多架构包时，正确显示全部架构（x86 / arm）",
@@ -39,31 +57,9 @@
        "sha256": "122af50843172986cffbedf76dc3b7003643d58e0e515d0fd9acf24b20e6ce00"
       }
      }
-    },
-    "0.6.351": {
-     "updated_at": "2026-10-20T13:20:00+08:00",
-     "changelog": "溯源补强：脚本同步（非 fork 搬运）镜像仓增加内容指纹识别，同名同包自动归到上游原作者",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.351/moo_0.6.351_x86.fpk",
-       "size": 5155053,
-       "size_mb": 4.9,
-       "sha256": "a63509744115a40f363687cb87453cc64eff62c95696e01d5f1425ec123735ac"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.351/moo_0.6.351_arm.fpk",
-       "size": 4693091,
-       "size_mb": 4.5,
-       "sha256": "88c444e49aefa299577b1299430ed1ddcdbeecb4208b53b19adb62b5171f98e1"
-      }
-     }
-    },
-    "0.6.350": {
-     "updated_at": "2026-10-20T10:30:00+08:00",
-     "changelog": "修复同名社区卡导致官方应用详情接口（panel-detail）返回 404 且错误提示误导的问题"
     }
    },
-   "sha256": "6195f04156df69317fbdf6ce57470575abff90ba3e86472bc362cc967afb313f",
+   "sha256": "2e304765f190af2fce5b105ff051da91cd6c416ae1c415471b427b505492cd17",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -75,12 +71,59 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-20T19:35:00+08:00",
-   "version": "0.6.352",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.352/moo_0.6.352_x86.fpk",
-   "size": 5155868,
+   "updated_at": "2026-10-28T10:30:00+08:00",
+   "version": "0.6.355",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_x86.fpk",
+   "size": 5164516,
    "service_port": "38100",
-   "size_mb": 4.9
+   "size_mb": 4.9,
+   "changelog": ""
+  },
+  "moo-mate": {
+   "display_name": "Moo Mate",
+   "app_type": "native",
+   "platform": [
+    "x86",
+    "arm"
+   ],
+   "desc": "Moo 的伴侣工具：贴一个第三方 GitHub 仓库链接，自动发现其中的飞牛应用、生成 moo.json 索引并托管，一键加源到本机 Moo，免上传 GitHub。数据可随时备份/恢复，GitHub Token 自动复用 Moo 的设置。",
+   "author": "Blue-Mink",
+   "distributor": "Blue-Mink",
+   "homepage": "https://github.com/Blue-Mink/moo",
+   "license": "MIT",
+   "releases": {
+    "0.2.31": {
+     "updated_at": "2026-10-28T09:29:16+08:00",
+     "changelog": "Moo Mate 首个公开发布：把第三方 GitHub 仓库变成你自己的 Moo 应用源——贴链接即可发现应用、生成索引并就地托管，一键加源到本机 Moo，不必上传 GitHub；数据目录与备份目录可选并支持热切换，内置「恢复备份」与「下载数据备份」弹窗（可选本 NAS 历史备份或本机设备）；GitHub Token 自动复用本机 Moo 配置。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.31/moo-mate_0.2.31_x86.fpk",
+       "size": 3596896,
+       "size_mb": 3.4,
+       "sha256": "a2bd17e84e45b4d35251e4017149b73adc36c2efed8b474048d7ccc840366f16"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.31/moo-mate_0.2.31_arm.fpk",
+       "size": 3245787,
+       "size_mb": 3.1,
+       "sha256": "fbf8466f05617111b536dcb9581782452d5f61a4aa690a26903ed0f62f4ed0e9"
+      }
+     }
+    }
+   },
+   "sha256": "a2bd17e84e45b4d35251e4017149b73adc36c2efed8b474048d7ccc840366f16",
+   "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos-mate/ICON.PNG",
+   "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/cmd/moo-mate/README.md",
+   "labels": "系统工具",
+   "install_type": "系统空间",
+   "download_count": 0,
+   "first_release_at": "2026-10-28T09:29:16+08:00",
+   "updated_at": "2026-10-28T09:29:16+08:00",
+   "version": "0.2.31",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.31/moo-mate_0.2.31_x86.fpk",
+   "size": 3596896,
+   "service_port": "38108",
+   "size_mb": 3.4
   }
  }
 }

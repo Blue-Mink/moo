@@ -1,0 +1,7 @@
+#!/bin/bash
+# Moo Mate 配置回调（骨架版）：无向导端口，仅重启 daemon。
+COMMON=$(dirname $0)"/common"
+[ -r "${COMMON}" ] && . "${COMMON}"
+
+echo "moo-mate config_callback" >> "${LOG_FILE:-/var/log/apps/moo-mate.log}" 2>/dev/null
+exit 0

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Moo Mate 卸载回调：按向导选择是否删除数据（默认保留）。
+set -e
+
+if [ "${wizard_delete_data:-false}" = "true" ]; then
+    for p in /vol*/@appdata/moo-mate /vol*/@appconf/moo-mate /vol*/@appmeta/moo-mate /vol*/@apphome/moo-mate; do
+        if [ -d "${p}" ]; then
+            rm -rf "${p}" 2>/dev/null || true
+        fi
+    done
+fi
+echo "moo-mate uninstall cleanup done"
+exit 0

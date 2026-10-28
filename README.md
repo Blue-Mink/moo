@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.351-1f6feb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.355-1f6feb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64%2Farm64-6f42c1?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.351` · x86 `a63509744115a40f363687cb87453cc64eff62c95696e01d5f1425ec123735ac`（4.9MB） / arm `88c444e49aefa299577b1299430ed1ddcdbeecb4208b53b19adb62b5171f98e1`（4.5MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.355` · x86 `2e304765f190af2fce5b105ff051da91cd6c416ae1c415471b427b505492cd17`（4.9MB） / arm `427d83be201464f133976eeb4d3cecd5d69899910cafd1610eaa399d20ce1378`（4.5MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -76,6 +76,27 @@
 - 或 设置 → 应用源 → 添加源：仓库地址 / raw 直链（`…/raw/main/moo.json`）均可
 
 这也是协议的最小可用示例源；字段规范、多版本与 `packages` 结构、版本比较规则见 [docs/Moo应用源协议.md](docs/Moo应用源协议.md)。
+
+## Moo Mate（伴侣工具）
+
+把第三方 GitHub 仓库里的 FPK 应用变成 Moo 可装源，免上传 GitHub：贴链接 → 自动发现 → 一键加源。
+
+安装（任选其一）：
+
+- **Moo 商店**：Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜「Moo Mate」安装
+- **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate
+- **手动**：下载 `moo-mate_0.2.31_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
+
+用法三步：粘贴仓库链接 → 确认发现的应用并生成索引 → 一键加源到本机 Moo。
+
+| 项 | 值 |
+| --- | --- |
+| 端口 | `38108`（仅本机回环，经面板网关访问） |
+| 平台 | x86 / arm |
+| 自更新 | 无（升级重装 FPK，数据保留） |
+| GitHub Token | 自动复用本机 Moo 的设置，伴侣侧无需填写 |
+
+功能与使用细节见 [cmd/moo-mate/README.md](cmd/moo-mate/README.md)。
 
 ## 为什么这样设计
 
@@ -148,9 +169,12 @@ flowchart LR
 
 ```
 cmd/          daemon 入口
+cmd/moo-mate/ Moo Mate 伴侣工具（独立二进制、独立 FPK、独立发布线 mate-v*）
 internal/     后端：目录构建 / 源管理 / 通知 / 加速 / 自更新 / API
 frontend/     前端：React + TypeScript（Vite）
 fnos/         FPK manifest 与生命周期脚本
+fnos-mate/    Moo Mate 的 FPK manifest 与生命周期脚本
+build-mate.sh Moo Mate 打包脚本（x86 / arm）
 docs/         文档（API / 应用源协议 / 设计记录）与 README 配图
 skills/       Agent Skills：使用与诊断（moo/）、构建并发布到 Moo（fpk-build-to-moo/）、应用内 AI 资料包（ai/）、第三方应用安全审核（moo-app-security-audit/）
 ```

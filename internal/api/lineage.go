@@ -68,6 +68,28 @@ func sameRepo(a, b string) bool {
 	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
 }
 
+// validOwnerRepo 判断裸 key 是不是「像仓库」的 owner/repo（0.6.353 / F3）。
+//
+// 背景：source.SourceURLKey 对非 GitHub 主机只做「剥主机」的粗归一，源地址
+// 是索引文件时（本地 http 源的 …/moo/mate.json）会产出 moo/mate.json 这种
+// 伪 owner/repo，再拼上 https://github.com/ 就是一个必然 404 的假地址。
+// 这里做**形态**校验：恰好两段、owner 非空、repo 不是 .json/.yaml/.yml/.txt
+// 这类索引文件名（GitHub 上真把仓库叫 mate.json 的情形可忽略不计）。
+// 只用于「拼 GitHub 链接之前」的放行判断，不影响任何既有 key 的归一。
+func validOwnerRepo(k string) bool {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(k), "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	low := strings.ToLower(parts[1])
+	for _, ext := range []string{".json", ".yaml", ".yml", ".txt", ".toml"} {
+		if strings.HasSuffix(low, ext) {
+			return false
+		}
+	}
+	return true
+}
+
 // normDisplayName 显示名归一（0.6.326y / G3a）：小写 + 只保留 [a-z0-9] 与 CJK
 // （U+4E00–U+9FFF）。用于「同名不同应用」兼容性判定的宽松口径（见
 // displayNameCompatible）。标点/空白/全角符号一律丢弃。
@@ -714,6 +736,17 @@ func (s *Server) applyMirrorFingerprint(out []AppInfo) {
 		if sn == "" {
 			continue
 		}
+		// F1（0.6.353）：本源仓库必须是 GitHub 系才参与指纹配对。
+		//
+		// 动机（用户实测 Plex@shuangji66「上游 = moo-mate」误判）：聚合/索引源
+		// （如 moo-mate 的本地 http 源）自己就是从各打包仓抄来的，包 sha256
+		// 与真源**天然完全相同**；它是「下游」却与真源同组配对，一旦被选成根，
+		// 真打包者的卡就被反向标成「搬运上游」。索引源没有「上游」这一个概念，
+		// 只有「数据来源」——两者不能混用同一套指纹。
+		// 与 applyForkParentFallback 的 isGitHubRepoKey 守卫同口径（0.6.326k F2）。
+		if !isGitHubRepoKey(srcByRepo[sn]) {
+			continue
+		}
 		key := fpKey{normAppName(a.AppName), a.Sha256}
 		m := groups[key]
 		if m == nil {
@@ -735,7 +768,11 @@ func (s *Server) applyMirrorFingerprint(out []AppInfo) {
 			continue
 		}
 		rootRepo := trimHost(srcByRepo[root])
-		if rootRepo == "" {
+		// F3（0.6.353）：兜底校验根的仓库 key 形态。源地址是索引文件
+		// （…/moo/mate.json）时 trimHost 会产出 moo/mate.json 这种「伪 owner/repo」，
+		// 拼成 https://github.com/moo/mate.json 是个不存在的地址——宁可不设溯源，
+		// 也不给用户一个点开 404 的「上游」。
+		if rootRepo == "" || !validOwnerRepo(rootRepo) {
 			continue
 		}
 		for sn, i := range bySource {
@@ -760,7 +797,14 @@ func (s *Server) applyMirrorFingerprint(out []AppInfo) {
 // chooseMirrorRoot 在同 (appname,sha256) 组里选「真源」：
 //  1. 若某成员卡片的打包者字段（distributor/maintainer）等于**另一成员** owner，
 //     则该成员是「复制方」，不选它当根（交叉印证打破对称）；
-//  2. 其余按确定性排序（仓库 key 字典序最小）选根。
+//  2. F2（0.6.353）**包地址自持**过滤：只剩「包发布在自己本源仓库里」的成员
+//     （releaseOrigin(ReleaseURL) 的 owner == 本源 owner）才有资格当根 ——
+//     这是「我就是打包者」的物证。聚合/索引源把别人的包地址原样抄走，包地址
+//     owner ≠ 自己，自动出局，不再靠仓库名字典序赌方向。
+//     仅在**组内至少有一个自持成员**时启用；全组都不自持（脚本同步把包放自己仓
+//     但地址被清空/改写）时退回原规则，保 0.6.351 的判定能力不回归。
+//  3. 其余按确定性排序（仓库 key 字典序最小）选根。
+//
 // 若全体成员都被判复制方（脏数据/自环），放弃交叉印证退回纯确定性。
 // 返回根源名；无法决定返回 ""。
 func chooseMirrorRoot(bySource map[string]int, out []AppInfo, srcByRepo map[string]string) string {
@@ -798,11 +842,32 @@ func chooseMirrorRoot(bySource map[string]int, out []AppInfo, srcByRepo map[stri
 	if allMirror {
 		mirror = map[string]bool{}
 	}
-	best := ""
+	// F2（0.6.353）：包地址自持优先（见函数头第 2 条）。
+	pool := map[string]bool{}
 	for sn := range bySource {
-		if mirror[sn] {
+		if !mirror[sn] {
+			pool[sn] = true
+		}
+	}
+	selfHosted := map[string]bool{}
+	for sn := range pool {
+		own := ownerOfSource[sn]
+		if own == "" {
 			continue
 		}
+		if org := releaseOrigin(out[bySource[sn]].ReleaseURL); org != "" && ownerOf(org) == own {
+			selfHosted[sn] = true
+		}
+	}
+	if len(selfHosted) > 0 {
+		for sn := range pool {
+			if !selfHosted[sn] {
+				delete(pool, sn)
+			}
+		}
+	}
+	best := ""
+	for sn := range pool {
 		if best == "" || srcByRepo[sn] < srcByRepo[best] {
 			best = sn
 		}

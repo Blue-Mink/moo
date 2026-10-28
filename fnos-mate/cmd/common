@@ -1,0 +1,61 @@
+#!/bin/bash
+# Moo Mate — 生命周期公共函数（简化版）。
+# 与 Moo 同访问模型：统一网关 unix socket 为主入口（点图标走 /app/moo-mate），
+# TCP 127.0.0.1:38108 仅回环调试 + 本机 Moo 拉 moo.json 通道（零 LAN 端口暴露）。
+# 端口固定（manifest service_port=38108），不做向导改端口。
+
+DNAME="moo-mate"
+DEFAULT_PORT=38108
+PKGVAR="${TRIM_PKGVAR:-/var/apps/${TRIM_APPNAME}/var}"
+LOG_FILE="${PKGVAR}/${TRIM_APPNAME:-moo-mate}.log"
+PID_FILE="${PKGVAR}/${TRIM_APPNAME:-moo-mate}.pid"
+APP_DEST="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME}}"
+BIN="${APP_DEST}/moo-mate"
+
+# 伴侣回环端口（固定，不随向导变化；manifest 登记基准）
+read_web_port() {
+    echo "${DEFAULT_PORT}"
+}
+
+start_daemon() {
+    local port datadir
+    port=$(read_web_port)
+    mkdir -p "${PKGVAR}"
+    # 0.2.29：数据目录指针（设置页「数据路径」选的目录）；非法/缺失回落 PKGVAR。
+    datadir="$(cat "${PKGVAR}/datadir" 2>/dev/null)"
+    case "${datadir}" in
+        /vol[1-9]*) ;;
+        *) datadir="${PKGVAR}" ;;
+    esac
+    touch "${LOG_FILE}" 2>/dev/null
+    chmod 600 "${LOG_FILE}" 2>/dev/null
+    # 访问模型（与 Moo 同）：统一网关 unix socket 为主入口；TCP 仅 127.0.0.1 回环调试
+    # （本机 Moo 经它拉 moo.json）。加源地址写回环 127.0.0.1；moo-base 直连 Moo unix socket。
+    nohup env MOO_MATE_LISTEN="127.0.0.1:${port}" \
+        MOO_MATE_SELF_BASE="http://127.0.0.1:${port}" \
+        MOO_MATE_MOO_BASE="unix:///vol1/@appcenter/moo/app.sock" \
+        MOO_MATE_DATA="${datadir}/index.json" \
+        MOO_MATE_BOOTSTRAP="${PKGVAR}" \
+        MOO_MATE_SOCKET="${APP_DEST}/mate.sock" \
+        MOO_MATE_GATEWAY_PREFIX="/app/moo-mate" \
+        "${BIN}" >> "${LOG_FILE}" 2>&1 &
+    echo $! > "${PID_FILE}"
+    echo "${DNAME} started: gateway socket=${APP_DEST}/mate.sock debug=127.0.0.1:${port} (pid $(cat "${PID_FILE}"))" >> "${LOG_FILE}"
+}
+
+stop_daemon() {
+    local pid
+    pid=$(cat "${PID_FILE}" 2>/dev/null)
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        kill "${pid}" 2>/dev/null
+        sleep 1
+        kill -0 "${pid}" 2>/dev/null && kill -9 "${pid}" 2>/dev/null
+    fi
+    rm -f "${PID_FILE}"
+}
+
+daemon_status() {
+    local pid
+    pid=$(cat "${PID_FILE}" 2>/dev/null)
+    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null
+}
