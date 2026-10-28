@@ -507,7 +507,7 @@ const App: React.FC = () => {
   }, [apps, loadStatus, detailApp]);
   // App Store large title：内容滚动后标题收缩、头部转毛玻璃
   const [mainScrolled, setMainScrolled] = useState(false);
-  // 2026-10-28 私人补丁：排序偏好持久化（localStorage，与 web_view_mode 同模式）。
+  // 排序偏好持久化（localStorage，与 web_view_mode 同模式）。
   // 非法值回落 default；null = 首次使用，不写入（保持首次体验为随机）。
   const [sortBy, setSortBy] = useState<SortKey>(() => {
     const v = localStorage.getItem('moo.sort_by');
