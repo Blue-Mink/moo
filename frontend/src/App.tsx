@@ -507,7 +507,13 @@ const App: React.FC = () => {
   }, [apps, loadStatus, detailApp]);
   // App Store large title：内容滚动后标题收缩、头部转毛玻璃
   const [mainScrolled, setMainScrolled] = useState(false);
-  const [sortBy, setSortBy] = useState<SortKey>('default');
+  // 排序偏好持久化（localStorage，与 web_view_mode 同模式）。
+  // 非法值回落 default；null = 首次使用，不写入（保持首次体验为随机）。
+  const [sortBy, setSortBy] = useState<SortKey>(() => {
+    const v = localStorage.getItem('moo.sort_by');
+    return v === 'downloads' || v === 'name' || v === 'alpha' || v === 'updated' ? v : 'default';
+  });
+  useEffect(() => { localStorage.setItem('moo.sort_by', sortBy); }, [sortBy]);
   // 「全部」视图随机展示（322R4 回退到 0.6.321 最早态 / 320 风格 Fisher-Yates）：
   // 每次数据加载后重新洗牌（setShuffleTick），同一次会话内顺序稳定
   //（切 tab 返回不重洗，记住的滚动位置仍落在同一应用上）。
@@ -2014,7 +2020,7 @@ const App: React.FC = () => {
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
+                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
                     className={cn(
                       // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
@@ -2177,7 +2183,7 @@ const App: React.FC = () => {
                  {CATEGORIES.map(cat => (
                    <button
                      key={cat.key}
-                     onClick={() => setActiveCategory(cat.key)}
+                     onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
                      className={cn(
                        // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
                        "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
