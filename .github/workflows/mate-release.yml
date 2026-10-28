@@ -1,22 +1,25 @@
 name: Moo Mate Release
 
-# ── 为什么 tag 前缀是 mate-v ────────────────────────────────────────────
-# Moo 主程序的发布流水线（release.yml）监听 tags: ['v*']，会构建并发布
-# moo-server 二进制。Moo Mate 与 Moo 同仓，若也用 v* 前缀，一次 mate 发布
-# 会同时触发主程序流水线（反之亦然）。因此 Mate 用独立的 mate-v* 前缀，
-# 两条流水线互不干扰。Mate 无自更新机制，release 资产仅供手动下载安装。
+# ── 为什么这里只「校验」不构建 ────────────────────────────────────────
+# 1) Mate 无自更新机制，release 资产仅供手动下载；产物由发布机构建并人工验收，
+#    其 sha256 已写进 moo.json（以及 FnDepot 索引）。CI 若再重建并 --clobber
+#    覆盖，资产字节就变了，索引里的 sha256 立刻对不上。
+# 2) 官方 fnpack 下载 URL（https://static2.fnnas.com/fnpack/fnpack）间歇 404
+#    （2026-10-28 实测 404），CI 无法可靠组包。
+# 因此流水线职责改为：tag 推上来后核对 release 资产与 moo.json 索引是否一致
+# （架构齐全 + size/sha256 逐字相符 + .sha256 侧车在场）。构建仍在发布机执行
+# （`bash build-mate.sh x86|arm`），签名/校验同机完成。
 on:
   push:
     tags:
       - 'mate-v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '要校验的 release tag（留空则取当前 ref 名，例如 mate-v0.2.31）'
+        required: false
+        default: ''
 
-# 同一 tag 的发布串行去重（重触发不会双跑）；不同 tag 并行
-concurrency:
-  group: mate-release-${{ github.ref_name }}
-  cancel-in-progress: false
-
-# 最小权限默认 read；只有 build-and-release 的 gh release 步骤需要 write
 permissions:
   contents: read
 
@@ -42,118 +45,39 @@ jobs:
       - name: Run gate (sanitize/vet/test)
         run: bash cmd/moo-mate/gate.sh
 
-  # ── 预检：该 tag 是否已有带资产的 release ─────────────────────────────
-  # 为什么需要这一步：发布机上的产物是人工验收 + minisign 签名 + 已写进
-  # moo.json / FnDepot 索引的（sha256 逐字比对过）。若这里再让 CI 重建并
-  # `gh release upload --clobber` 覆盖，资产字节就变了，索引里的 sha256
-  # 立刻对不上。所以：
-  #   - release 已存在且带资产 → 整条构建发布链跳过（人工产物为权威）；
-  #   - release 不存在（单纯推 tag 走 CI 发布）→ 照常构建并发布。
-  # 两条路都不需要手动点按钮，tag 推送依旧是自动触发。
-  precheck:
-    name: Precheck (release assets)
+  # ── 校验 release 资产 == moo.json 索引 ────────────────────────────────
+  verify-release:
+    name: Verify release assets
     needs: gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     permissions:
       contents: read
-    outputs:
-      skip: ${{ steps.probe.outputs.skip }}
-    steps:
-      - name: Probe existing release
-        id: probe
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          n=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.assets | length' 2>/dev/null || echo "")
-          if [ -n "$n" ] && [ "$n" -gt 0 ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::release $TAG 已有 $n 个资产 → 跳过构建与发布（不覆盖已验收的产物）"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "release $TAG 无资产 → CI 构建并发布"
-          fi
-
-  # ── 构建双架构 FPK 并发布 release ──────────────────────────────────────
-  build-and-release:
-    name: Build & Release (x86/arm)
-    needs: [gate, precheck]
-    if: needs.precheck.outputs.skip != 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'go.mod'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # build-mate.sh 依赖 build/fnpack（与 Moo 的 build.sh 同源）；干净 checkout 里没有，
-      # 这里按 build.sh 的同一地址预先取一次，避免 CI 因缺 fnpack 直接失败。
-      - name: Prepare fnpack
+      - name: Resolve tag
+        id: t
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          mkdir -p build
-          if [ ! -x build/fnpack ]; then
-            curl -fsSL "https://static2.fnnas.com/fnpack/fnpack" -o build/fnpack
-            chmod +x build/fnpack
-          fi
+          TAG="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          case "$TAG" in
+            mate-v*) ;;
+            *) echo "::error::tag 必须形如 mate-vX.Y.Z，实际：$TAG"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#mate-v}" >> "$GITHUB_OUTPUT"
+          echo "校验目标：$TAG（版本 ${TAG#mate-v}）"
 
-      - name: Build Moo Mate (x86)
-        run: bash build-mate.sh x86
-
-      - name: Build Moo Mate (arm)
-        run: bash build-mate.sh arm
-
-      - name: Generate checksums
-        run: |
-          set -euo pipefail
-          VER="${GITHUB_REF_NAME#mate-v}"
-          for arch in x86 arm; do
-            f="moo-mate_${VER}_${arch}.fpk"
-            [ -f "$f" ] || { echo "::error::missing $f"; exit 1; }
-            sha256sum "$f" > "$f.sha256"
-            echo "$(cat "$f.sha256")"
-          done
-
-      - name: Create or update release
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VER="${TAG#mate-v}"
-          X86="moo-mate_${VER}_x86.fpk"
-          ARM="moo-mate_${VER}_arm.fpk"
-          S_X86="$(cut -d' ' -f1 < "${X86}.sha256" | cut -c1-16)"
-          S_ARM="$(cut -d' ' -f1 < "${ARM}.sha256" | cut -c1-16)"
-          BODY="$(printf '%s\n' \
-            "Moo Mate v${VER}（免上传 GitHub 的飞牛应用源生成器）" \
-            "" \
-            "📦 ${X86} · sha256 \`${S_X86}\`" \
-            "📦 ${ARM} · sha256 \`${S_ARM}\`" \
-            "" \
-            "手动安装：下载 FPK 与同名 .sha256 校验后在飞牛应用中心安装（无自更新，升级重装数据保留）。")"
-          if gh release view "$TAG" &>/dev/null; then
-            echo "Release $TAG exists, uploading assets..."
-            gh release upload "$TAG" "$X86" "${X86}.sha256" "$ARM" "${ARM}.sha256" --clobber
-          else
-            gh release create "$TAG" \
-              --title "Moo Mate v${VER}" \
-              --notes "$BODY" \
-              "$X86" "${X86}.sha256" "$ARM" "${ARM}.sha256"
-          fi
+      - name: Verify assets against moo.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.t.outputs.tag }}
+          VER: ${{ steps.t.outputs.ver }}
+        run: python3 .github/scripts/verify_mate_release.py
