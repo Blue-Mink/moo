@@ -192,6 +192,11 @@ func (e *Engine) runAria2(ctx context.Context, o DownloadOpts, u string) error {
 		"--max-tries=2",
 		"--timeout=20",
 		"--connect-timeout=15",
+		// 慢源快速淘汰：公益镜像常见「首包很快、整份文件掉到几十 KB/s」，
+		// 旧参数下 aria2 会挂满 timeout×tries 才放弃，用户看到的是进度条
+		// 长时间不动（实测某 CDN 节点 52KB/s 下 5MB 包要 100s，两次重试
+		// 后仍失败）。低于 50KB/s 直接判该候选不可用，交给下一个候选。
+		"--lowest-speed-limit=50K",
 		"--summary-interval=2",
 		"--allow-overwrite=true",
 		"-o", o.DestPath,
