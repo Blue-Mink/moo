@@ -1877,8 +1877,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		// 自定义镜像静默抹掉（数据丢失级）。
 		CustomGitHubMirror: s.Cfg.CustomGitHubMirror,
 		CustomDockerMirror: s.Cfg.CustomDockerMirror,
-		// 2026-10-28 私人补丁：用户自定义加速源随 GET 透出（同 H1 教训：
-		// PUT 可写 GET 不下发 = 下次保存静默抹掉）。
+		// 用户自定义加速源随 GET 透出（与上文 0.6.325 H1(F2) 同一件事：
+		// PUT 可写但 GET 不下发时，下次全量保存会把自定义源静默抹掉）。
 		CustomMirrors:      s.Cfg.CustomMirrors,
 		InstallVolume:      s.Cfg.InstallVolume,
 		DownloadDir:        s.Cfg.DownloadDir,
@@ -1977,7 +1977,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 重开设置页又看到旧值 → 观感「保存没作用」）。
 		CustomGitHubMirror *string `json:"custom_github_mirror"`
 		CustomDockerMirror *string `json:"custom_docker_mirror"`
-		// 2026-10-28 私人补丁：nil=未提交不改动；数组=整体替换。
+		// nil=未提交不改动；数组=整体替换。
 		CustomMirrors *[]config.MirrorOption `json:"custom_mirrors"`
 		// 0.6.325 G2：安装卷指针语义 —— nil=未提交不改动；0=清除（回
 		// 「系统默认」自动探测）；1-8=指定卷；越界（负数/>8）整单拒绝。
@@ -2057,7 +2057,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.CustomGitHubMirror != nil {
 		s.Cfg.CustomGitHubMirror = *in.CustomGitHubMirror
 	}
-	// 2026-10-28 私人补丁：自定义加速源整体替换 + 校验。
+	// 自定义加速源整体替换 + 校验。
 	// key 规范 custom-N；URL 必须 https 且主机不重复；上限 20 条防滥用。
 	if in.CustomMirrors != nil {
 		list := *in.CustomMirrors
@@ -2081,7 +2081,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "自定义加速源 URL 必须是合法的 https 地址", http.StatusBadRequest)
 				return
 			}
-			// 审查补丁（2026-10-28）：三个此前漏掉的校验。
+			// 三个容易漏掉的校验：
 			// ① 拒绝 userinfo（https://user:pass@host/ 会把凭据带进配置与日志）；
 			// ② 长度上限（防超大字符串撑爆 config.json）；
 			// ③ 公网校验 —— 自定义源会进 netguard 豁免清单，若放行内网地址
@@ -2603,6 +2603,15 @@ func (s *Server) mirrorsCheck(w http.ResponseWriter, r *http.Request) {
 	//（漏调则「立即测速」恒按上一周期标志跑，切换开关后点测速看不到 direct）。
 	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(true)
+	// 手动测速后同步触发续传深测（Top3，24h 节流），
+	// 异步执行不拖慢本响应；结果随下一次 GET /api/mirrors/health 下发。
+	if stats := s.Mirrors.ghStatsSnapshot(); len(stats) > 0 {
+		go func() {
+			rctx, rcancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer rcancel()
+			RunResumeProbes(rctx, topResumeCandidates(stats, 3))
+		}()
+	}
 	gh := make([]MirrorCheckResult, 0)
 	for _, st := range s.Mirrors.gh() {
 		gh = append(gh, MirrorCheckResult{Key: st.Key, Label: st.Label, LatencyMS: st.LatencyMS, SpeedBPS: st.SpeedBPS, Status: checkStatus(st)})

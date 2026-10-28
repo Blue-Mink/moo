@@ -91,7 +91,7 @@ type Config struct {
 	MirrorIncludeDirect bool   `json:"mirror_include_direct,omitempty"`
 	CustomGitHubMirror  string `json:"custom_github_mirror,omitempty"`
 	CustomDockerMirror  string `json:"custom_docker_mirror,omitempty"`
-	// CustomMirrors 用户自维护的 GitHub 加速源（2026-10-28 私人补丁）。
+	// CustomMirrors 用户自维护的 GitHub 加速源。
 	// 与内置清单（mirrors.go GitHubMirrorOptions）在读取侧合并；
 	// key 约定 "custom-<n>"，URL 须为 https 且主机名不重复。
 	// 结构复用 MirrorOption（mirrors.go），此处只声明不定义。

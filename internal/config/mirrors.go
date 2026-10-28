@@ -65,7 +65,7 @@ func DockerMirrorOptions() []MirrorOption {
 // KSpeederLocalAddr 独立 KSpeeder 应用默认的本地镜像代理地址（探测用）。
 const KSpeederLocalAddr = "127.0.0.1:5443"
 
-// ── 用户自定义加速源（2026-10-28 私人补丁）────────────────────────────
+// ── 用户自定义加速源────────────────────────────────────────────────
 //
 // 内置清单是硬编码的；自定义源由设置页维护、持久化在 Config.CustomMirrors。
 // 合并点放在这里（而非各消费点），使 buildCandidatesLimited / 健康探测 /

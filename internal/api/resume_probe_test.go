@@ -1,6 +1,6 @@
 package api
 
-// 2026-10-28 私人补丁回归测试：续传深测。
+// 回归测试：续传深测。
 // 用 httptest 造三种假镜像：完美支持 Range / 不支持 Range / 内容非确定。
 
 import (

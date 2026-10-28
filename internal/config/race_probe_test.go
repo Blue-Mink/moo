@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// 2026-10-28 审查补丁：hook 返回前若有可变共享状态，并发读会 data race。
+// hook 返回前若有可变共享状态，并发读会 data race。
 // 当前实现 hook 只读 cfg.CustomMirrors（切片头拷贝），理论安全；
 // 本测试用 -race 跑出证据。
 func TestMergeConcurrentReads(t *testing.T) {

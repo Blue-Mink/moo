@@ -680,7 +680,7 @@ export interface MirrorOption {
   description: string;
 }
 
-// 2026-10-28 私人补丁：用户自定义加速源
+// 用户自定义加速源
 export interface CustomMirrorInput { key?: string; label: string; url: string }
 
 export interface VolumeOption {
@@ -796,6 +796,7 @@ export interface MirrorCheckResult {
   status: 'ok' | 'limited' | 'timeout' | 'error';
   /** 0.6.321 F6：失败原因短语（429 限流/403 拒绝/慢/连接被拒/DNS/资产 404） */
   error?: string;
+  resume_ok?: boolean;
 }
 
 export interface MirrorCheckResponse {

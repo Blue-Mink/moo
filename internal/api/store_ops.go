@@ -489,7 +489,7 @@ func (s *Server) FpkCandidates(a *source.App) []string {
 			}
 			continue
 		}
-		// 2026-10-28 审查补丁：custom-N（用户自定义源列表条目）同样按 key 取 URL。
+		// custom-N（用户自定义源列表条目）同样按 key 取 URL。
 		// GitHubMirrorOptions() 已合并自定义源，这里自然命中。
 		if strings.HasPrefix(k, "custom-") {
 			if p := mirrorURLByKey(k); p != "" {
@@ -2361,7 +2361,7 @@ func (s *Server) mirrorVariants(cands []string, n int) []string {
 				prefix, ok = ensureTrailingSlash(s.Cfg.CustomGitHubMirror), s.Cfg.CustomGitHubMirror != ""
 			}
 		}
-		// 2026-10-28 审查补丁：custom-N（用户自定义源）同链路解析。
+		// custom-N（用户自定义源）同链路解析。
 		if strings.HasPrefix(key, "custom-") && s.Cfg != nil {
 			prefix, ok = mirrorURLByKey(key), true
 		}

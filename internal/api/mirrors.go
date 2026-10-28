@@ -45,7 +45,7 @@ type MirrorStat struct {
 	Error       string `json:"error,omitempty"`
 	LastCheck   string `json:"last_check"`
 	ConsecFails int    `json:"consec_fails"`
-	// ResumeOK 2026-10-28 私人补丁：深测（续传能力）结论。
+	// ResumeOK 深测（续传能力）结论。
 	// true=通过 / false=深测失败 / 未下发=尚未深测。同速优选时优先 true。
 	ResumeOK *bool `json:"resume_ok,omitempty"`
 }
@@ -260,7 +260,7 @@ func (m *mirrorMonitor) probeGhOne(ctx context.Context, opt config.MirrorOption)
 
 // bumpGhFail 单源连败计数（0.6.333 F2 三态语义，调用方须持有 m.mu）：
 // ok → 清零；limited（429 临时限流）→ 冻结（不清零也不累加）；其余 → 累加。
-// ghStatsSnapshot 2026-10-28 私人补丁：ghStats 的并发安全快照（深测选对象用）。
+// ghStatsSnapshot ghStats 的并发安全快照（深测选对象用）。
 func (m *mirrorMonitor) ghStatsSnapshot() []MirrorStat {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -342,7 +342,7 @@ func (m *mirrorMonitor) probeGh() {
 	for i := range ghOut {
 		// 0.6.333 F2：三态连败计数见 bumpGhFail（ok 清零 / limited 冻结 / fail 累加）
 		m.bumpGhFail(&ghOut[i])
-		// 2026-10-28 私人补丁：深测结论回填（有则下发，无则不下发该字段）
+		// 深测结论回填（有则下发，无则不下发该字段）
 		if r, ok := ResumeResultOf(ghOut[i].Key); ok {
 			v := r.OK
 			ghOut[i].ResumeOK = &v
@@ -738,7 +738,7 @@ func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 		s.applyMirrorProbeFlags()
 		s.Mirrors.probeGh()
 
-	// 2026-10-28 私人补丁：续传深测——对吞吐 Top3 低频执行（每源 24h 一次）。
+	// 续传深测——对吞吐 Top3 低频执行（每源 24h 一次）。
 	// 独立 goroutine：深测串行下载 2MB×3 段，不能拖慢常规测速返回。
 	go func() {
 		stats := s.Mirrors.ghStatsSnapshot()
