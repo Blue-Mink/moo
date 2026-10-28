@@ -1540,7 +1540,7 @@ const App: React.FC = () => {
       <div className={cn(
         // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
         // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
-        "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap"
+        "relative z-[60] flex items-center gap-0.5 shrink-0 h-10 pl-4 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap"
       )}>
         {/* 0.6.312c（用户定稿）：当前排序名直接显示在胶囊里（切哪种显哪种）；
             0.6.313（用户定稿）：「全部」二字删除，胶囊只显排序名；
@@ -1594,7 +1594,7 @@ const App: React.FC = () => {
                 key={o.value}
                 onClick={() => { setSortBy(o.value); setSortMenuOpen(false); }}
                 className={cn(
-                  "block w-full whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-muted",
+                  "block w-full whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-[15px] hover:bg-muted",
                   sortBy === o.value ? "font-medium text-primary" : "text-foreground"
                 )}
               >
@@ -1649,7 +1649,7 @@ const App: React.FC = () => {
           // 0.6.284 同款 Dock 毛玻璃材质
           // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何档位胶囊都保持原色
           //（与排序胶囊同款材质/字体，两胶囊观感一致）
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap transition-colors"
+          "relative z-[60] flex items-center gap-0.5 shrink-0 h-10 pl-4 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap transition-colors"
         )}
       >
         {/* 0.6.312c（用户定稿）：胶囊标签=当前档位名，切哪种去重显哪种 */}
@@ -1673,7 +1673,7 @@ const App: React.FC = () => {
                 key={o.value}
                 onClick={() => applyDedup(o.value)}
                 className={cn(
-                  "block w-full whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-muted",
+                  "block w-full whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-[15px] hover:bg-muted",
                   dedupPolicy === o.value ? "font-medium text-primary" : "text-foreground"
                 )}
               >
@@ -2017,7 +2017,7 @@ const App: React.FC = () => {
                     onClick={() => setActiveCategory(cat.key)}
                     className={cn(
                       // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
-                      "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
+                      "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap",
                       activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
                     )}
                   >
@@ -2180,7 +2180,7 @@ const App: React.FC = () => {
                      onClick={() => setActiveCategory(cat.key)}
                      className={cn(
                        // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
-                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
+                       "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap transition-colors",
                        activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground hover:bg-card/80"
                      )}
                    >
