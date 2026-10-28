@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toggleThemeWithTransition, type ResolvedThemeMode } from '@/lib/themeTransition';
@@ -13,14 +13,17 @@ const effectiveTheme = (
   resolvedTheme === 'dark' || theme === 'dark' ? 'dark' : 'light';
 
 /**
- * App Store 风格亮/暗主题切换。
+ * App Store 风格主题切换。
  * 基于 next-themes（attribute="class"），持久化到 localStorage（key=theme）。
  *
- * 切换过渡 0.6.302 起 = 全引擎统一「即时切换 + 单层遮罩交叉淡切」
- *（~200ms 纯合成器 opacity 动画，无快照/无整页 paint，零卡顿），
+ * 三态循环 亮色 → 暗色 → 跟随系统 → 亮色…
+ * （原实现二值翻转，点过一次后 system 档丢失，无法回到跟随系统。）
+ * next-themes 本身支持（main.tsx defaultTheme="system" + enableSystem），
+ * 这里只是把按钮的语义补齐；跟随系统档图标 = 显示当前解析到的主题 + 小圆点。
+ *
+ * 切换过渡 0.6.302 起 = 全引擎统一「即时切换 + 单层遮罩交叉淡切」，
  * 见 src/lib/themeTransition.ts；用户开启「减少动态效果」时直接切换。
- * 另与 fn-knock 一致：同步 <html> 的 color-scheme，让滚动条、原生
- * 表单控件等跟随主题。
+ * 同步 <html> 的 color-scheme，让滚动条、原生表单控件跟随主题。
  */
 const ThemeToggle: React.FC<{ className?: string }> = ({ className }) => {
   const { theme, resolvedTheme, setTheme } = useTheme();
@@ -28,14 +31,29 @@ const ThemeToggle: React.FC<{ className?: string }> = ({ className }) => {
 
   useEffect(() => setMounted(true), []);
 
-  // 原生控件（滚动条/输入框）颜色方案跟随当前主题
+  // 原生控件（滚动条/输入框）颜色方案跟随当前解析主题
   useEffect(() => {
     if (!mounted) return;
     document.documentElement.style.colorScheme = effectiveTheme(theme, resolvedTheme);
   }, [mounted, theme, resolvedTheme]);
 
-  const toggle = () => {
-    void toggleThemeWithTransition(effectiveTheme(theme, resolvedTheme), setTheme);
+  const resolved = effectiveTheme(theme, resolvedTheme);
+
+  const apply = (next: 'light' | 'dark' | 'system') => {
+    if (next === 'system') {
+      setTheme('system');
+      return;
+    }
+    // light/dark 档走既有的遮罩交叉淡切（system→具体档也走淡切，
+    // 但 system 档本身切换时 resolved 不变则无视觉跳变，淡切无害）
+    void toggleThemeWithTransition(resolved, () => setTheme(next));
+  };
+
+  // 三态循环：light → dark → system → light…
+  const cycle = () => {
+    const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
+    const idx = order.indexOf((theme ?? 'system') as 'light' | 'dark' | 'system');
+    apply(order[(idx + 1) % order.length]);
   };
 
   // 首帧（主题水合前）显示占位，避免图标闪变
@@ -47,7 +65,13 @@ const ThemeToggle: React.FC<{ className?: string }> = ({ className }) => {
     );
   }
 
-  const isDark = effectiveTheme(theme, resolvedTheme) === 'dark';
+  const isSystem = theme === 'system' || theme === undefined;
+  const label = isSystem
+    ? `跟随系统（当前 ${resolved === 'dark' ? '暗色' : '亮色'}）· 点击切换到${resolved === 'dark' ? '亮' : '暗'}色`
+    : isDark(resolved)
+      ? '暗色 · 点击切换到跟随系统'
+      : '亮色 · 点击切换到暗色';
+
   return (
     <Button
       variant="ghost"
@@ -57,13 +81,31 @@ const ThemeToggle: React.FC<{ className?: string }> = ({ className }) => {
         "transition-[transform,color,background-color] duration-200 hover:-translate-y-px",
         className,
       )}
-      onClick={toggle}
-      aria-label={isDark ? '切换到亮色' : '切换到暗色'}
-      title={isDark ? '切换到亮色' : '切换到暗色'}
+      onClick={cycle}
+      aria-label={label}
+      title={label}
     >
-      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {isSystem ? (
+        <span className="relative flex h-4 w-4 items-center justify-center">
+          <Monitor className="h-4 w-4" />
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full ring-1 ring-background ${
+              resolved === 'dark' ? 'bg-slate-300' : 'bg-slate-600'
+            }`}
+          />
+        </span>
+      ) : isDark(resolved) ? (
+        <Sun className="h-4 w-4" />
+      ) : (
+        <Moon className="h-4 w-4" />
+      )}
     </Button>
   );
 };
+
+// isDark 的独立小函数（避免和上面 effectiveTheme 语义混淆）
+function isDark(resolved: ResolvedThemeMode): boolean {
+  return resolved === 'dark';
+}
 
 export default ThemeToggle;
