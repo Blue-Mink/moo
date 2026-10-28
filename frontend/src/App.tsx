@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download, ArrowUpDown, Layers } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -1540,12 +1540,15 @@ const App: React.FC = () => {
       <div className={cn(
         // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
         // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
-        "relative z-[60] flex items-center gap-0.5 shrink-0 h-10 pl-4 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap"
+        "relative z-[60] flex items-center gap-1 shrink-0 h-10 pl-3 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap"
       )}>
         {/* 0.6.312c（用户定稿）：当前排序名直接显示在胶囊里（切哪种显哪种）；
             0.6.313（用户定稿）：「全部」二字删除，胶囊只显排序名；
             0.6.313r（用户定稿）：字体与去重胶囊统一（去 font-normal/muted，
             继承胶囊壳 13px/medium/foreground，两胶囊观感一致） */}
+        <span aria-hidden="true" className="flex items-center justify-center h-5 w-5 text-muted-foreground">
+          <ArrowUpDown className="h-3.5 w-3.5" />
+        </span>
         <button
           onClick={() => setActiveCategory(null)}
           className="bg-transparent border-0 p-0 cursor-pointer text-inherit font-inherit"
@@ -1568,7 +1571,7 @@ const App: React.FC = () => {
             // 取自然宽防裁切；去重菜单标签全 ≤2 字，实际就是胶囊宽
             // parentElement = 胶囊壳 div（0.6.315 拆嵌套后），取整胶囊矩形
             const r = ((e.currentTarget as HTMLElement).parentElement as HTMLElement).getBoundingClientRect();
-            const contentW = Math.max(...SORT_OPTIONS.map(o => [...o.label].length * 13)) + 16 + 8 + 2;
+            const contentW = Math.max(...SORT_OPTIONS.map(o => [...o.label].length * 15)) + 16 + 8 + 2;
             const menuW = Math.max(r.width, contentW);
             const menuH = 190;
             const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
@@ -1649,10 +1652,13 @@ const App: React.FC = () => {
           // 0.6.284 同款 Dock 毛玻璃材质
           // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何档位胶囊都保持原色
           //（与排序胶囊同款材质/字体，两胶囊观感一致）
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-10 pl-4 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap transition-colors"
+          "relative z-[60] flex items-center gap-1 shrink-0 h-10 pl-3 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap transition-colors"
         )}
       >
         {/* 0.6.312c（用户定稿）：胶囊标签=当前档位名，切哪种去重显哪种 */}
+        <span aria-hidden="true" className="flex items-center justify-center h-5 w-5 text-muted-foreground">
+          <Layers className="h-3.5 w-3.5" />
+        </span>
         {DEDUP_OPTIONS.find(o => o.value === dedupPolicy)?.label ?? '默认'}
         <span className={cn("flex items-center justify-center h-6 w-6 rounded-full transition-colors", dedupMenuOpen && "bg-black/10")}>
           <ChevronsUpDown className="h-3.5 w-3.5" />
