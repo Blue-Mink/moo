@@ -31,6 +31,7 @@ import (
 	"moo/internal/reco"
 	"moo/internal/source"
 	"moo/internal/task"
+	"net/url"
 )
 
 // ---- 应用目录 ----
@@ -1876,6 +1877,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		// 自定义镜像静默抹掉（数据丢失级）。
 		CustomGitHubMirror: s.Cfg.CustomGitHubMirror,
 		CustomDockerMirror: s.Cfg.CustomDockerMirror,
+		// 2026-10-28 私人补丁：用户自定义加速源随 GET 透出（同 H1 教训：
+		// PUT 可写 GET 不下发 = 下次保存静默抹掉）。
+		CustomMirrors:      s.Cfg.CustomMirrors,
 		InstallVolume:      s.Cfg.InstallVolume,
 		DownloadDir:        s.Cfg.DownloadDir,
 		// 0.6.255：面板账号已从设置中彻底移除（官方源 = 纯 OAuth，
@@ -1973,6 +1977,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 重开设置页又看到旧值 → 观感「保存没作用」）。
 		CustomGitHubMirror *string `json:"custom_github_mirror"`
 		CustomDockerMirror *string `json:"custom_docker_mirror"`
+		// 2026-10-28 私人补丁：nil=未提交不改动；数组=整体替换。
+		CustomMirrors *[]config.MirrorOption `json:"custom_mirrors"`
 		// 0.6.325 G2：安装卷指针语义 —— nil=未提交不改动；0=清除（回
 		// 「系统默认」自动探测）；1-8=指定卷；越界（负数/>8）整单拒绝。
 		// 此前 `int` + `>0` 守卫让「切回系统默认」永远保存无效（0 被忽略）。
@@ -2050,6 +2056,49 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.CustomGitHubMirror != nil {
 		s.Cfg.CustomGitHubMirror = *in.CustomGitHubMirror
+	}
+	// 2026-10-28 私人补丁：自定义加速源整体替换 + 校验。
+	// key 规范 custom-N；URL 必须 https 且主机不重复；上限 20 条防滥用。
+	if in.CustomMirrors != nil {
+		list := *in.CustomMirrors
+		if len(list) > 20 {
+			http.Error(w, "自定义加速源最多 20 条", http.StatusBadRequest)
+			return
+		}
+		seenKey := map[string]bool{}
+		seenURL := map[string]bool{}
+		for i := range list {
+			m := list[i]
+			m.Key = strings.TrimSpace(m.Key)
+			m.Label = strings.TrimSpace(m.Label)
+			m.URL = strings.TrimSpace(m.URL)
+			if m.URL == "" {
+				http.Error(w, "自定义加速源 URL 不能为空", http.StatusBadRequest)
+				return
+			}
+			u, err := url.Parse(m.URL)
+			if err != nil || u.Scheme != "https" || u.Host == "" {
+				http.Error(w, "自定义加速源 URL 必须是合法的 https 地址", http.StatusBadRequest)
+				return
+			}
+			m.URL = u.String()
+			if m.Key == "" {
+				m.Key = fmt.Sprintf("custom-%d", i+1)
+			}
+			if !strings.HasPrefix(m.Key, "custom-") {
+				http.Error(w, "自定义加速源 key 必须以 custom- 开头", http.StatusBadRequest)
+				return
+			}
+			if seenKey[m.Key] || seenURL[strings.ToLower(strings.TrimRight(m.URL, "/"))] {
+				http.Error(w, "自定义加速源存在重复 key 或 URL", http.StatusBadRequest)
+				return
+			}
+			seenKey[m.Key] = true
+			seenURL[strings.ToLower(strings.TrimRight(m.URL, "/"))] = true
+			list[i] = m
+		}
+		s.Cfg.CustomMirrors = list
+		// netguard 豁免由 rebuilder 每 30s 自动重建，无需手动触发
 	}
 	if in.CustomDockerMirror != nil {
 		s.Cfg.CustomDockerMirror = *in.CustomDockerMirror

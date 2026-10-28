@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type CustomMirrorInput, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
@@ -693,6 +693,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [open, loadDkStatus]);
 
   const [customGithubMirror, setCustomGithubMirror] = useState<string>('');
+  // 2026-10-28 私人补丁：用户自定义加速源（随 settings 水合/保存）
+  const [customMirrors, setCustomMirrors] = useState<CustomMirrorInput[]>([]);
+  const [cmDialogOpen, setCmDialogOpen] = useState(false);
+  // 弹窗编辑副本（保存时一次性写回）
+  const [cmDraft, setCmDraft] = useState<CustomMirrorInput[]>([]);
   const [customDockerMirror, setCustomDockerMirror] = useState<string>('');
   // 应用当前所选镜像到系统 Docker（0.6.269：写 daemon.json + 重启，可回滚）。
   // 镜像地址由后端按 key 解析（custom 除外，需带 custom_url）。
@@ -1407,6 +1412,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setDockerMirror(dm);
         setDockerMirrorOptions(dmOpts);
         setCustomGithubMirror(settings.custom_github_mirror || '');
+        // 2026-10-28 私人补丁：自定义加速源水合（后端未下发=空数组）
+        setCustomMirrors(settings.custom_mirrors || []);
         setCustomDockerMirror(settings.custom_docker_mirror || '');
         setProxyEnabled(!!settings.proxy_enabled);
         setProxyUrl(settings.proxy_url || '');
@@ -1513,6 +1520,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         // 后端指针语义：空串 = 显式清除（此前 `|| undefined` 会把「清空」
         // 变成「不提交」，用户清掉自定义镜像/地址后保存无效）。
         custom_github_mirror: customGithubMirror,
+        // 2026-10-28 私人补丁：整组提交（后端整体替换 + 校验）
+        custom_mirrors: customMirrors,
         custom_docker_mirror: customDockerMirror,
         install_volume: installVolume,
         auto_update: autoUpdate,
@@ -1576,7 +1585,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const githubSelectOptions = mirrorOptions.filter((opt) => opt.key !== 'direct');
+  // 2026-10-28 私人补丁：内置选项 + 用户自定义源（key 以 custom- 开头）
+  const githubSelectOptions = [
+    ...mirrorOptions.filter((opt) => opt.key !== 'direct' && opt.key !== 'custom'),
+    ...customMirrors.map((m, i) => ({ key: m.key || `custom-${i + 1}`, label: m.label, url: m.url, description: '' })),
+    ...mirrorOptions.filter((opt) => opt.key === 'custom'),
+  ];
   const dockerSelectOptions = dockerMirrorOptions.filter((opt) => opt.key !== 'direct');
 
   const mirrorLabel = (key: string) =>
@@ -2046,6 +2060,22 @@ mdsSim && "mds-sim")}>
                             onChange={(e) => setCustomGithubMirror(e.target.value)}
                           />
                         )}
+                        {/* 2026-10-28 私人补丁：自定义加速源管理 */}
+                        <div className="flex items-center justify-between">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => { setCmDraft([...customMirrors]); setCmDialogOpen(true); }}
+                          >
+                            管理自定义加速源{customMirrors.length > 0 ? `（${customMirrors.length}）` : ''}
+                          </Button>
+                          {mirror.startsWith('custom-') && (
+                            <span className="text-xs text-muted-foreground">
+                              {mirrorLabel(mirror)}已选用
+                            </span>
+                          )}
+                        </div>
                       </>
                     )}
                     <p className="text-xs text-muted-foreground">
@@ -2066,6 +2096,92 @@ mdsSim && "mds-sim")}>
                       includeDirect={{ value: mirrorIncludeDirect, onChange: setMirrorIncludeDirect }}
                     />
                   </div>
+
+                  {/* 2026-10-28 私人补丁：自定义加速源管理弹窗 */}
+                  <Dialog open={cmDialogOpen} onOpenChange={setCmDialogOpen}>
+                    <DialogContent className="max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>管理自定义 GitHub 加速源</DialogTitle>
+                        <DialogDescription>
+                          自定义源与内置源合并显示在下拉框中，可参与测速与智能选源。地址必须是 https。
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {cmDraft.length === 0 && (
+                          <p className="text-sm text-muted-foreground py-4 text-center">
+                            还没有自定义加速源，点下方按钮添加。
+                          </p>
+                        )}
+                        {cmDraft.map((m, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <Input
+                              className="w-36 shrink-0"
+                              placeholder="名称"
+                              value={m.label}
+                              onChange={(e) => {
+                                const next = [...cmDraft];
+                                next[i] = { ...next[i], label: e.target.value };
+                                setCmDraft(next);
+                              }}
+                            />
+                            <Input
+                              className="flex-1"
+                              placeholder="https://mirror.example.com/"
+                              value={m.url}
+                              onChange={(e) => {
+                                const next = [...cmDraft];
+                                next[i] = { ...next[i], url: e.target.value };
+                                setCmDraft(next);
+                              }}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => setCmDraft(cmDraft.filter((_, j) => j !== i))}
+                              aria-label={`删除 ${m.label || '第' + (i + 1) + '条'}`}
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={cmDraft.length >= 20}
+                          onClick={() => setCmDraft([...cmDraft, { label: '', url: '' }])}
+                        >
+                          + 添加一条
+                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => setCmDialogOpen(false)}>
+                            取消
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              const clean = cmDraft
+                                .map((m, i) => ({ key: m.key || `custom-${i + 1}`, label: m.label.trim() || `自定义源 ${i + 1}`, url: m.url.trim() }))
+                                .filter((m) => m.url !== '');
+                              try {
+                                await updateSettings({ custom_mirrors: clean });
+                                setCustomMirrors(clean);
+                                setCmDialogOpen(false);
+                                toast.success(`自定义加速源已保存（${clean.length} 条）`);
+                                void refreshHealth();
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : '保存失败');
+                              }
+                            }}
+                          >
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
 
                   <Separator />
 
