@@ -16,7 +16,7 @@ const effectiveTheme = (
  * App Store 风格主题切换。
  * 基于 next-themes（attribute="class"），持久化到 localStorage（key=theme）。
  *
- * 2026-10-28 私人补丁：三态循环 亮色 → 暗色 → 跟随系统 → 亮色…
+ * 三态循环 亮色 → 暗色 → 跟随系统 → 亮色…
  * （原实现二值翻转，点过一次后 system 档丢失，无法回到跟随系统。）
  * next-themes 本身支持（main.tsx defaultTheme="system" + enableSystem），
  * 这里只是把按钮的语义补齐；跟随系统档图标 = 显示当前解析到的主题 + 小圆点。
