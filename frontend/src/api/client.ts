@@ -676,12 +676,12 @@ export const reloadApps = (onEvent: SSECallback): SSEHandle => {
 
 export interface MirrorOption {
   key: string;
-
-// 2026-10-28 私人补丁：用户自定义加速源
-export interface CustomMirrorInput { key?: string; label: string; url: string }
   label: string;
   description: string;
 }
+
+// 2026-10-28 私人补丁：用户自定义加速源
+export interface CustomMirrorInput { key?: string; label: string; url: string }
 
 export interface VolumeOption {
   index: number;
@@ -826,6 +826,7 @@ export interface MirrorStat {
   error?: string;
   last_check: string;
   consec_fails: number;
+  resume_ok?: boolean;
 }
 
 export interface MirrorSwitchInfo {

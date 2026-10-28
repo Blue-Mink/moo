@@ -186,6 +186,8 @@ const MirrorHealthPanel: React.FC<{
         consec_fails: st?.consec_fails || 0,
         // 0.6.321 F6：失败原因短语透传（下方第二行展示）
         error: st?.error || '',
+        // 2026-10-28 私人补丁：续传深测结论透传（徽标用）
+        resume_ok: st?.resume_ok,
       };
     });
     // 0.6.321r4：按测速自动排序（用户指令，GitHub/Docker 两组共用本面板）——
@@ -302,7 +304,7 @@ const MirrorHealthPanel: React.FC<{
               ? (speedNote ?? '测速结果仅供参考：实际镜像拉取由系统 Docker 守护进程按系统级镜像源配置执行。')
               : (showSpeed
                 ? (speedNote ?? '对 FPK 下载、应用列表图标、README/预览图生效：手选源优先，手选源失效后自动切换智能优选（实测各源速度差可达百倍）。后台按右侧间隔自动测速。')
-                : '按健康状态自动优选加速源，手选源失效后自动切换。')}
+                : '按健康状态自动优选加速源，手选源失效后自动切换。标有「续传✓」的源已通过断流续传深测。')}
             {health?.selected === 'auto' && !referenceOnly && '当前为智能模式（自动选最快稳定源）。'}
           </p>
           {!referenceOnly && health?.last_switch && (
@@ -336,6 +338,15 @@ const MirrorHealthPanel: React.FC<{
                 />
                 <span className="flex-1 min-w-0 flex items-center gap-1.5">
                   <span className="truncate">{row.label}</span>
+                  {/* 2026-10-28 私人补丁：续传深测通过徽标 */}
+                  {row.status === 'ok' && row.resume_ok === true && (
+                    <span
+                      className="ml-1 shrink-0 rounded bg-sky-500/15 px-1 text-[10px] font-medium text-sky-600 dark:text-sky-400"
+                      title="续传深测通过：断流后可完整续传取回"
+                    >
+                      续传✓
+                    </span>
+                  )}
                   {row.key === health?.active && (
                     <span className="shrink-0 rounded-full bg-primary/10 px-1.5 h-4 flex items-center text-[10px] font-medium text-primary">
                       {referenceOnly ? '最快' : '当前'}
