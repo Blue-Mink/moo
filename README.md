@@ -5,7 +5,7 @@
 <h1 align="center">For fnOS<br/>Moo is more</h1>
 
 <p align="center">
-  在飞牛 NAS 上装一个第三方应用中心，800+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
+  在飞牛 NAS 上装一个第三方应用中心，2900+ 应用浏览 / 安装 / 更新 / 下载，通知推送开箱即用
 </p>
 
 <p align="center">
@@ -77,27 +77,6 @@
 
 这也是协议的最小可用示例源；字段规范、多版本与 `packages` 结构、版本比较规则见 [docs/Moo应用源协议.md](docs/Moo应用源协议.md)。
 
-## Moo Mate（伴侣工具）
-
-把第三方 GitHub 仓库里的 FPK 应用变成 Moo 可装源，免上传 GitHub：贴链接 → 自动发现 → 一键加源。
-
-安装（任选其一）：
-
-- **Moo 商店**：Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜「Moo Mate」安装
-- **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate
-- **手动**：下载 `moo-mate_0.2.31_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
-
-用法三步：粘贴仓库链接 → 确认发现的应用并生成索引 → 一键加源到本机 Moo。
-
-| 项 | 值 |
-| --- | --- |
-| 端口 | `38108`（仅本机回环，经面板网关访问） |
-| 平台 | x86 / arm |
-| 自更新 | 无（升级重装 FPK，数据保留） |
-| GitHub Token | 自动复用本机 Moo 的设置，伴侣侧无需填写 |
-
-功能与使用细节见 [cmd/moo-mate/README.md](cmd/moo-mate/README.md)。
-
 ## 为什么这样设计
 
 | 能力 | 说明 |
@@ -135,6 +114,7 @@
 | 官方源 OAuth 端口 | 官方源 OAuth 授权登录适配自定义面板端口，改端口无需重启；脚本同步镜像仓按内容指纹识别归上游（0.6.349→351） |
 | 备份与缓存 | 配置快照一键备份 / 周期自动备份；已下载 FPK 缓存自动清理 |
 | 下载中心 | aria2 高速下载 + 断点续传，任务状态全透明、可暂停 / 删除 |
+| 近期 UI 打磨 | 详情页动作列竖排、卡面与详情页 ⋯ 菜单同源（含「下载 / 安装本地包」）、设置页与分类行间距收拢、日志页展开按钮位置固定、详情页状态文案与 `</br>` 描述显示修复（0.6.358→369） |
 
 ## 工作原理
 
@@ -208,6 +188,27 @@ go test ./...     # 单元测试
 > 其余四项随本仓库分发（见 [`skills/`](skills/)），「下载」列为对应资源的单独压缩包（保持原目录结构）。
 
 📦 **[下载「文档与技能」压缩包](downloads/moo-docs-skills.zip)**（约 200 KB）——打包 `应用介绍.md`、`docs/` 下全部 Markdown（API / 应用源协议 / AGENTS / 设计记录）与四个随仓库分发的 Agent Skill（`skills/moo`、`skills/fpk-build-to-moo`、`skills/ai`、`skills/moo-app-security-audit`），解压后把 `skills/` 下的目录放进工作区即可被 Agent 识别；配图不打包，见仓库 [`docs/`](docs/)。
+
+## 相关项目：Moo Mate（伴侣工具）
+
+把第三方 GitHub 仓库里的 FPK 应用变成 Moo 可装源，免上传 GitHub：贴链接 → 自动发现 → 一键加源。
+
+安装（任选其一）：
+
+- **Moo 商店**：Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜「Moo Mate」安装
+- **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate
+- **手动**：下载 `moo-mate_0.2.31_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
+
+用法三步：粘贴仓库链接 → 确认发现的应用并生成索引 → 一键加源到本机 Moo。
+
+| 项 | 值 |
+| --- | --- |
+| 端口 | `38108`（仅本机回环，经面板网关访问） |
+| 平台 | x86 / arm |
+| 自更新 | 无（升级重装 FPK，数据保留） |
+| GitHub Token | 自动复用本机 Moo 的设置，伴侣侧无需填写 |
+
+功能与使用细节见 [cmd/moo-mate/README.md](cmd/moo-mate/README.md)。
 
 ## 📄 许可证
 
