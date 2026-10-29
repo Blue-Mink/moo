@@ -57,27 +57,9 @@
        "sha256": "427d83be201464f133976eeb4d3cecd5d69899910cafd1610eaa399d20ce1378"
       }
      }
-    },
-    "0.6.352": {
-     "updated_at": "2026-10-20T19:35:00+08:00",
-     "changelog": "修复应用详情页架构显示：源同时提供顶层单链接与多架构包时，正确显示全部架构（x86 / arm）",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.352/moo_0.6.352_x86.fpk",
-       "size": 5155868,
-       "size_mb": 4.9,
-       "sha256": "6195f04156df69317fbdf6ce57470575abff90ba3e86472bc362cc967afb313f"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.352/moo_0.6.352_arm.fpk",
-       "size": 4693688,
-       "size_mb": 4.5,
-       "sha256": "122af50843172986cffbedf76dc3b7003643d58e0e515d0fd9acf24b20e6ce00"
-      }
-     }
     }
    },
-   "sha256": "2e304765f190af2fce5b105ff051da91cd6c416ae1c415471b427b505492cd17",
+   "sha256": "8d8e117ba8e74539028f9e8e29520ea726b1c024012e32a39cc5d00c794e5873",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -89,13 +71,13 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-28T10:30:00+08:00",
+   "updated_at": "2026-10-29T12:10:44+08:00",
    "version": "0.6.369",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_x86.fpk",
-   "size": 5164516,
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.369/moo_0.6.369_x86.fpk",
+   "size": 5167643,
    "service_port": "38100",
    "size_mb": 4.9,
-   "changelog": ""
+   "changelog": "修复了一些 UI 问题。"
   },
   "moo-mate": {
    "display_name": "Moo Mate",
