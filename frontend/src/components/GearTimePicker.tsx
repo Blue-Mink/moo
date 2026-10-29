@@ -3,13 +3,18 @@ import { cn } from '@/lib/utils';
 
 /**
  * GearTimePicker — 苹果时钟齿轮式时间选择框（0.6.148 加速源测速间隔）：
- * 两列纵向 snap 滚轮（时 0-23 / 分 0-59）+ 中心高亮带 + 上下渐隐遮罩。
- * 交互：滚轮惯性滚动吸附到行；中心行加亮加粗；下方小字单位。
+ * 两列纵向 snap 滚轮（时 0-23 / 分 0-59）+ 高亮格。
+ * 交互：滚轮惯性滚动吸附到行；当前行加亮加粗；下方小字单位。
+ *
+ * 0.6.358（用户令）：「上下两格不要，只留中间那一格」——可见高度从 3 行(72px)
+ * 收到 1 行(24px)，即高亮格本身；齿轮样式沿用 Moo 原样式（圆角描边 + 淡蓝高亮底），
+ * 不改滚轮交互与数值映射。上下渐隐遮罩随之删除（单格时它会把整格糊掉）。
  */
 
-const ITEM_H = 24; // 每行高度（h-6）
-const VISIBLE = 3; // 可见行数
-const BOX_H = ITEM_H * VISIBLE;
+// 0.6.358：单格视口的内高必须正好等于一行 —— 外框有 1px 描边，故
+//   行高 22 + 上下描边 2 = 外框 24（与左列 24px 带同高，行不会被裁 2px）。
+const ITEM_H = 22;
+const BOX_H = ITEM_H + 2; // 外框：1px 描边 ×2 + 单行
 
 interface GearColumnProps {
   value: number;
@@ -83,43 +88,41 @@ function GearColumn({ value, max, unit, label, onChange }: GearColumnProps) {
     <div className="flex flex-col items-center">
       {/* 0.6.149：顶部留白与底部单位小字对称（4px gap + 10px 单位 = 14px），
           使滚轮中心与组件中心重合——头部行 items-center 时对齐轴即滚轮中心线，
-          与标题/手动刷新/折叠按钮平齐在一条直线上 */}
+          与标题/手动刷新/折叠按钮平齐在一条直线上（0.6.358 单格后仍成立：
+          14 + 24/2 = 26 = 52/2） */}
       <div className="h-3.5" aria-hidden />
       <div
         className="relative overflow-hidden rounded-lg border border-border/30 bg-muted/40"
         style={{ width: 40, height: BOX_H }}
       >
-        {/* 苹果式中心高亮带 */}
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-6 -translate-y-1/2 rounded-md border border-primary/25 bg-primary/10" />
-        {/* 上下渐隐遮罩（滚轮感） */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-gradient-to-b from-card to-transparent" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-5 bg-gradient-to-t from-card to-transparent" />
+        {/* 0.6.358：只留中间那一格 —— 高亮带现在等于整格（沿用原中心带配色，
+            不换样式）；原上下渐隐遮罩已随多行一起删除 */}
+        <div className="pointer-events-none absolute inset-0 z-10 rounded-lg border border-primary/25 bg-primary/10" />
         <div
           ref={ref}
           onScroll={onScroll}
           role="listbox"
           aria-label={label}
-          className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="relative h-full snap-y snap-mandatory overflow-y-auto overscroll-contain outline-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {/* 0.6.151：顶垫补 snap-start——scrollTop=0（值 0 居中）必须是合法吸附点，
-              否则 snap-mandatory 在滚到顶时回弹到 24px（值 1），0 永远设不上；
-              外部同步 scrollTop=0（如 0h5m 加载）同样会被弹走造成显示/状态不一致 */}
-          <div style={{ height: ITEM_H }} className="snap-start" aria-hidden />
+          {/* 0.6.358：去掉原首尾各一行垫片 —— 单格视口下 scrollTop = value*ITEM_H
+              正好让该行铺满整格（原垫片是「让第 i 行落在 72px 视口中央」用的，
+              单格时反而会把 0 顶出视口） */}
           {Array.from({ length: max + 1 }, (_, i) => (
             <div
               key={i}
               role="option"
               aria-selected={i === value}
               onClick={() => scrollToValue(i)}
+              style={{ height: ITEM_H }}
               className={cn(
-                'flex h-6 cursor-pointer snap-start items-center justify-center text-[13px] tabular-nums',
+                'flex cursor-pointer snap-start items-center justify-center text-[13px] tabular-nums',
                 i === value ? 'font-semibold text-foreground' : 'text-muted-foreground/50'
               )}
             >
               {i}
             </div>
           ))}
-          <div style={{ height: ITEM_H }} aria-hidden />
         </div>
       </div>
       <span className="mt-1 text-[10px] leading-none text-muted-foreground">{unit}</span>

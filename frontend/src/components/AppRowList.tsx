@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { AppInfo, AppOperation } from '../api/client';
-import { availableVersionLabel, installedVersionLabel, appWebUrl, appDownloadLabel, sourceLabel, effectiveMaintainer, descriptionPlainText } from '../api/client';
+import { availableVersionLabel, installedVersionLabel, appWebUrl, appDownloadLabel, sourceLabel, effectiveMaintainer, descriptionPlainText, hasActiveUpdate } from '../api/client';
 import { cn, formatSpeed, formatProgress } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
-  Download, Package, X, BellOff, Globe, User, Check, Star, Play, Loader2,
+  Download, Package, X, BellOff, Globe, User, Check, Star,
 } from 'lucide-react';
 import { CheckCircle2, RefreshCw as UpdateIcon, Search } from 'lucide-react';
 // 0.6.342：已停止/启动中 的列表口径（与桌面卡、极简/极光网格共用）
@@ -13,6 +13,7 @@ import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRu
 import { centerAppRow } from '@/lib/jumpToApp';
 import AppIcon from './AppIcon';
 import { DockerIcon } from './DockerIcon';
+import AppRowActions from './AppRowActions';
 
 interface AppRowListProps {
   apps: AppInfo[];
@@ -42,6 +43,12 @@ interface AppRowListProps {
   onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
   /** 正在执行启停操作的应用名（按钮转圈） */
   controlling?: string | null;
+  /** 0.6.365（用户令）：行内 ⋯ 菜单的次要动作（与桌面卡面/详情页同一套） */
+  onUninstall?: (app: AppInfo) => void;
+  onIgnoreUpdate?: (app: AppInfo) => void;
+  onUnignoreUpdate?: (app: AppInfo) => void;
+  /** 行内 ⋯ 「安装本地包」完成后刷新目录与缓存计数 */
+  onInstallDone?: () => void;
 }
 
 // 渐进渲染批量：首批只渲染这么多行，滚动接近底部再追加（同 AppList）。
@@ -57,6 +64,7 @@ const PAGE_SIZE = 48;
  */
 const AppRowList: React.FC<AppRowListProps> = ({
   apps, onInstall, onUpdate, onDetail, onCancelOp, appOperations, searchQuery, filterType, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, highlightKey, onControl, controlling,
+  onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstallDone,
 }) => {
   // 渐进渲染（与 AppCard 网格同款）：1624 行一次性挂载 + 每次交互全量
   // reconcile 是移动端「触屏反馈慢」的根因（实测点击→详情 356ms vs
@@ -125,7 +133,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
       {shown.map((app, i) => {
         const operation = appOperations?.get(app.appname);
         const isInstalled = app.installed;
-        const canUpdate = isInstalled && app.has_update;
+        // 0.6.363（用户定稿）：只认「有效更新」（未忽略）
+        const canUpdate = hasActiveUpdate(app);
         const downloadLabel = appDownloadLabel(app);
         // "打开"目标：daemon appServiceInfo；无 Web 入口的应用不渲染按钮
         const openUrl = isInstalled ? appWebUrl(app) : null;
@@ -151,6 +160,11 @@ const AppRowList: React.FC<AppRowListProps> = ({
             className={cn(
               // 0.6.301：touch-manipulation = iOS 在卡面不消费双击缩放手势
               "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50 touch-manipulation",
+              // 0.6.368：右侧动作列内容高 104（收藏 24 + gap 12 + 主操作 28 +
+              // gap 12 + 更多 28），短行（无简介/无徽章，实测 129px）内容区只有
+              // 97 → 三钮被挤压、上下各溢出 3~4px，星标与相邻行不在同一水平线。
+              // 补最小行高 = 104 + p-4×2 = 136，保证动作列完整落进内容区。
+              "min-h-[136px]",
               i > 0 && "border-t border-border/40",
               // 321R7 B：「查看」定位高亮（~2.5s，父组件清除 highlightKey 后自动消失）
               highlightIdx === i && "bg-primary/10 ring-1 ring-inset ring-primary/40"
@@ -326,79 +340,47 @@ const AppRowList: React.FC<AppRowListProps> = ({
 
             {/* 右侧操作（0.6.287 用户定稿：「更新」药丸恢复——有更新就要第一时间
                 看到「更新」两个字，不能撤；启停/卸载仍不进卡面）。
-                安装/打开=主色药丸，更新=描边主色药丸。药丸在行内垂直居中（原位不挪）；
-                收藏星标绝对定位——与应用名（标题）同一行（top-0 = 行内容顶边）、
-                水平居中于药丸列；药丸隐藏时星标贴右缘 */}
-            <div className="relative shrink-0 self-stretch flex items-center" onClick={e => e.stopPropagation()}>
-              {!operation && (!isInstalled ? (
+                安装/打开=主色药丸，更新=描边主色药丸。
+                0.6.367（用户令）：收藏星标不再 absolute 贴顶/贴右——交给
+                AppRowActions 与「主操作 / ⋯」排成同一竖列、三处间距一致，
+                无主操作（工具类）的行星标不再比有「打开」的行右移 18px。 */}
+            <div className="shrink-0 self-stretch flex items-center" onClick={e => e.stopPropagation()}>
+              {/* 0.6.365（用户令）：移动端行右侧动作列 = 主操作 + ⋯（次要动作/下载），
+                  无主操作时 ⋯ 顶到「打开」按钮的位置（与桌面卡面同一规则） */}
+              <AppRowActions
+                favorite={onToggleFavorite ? (
                   <button
-                    onClick={() => onInstall(app)}
-                    // 0.6.307：安装/打开=选中胶囊同款浅蓝玻璃
-                    className="pill bg-primary/15 text-primary border border-primary/40 h-7 px-4 text-[13px] font-semibold active:opacity-80"
+                    onClick={() => onToggleFavorite(app)}
+                    className={cn(
+                      "p-1 rounded-full transition-colors focus:outline-none focus-visible:outline-none", /* 0.6.146 星标去焦点环（触屏点按留常驻圆环） */
+                      favoriteSet?.has(app.key || app.appname) ? "text-amber-500" : "text-muted-foreground/50 hover:text-amber-500" /* 0.6.128 去圆圈底（hover 在触屏卡住会留常驻圆圈） */
+                    )}
+                    title={favoriteSet?.has(app.key || app.appname) ? '取消收藏' : '收藏'}
+                    aria-label={favoriteSet?.has(app.key || app.appname) ? `取消收藏 ${app.display_name}` : `收藏 ${app.display_name}`}
+                    aria-pressed={favoriteSet?.has(app.key || app.appname)}
                   >
-                    安装
+                    <Star className={cn("h-4 w-4", favoriteSet?.has(app.key || app.appname) && "fill-amber-400 text-amber-500")} />
                   </button>
-                ) : canUpdate ? (
-                  <button
-                    onClick={() => onUpdate(app)}
-                    disabled={!upgradeAllowed}
-                    title={upgradeAllowed ? undefined : '当前 fnOS 版本的更新通道会删除应用数据，请在系统应用中心手动安装 fpk'}
-                    // 0.6.307：更新=选中胶囊同款（补浅蓝底，描边 50→40 对齐）
-                    className="pill h-7 px-3.5 text-[13px] font-semibold border border-primary/40 bg-primary/15 text-primary active:bg-primary/25 disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
-                  >
-                    {upgradeAllowed ? '更新' : '需手动'}
-                  </button>
-                ) : controlBusy ? (
-                  // 启动中 / 停用中：禁用态转圈，避免重复下发启停指令
-                  <button
-                    disabled
-                    aria-label={app.status === 'starting' ? '启动中' : '停用中'}
-                    className="pill h-7 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground inline-flex items-center gap-1"
-                  >
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {app.status === 'starting' ? '启动中' : '停用中'}
-                  </button>
-                ) : canStart ? (
-                  // 0.6.342（用户令）：已停止 → 置灰「启动」按钮，点击直接启动
-                  <button
-                    onClick={() => onControl?.(app, 'start')}
-                    disabled={controlling === app.appname}
-                    aria-label={`启动 ${app.display_name}`}
-                    title={`「${app.display_name}」已停止，点击启动`}
-                    className="pill h-7 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground active:bg-muted disabled:opacity-60 inline-flex items-center gap-1"
-                  >
-                    {controlling === app.appname
-                      ? <Loader2 className="h-3 w-3 animate-spin" />
-                      : <Play className="h-3 w-3 fill-current" />}
-                    启动
-                  </button>
-                ) : canOpen ? (
-                  <button
-                    onClick={() => onOpenApp(app)}
-                    aria-label={`打开 ${app.display_name}`}
-                    // 0.6.307：打开=选中胶囊同款浅蓝玻璃
-                    className="pill bg-primary/15 text-primary border border-primary/40 h-7 px-4 text-[13px] font-semibold active:opacity-80"
-                  >
-                    打开
-                  </button>
-                ) : null)}
-              {onToggleFavorite && (
-                <button
-                  onClick={() => onToggleFavorite(app)}
-                  className={cn(
-                    "absolute top-0 p-1 rounded-full transition-colors focus:outline-none focus-visible:outline-none", /* 0.6.146 星标去焦点环（触屏点按留常驻圆环） */
-                    !operation && (!isInstalled || canUpdate || controlBusy || canStart || canOpen)
-                      ? "left-1/2 -translate-x-1/2"
-                      : "right-0",
-                    favoriteSet?.has(app.key || app.appname) ? "text-amber-500" : "text-muted-foreground/50 hover:text-amber-500" /* 0.6.128 去圆圈底（hover 在触屏卡住会留常驻圆圈） */
-                  )}
-                  title={favoriteSet?.has(app.key || app.appname) ? '取消收藏' : '收藏'}
-                  aria-label={favoriteSet?.has(app.key || app.appname) ? `取消收藏 ${app.display_name}` : `收藏 ${app.display_name}`}
-                  aria-pressed={favoriteSet?.has(app.key || app.appname)}
-                >
-                  <Star className={cn("h-4 w-4", favoriteSet?.has(app.key || app.appname) && "fill-amber-400 text-amber-500")} />
-                </button>
-              )}
+                ) : undefined}
+                app={app}
+                operation={operation}
+                isInstalled={isInstalled}
+                canUpdate={canUpdate}
+                canOpen={canOpen}
+                canStart={canStart}
+                controlBusy={controlBusy}
+                upgradeAllowed={upgradeAllowed}
+                controlling={controlling}
+                onInstall={onInstall}
+                onUpdate={onUpdate}
+                onOpenApp={onOpenApp}
+                onControl={onControl}
+                onDetail={onDetail}
+                onUninstall={onUninstall}
+                onIgnoreUpdate={onIgnoreUpdate}
+                onUnignoreUpdate={onUnignoreUpdate}
+                onInstallDone={onInstallDone}
+              />
             </div>
           </div>
         );

@@ -1,4 +1,4 @@
 {
- "version": "0.6.355",
- "changelog": "arm 设备支持应用内自更新（按 CPU 架构自动选 x86 / arm 安装包）；应用卡片与详情页去掉「发布：」文字前缀，分发者徽章只显示名字；Moo Mate 自动复用本机 Moo 的 GitHub Token，伴侣侧不再单独配置；修复应用溯源误判：聚合索引源（如 moo-mate）不再被当作上游打包者。"
+ "version": "0.6.369",
+ "changelog": "修复了一些 UI 问题。"
 }

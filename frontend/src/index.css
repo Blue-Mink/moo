@@ -368,9 +368,16 @@ section[aria-label="Notifications alt+T"] [data-sonner-toast] {
   display: none;
 }
 @media (pointer: fine) {
+  /* 0.6.358（用户实报：「横向滑条和上面那一排胶囊按钮挨得太紧」）：
+     槽高 10→12，滑块用上内边框 7px（下 1 / 左右 2.5）把可视条压到槽底 →
+     胶囊底到滑块顶留 7px 视觉间距，滑块可视 4px。只多占 2px 头高，
+     不动胶囊位置与「胶囊→卡片」的 17px。 */
   .pill-bar::-webkit-scrollbar {
     display: block;
-    height: 10px;
+    height: 12px;
+  }
+  .pill-bar::-webkit-scrollbar-thumb {
+    border-width: 7px 2.5px 1px;
   }
 }
 @supports (-moz-appearance: none) {

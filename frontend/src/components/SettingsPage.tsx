@@ -223,25 +223,25 @@ const MirrorHealthPanel: React.FC<{
           ⚠ 若 border/py-3/齿轮顶部留白任一改动，此值需同步）。
           标题原位置（滚轮中心线）改「自动监测间隔」字样（0.6.152 定稿：与标题
           同大小 13px，左区水平居中；0.6.150 的 11px 左对齐已废弃）。
-          左列 14+72+14=100px 与 GearTimePicker 列同构：中 72px 带=滚轮同高
-          （小字中心=滚轮中心线，与刷新/折叠按钮平齐，0.6.149 对齐保持） */}
+          左列 14+24+14=52px 与 GearTimePicker 列同构：中 24px 格=滚轮同高
+          （小字中心=齿轮中心线，与刷新/折叠按钮平齐，0.6.149 对齐保持；
+          0.6.358 齿轮由 72px 三行收到 24px 单格，故此处 72→24、卡片头随之矮 48px） */}
       <span className="absolute left-[13px] top-[13.5px] -translate-y-1/2 max-w-[180px] truncate text-[13px] font-medium">
         {title}
       </span>
       <div className="flex items-center justify-between mb-1 gap-2">
         <div className="flex min-w-0 flex-1 flex-col items-start">
           <div className="h-3.5 shrink-0" aria-hidden />
-          {/* 0.6.152（用户定稿）：小字与标题同大小（13px），并在齿轮左侧空余区域
-              水平居中（原 11px 左对齐废弃）。
-              0.6.153（用户定稿）：「0h0m=5m」放在「自动监测间隔」下方、水平居中，
-              并下移与右侧「时/分」单位行平齐（实测单位行比 +14px 位低 26px →
-              +40px，两卡均验）；齿轮选择框本身不动（恢复 0.6.152 原样），
-              标签中心线位置保持 0.6.152 不变（与滚轮中心线平齐） */}
-          <div className="relative flex h-[72px] w-full min-w-0 shrink-0 items-center justify-center">
+          {/* 0.6.358（用户令：齿轮只留中间一格）：左列与齿轮列重新同构
+              14 + 24 + 14 = 52px——中段 24px 与高亮格同高（标签中心线 = 齿轮中心线），
+              原「绝对定位 top:50%+40px」的 0h0m=5m 改为底部 14px 带内贴底居中，
+              与右侧「时/分」单位行落在同一条基线（原 72px 滚轮时的 +40px 手写偏移作废）。 */}
+          <div className="relative flex h-6 w-full min-w-0 shrink-0 items-center justify-center">
             <span className="text-[13px] font-medium text-muted-foreground">自动监测间隔</span>
-            <span className="absolute left-1/2 top-[calc(50%+40px)] -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground/80">0h0m=5m</span>
           </div>
-          <div className="h-3.5 shrink-0" aria-hidden />
+          <div className="flex h-3.5 w-full min-w-0 shrink-0 items-end justify-center">
+            <span className="whitespace-nowrap text-[10px] leading-none text-muted-foreground/80">0h0m=5m</span>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {/* 0.6.148：自动测速间隔（苹果时钟齿轮式：时 0-23 / 分 0-59），
@@ -448,7 +448,7 @@ const AboutTab: React.FC = () => {
   }, [entries, info]);
 
   return (
-    <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
+    <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
       {/* 应用信息 */}
       <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3.5">
         <div className="flex items-center gap-3.5">
@@ -1377,11 +1377,58 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const githubEnabled = mirror !== 'direct';
   const dockerEnabled = dockerMirror !== 'direct';
 
+  /* ── 0.6.364（用户令）：「保存」按钮默认不出现 ────────────────────────
+     原行为：除「关于」「日志」外，每个 tab 底部恒定挂一条全宽「保存」胶囊
+     ——用户看着像一条常驻蓝条。现改为「只有改过当前 tab 的设置才浮出」：
+     把 handleSave 真正提交的 21 个字段序列化成快照，与「已保存基线」比较；
+     基线在①每次打开对话框、数据加载完成后 ②点过保存成功后 重新记录。
+     不纳入：Dock/设置 tab 排序（拖拽落位即时落库）、FPK 目录切换（即时
+     生效）、源管理（子组件自理）、通知设置（子组件即时保存）。
+     归一化与 handleSave 提交值保持一致（天数钳制 1-30、代理地址 trim），
+     否则「保存后按钮仍不消失」。 */
+  const formSnapshot = JSON.stringify({
+    interval,
+    mirror,
+    mirrorIncludeDirect,
+    dockerMirror,
+    customGithubMirror,
+    customDockerMirror,
+    installVolume,
+    autoUpdate,
+    updatePolicy,
+    backupDir,
+    backupAuto,
+    backupIntervalDays: String(parseDays(backupIntervalDays, 7)),
+    cacheCleanOn,
+    cacheCleanDays: cacheCleanOn ? String(parseDays(cacheCleanDays, 7)) : '0',
+    cacheCleanEveryDays: String(parseDays(cacheCleanEveryDays, 1)),
+    ghProbeH,
+    ghProbeM,
+    dkProbeH,
+    dkProbeM,
+    proxyEnabled,
+    proxyUrl: proxyUrl.trim(),
+  });
+  const formBaselineRef = useRef<string | null>(null);
+  const [formDirty, setFormDirty] = useState(false);
+  useEffect(() => {
+    if (!open || loading) return;
+    if (formBaselineRef.current === null) {
+      formBaselineRef.current = formSnapshot;
+      setFormDirty(false);
+      return;
+    }
+    setFormDirty(formSnapshot !== formBaselineRef.current);
+  }, [open, loading, formSnapshot]);
+
   // 每次打开重置状态并拉取数据
   useEffect(() => {
     if (!open) return;
     // 0.6.282：深链恢复时落回 URL 指定的 tab，其余情况仍默认「系统设置」
     setTab(initialTab && TABS.some(t => t.key === initialTab) ? (initialTab as SettingsTab) : 'system');
+    // 0.6.364：重开对话框 → 丢弃上轮基线，加载完成后再记录（见 formSnapshot effect）
+    formBaselineRef.current = null;
+    setFormDirty(false);
     setLoading(true);
     setGhLatency(new Map());
     setDkLatency(new Map());
@@ -1534,6 +1581,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         proxy_url: proxyUrl.trim(),
       });
       toast.success('设置已保存');
+      // 0.6.364：保存成功 → 当前表单成为新基线，底部「保存」随即收起
+      formBaselineRef.current = formSnapshot;
+      setFormDirty(false);
       loadFpkDir();
       setFpkRefreshSignal((n) => n + 1); // 列表段（FpkDownloads）重拉
       // 0.6.312：更新策略变化 → 目录里每张卡的 has_update/候选源按新策略重算，
@@ -1739,11 +1789,14 @@ mdsSim && "mds-sim")}>
 
           {/* 内容区
               0.6.319g：滚动框贯穿到对话框最底（保存 dock 不再占 flex 段），
-              paddingBottom=dock 实测高度——文字滚到底正好停在按钮上方。 */}
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain pt-3"
+              paddingBottom=dock 实测高度——文字滚到底正好停在按钮上方。
+              0.6.358（用户实报「设置页卡片和顶部 tab 胶囊间距太大」）：滚动框原 pt-3
+              叠加各 tab 自己的 py 让桌面 32 / 移动 28，现由各 tab 的 py-4(py-4 桌面同款)
+              独占 16px——tab 胶囊底到首卡顶统一 16px，与卡片间距齐平。 */}
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain"
             style={saveDockH > 0 ? { paddingBottom: saveDockH } : undefined}>
             {tab === 'backup' ? (
-              <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
+              <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
                 {/* 设置备份 */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -1978,7 +2031,7 @@ mdsSim && "mds-sim")}>
                 </div>
               </div>
             ) : tab === 'source' ? (
-              <div className="px-3 py-4 sm:px-6 sm:py-5">
+              <div className="px-3 py-4 sm:px-6 sm:py-4">
                 <SourceManager onCatalogChanged={onCatalogChanged} saveCounter={saveCounter} />
               </div>
             ) : tab === 'accel' ? (
@@ -1987,7 +2040,7 @@ mdsSim && "mds-sim")}>
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
+                <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
                 {/* 下载加速 */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-5">
                   <div className="space-y-3">
@@ -2335,7 +2388,7 @@ mdsSim && "mds-sim")}>
             ) : tab === 'about' ? (
               <AboutTab />
             ) : (
-              <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
+              <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
                 {/* Dock 栏排序（0.6.122）：移动端底部主导航，长按进入拖动；
                     头部「恢复默认 + 折叠」与「应用源列表」同款（默认折叠，持久化） */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
@@ -2874,8 +2927,10 @@ mdsSim && "mds-sim")}>
                  收起键盘随视口扩张连续滑回、无跳变。
               外框与内容卡片同宽（px-3 / sm:px-6）。 */}
           {/* 0.6.343：日志 tab 不显示底部「保存」——该页没有待保存项（行数选择即时
-              落库），此前悬浮胶囊会压在日志列表最后一行上（用户报「日志页面很乱」）。 */}
-          {tab !== 'about' && tab !== 'log' && !kbDockHidden && (
+              落库），此前悬浮胶囊会压在日志列表最后一行上（用户报「日志页面很乱」）。
+              0.6.364（用户令）：默认不显示——只有当前表单改过（formDirty）才浮出；
+              通知 tab 的设置是子组件逐项即时保存，父级无待提交项，一并排除。 */}
+          {tab !== 'about' && tab !== 'log' && tab !== 'notify' && formDirty && !kbDockHidden && (
             // 0.6.319g（用户定稿）：absolute 悬浮 overlay（与详情页下载胶囊同款）。
             // 内容滚动框贯穿到底，文字从按钮下方滚过（按钮=307 定稿浅蓝玻璃
             // 半透）；按钮之外全 pointer-events-none=滚轮/触摸穿透。
@@ -2895,8 +2950,11 @@ mdsSim && "mds-sim")}>
                   0.6.319g（用户定稿）：shadow-lg 底阴影去掉——悬浮感改由内容
                   从按钮下穿过体现（与详情页下载胶囊逐字同款语言）。 */}
               <div className="pointer-events-auto mx-auto w-full sm:w-72">
+                {/* 0.6.367（用户令）：「保存按钮也不要蓝底色了」——与 0.6.364 的
+                    安装/打开胶囊同款中性药丸（bg-muted/60 + 描边 + 前景字），
+                    去掉默认主色的浅蓝玻璃底。 */}
                 <Button
-                  className="w-full h-11 rounded-2xl"
+                  className="w-full h-11 rounded-2xl bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none"
                   onClick={handleSave}
                   disabled={saving || loading}
                 >

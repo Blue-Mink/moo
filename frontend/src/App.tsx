@@ -2030,7 +2030,10 @@ const App: React.FC = () => {
 
         <header className={cn(
             "hidden md:flex flex-col px-8 sticky top-0 z-10 transition-all duration-300",
-            mainScrolled ? "bg-card/70 backdrop-blur-xl border-b border-border/50 py-2" : "bg-transparent border-b border-transparent py-4"
+            /* 0.6.364（用户定稿 = 方案 C「三段统一 12px」）：原顶部 16 / 两排之间 0 / 底部 16
+               → 顶部 12 + 行间 12 + 底部 12。header 只长 4px（116→120），卡片区几乎不动，
+               搜索框与类别胶囊之间从 1.5px 视觉贴边恢复到 12px 呼吸。 */
+            mainScrolled ? "bg-card/70 backdrop-blur-xl border-b border-border/50 py-2" : "bg-transparent border-b border-transparent pt-3 pb-3"
           )}>
            {/* row1：品牌+大标题 | 搜索+计数 | 三视图+主题+刷新（原顶栏内容，布局不变） */}
            <div className="flex w-full items-center justify-between">
@@ -2167,7 +2170,14 @@ const App: React.FC = () => {
                模式——移动端分类条本就在 sticky 头里）：滚列表时类别常顶，不用回顶换类。
                发现页（recommended）与移动端同款不显示。 */}
            {activeFilter !== 'recommended' && (
-             <div className="flex items-center gap-2">
+             /* 0.6.356 修复（用户实报错位）：本行**必须 items-start**，不能 items-center ——
+                .pill-bar 在 pointer:fine 下有 10px 自定义横向滚动条，滚动条占布局高度
+                （bar 高 42 = 胶囊 32 + 滚动条 10），items-center 会把左侧冻结组（排序/去重）
+                在 42px 里垂直居中 → 比类别胶囊低 5px，肉眼看就是「类别胶囊上移、两胶囊不在
+                一行」。items-start 让两侧都以行顶对齐，有/无滚动条两种情况都严丝合缝
+                （实测 deltaTop: center=5px / start=0px）。冻结功能（左侧 shrink-0 不随
+                横滑移动）不受影响。 */
+             <div className="flex items-start gap-2 mt-3">
                {/* 0.6.312：冻结组——横滑类别时「排序」「去重」两胶囊不随滑条移动（0.6.313 起排序胶囊不显「全部」） */}
                <div className="flex items-center gap-2 shrink-0">
                  {allCategoryPill}
@@ -2194,7 +2204,17 @@ const App: React.FC = () => {
         </header>
 
         {/* 0.6.273：移动端 Dock 改悬浮胶囊（距底 10px+safe），内容底部留白 96→112px */}
-        <main className="flex-grow p-4 pb-28 md:p-8 md:pb-36 overflow-y-auto">
+        {/* 0.6.357（用户实报）：网页端滚到最顶时，分类胶囊行与首排卡片之间空 49px
+            （header 自身 pb 16 + 1px 描边 + main pt 32），是卡片间距 gap-4(16px) 的 3 倍，
+            肉眼就是一条空白带。桌面端把 main 顶部内距归零，只留 header 的 16px 下内距 +
+            1px 描边 ≈ 17px，和卡片上下间距齐平；左右 32 / 底部 36 不动，移动端 p-4 不动
+            （移动端顶栏是另一套，不受影响）。
+            0.6.358（用户实报「发现页面的卡片和顶部的间距没有改」）：发现页同样归零——
+            发现页 header 没有分类胶囊行，顶栏内容底(y≈55) + pb16 + 1px = 17px，与列表页
+            视觉一致；原 md:pt-8 让首屏推荐横幅离顶栏 49px，明显比列表页空。 */}
+        <main className={cn(
+          "flex-grow p-4 pb-28 md:px-8 md:pt-0 md:pb-36 overflow-y-auto"
+        )}>
           {/* 0.6.325 C6（用户令）：「下载」不再是页面 tab——改为顶栏钮+主页上方弹窗（见 fpkListOpen Dialog） */}
           {activeFilter === 'recommended' ? (
             <div className="space-y-10">
@@ -2251,6 +2271,10 @@ const App: React.FC = () => {
                               clickMode={clickMode}
                               onControl={handleControl}
                               controlling={controlling}
+                              /* 0.6.360：收藏卡同样带「⋯ 更多」（卸载/忽略更新） */
+                              onUninstall={handleUninstall}
+                              onIgnoreUpdate={handleIgnoreUpdate}
+                              onUnignoreUpdate={handleUnignoreUpdate}
                             />
                           </Suspense>
                         ))}
@@ -2274,6 +2298,10 @@ const App: React.FC = () => {
                             onToggleFavorite={handleToggleFavorite}
                             onControl={handleControl}
                             controlling={controlling}
+                            /* 0.6.366（用户令）：收藏卡也带 ⋯（忽略更新/启停/下载/卸载） */
+                            onIgnoreUpdate={handleIgnoreUpdate}
+                            onUnignoreUpdate={handleUnignoreUpdate}
+                            onInstallDone={() => { void loadApps(); void refreshFpkCount(); }}
                           />
                           </div>
                         ))}
@@ -2481,6 +2509,12 @@ const App: React.FC = () => {
                    highlightKey={highlightKey}
                    onControl={handleControl}
                    controlling={controlling}
+                   /* 0.6.360（用户定稿）：卡面「⋯ 更多」菜单的次要动作 */
+                   onUninstall={handleUninstall}
+                   onIgnoreUpdate={handleIgnoreUpdate}
+                   onUnignoreUpdate={handleUnignoreUpdate}
+                   /* 0.6.362：卡面装完本地缓存 FPK → 刷新目录与缓存计数 */
+                   onInstallDone={() => { void loadApps(); void refreshFpkCount(); }}
                 />
               ) : (
                 <AppRowList
@@ -2503,6 +2537,11 @@ const App: React.FC = () => {
                   highlightKey={highlightKey}
                   onControl={handleControl}
                   controlling={controlling}
+                  /* 0.6.365（用户令）：移动端行内 ⋯ 菜单的次要动作，与桌面卡面同源 */
+                  onUninstall={handleUninstall}
+                  onIgnoreUpdate={handleIgnoreUpdate}
+                  onUnignoreUpdate={handleUnignoreUpdate}
+                  onInstallDone={() => { void loadApps(); void refreshFpkCount(); }}
                 />
               )}
             </>

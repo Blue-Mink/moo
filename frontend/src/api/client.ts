@@ -193,6 +193,15 @@ export const appDownloadLabel = (app: AppInfo): string | null => {
 export const availableVersionLabel = (app: AppInfo): string =>
   app.available_version || app.latest_version;
 
+/** 0.6.363（用户定稿）：是否存在「有效的」更新——已装 + 有更新 + 未被忽略。
+ *  后端 applyIgnoredUpdates 已把忽略项的 has_update 置假，这里再判一次
+ *  update_ignored 属前端自洽防御：任何视图（卡面/行/详情）都不会在被忽略
+ *  的应用上给出「更新」主操作，与 ⋯ 菜单里的「取消忽略更新」不再自相矛盾。 */
+export const hasActiveUpdate = (
+  app: Pick<AppInfo, 'installed' | 'has_update' | 'update_ignored'>,
+): boolean => !!app.installed && !!app.has_update && !app.update_ignored;
+
+
 /**
  * 已安装应用的"打开"目标 URL（等价于 fnOS 应用中心的"打开"按钮）。
  * daemon 通常不带 host（实测 host 恒为空），此时按当前访问 store 的主机拼接：
@@ -1131,9 +1140,12 @@ export const effectiveMaintainer = (app: AppInfo): string =>
 export const descriptionPlainText = (t: string): string => {
   if (!t) return '';
   let s = t;
-  if (/<[a-z][\s\S]*?>/i.test(s)) {
+  // 0.6.368：此前只在「存在 <字母 开标签」时才去标签——`</br>` / `</p>` 这类
+  // 只有闭合标签的 desc（AMD-Container-Toolkit 等 16 个已装应用命中）原样把
+  // 标签显示给用户。改为「出现完整标签片段（开或闭）」即清洗；`</br>` 按换行处理。
+  if (/<\/?[a-z][a-z0-9]*(\s[^>]*)?\/?>/i.test(s)) {
     s = s
-      .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+      .replace(/<\s*\/?\s*br\s*\/?\s*>/gi, '\n')
       .replace(/<\s*\/\s*(p|div|li|h[1-6]|tr|blockquote)\s*>/gi, '\n')
       .replace(/<[^>]+>/g, ' ');
   }

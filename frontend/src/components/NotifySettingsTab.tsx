@@ -490,7 +490,7 @@ const NotifySettingsTab: React.FC = () => {
   }
 
   return (
-    <div className="px-3 py-4 sm:px-6 sm:py-5">
+    <div className="px-3 py-4 sm:px-6 sm:py-4">
       {/* 子 tab 分段控件（对齐 knock 事件中心：推送渠道/通知规则/推送记录） */}
       {/* 0.6.287：子 tab 与设置页顶部 tab 同语言（选中实心蓝 / 未选毛玻璃胶囊），
           旧 bg-muted/40+bg-card 分段在暗黑模式不可辨 */}
@@ -584,8 +584,10 @@ const NotifySettingsTab: React.FC = () => {
           {channels.length === 0 && (
             <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-dashed border-border/40 py-10 text-center">
               <p className="text-xs text-muted-foreground">尚未配置推送渠道</p>
+              {/* 0.6.368：此处原本把上方卡片的渠道清单原样重复一遍（用户报
+                  「文案重复」）——改成有信息量的下一步指引。 */}
               <p className="mt-1 text-[11px] text-muted-foreground/70">
-                支持企业微信 / 钉钉 / 飞书 / Server酱 / PushPlus / Bark / 通用 Webhook（QQ 机器人等）
+                点右上角「添加渠道」选择推送方式；推送哪些事件、什么时候发，由「通知规则」控制。
               </p>
             </div>
           )}

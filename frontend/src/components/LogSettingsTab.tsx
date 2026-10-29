@@ -188,7 +188,7 @@ export default function LogSettingsTab() {
     n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 
   return (
-    <div className="px-3 py-4 sm:px-6 sm:py-5 space-y-4">
+    <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
       <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
         {/* 0.6.293（用户定稿）：折行方案多占一行 → 恢复 0.6.283 单行布局
             （标题左 + 控件右，justify-between）；弹出同宽修复保留 */}
@@ -337,7 +337,11 @@ export default function LogSettingsTab() {
                         onClick={() => toggleExpand(i)}
                         title={open ? '收起' : `展开（${p.detail.length} 字）`}
                         aria-label={open ? '收起日志' : '展开日志'}
-                        className={'mt-[1px] -mr-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary' + (open ? ' order-3 sm:order-none' : '')}>
+                        // 0.6.369（用户令）：展开后按钮位置会从行尾跳到「级别」正后方——
+                        // 展开态详情块是 order-4 + w-full（独占下一行），按钮 order-3 紧跟
+                        // 级别列，左侧没有弹性留白。补 ml-auto 把它顶回行尾右侧，与折叠态
+                        // 同一水平位置（桌面端 ml-0，flex-1 详情块自然把按钮推到右缘）。
+                        className={'mt-[1px] -mr-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary' + (open ? ' order-3 ml-auto sm:order-none sm:ml-0' : '')}>
                         {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </button>
                     )}

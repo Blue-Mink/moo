@@ -44,6 +44,12 @@ interface AppListProps {
   onControl?: (app: AppInfo, action: 'start' | 'stop') => void;
   /** 正在执行启停操作的应用名（按钮转圈） */
   controlling?: string | null;
+  /** 0.6.360（用户定稿）：卡面「⋯ 更多」菜单的次要动作（卸载 / 忽略更新） */
+  onUninstall?: (app: AppInfo) => void;
+  onIgnoreUpdate?: (app: AppInfo) => void;
+  onUnignoreUpdate?: (app: AppInfo) => void;
+  /** 0.6.362：卡面「安装」（本地缓存 FPK）完成后刷新目录 */
+  onInstallDone?: () => void;
 }
 
 const getEmptyMessage = (filterType?: string) => {
@@ -57,7 +63,7 @@ const getEmptyMessage = (filterType?: string) => {
   }
 };
 
-const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double', highlightKey, onControl, controlling }) => {
+const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, upgradeAllowed, onDetail, onCancelOp, filterType, appOperations, searchQuery, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, favoriteSet, onToggleFavorite, clickMode = 'double', highlightKey, onControl, controlling, onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstallDone }) => {
   // 渐进渲染：apps 集合变化（搜索/筛选/刷新后首尾不同）时回到首批；
   // 内容相同的重复拉取（安装/启停后刷新）不重置，避免用户滚动位置被弹回。
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -160,6 +166,10 @@ const AppList: React.FC<AppListProps> = ({ apps, loading, onInstall, onUpdate, u
             clickMode={clickMode}
             onControl={onControl}
             controlling={controlling}
+            onUninstall={onUninstall}
+            onIgnoreUpdate={onIgnoreUpdate}
+            onUnignoreUpdate={onUnignoreUpdate}
+            onInstallDone={onInstallDone}
           />
         </Suspense>
         </div>

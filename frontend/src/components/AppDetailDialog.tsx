@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { categoryLabel } from '@/lib/categories';
 import { installTypeRow } from '@/lib/appMeta';
 import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../api/client';
-import { apiFetch, availableVersionLabel, installedVersionLabel, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc, fetchFpkDownloads, installFpkDownload, fetchFpkDownloadWizard, addSource, toggleSource, type AppWizard, type WizardParam } from '../api/client';
+import { apiFetch, availableVersionLabel, installedVersionLabel, hasActiveUpdate, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc, fetchFpkDownloads, installFpkDownload, fetchFpkDownloadWizard, addSource, toggleSource, type AppWizard, type WizardParam } from '../api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useIsDesktop, useMobileDesktopSim } from '@/lib/hooks';
@@ -20,6 +20,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import AppIcon from "./AppIcon";
+import MoreMenuButton from "./MoreMenu";
 import WizardDialog from "./WizardDialog";
 import { auroraFor } from "./ViewModeGrids";
 import {
@@ -892,7 +893,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   if (!app) return null;
 
   const isInstalled = app.installed;
-  const canUpdate = isInstalled && app.has_update;
+  // 0.6.363（用户定稿）：主操作/更新徽章只认「有效更新」（未忽略），与 ⋯ 菜单口径一致
+  const canUpdate = hasActiveUpdate(app);
   // 面板详情可用范围：官方应用 + 无源已装应用（installed-detail 补全）
   const hasPanelInfo = isOfficial || noSource;
   // 预览图源：官方卡优先面板 poster（CDN 直链；平台只给 25 个自研
@@ -914,78 +916,117 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   //   运行中 = 打开（有 Web 入口时，头部 GET 位）+ 停用（中性）+ 卸载（中性）
   //   已停止 = 启动（中性）+ 卸载（中性）（各占一半）
   //   0.6.320r2（用户定稿）：底部主操作行全中性胶囊不带色；颜色只留给头部 GET 位（安装/打开）
-  const actionBtnCls = "h-10 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-1.5 flex-1 min-w-0";
-  // 头部 GET 位胶囊（未安装=安装 / 安装中=转圈；已装应用的主操作在底部主操作行）
+  // 头部 GET 位胶囊（未安装=安装；已装且运行中且可打开=打开）
   const headerPillCls = "h-9 px-4 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1.5 shrink-0";
-  const uninstallBtn = onUninstall ? (
-    // 0.6.326h：回到旧形态——点「卸载」直接关详情页并交给宿主 App 的
-    // 「确认卸载」AlertDialog 二次确认（确认才发请求；取消则零请求）。
-    <button
-      type="button"
-      onClick={() => { onOpenChange(false); onUninstall(app); }}
-      disabled={!!operation || controlling !== null}
-      aria-label={`卸载 ${app.display_name}`}
-      // 0.6.319b（用户定稿）：卸载=中性胶囊（原红色调移除，颜色只留给主操作）
-      className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
-    >
-      <Trash2 className="h-3.5 w-3.5" />
-      卸载
-    </button>
+  /* 0.6.366（用户令）：「手机详情页面底部的那排按钮也全收进更多里面，下面的那排按钮
+     就不要了」——底部主操作行（更新/停用/启动/卸载）与「忽略更新」药丸整体下线，
+     全部走头部 ⋯ 菜单（与网页端 0.6.359 定稿同构）；底部只保留下载/安装的瞬时进度条。 */
+
+  /* ── 0.6.359（用户定稿）：网页端「更多操作」菜单 ───────────────────────
+     用户原话：「总觉得（底部按钮胶囊）都放在底部有些遮挡底部内容」→ 网页端
+     底部常驻胶囊全部收敛进「安装/打开」胶囊后面的 ⋯ 钮，弹窗形态与列表页
+     顶部「排序/去重」胶囊菜单同款（圆角卡 + 竖排选项行）。
+     分工：静止态动作（更新/忽略/启动/停用/卸载/下载 fpk）进菜单；
+     需要实时盯的瞬时进度（下载中 / 暂停 / 安装已下载包）仍留在底部细条，
+     它此刻不是「选项」而是状态，进菜单反而看不见。 */
+  const dlTransient = dlBusy || dlPaused || localInstalling;
+  // 底部「下载 fpk」条的显示范围：手机端照旧（始终）；
+  // 网页端只在瞬时态（下载中/暂停/安装已下载包）显示——那是实时进度，
+  // 静止态（下载 fpk / 已下载）已进 ⋯ 菜单，底部不再常驻遮挡内容。
+  /* 0.6.366（用户令）：手机端底部也只在「瞬时进度」时出现（下载中/暂停/安装已下载包），
+     静止态的「下载 fpk」已进 ⋯ 菜单——与网页端 0.6.359 同一口径。 */
+  const dlBarVisible = downloadFpkVisible && dlTransient;
+  type MoreItem = {
+    key: string;
+    icon: React.ReactNode;
+    label: string;
+    hint?: string;
+    onClick: () => void;
+    danger?: boolean;
+    disabled?: boolean;
+  };
+  const moreItems: MoreItem[] = [];
+  if (isInstalled && canUpdate && !app.update_ignored && onUpdate) {
+    moreItems.push({
+      key: 'update',
+      icon: <RefreshCw className="h-3.5 w-3.5" />,
+      label: '更新',
+      hint: availableVersionLabel(app) ? `v${availableVersionLabel(app)}` : undefined,
+      onClick: () => { onOpenChange(false); onUpdate(app); },
+    });
+  }
+  if (canUpdate && !app.update_ignored && onIgnoreUpdate) {
+    moreItems.push({
+      key: 'ignore',
+      icon: <BellOff className="h-3.5 w-3.5" />,
+      label: '忽略更新',
+      onClick: () => onIgnoreUpdate(app),
+    });
+  }
+  if (app.update_ignored && onUnignoreUpdate) {
+    moreItems.push({
+      key: 'unignore',
+      icon: <Bell className="h-3.5 w-3.5" />,
+      label: '取消忽略更新',
+      onClick: () => onUnignoreUpdate(app),
+    });
+  }
+  if (isInstalled && canControl && !controlBusy) {
+    const running = app.status === 'running';
+    moreItems.push({
+      key: running ? 'stop' : 'start',
+      icon: running ? <Square className="h-3 w-3.5 fill-current" /> : <Play className="h-3 w-3.5 fill-current" />,
+      label: running ? '停用' : '启动',
+      disabled: controlling !== null,
+      onClick: () => onControl?.(app, running ? 'stop' : 'start'),
+    });
+  }
+  if (downloadFpkVisible && !dlTransient) {
+    moreItems.push({
+      key: 'fpk',
+      icon: fpkChecking
+        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        : <Download className="h-3.5 w-3.5" />,
+      // 0.6.361（用户定稿）：镜像下载完成后不再显示「✔ 安装已下载」，直接就是「安装」
+      // 0.6.363（用户定稿）：有可用更新时这里装的是本地旧包 → 「安装本地包」
+      label: fpkChecking ? '检查本地缓存…'
+        : localFpkName ? (canUpdate ? '安装本地包' : '安装') : '下载',
+      disabled: fpkChecking,
+      onClick: () => {
+        if (fpkChecking) return;
+        if (localFpkName) handleLocalInstall();
+        else handleDownloadFpk();
+      },
+    });
+  }
+  const moreDangerItems: MoreItem[] = [];
+  if (isInstalled && onUninstall) {
+    moreDangerItems.push({
+      key: 'uninstall',
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      label: '卸载',
+      danger: true,
+      disabled: !!operation || controlling !== null,
+      // 与底部旧行为一致：先关详情页，交给宿主「确认卸载」二次确认
+      onClick: () => { onOpenChange(false); onUninstall(app); },
+    });
+  }
+  /* 0.6.365（用户令）：⋯ 不再只在网页端——手机端详情页同样给（用户：「应用详情
+     页面也是」）。位置沿用头部 GET 位（「打开」胶囊之后）；手机端头部没有主操作
+     时（工具类无 web 入口），⋯ 就占住那个位置。底部主操作行保持不变（手机端主交互）。 */
+  const moreMenu = (moreItems.length > 0 || moreDangerItems.length > 0) ? (
+    /* 0.6.360（用户定稿）：改用共用 MoreMenuButton —— 裸图标（无白圈）、
+       菜单以按钮为中心居中展开、选项文字居中；详情页内 portal=false
+       （挂 body 会被 Radix Dialog 判为外部交互直接关详情）。 */
+    <MoreMenuButton
+      items={moreItems}
+      dangerItems={moreDangerItems}
+      portal={false}
+      className="h-8 w-8"
+      ariaLabel="更多操作"
+      dot={dlBusy}
+    />
   ) : null;
-  // 未安装应用的主操作 = 头部「安装」胶囊（图标旁），底部不重复渲染
-  const actionRow = !isInstalled ? null : operation ? (
-    <button disabled className={cn(actionBtnCls, "bg-primary/15 text-primary border border-primary/40 opacity-70")}>
-      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      处理中
-    </button>
-  ) : canUpdate ? (
-    <>
-      {/* 0.6.320r2（用户定稿）：更新=中性胶囊，与「卸载」同款不带任何颜色 */}
-      <button
-        onClick={() => { onOpenChange(false); onUpdate(app); }}
-        aria-label={`更新 ${app.display_name}`}
-        className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
-      >
-        <RefreshCw className="h-3.5 w-3.5" />
-        更新
-      </button>
-      {uninstallBtn}
-    </>
-  ) : isInstalled && controlBusy ? (
-    <button disabled className={cn(actionBtnCls, "border border-border/60 text-muted-foreground")}>
-      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      {app.status === 'starting' ? '启动中' : '停用中'}
-    </button>
-  ) : isInstalled && app.status === 'running' ? (
-    <>
-      {/* 「打开」在头部 GET 位（与安装同一位置）；此处 = 停用 + 卸载 各占一半 */}
-      <button
-        onClick={() => onControl?.(app, 'stop')}
-        disabled={controlling !== null}
-        aria-label={`停用 ${app.display_name}`}
-        // 0.6.319b（用户定稿）：停用=中性胶囊（原琥珀色移除）
-        className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
-      >
-        <Square className="h-3 w-3 fill-current" />
-        停用
-      </button>
-      {uninstallBtn}
-    </>
-  ) : isInstalled && canControl ? (
-    <>
-      {/* 0.6.320r（用户定稿）：启动=中性胶囊，与「卸载」完全同款（原绿色、主色蓝都不要，不带任何颜色） */}
-      <button
-        onClick={() => onControl?.(app, 'start')}
-        disabled={controlling !== null}
-        aria-label={`启动 ${app.display_name}`}
-        className={cn(actionBtnCls, "bg-muted/60 text-foreground border border-border/50 hover:bg-muted disabled:opacity-50")}
-      >
-        <Play className="h-3 w-3 fill-current" />
-        启动
-      </button>
-      {uninstallBtn}
-    </>
-  ) : isInstalled ? uninstallBtn : null;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -1002,7 +1043,12 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
       // 0.6.348：daemon 的 start = 已启用但无服务态，探测不出真实进程时保留该值，
       // 详情页不能再把英文原值直接甩给用户。
       case 'start': return '已启用';
-      default: return status || '未安装';
+      // 0.6.368：nostart（系统组件/工具类，无独立启停）此前落到 default，
+      // 详情页徽章直接显示英文「nostart」（10/51 已装应用命中）——与列表口径
+      // （lib/appRunState.installedStateLabel）统一为「未启动」；未知值一律
+      // 回落「已安装」，不再把 daemon 原始英文状态甩给用户。
+      case 'nostart': return '未启动';
+      default: return isInstalled ? '已安装' : '未安装';
     }
   };
 
@@ -1079,11 +1125,18 @@ mdsSim && "mds-sim")}>
             与卡片底 bg-card 形成黑框；滚动区是独立盒、内容不会滑过头部，
             透明安全，桌面/移动统一）。 */}
         <div className="flex-none border-b border-border/60 px-3 py-3">
-          <DialogHeader className="space-y-0">
+          {/* 0.6.368：DialogHeader 默认带 text-center sm:text-left（shadcn 模板），
+              手机端详情头部因此整体居中——长应用名换行后与左侧图标/状态错开。
+              这里显式覆盖为 text-left（twMerge 后胜出），两端一致左对齐。 */}
+          <DialogHeader className="space-y-0 text-left">
           {/* 0.6.293（用户定稿）：桌面端「安装/打开」胶囊与关闭叉位置互换——
               GET 位胶囊绝对居中于图标行（与图标同一水平线），「磨玻璃圆圈+叉」
               移到行尾右侧；手机端布局不动（GET 位仍在行尾，叉隐藏）。 */}
-          <div className="relative flex items-center gap-3">
+          <div className="relative flex items-center gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-x-4">
+            {/* 0.6.361（用户定稿）：「安装/更多离应用名再远一点点，防止遮挡长应用名」——
+                桌面端点 3 列 grid（左右各 1fr），胶囊组居中且**自带独立列**，
+                标题列被夹在中间列左侧、间距 16px，长名字换行而不是被胶囊压住。 */}
+            <div className="flex items-center gap-3 min-w-0">
             <AppIcon app={app} className="w-12 h-12 rounded-[12px] shrink-0" />
             {/* 收藏星标：图标旁（与列表卡片同一位置语言），实心琥珀 = 已收藏 */}
             {onToggleFavorite && (
@@ -1103,7 +1156,8 @@ mdsSim && "mds-sim")}>
               </button>
             )}
             <div className="flex-1 min-w-0">
-              <DialogTitle className="text-base truncate">{app.display_name}</DialogTitle>
+              {/* 0.6.361（用户定稿）：长应用名不再「压缩 + 被胶囊覆盖」——改 2 行换行 */}
+              <DialogTitle className="text-base leading-tight line-clamp-2 break-words">{app.display_name}</DialogTitle>
               {/* appname 统一显示在应用名下面（与列表同款） */}
               {app.appname && (
                 <div className="text-[13px] text-muted-foreground/80 truncate" title={app.appname}>
@@ -1111,14 +1165,18 @@ mdsSim && "mds-sim")}>
                 </div>
               )}
             </div>
+            </div>
             {/* 头部 GET 位：未安装 = 安装胶囊；安装中 = 转圈。已装应用的
                 主操作在底部「主操作行」。0.6.293：桌面端绝对居中于图标行
                 （wrapper sm 以下 = contents 完全透明，手机行为与旧版一致）。 */}
-            <div className="contents sm:block sm:absolute sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2">
+            {/* 0.6.359：桌面端 GET 位 = 「安装/打开」胶囊 + 其后的 ⋯ 更多操作钮，
+                两者作为一组绝对居中于图标行（wrapper 由 block 改 flex 才排得下）；
+                手机端 wrapper 仍是 contents，⋯ 不渲染（isDesktop 门控），布局零变化。 */}
+            <div className="contents sm:flex sm:items-center sm:gap-3.5">
               {operation ? (
               /* 0.6.321r6 方案2：「处理中」升级进度胶囊——消息+百分比在对话框内可见
                  （移动端详情页全屏，列表行的进度条在对话框后面看不到） */
-              <div className={cn(headerPillCls, "min-w-[84px] max-w-[240px] bg-primary/15 text-primary border border-primary/40 cursor-default")}
+              <div className={cn(headerPillCls, "min-w-[84px] max-w-[240px] bg-muted/50 text-muted-foreground border border-border/50 cursor-default")}
                 title={operation.message}>
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                 <span className="truncate">{operation.message || '处理中'}</span>
@@ -1126,15 +1184,17 @@ mdsSim && "mds-sim")}>
               </div>
             ) : !isInstalled ? (
               // 0.6.319F（用户定稿）：安装/打开/下载 FPK 三胶囊去箭头图标，只留文字（网页端同款）
-              <Button onClick={() => { onOpenChange(false); onInstall(app); }} className={cn(headerPillCls, "px-5 shadow-sm hover:opacity-90")}>
+              /* 0.6.364（用户定稿）：安装/打开胶囊去蓝底 → 中性胶囊（与底部主操作行同语言） */
+              <Button onClick={() => { onOpenChange(false); onInstall(app); }} className={cn(headerPillCls, "px-5 bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none")}>
                 安装
               </Button>
             ) : isInstalled && app.status === 'running' && onOpenApp && openUrl ? (
               /* 已装且运行中且有 Web 入口：安装完成后的主操作 = 打开（与安装同一 GET 位） */
-              <Button onClick={() => onOpenApp(app)} className={cn(headerPillCls, "px-5 shadow-sm hover:opacity-90")}>
+              <Button onClick={() => onOpenApp(app)} className={cn(headerPillCls, "px-5 bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none")}>
                 打开
               </Button>
             ) : null}
+              {moreMenu}
             </div>
             {/* 0.6.293：关闭叉 = 行尾「磨玻璃圆圈+叉」（与图标/安装同一水平线；
                 触屏隐藏，手机端保持左上角返回） */}
@@ -1142,7 +1202,7 @@ mdsSim && "mds-sim")}>
               onClick={() => onOpenChange(false)}
               aria-label="关闭详情"
               title="关闭"
-              className="hidden sm:inline-flex shrink-0 h-8 w-8 items-center justify-center rounded-full bg-card/55 backdrop-blur-xl border border-white/10 text-muted-foreground hover:text-foreground hover:bg-card/80 transition-colors focus:outline-none focus-visible:outline-none"
+              className="hidden sm:inline-flex sm:justify-self-end shrink-0 h-8 w-8 items-center justify-center rounded-full bg-card/55 backdrop-blur-xl border border-white/10 text-muted-foreground hover:text-foreground hover:bg-card/80 transition-colors focus:outline-none focus-visible:outline-none"
             >
               <X className="h-4 w-4" />
             </button>
@@ -1799,42 +1859,11 @@ mdsSim && "mds-sim")}>
           ref={onDlAreaRef}
           className={cn(
             "absolute inset-x-0 bottom-0 pointer-events-none",
-            (actionRow || downloadFpkVisible) && "dl-bottom px-4 py-3 sm:px-5",
+            dlBarVisible && "dl-bottom px-4 py-3 sm:px-5",
           )}
         >
-          {(actionRow || downloadFpkVisible) && (
+          {dlBarVisible && (
           <div className="pointer-events-auto">
-            {/* 次要操作（忽略/取消忽略更新）：居中 ghost 小药丸 */}
-            {((app.update_ignored && onUnignoreUpdate) || (canUpdate && !app.update_ignored && onIgnoreUpdate)) && (
-              <div className="flex flex-wrap justify-center gap-2 mb-2">
-                {app.update_ignored && onUnignoreUpdate && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onUnignoreUpdate(app)}
-                    className="rounded-full px-4 text-muted-foreground"
-                  >
-                    <Bell className="mr-1.5 h-3.5 w-3.5" />
-                    取消忽略
-                  </Button>
-                )}
-                {canUpdate && !app.update_ignored && onIgnoreUpdate && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onIgnoreUpdate(app)}
-                    className="rounded-full px-4 text-muted-foreground"
-                  >
-                    <BellOff className="mr-1.5 h-3.5 w-3.5" />
-                    忽略更新
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {/* 主操作行 */}
-            {actionRow && <div className="flex gap-2">{actionRow}</div>}
-
             {/* 下载 fpk：全宽悬浮条（与设置页「保存」同款）。
                 社区源 + 官方 FPK 型应用显示（官方走面板 cloud 通道，
                 下载后 .fpk 复制进 FPK 下载目录）；无源已装/官方
@@ -1846,29 +1875,31 @@ mdsSim && "mds-sim")}>
             {/* 0.6.303（用户实抓）：0.6.301 残留的 rounded-b-none/border-b-0/pb-safe
                 未在 0.6.302 回退干净——移动端 pill 底部无圆角+无下边框+多 12px
                 padding = 阴影拖长、不成胶囊。恢复 0.6.283 定稿形态。 */}
-            {downloadFpkVisible && (
+            {dlBarVisible && (
               // 0.6.308（用户定稿）：外框白条去掉——浅色主题下 card/55=白色半透圈
               // （浏览器实锤 computed bg=white/55），保留 p-2 间距即可，按钮直落玻璃底。
               // 0.6.319b：移动端去掉底部 8px 内衬（胶囊贴 home 线）；桌面保持
               // 0.6.319g：wrapper 本身 pointer-events-none（间距区滚轮/触摸穿透
               // 到底层滚动框），只有胶囊本体 pointer-events-auto（它才是按钮）
-              <div className={cn("pointer-events-none pl-2 pr-2 pt-2 pb-0 sm:p-2", actionRow && "mt-2")}>
+              <div className={cn("pointer-events-none pl-2 pr-2 pt-2 pb-0 sm:p-2", !isDesktop && "mt-2")}>
                 <button
                   onClick={() => (fpkChecking ? undefined : dlPaused ? handleDlResume() : dlBusy ? handleDlPause() : localFpkName ? handleLocalInstall() : handleDownloadFpk())}
                   disabled={localInstalling || fpkChecking}
                   title={fpkChecking ? '正在检查本地缓存…' : dlBusy ? '暂停下载' : dlPaused ? '继续下载（断点续传）' : localFpkName ? '直接安装已下载的 FPK（不重新下载）' : '下载 FPK 到本地缓存'}
                   // 0.6.319d（用户定稿）：实心蓝与整体不搭，回退浅蓝玻璃（318 定稿款）
-                  className="pointer-events-auto relative w-full h-10 overflow-hidden rounded-xl bg-primary/15 text-primary border border-primary/40 text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:bg-primary/25 active:opacity-80 transition-colors"
+                  // 0.6.364（用户定稿「这些按钮的蓝底视觉太吵，都不要蓝底了」）：与
+                  // 上方「安装/打开」胶囊统一为中性玻璃底，同页不再出现蓝/中性两种主操作语言
+                  className="pointer-events-auto relative w-full h-10 overflow-hidden rounded-xl bg-muted/60 text-foreground border border-border/50 text-[14px] font-semibold flex items-center justify-center gap-1.5 hover:bg-muted active:opacity-80 transition-colors"
                 >
                   {dlBusy && dlPct != null && (
                     <span
-                      className="absolute inset-y-0 left-0 bg-primary-foreground/20 transition-[width] duration-300"
+                      className="absolute inset-y-0 left-0 bg-foreground/10 transition-[width] duration-300"
                       style={{ width: `${dlPct}%` }}
                     />
                   )}
                   {dlBusy && dlPct == null && dlBytes > 0 && (
                     // 总量未知：不确定进度条（全宽呼吸）+ 已下载大小
-                    <span className="absolute inset-0 animate-pulse bg-primary-foreground/15" />
+                    <span className="absolute inset-0 animate-pulse bg-foreground/10" />
                   )}
                   <span className="relative inline-flex items-center">
                     {fpkChecking ? (
@@ -1882,9 +1913,9 @@ mdsSim && "mds-sim")}>
                       // 0.6.325 C5：点击「已下载」直接安装中（SSE 消息行）
                       <><Loader2 className="h-3.5 w-3.5 animate-spin" />{localInstallMsg || '安装中'}</>
                     ) : localFpkName ? (
-                      // 0.6.325 C5（用户定稿）：FPK 已在本机缓存 →「已下载」，
-                      // 点击=直接安装该缓存文件（不重新下载）
-                      <><Check className="h-3.5 w-3.5" />已下载</>
+                      // 0.6.361（用户定稿）：下载完成后直接显示「安装」（去掉 ✔ 与「已下载」），
+                      // 点击=直接安装本地缓存文件（不重新下载）
+                      <span>安装</span>
                     ) : (
                       // 0.6.319F（用户定稿）：idle 态去 Download 箭头只留文字（暂停/继续态图标非箭头，保留）
                       <span>下载 fpk</span>

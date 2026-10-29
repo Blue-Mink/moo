@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.369": {
+     "updated_at": "2026-10-29T12:10:44+08:00",
+     "changelog": "修复了一些 UI 问题。",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.369/moo_0.6.369_x86.fpk",
+       "size": 5167643,
+       "size_mb": 4.9,
+       "sha256": "8d8e117ba8e74539028f9e8e29520ea726b1c024012e32a39cc5d00c794e5873"
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.369/moo_0.6.369_arm.fpk",
+       "size": 4708352,
+       "size_mb": 4.5,
+       "sha256": "10de0359d1800d0fd6c4588e709fe35809af747a14536815040f06f0bd267ce5"
+      }
+     }
+    },
     "0.6.355": {
      "updated_at": "2026-10-28T10:30:00+08:00",
      "changelog": "arm 设备支持应用内自更新（按 CPU 架构自动选 x86 / arm 安装包）；应用卡片与详情页去掉「发布：」文字前缀，分发者徽章只显示名字；Moo Mate 自动复用本机 Moo 的 GitHub Token，伴侣侧不再单独配置；修复应用溯源误判：聚合索引源（如 moo-mate）不再被当作上游打包者。",
@@ -72,7 +90,7 @@
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
    "updated_at": "2026-10-28T10:30:00+08:00",
-   "version": "0.6.355",
+   "version": "0.6.369",
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_x86.fpk",
    "size": 5164516,
    "service_port": "38100",

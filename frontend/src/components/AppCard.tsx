@@ -1,6 +1,6 @@
 import React from 'react';
 import type { AppInfo, AppOperation } from '../api/client';
-import { availableVersionLabel, installedVersionLabel, appWebUrl, appDownloadLabel, sourceLabel, effectiveMaintainer, descriptionPlainText } from '../api/client';
+import { availableVersionLabel, installedVersionLabel, appWebUrl, appDownloadLabel, sourceLabel, effectiveMaintainer, descriptionPlainText, hasActiveUpdate } from '../api/client';
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 // 0.6.342：已停止 → 置灰「启动」按钮（与行列表/桌面卡同一口径）
 import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRunState';
+import MoreMenuButton from './MoreMenu';
+import { useAppMoreMenu } from '@/lib/useAppMoreMenu';
 
 interface AppCardProps {
   app: AppInfo;
@@ -57,13 +59,19 @@ interface AppCardProps {
   onToggleFavorite?: (app: AppInfo) => void;
   /** 0.6.319F：鼠标打开详情的习惯（仅细指针有效，触屏恒单击）。默认 double。 */
   clickMode?: 'single' | 'double';
+  /* 0.6.366（用户令）：「我的收藏」卡也带 ⋯ —— 菜单项与列表卡/详情页同一套 */
+  onIgnoreUpdate?: (app: AppInfo) => void;
+  onUnignoreUpdate?: (app: AppInfo) => void;
+  /** ⋯ 里「安装本地包」完成后刷新目录与缓存计数 */
+  onInstallDone?: () => void;
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite, clickMode = 'double', onControl, controlling }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite, clickMode = 'double', onControl, controlling, onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstallDone }) => {
   const isInstalled = app.installed;
   // 0.6.319F：细指针的「头部区/简介区 → 详情」打开方式受习惯开关控制；触屏恒单击
   const singleOpen = useCoarsePointer() || clickMode === 'single';
-  const canUpdate = isInstalled && app.has_update;
+  // 0.6.363（用户定稿）：只认「有效更新」（未忽略），与卡面/详情页 ⋯ 口径一致
+  const canUpdate = hasActiveUpdate(app);
   const downloadLabel = appDownloadLabel(app);
   // "打开"目标：daemon appServiceInfo；无 Web 入口的应用不渲染按钮
   const openUrl = isInstalled ? appWebUrl(app) : null;
@@ -77,6 +85,12 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
   const canStart = canStartInList(app) && !!onControl;
   const controlBusy = app.status === 'starting' || app.status === 'stopping';
   const stateLabel = installedStateLabel(app);
+  /* 0.6.366（用户令）：收藏卡的 ⋯ 与列表卡/详情页共用同一份菜单语义 */
+  const { items: moreItems, dangerItems: moreDangerItems, fpkBusy } = useAppMoreMenu({
+    app, operation, isInstalled, canUpdate, controlBusy, controlling,
+    onUpdate, onControl, onUninstall, onIgnoreUpdate, onUnignoreUpdate,
+    onInstalled: onInstallDone, onNeedDetail: onDetail,
+  });
 
   const getStepText = (step: string): string => {
     switch (step) {
@@ -297,69 +311,87 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
             </div>
           </div>
         ) : (() => {
-          // 底栏只留主操作按钮（状态标签已移到徽章行）；无可操作按钮时整行不出
-          if (!isInstalled || canUpdate || controlBusy || canStart || canOpen) {
-            return (
-              <div className="pt-2 border-t border-border/20">
-                {!isInstalled ? (
-                  <Button
-                    onClick={() => onInstall(app)}
-                    // 0.6.307：安装=选中胶囊同款浅蓝玻璃
-                    className="pill w-full bg-primary/15 text-primary border border-primary/40 px-4 h-8 text-[13px] font-semibold hover:bg-primary/25"
-                  >
-                    <Download className="mr-1 h-3.5 w-3.5" />
-                    安装
-                  </Button>
-                ) : canUpdate ? (
-                  <Button
-                    onClick={() => onUpdate(app)}
-                    variant="outline"
-                    disabled={!upgradeAllowed}
-                    title={upgradeAllowed ? undefined : '当前 fnOS 版本的更新通道会删除应用数据，请在系统应用中心手动安装 fpk'}
-                    // 0.6.307：更新=选中胶囊同款（补浅蓝底）
-                    className="pill w-full h-8 px-4 text-[13px] font-semibold border-primary/40 bg-primary/15 text-primary hover:bg-primary/25 disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
-                  >
-                    <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                    {upgradeAllowed ? '更新' : '需手动更新'}
-                  </Button>
-                ) : controlBusy ? (
-                  <Button
-                    disabled
-                    aria-label={app.status === 'starting' ? '启动中' : '停用中'}
-                    className="pill w-full h-8 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground"
-                  >
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    {app.status === 'starting' ? '启动中' : '停用中'}
-                  </Button>
-                ) : canStart ? (
-                  // 0.6.342（用户令）：置灰「启动」——点击即启动
-                  <Button
-                    onClick={() => onControl?.(app, 'start')}
-                    disabled={controlling === app.appname}
-                    aria-label={`启动 ${app.display_name}`}
-                    title={`「${app.display_name}」已停止，点击启动`}
-                    className="pill w-full h-8 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted disabled:opacity-60"
-                  >
-                    {controlling === app.appname
-                      ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      : <Play className="mr-1 h-3.5 w-3.5 fill-current" />}
-                    启动
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => onOpenApp?.(app)}
-                    aria-label={`打开 ${app.display_name}`}
-                    // 0.6.307：安装=选中胶囊同款浅蓝玻璃
-                    className="pill w-full bg-primary/15 text-primary border border-primary/40 px-4 h-8 text-[13px] font-semibold hover:bg-primary/25"
-                  >
-                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                    打开
-                  </Button>
-                )}
-              </div>
-            );
-          }
-          return null;
+          /* 0.6.366（用户令）：「我的收藏」卡底栏 = 主操作 + ⋯（与列表卡同一套菜单） */
+          const hasPrimary = !isInstalled || canUpdate || controlBusy || canStart || canOpen;
+          const hasMore = moreItems.length > 0 || moreDangerItems.length > 0;
+          if (!hasPrimary && !hasMore) return null;
+          return (
+            <div className="pt-2 border-t border-border/20 flex items-center gap-2">
+              {hasPrimary && (
+                <>
+                      {!isInstalled ? (
+                        <Button
+                          onClick={() => onInstall(app)}
+                          // 0.6.307：安装=选中胶囊同款浅蓝玻璃
+                          className="pill flex-1 bg-muted/60 text-foreground border border-border/50 px-4 h-8 text-[13px] font-semibold hover:bg-muted"
+                        >
+                          <Download className="mr-1 h-3.5 w-3.5" />
+                          安装
+                        </Button>
+                      ) : canUpdate ? (
+                        <Button
+                          onClick={() => onUpdate(app)}
+                          variant="outline"
+                          disabled={!upgradeAllowed}
+                          title={upgradeAllowed ? undefined : '当前 fnOS 版本的更新通道会删除应用数据，请在系统应用中心手动安装 fpk'}
+                          // 0.6.307：更新=选中胶囊同款（补浅蓝底）
+                          className="pill flex-1 h-8 px-4 text-[13px] font-semibold border border-border/50 bg-muted/60 text-foreground hover:bg-muted disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
+                        >
+                          <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                          {upgradeAllowed ? '更新' : '需手动更新'}
+                        </Button>
+                      ) : controlBusy ? (
+                        <Button
+                          disabled
+                          aria-label={app.status === 'starting' ? '启动中' : '停用中'}
+                          className="pill flex-1 h-8 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground"
+                        >
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          {app.status === 'starting' ? '启动中' : '停用中'}
+                        </Button>
+                      ) : canStart ? (
+                        // 0.6.342（用户令）：置灰「启动」——点击即启动
+                        <Button
+                          onClick={() => onControl?.(app, 'start')}
+                          disabled={controlling === app.appname}
+                          aria-label={`启动 ${app.display_name}`}
+                          title={`「${app.display_name}」已停止，点击启动`}
+                          className="pill flex-1 h-8 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted disabled:opacity-60"
+                        >
+                          {controlling === app.appname
+                            ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            : <Play className="mr-1 h-3.5 w-3.5 fill-current" />}
+                          启动
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => onOpenApp?.(app)}
+                          aria-label={`打开 ${app.display_name}`}
+                          // 0.6.307：安装=选中胶囊同款浅蓝玻璃
+                          className="pill flex-1 bg-muted/60 text-foreground border border-border/50 px-4 h-8 text-[13px] font-semibold hover:bg-muted"
+                        >
+                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                          打开
+                        </Button>
+                      )}
+                </>
+              )}
+              {hasMore && (
+                /* 0.6.366：MoreMenuButton 的 className 落在内部 button 上，外层 wrapper 才是
+                   flex item —— 无主操作时要让 ⋯ 居中，必须给这一层加 mx-auto。 */
+                <div className={hasPrimary ? "shrink-0" : "shrink-0 mx-auto"}>
+                  <MoreMenuButton
+                    items={moreItems}
+                    dangerItems={moreDangerItems}
+                    portal
+                    className="h-8 w-8"
+                    ariaLabel="更多操作"
+                    dot={fpkBusy}
+                  />
+                </div>
+              )}
+            </div>
+          );
         })()}
       </div>
     </Card>
