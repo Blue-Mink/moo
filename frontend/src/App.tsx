@@ -2020,7 +2020,7 @@ const App: React.FC = () => {
                     node: (
                       <span
                         className={cn(
-                          "inline-flex h-14 px-5 items-center rounded-full border text-[16px] font-semibold whitespace-nowrap transition-colors",
+                          "inline-flex h-16 px-6 flex items-center justify-center rounded-full border text-[17px] font-semibold whitespace-nowrap leading-none transition-colors",
                           activeCategory === cat.key ? "bg-primary/25 text-primary border-primary/50" : "bg-card/55 text-foreground border-white/10"
                         )}
                       >
@@ -2197,7 +2197,7 @@ const App: React.FC = () => {
                     node: (
                       <span
                         className={cn(
-                          "inline-flex h-14 px-5 items-center rounded-full border text-[16px] font-semibold whitespace-nowrap transition-colors",
+                          "inline-flex h-16 px-6 flex items-center justify-center rounded-full border text-[17px] font-semibold whitespace-nowrap leading-none transition-colors",
                           activeCategory === cat.key ? "bg-primary/25 text-primary border-primary/50" : "bg-card/55 text-foreground border-white/10"
                         )}
                       >
