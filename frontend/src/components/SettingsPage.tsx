@@ -1641,6 +1641,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     ...customMirrors.map((m, i) => ({ key: m.key || `custom-${i + 1}`, label: m.label, url: m.url, description: '' })),
     ...mirrorOptions.filter((opt) => opt.key === 'custom'),
   ];
+  // 审查补丁：已选的自定义源被删后，mirror 悬空显示裸 key——回落到 auto 并提示一次。
+  const githubSelectKeys = new Set(githubSelectOptions.map((o) => o.key));
+  const mirrorValid = mirror === '' || githubSelectKeys.has(mirror);
+  useEffect(() => {
+    if (!mirrorValid && mirror !== '') {
+      toast.info('所选加速源已被删除，已切换为智能选源');
+      setMirror('auto');
+    }
+  }, [mirrorValid, mirror]);
   const dockerSelectOptions = dockerMirrorOptions.filter((opt) => opt.key !== 'direct');
 
   const mirrorLabel = (key: string) =>
@@ -2138,7 +2147,7 @@ mdsSim && "mds-sim")}>
                       title="GitHub 加速源优选"
                       health={mirrorHealth}
                       options={mirrorOptions}
-                      customConfigured={customGithubMirror !== ''}
+                      customConfigured={customGithubMirror !== '' || customMirrors.length > 0}
                       labelOf={mirrorLabel}
                       intervalH={ghProbeH}
                       intervalM={ghProbeM}

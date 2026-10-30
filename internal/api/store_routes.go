@@ -2081,6 +2081,23 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "自定义加速源 URL 必须是合法的 https 地址", http.StatusBadRequest)
 				return
 			}
+			// 审查补丁（2026-10-28）：三个此前漏掉的校验。
+			// ① 拒绝 userinfo（https://user:pass@host/ 会把凭据带进配置与日志）；
+			// ② 长度上限（防超大字符串撑爆 config.json）；
+			// ③ 公网校验 —— 自定义源会进 netguard 豁免清单，若放行内网地址
+			//    等于给 SSRF 开门（netguard 包注释里写的威胁模型正是这个）。
+			if u.User != nil {
+				http.Error(w, "加速源 URL 不允许携带用户信息（user:pass@）", http.StatusBadRequest)
+				return
+			}
+			if len(m.URL) > 2048 || len(m.Label) > 100 {
+				http.Error(w, "URL 最长 2048、名称最长 100", http.StatusBadRequest)
+				return
+			}
+			if _, perr := netguard.Public(m.URL); perr != nil {
+				http.Error(w, "加速源必须是公网地址: "+perr.Error(), http.StatusBadRequest)
+				return
+			}
 			m.URL = u.String()
 			if m.Key == "" {
 				m.Key = fmt.Sprintf("custom-%d", i+1)
