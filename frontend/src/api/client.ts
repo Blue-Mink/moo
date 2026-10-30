@@ -805,6 +805,7 @@ export interface MirrorCheckResult {
   status: 'ok' | 'limited' | 'timeout' | 'error';
   /** 0.6.321 F6：失败原因短语（429 限流/403 拒绝/慢/连接被拒/DNS/资产 404） */
   error?: string;
+  resume_ok?: boolean;
 }
 
 export interface MirrorCheckResponse {

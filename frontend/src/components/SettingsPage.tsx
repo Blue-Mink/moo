@@ -1649,18 +1649,34 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 2026-10-28 私人补丁：内置选项 + 用户自定义源（key 以 custom- 开头）
   const githubSelectOptions = [
     ...mirrorOptions.filter((opt) => opt.key !== 'direct' && opt.key !== 'custom'),
-    ...customMirrors.map((m, i) => ({ key: m.key || `custom-${i + 1}`, label: m.label, url: m.url, description: '' })),
+    // 2026-10-28 补丁 v2：自定义源按权重排序——好用（测速 ok）的排前面
+    ...customMirrors
+      .map((m, i) => ({
+        key: m.key || `custom-${i + 1}`,
+        label: m.label,
+        url: m.url,
+        description: '',
+        _weight: ghLatency.get(m.key || `custom-${i + 1}`)?.status === 'ok'
+          ? (ghLatency.get(m.key || `custom-${i + 1}`)?.speed_bps || 0)
+          : -1,
+      }))
+      .sort((a, b) => b._weight - a._weight)
+      .map(({ _weight, ...rest }) => rest),
     ...mirrorOptions.filter((opt) => opt.key === 'custom'),
   ];
-  // 审查补丁：已选的自定义源被删后，mirror 悬空显示裸 key——回落到 auto 并提示一次。
+  // 审查补丁（v2 修正）：已选源被删后回落 auto。
+  // v1 缺陷：mirrorOptions 与 mirror 都来自异步 settings，水合顺序不定——
+  // options 未到时 githubSelectKeys 为空集，合法的 mirror 被误判「已删除」，
+  // 每次进设置页都弹 toast。修正：mirrorOptions 未水合前不判定。
+  const optionsLoaded = mirrorOptions.length > 0;
   const githubSelectKeys = new Set(githubSelectOptions.map((o) => o.key));
-  const mirrorValid = mirror === '' || githubSelectKeys.has(mirror);
+  const mirrorValid = mirror === '' || !optionsLoaded || githubSelectKeys.has(mirror);
   useEffect(() => {
-    if (!mirrorValid && mirror !== '') {
+    if (optionsLoaded && !mirrorValid && mirror !== '') {
       toast.info('所选加速源已被删除，已切换为智能选源');
       setMirror('auto');
     }
-  }, [mirrorValid, mirror]);
+  }, [optionsLoaded, mirrorValid, mirror]);
   const dockerSelectOptions = dockerMirrorOptions.filter((opt) => opt.key !== 'direct');
 
   const mirrorLabel = (key: string) =>
@@ -2108,22 +2124,57 @@ mdsSim && "mds-sim")}>
                           <SelectTrigger>
                             <SelectValue placeholder="选择镜像" />
                           </SelectTrigger>
-                          <SelectContent>
-                            {githubSelectOptions.map((opt) => {
-                              const result = ghLatency.get(opt.key);
-                              return (
-                                <SelectItem key={opt.key} value={opt.key}>
-                                  <span className="flex items-center justify-between w-full gap-2">
-                                    <span>{opt.label}</span>
-                                    {result && (
-                                      <span className={`text-[11px] tabular-nums ${latencyColor(result)}`}>
-                                        {latencyText(result)}
+                          {/* 2026-10-28 补丁：选项多时限制高度并出滚动条（默认 max-h 依赖视口变量，长页面下失效） */}
+                          <SelectContent className="max-h-72 overflow-y-auto">
+                            {(() => {
+                              // 2026-10-28 补丁 v2：智能模式下按权重排序（吞吐降序，深测通过优先）
+                              // 并给每项标注：权重排名 / 延迟 / 吞吐 / 续传徽标
+                              const ghStatsArr = mirrorHealth?.mirrors || [];
+                              const sorted = [...ghStatsArr]
+                                .filter((m) => m.status === 'ok')
+                                .sort((a, b) => {
+                                  const as_ = a.speed_bps || 0;
+                                  const bs_ = b.speed_bps || 0;
+                                  if (bs_ !== as_) return bs_ - as_;
+                                  return (a.latency_ms || 0) - (b.latency_ms || 0);
+                                });
+                              const weightOf = new Map(sorted.map((m, i) => [m.key, i + 1] as const));
+                              return githubSelectOptions.map((opt) => {
+                                const result = ghLatency.get(opt.key);
+                                const rank = weightOf.get(opt.key);
+                                const speed = result?.speed_bps || 0;
+                                const resumeOk = result?.resume_ok === true;
+                                return (
+                                  <SelectItem key={opt.key} value={opt.key}>
+                                    <span className="flex items-center justify-between w-full gap-2">
+                                      <span className="flex items-center gap-1.5 min-w-0">
+                                        {rank !== undefined && (
+                                          <span className="text-[10px] tabular-nums text-muted-foreground shrink-0 w-4">
+                                            #{rank}
+                                          </span>
+                                        )}
+                                        <span className="truncate">{opt.label}</span>
+                                        {resumeOk && (
+                                          <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-400">续传✓</span>
+                                        )}
                                       </span>
-                                    )}
-                                  </span>
-                                </SelectItem>
-                              );
-                            })}
+                                      <span className="flex items-center gap-1.5 shrink-0">
+                                        {speed > 0 && (
+                                          <span className="text-[11px] tabular-nums text-muted-foreground">
+                                            {speed >= 1048576 ? `${(speed / 1048576).toFixed(1)}MB/s` : `${Math.round(speed / 1024)}KB/s`}
+                                          </span>
+                                        )}
+                                        {result && (
+                                          <span className={`text-[11px] tabular-nums ${latencyColor(result)}`}>
+                                            {latencyText(result)}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </span>
+                                  </SelectItem>
+                                );
+                              });
+                            })()}
                           </SelectContent>
                         </Select>
                         {mirror === 'custom' && (
@@ -2289,7 +2340,7 @@ mdsSim && "mds-sim")}>
                           <SelectTrigger>
                             <SelectValue placeholder="选择镜像" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-72 overflow-y-auto">
                             {dockerSelectOptions.map((opt) => {
                               const result = dkLatency.get(opt.key);
                               return (

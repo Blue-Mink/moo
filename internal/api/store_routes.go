@@ -2603,6 +2603,15 @@ func (s *Server) mirrorsCheck(w http.ResponseWriter, r *http.Request) {
 	//（漏调则「立即测速」恒按上一周期标志跑，切换开关后点测速看不到 direct）。
 	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(true)
+	// 2026-10-28 私人补丁：手动测速后同步触发续传深测（Top3，24h 节流），
+	// 异步执行不拖慢本响应；结果随下一次 GET /api/mirrors/health 下发。
+	if stats := s.Mirrors.ghStatsSnapshot(); len(stats) > 0 {
+		go func() {
+			rctx, rcancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer rcancel()
+			RunResumeProbes(rctx, topResumeCandidates(stats, 3))
+		}()
+	}
 	gh := make([]MirrorCheckResult, 0)
 	for _, st := range s.Mirrors.gh() {
 		gh = append(gh, MirrorCheckResult{Key: st.Key, Label: st.Label, LatencyMS: st.LatencyMS, SpeedBPS: st.SpeedBPS, Status: checkStatus(st)})
