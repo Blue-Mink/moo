@@ -19,6 +19,7 @@ const AppDetailDialog = React.lazy(() => import('./components/AppDetailDialog'))
 const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
 const WizardDialog = React.lazy(() => import('./components/WizardDialog'));
 import ThemeToggle from './components/ThemeToggle';
+import WheelCategories from './components/WheelCategories';
 import MobileDock from './components/MobileDock';
 import FpkDownloads from './components/FpkDownloads';
 import { Dialog, DialogContent, DialogTitle } from './components/ui/dialog';
@@ -1524,11 +1525,7 @@ const App: React.FC = () => {
     } catch { /* 后端短暂不可用：保持旧值 */ }
   }, []);
 
-  const categoryCounts = useMemo(() => CATEGORIES.reduce((acc, cat) => {
-    // 0.6.326：与列表同口径（被禁用者不在分类列表里，不计入分类计数）
-    acc[cat.key] = apps.filter(a => a.category === cat.key && !a.user_hidden).length;
-    return acc;
-  }, {} as Record<string, number>), [apps]);
+  // 2026-10-28：滚轮条替代原分类胶囊后不再显示计数（原 useMemo 仅服务胶囊计数角标）
 
   // 排序 pill：pill 主体 = 选择全部分类（不变）；右侧 ▾ = 排序菜单（折叠在胶囊里）
   // 0.6.313（用户定稿）：胶囊内「全部」二字删除，pill 只显示当前排序名（随机/A-Z/…）
@@ -1546,7 +1543,7 @@ const App: React.FC = () => {
       <div className={cn(
         // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
         // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
-        "relative z-[60] flex items-center gap-0.5 shrink-0 h-10 pl-4 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap"
+        "relative z-[60] flex items-center gap-0.5 shrink-0 h-14 px-6 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[20px] font-semibold whitespace-nowrap"
       )}>
         {/* 0.6.312c（用户定稿）：当前排序名直接显示在胶囊里（切哪种显哪种）；
             0.6.313（用户定稿）：「全部」二字删除，胶囊只显排序名；
@@ -1655,7 +1652,7 @@ const App: React.FC = () => {
           // 0.6.284 同款 Dock 毛玻璃材质
           // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何档位胶囊都保持原色
           //（与排序胶囊同款材质/字体，两胶囊观感一致）
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-10 pl-4 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap transition-colors"
+          "relative z-[60] flex items-center gap-0.5 shrink-0 h-14 px-6 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[20px] font-semibold whitespace-nowrap transition-colors"
         )}
       >
         {/* 0.6.312c（用户定稿）：胶囊标签=当前档位名，切哪种去重显哪种 */}
@@ -2017,19 +2014,23 @@ const App: React.FC = () => {
               <div className="flex gap-2 overflow-x-auto pill-bar">
                 {allCategoryPill}
                 {dedupPill}
-                {CATEGORIES.map(cat => (
-                  <button
-                    key={cat.key}
-                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
-                    className={cn(
-                      // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
-                      "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap",
-                      activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
-                    )}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
+                <WheelCategories
+                  items={CATEGORIES.map(cat => ({
+                    key: cat.key,
+                    node: (
+                      <span
+                        className={cn(
+                          "inline-flex h-14 px-5 items-center rounded-full border text-[16px] font-semibold whitespace-nowrap transition-colors",
+                          activeCategory === cat.key ? "bg-primary/25 text-primary border-primary/50" : "bg-card/55 text-foreground border-white/10"
+                        )}
+                      >
+                        {cat.label}
+                      </span>
+                    ),
+                  }))}
+                  activeKey={activeCategory}
+                  onSelect={(key) => setActiveCategory((activeCategory === key ? null : key) as typeof activeCategory)}
+                />
               </div>
             )}
         </div>
@@ -2190,20 +2191,23 @@ const App: React.FC = () => {
                  {dedupPill}
                </div>
                <div className="flex items-center gap-2 overflow-x-auto pill-bar flex-1 min-w-0">
-                 {CATEGORIES.map(cat => (
-                   <button
-                     key={cat.key}
-                     onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
-                     className={cn(
-                       // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
-                       "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap transition-colors",
-                       activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground hover:bg-card/80"
-                     )}
-                   >
-                     {cat.label}
-                     <span className="ml-1 text-xs opacity-60 tabular-nums">{categoryCounts[cat.key] ?? 0}</span>
-                   </button>
-                 ))}
+                 <WheelCategories
+                  items={CATEGORIES.map(cat => ({
+                    key: cat.key,
+                    node: (
+                      <span
+                        className={cn(
+                          "inline-flex h-14 px-5 items-center rounded-full border text-[16px] font-semibold whitespace-nowrap transition-colors",
+                          activeCategory === cat.key ? "bg-primary/25 text-primary border-primary/50" : "bg-card/55 text-foreground border-white/10"
+                        )}
+                      >
+                        {cat.label}
+                      </span>
+                    ),
+                  }))}
+                  activeKey={activeCategory}
+                  onSelect={(key) => setActiveCategory((activeCategory === key ? null : key) as typeof activeCategory)}
+                />
                </div>
              </div>
            )}
