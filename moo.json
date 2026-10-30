@@ -123,7 +123,12 @@
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.31/moo-mate_0.2.31_x86.fpk",
    "size": 3596896,
    "service_port": "38108",
-   "size_mb": 3.4
+   "size_mb": 3.4,
+   "preview_urls": [
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-list.png",
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps.png",
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-mobile-list.png"
+   ]
   }
  }
 }
