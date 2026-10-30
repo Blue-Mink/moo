@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type CustomMirrorInput, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
@@ -186,6 +186,8 @@ const MirrorHealthPanel: React.FC<{
         consec_fails: st?.consec_fails || 0,
         // 0.6.321 F6：失败原因短语透传（下方第二行展示）
         error: st?.error || '',
+        // 续传深测结论透传（徽标用）
+        resume_ok: st?.resume_ok,
       };
     });
     // 0.6.321r4：按测速自动排序（用户指令，GitHub/Docker 两组共用本面板）——
@@ -302,7 +304,7 @@ const MirrorHealthPanel: React.FC<{
               ? (speedNote ?? '测速结果仅供参考：实际镜像拉取由系统 Docker 守护进程按系统级镜像源配置执行。')
               : (showSpeed
                 ? (speedNote ?? '对 FPK 下载、应用列表图标、README/预览图生效：手选源优先，手选源失效后自动切换智能优选（实测各源速度差可达百倍）。后台按右侧间隔自动测速。')
-                : '按健康状态自动优选加速源，手选源失效后自动切换。')}
+                : '按健康状态自动优选加速源，手选源失效后自动切换。标有「续传✓」的源已通过断流续传深测。')}
             {health?.selected === 'auto' && !referenceOnly && '当前为智能模式（自动选最快稳定源）。'}
           </p>
           {!referenceOnly && health?.last_switch && (
@@ -336,6 +338,15 @@ const MirrorHealthPanel: React.FC<{
                 />
                 <span className="flex-1 min-w-0 flex items-center gap-1.5">
                   <span className="truncate">{row.label}</span>
+                  {/* 续传深测通过徽标 */}
+                  {row.status === 'ok' && row.resume_ok === true && (
+                    <span
+                      className="ml-1 shrink-0 rounded bg-sky-500/15 px-1 text-[10px] font-medium text-sky-600 dark:text-sky-400"
+                      title="续传深测通过：断流后可完整续传取回"
+                    >
+                      续传✓
+                    </span>
+                  )}
                   {row.key === health?.active && (
                     <span className="shrink-0 rounded-full bg-primary/10 px-1.5 h-4 flex items-center text-[10px] font-medium text-primary">
                       {referenceOnly ? '最快' : '当前'}
@@ -693,6 +704,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [open, loadDkStatus]);
 
   const [customGithubMirror, setCustomGithubMirror] = useState<string>('');
+  // 用户自定义加速源（随 settings 水合/保存）
+  const [customMirrors, setCustomMirrors] = useState<CustomMirrorInput[]>([]);
+  const [cmDialogOpen, setCmDialogOpen] = useState(false);
+  // 弹窗编辑副本（保存时一次性写回）
+  const [cmDraft, setCmDraft] = useState<CustomMirrorInput[]>([]);
   const [customDockerMirror, setCustomDockerMirror] = useState<string>('');
   // 应用当前所选镜像到系统 Docker（0.6.269：写 daemon.json + 重启，可回滚）。
   // 镜像地址由后端按 key 解析（custom 除外，需带 custom_url）。
@@ -1454,6 +1470,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setDockerMirror(dm);
         setDockerMirrorOptions(dmOpts);
         setCustomGithubMirror(settings.custom_github_mirror || '');
+        // 自定义加速源水合（后端未下发=空数组）
+        setCustomMirrors(settings.custom_mirrors || []);
         setCustomDockerMirror(settings.custom_docker_mirror || '');
         setProxyEnabled(!!settings.proxy_enabled);
         setProxyUrl(settings.proxy_url || '');
@@ -1560,6 +1578,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         // 后端指针语义：空串 = 显式清除（此前 `|| undefined` 会把「清空」
         // 变成「不提交」，用户清掉自定义镜像/地址后保存无效）。
         custom_github_mirror: customGithubMirror,
+        // 整组提交（后端整体替换 + 校验）
+        custom_mirrors: customMirrors,
         custom_docker_mirror: customDockerMirror,
         install_volume: installVolume,
         auto_update: autoUpdate,
@@ -1626,7 +1646,37 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const githubSelectOptions = mirrorOptions.filter((opt) => opt.key !== 'direct');
+  // 内置选项 + 用户自定义源（key 以 custom- 开头）
+  const githubSelectOptions = [
+    ...mirrorOptions.filter((opt) => opt.key !== 'direct' && opt.key !== 'custom'),
+    // 自定义源按权重排序——好用（测速 ok）的排前面
+    ...customMirrors
+      .map((m, i) => ({
+        key: m.key || `custom-${i + 1}`,
+        label: m.label,
+        url: m.url,
+        description: '',
+        _weight: ghLatency.get(m.key || `custom-${i + 1}`)?.status === 'ok'
+          ? (ghLatency.get(m.key || `custom-${i + 1}`)?.speed_bps || 0)
+          : -1,
+      }))
+      .sort((a, b) => b._weight - a._weight)
+      .map(({ _weight, ...rest }) => rest),
+    ...mirrorOptions.filter((opt) => opt.key === 'custom'),
+  ];
+  // 已选源被删后回落 auto。
+  // v1 缺陷：mirrorOptions 与 mirror 都来自异步 settings，水合顺序不定——
+  // options 未到时 githubSelectKeys 为空集，合法的 mirror 被误判「已删除」，
+  // 每次进设置页都弹 toast。修正：mirrorOptions 未水合前不判定。
+  const optionsLoaded = mirrorOptions.length > 0;
+  const githubSelectKeys = new Set(githubSelectOptions.map((o) => o.key));
+  const mirrorValid = mirror === '' || !optionsLoaded || githubSelectKeys.has(mirror);
+  useEffect(() => {
+    if (optionsLoaded && !mirrorValid && mirror !== '') {
+      toast.info('所选加速源已被删除，已切换为智能选源');
+      setMirror('auto');
+    }
+  }, [optionsLoaded, mirrorValid, mirror]);
   const dockerSelectOptions = dockerMirrorOptions.filter((opt) => opt.key !== 'direct');
 
   const mirrorLabel = (key: string) =>
@@ -2074,22 +2124,57 @@ mdsSim && "mds-sim")}>
                           <SelectTrigger>
                             <SelectValue placeholder="选择镜像" />
                           </SelectTrigger>
-                          <SelectContent>
-                            {githubSelectOptions.map((opt) => {
-                              const result = ghLatency.get(opt.key);
-                              return (
-                                <SelectItem key={opt.key} value={opt.key}>
-                                  <span className="flex items-center justify-between w-full gap-2">
-                                    <span>{opt.label}</span>
-                                    {result && (
-                                      <span className={`text-[11px] tabular-nums ${latencyColor(result)}`}>
-                                        {latencyText(result)}
+                          {/* 选项多时限制高度并出滚动条（默认 max-h 依赖视口变量，长页面下失效） */}
+                          <SelectContent className="max-h-72 overflow-y-auto">
+                            {(() => {
+                              // 智能模式下按权重排序（吞吐降序，深测通过优先）
+                              // 并给每项标注：权重排名 / 延迟 / 吞吐 / 续传徽标
+                              const ghStatsArr = mirrorHealth?.mirrors || [];
+                              const sorted = [...ghStatsArr]
+                                .filter((m) => m.status === 'ok')
+                                .sort((a, b) => {
+                                  const as_ = a.speed_bps || 0;
+                                  const bs_ = b.speed_bps || 0;
+                                  if (bs_ !== as_) return bs_ - as_;
+                                  return (a.latency_ms || 0) - (b.latency_ms || 0);
+                                });
+                              const weightOf = new Map(sorted.map((m, i) => [m.key, i + 1] as const));
+                              return githubSelectOptions.map((opt) => {
+                                const result = ghLatency.get(opt.key);
+                                const rank = weightOf.get(opt.key);
+                                const speed = result?.speed_bps || 0;
+                                const resumeOk = result?.resume_ok === true;
+                                return (
+                                  <SelectItem key={opt.key} value={opt.key}>
+                                    <span className="flex items-center justify-between w-full gap-2">
+                                      <span className="flex items-center gap-1.5 min-w-0">
+                                        {rank !== undefined && (
+                                          <span className="text-[10px] tabular-nums text-muted-foreground shrink-0 w-4">
+                                            #{rank}
+                                          </span>
+                                        )}
+                                        <span className="truncate">{opt.label}</span>
+                                        {resumeOk && (
+                                          <span className="shrink-0 text-[10px] text-sky-600 dark:text-sky-400">续传✓</span>
+                                        )}
                                       </span>
-                                    )}
-                                  </span>
-                                </SelectItem>
-                              );
-                            })}
+                                      <span className="flex items-center gap-1.5 shrink-0">
+                                        {speed > 0 && (
+                                          <span className="text-[11px] tabular-nums text-muted-foreground">
+                                            {speed >= 1048576 ? `${(speed / 1048576).toFixed(1)}MB/s` : `${Math.round(speed / 1024)}KB/s`}
+                                          </span>
+                                        )}
+                                        {result && (
+                                          <span className={`text-[11px] tabular-nums ${latencyColor(result)}`}>
+                                            {latencyText(result)}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </span>
+                                  </SelectItem>
+                                );
+                              });
+                            })()}
                           </SelectContent>
                         </Select>
                         {mirror === 'custom' && (
@@ -2099,6 +2184,22 @@ mdsSim && "mds-sim")}>
                             onChange={(e) => setCustomGithubMirror(e.target.value)}
                           />
                         )}
+                        {/* 自定义加速源管理 */}
+                        <div className="flex items-center justify-between">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => { setCmDraft([...customMirrors]); setCmDialogOpen(true); }}
+                          >
+                            管理自定义加速源{customMirrors.length > 0 ? `（${customMirrors.length}）` : ''}
+                          </Button>
+                          {mirror.startsWith('custom-') && (
+                            <span className="text-xs text-muted-foreground">
+                              {mirrorLabel(mirror)}已选用
+                            </span>
+                          )}
+                        </div>
                       </>
                     )}
                     <p className="text-xs text-muted-foreground">
@@ -2108,7 +2209,7 @@ mdsSim && "mds-sim")}>
                       title="GitHub 加速源优选"
                       health={mirrorHealth}
                       options={mirrorOptions}
-                      customConfigured={customGithubMirror !== ''}
+                      customConfigured={customGithubMirror !== '' || customMirrors.length > 0}
                       labelOf={mirrorLabel}
                       intervalH={ghProbeH}
                       intervalM={ghProbeM}
@@ -2119,6 +2220,92 @@ mdsSim && "mds-sim")}>
                       includeDirect={{ value: mirrorIncludeDirect, onChange: setMirrorIncludeDirect }}
                     />
                   </div>
+
+                  {/* 自定义加速源管理弹窗 */}
+                  <Dialog open={cmDialogOpen} onOpenChange={setCmDialogOpen}>
+                    <DialogContent className="max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>管理自定义 GitHub 加速源</DialogTitle>
+                        <DialogDescription>
+                          自定义源与内置源合并显示在下拉框中，可参与测速与智能选源。地址必须是 https。
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {cmDraft.length === 0 && (
+                          <p className="text-sm text-muted-foreground py-4 text-center">
+                            还没有自定义加速源，点下方按钮添加。
+                          </p>
+                        )}
+                        {cmDraft.map((m, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <Input
+                              className="w-36 shrink-0"
+                              placeholder="名称"
+                              value={m.label}
+                              onChange={(e) => {
+                                const next = [...cmDraft];
+                                next[i] = { ...next[i], label: e.target.value };
+                                setCmDraft(next);
+                              }}
+                            />
+                            <Input
+                              className="flex-1"
+                              placeholder="https://mirror.example.com/"
+                              value={m.url}
+                              onChange={(e) => {
+                                const next = [...cmDraft];
+                                next[i] = { ...next[i], url: e.target.value };
+                                setCmDraft(next);
+                              }}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => setCmDraft(cmDraft.filter((_, j) => j !== i))}
+                              aria-label={`删除 ${m.label || '第' + (i + 1) + '条'}`}
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={cmDraft.length >= 20}
+                          onClick={() => setCmDraft([...cmDraft, { label: '', url: '' }])}
+                        >
+                          + 添加一条
+                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => setCmDialogOpen(false)}>
+                            取消
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              const clean = cmDraft
+                                .map((m, i) => ({ key: m.key || `custom-${i + 1}`, label: m.label.trim() || `自定义源 ${i + 1}`, url: m.url.trim() }))
+                                .filter((m) => m.url !== '');
+                              try {
+                                await updateSettings({ custom_mirrors: clean });
+                                setCustomMirrors(clean);
+                                setCmDialogOpen(false);
+                                toast.success(`自定义加速源已保存（${clean.length} 条）`);
+                                void refreshHealth();
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : '保存失败');
+                              }
+                            }}
+                          >
+                            保存
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
 
                   <Separator />
 
@@ -2153,7 +2340,7 @@ mdsSim && "mds-sim")}>
                           <SelectTrigger>
                             <SelectValue placeholder="选择镜像" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent className="max-h-72 overflow-y-auto">
                             {dockerSelectOptions.map((opt) => {
                               const result = dkLatency.get(opt.key);
                               return (

@@ -489,6 +489,14 @@ func (s *Server) FpkCandidates(a *source.App) []string {
 			}
 			continue
 		}
+		// custom-N（用户自定义源列表条目）同样按 key 取 URL。
+		// GitHubMirrorOptions() 已合并自定义源，这里自然命中。
+		if strings.HasPrefix(k, "custom-") {
+			if p := mirrorURLByKey(k); p != "" {
+				prefixes = append(prefixes, ensureTrailingSlash(p))
+			}
+			continue
+		}
 		if p, ok := urlByKey[k]; ok && p != "" {
 			prefixes = append(prefixes, p)
 		}
@@ -2462,6 +2470,10 @@ func (s *Server) mirrorVariants(cands []string, n int) []string {
 			if s.Cfg != nil {
 				prefix, ok = ensureTrailingSlash(s.Cfg.CustomGitHubMirror), s.Cfg.CustomGitHubMirror != ""
 			}
+		}
+		// custom-N（用户自定义源）同链路解析。
+		if strings.HasPrefix(key, "custom-") && s.Cfg != nil {
+			prefix, ok = mirrorURLByKey(key), true
 		}
 		if !ok || prefix == "" {
 			continue

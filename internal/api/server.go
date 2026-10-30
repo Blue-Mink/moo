@@ -488,6 +488,11 @@ func (s *Server) SetupNetguard() {
 		}
 		add(s.Cfg.CustomGitHubMirror)
 		add(s.Cfg.SourceListURL)
+		// 用户自定义加速源同样进豁免清单
+		// （管理员显式配置 = 信任线，与 netguard 包注释的信任模型一致）。
+		for _, cm := range s.Cfg.CustomMirrors {
+			add(cm.URL)
+		}
 		return hosts
 	})
 }

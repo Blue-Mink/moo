@@ -243,6 +243,8 @@ type Settings struct {
 	DockerMirrorOptions []config.MirrorOption `json:"docker_mirror_options,omitempty"`
 	CustomGitHubMirror  string                `json:"custom_github_mirror,omitempty"`
 	CustomDockerMirror  string                `json:"custom_docker_mirror,omitempty"`
+	// 用户自定义加速源（增删改走 PUT /api/settings）。
+	CustomMirrors []config.MirrorOption `json:"custom_mirrors,omitempty"`
 	InstallVolume       int                   `json:"install_volume"`
 	VolumeOptions       []VolumeOption        `json:"volume_options,omitempty"`
 	DownloadDir         string                `json:"download_dir,omitempty"`
