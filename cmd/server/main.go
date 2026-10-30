@@ -109,6 +109,13 @@ func main() {
 		log.Printf("[security] 凭据落盘加密已启用（密钥指纹 %s）", sealer.KeyID())
 	}
 	cfg, err := config.Load(dataDir)
+
+	// 2026-10-28 私人补丁：把用户自定义加速源挂进 config 包的合并钩子。
+	// 此后 GitHubMirrorOptions()/DockerMirrorOptions() 返回「内置+自定义」，
+	// 源同步竞速（buildCandidates）、健康探测、下载候选三处自动生效。
+	config.SetCustomMirrorProvider(func() []config.MirrorOption {
+		return cfg.CustomMirrors
+	})
 	if err != nil {
 		log.Printf("配置加载失败，使用默认配置: %v", err)
 	}

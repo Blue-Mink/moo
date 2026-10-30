@@ -685,6 +685,9 @@ export const reloadApps = (onEvent: SSECallback): SSEHandle => {
 
 export interface MirrorOption {
   key: string;
+
+// 2026-10-28 私人补丁：用户自定义加速源
+export interface CustomMirrorInput { key?: string; label: string; url: string }
   label: string;
   description: string;
 }
@@ -707,6 +710,7 @@ export interface Settings {
   docker_mirror: string;
   docker_mirror_options?: MirrorOption[];
   custom_github_mirror?: string;
+  custom_mirrors?: CustomMirrorInput[];
   custom_docker_mirror?: string;
   install_volume: number;
   volume_options?: VolumeOption[];
@@ -1340,7 +1344,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; custom_mirrors?: CustomMirrorInput[]; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
