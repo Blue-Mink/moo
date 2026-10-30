@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // MirrorOption 是一个加速源选项（GitHub 文件加速 / Docker 镜像加速）。
 // 列表与 New Store 对齐（2026-09 实测排序），声明顺序 = 无健康数据时的静态回退顺序。
 type MirrorOption struct {
@@ -11,7 +13,7 @@ type MirrorOption struct {
 
 // GitHubMirrorOptions GitHub 文件加速源（含 auto/custom/direct 特殊项）。
 func GitHubMirrorOptions() []MirrorOption {
-	return []MirrorOption{
+	return mergeCustomMirrors([]MirrorOption{
 		{Key: "auto", Label: "智能 · 自动选最快", Description: "系统周期性测速各源，自动选用最快且稳定的加速源"},
 		{Key: "gh-proxy-hk", Label: "GH-Proxy HK", URL: "https://hk.gh-proxy.org/", Description: "HK 节点，实测最快（419ms）"},
 		{Key: "cdn-ghproxy", Label: "CDN GHProxy", URL: "https://cdn.gh-proxy.org/", Description: "CDN 节点 GitHub 加速（450ms）"},
@@ -32,12 +34,12 @@ func GitHubMirrorOptions() []MirrorOption {
 		{Key: "gh-ddlc", Label: "GH DDLC", URL: "https://gh.ddlc.top/", Description: "GitHub 文件下载加速（当前限流 429，智能监测会自动降权）"},
 		{Key: "custom", Label: "自定义", Description: "使用自定义加速地址"},
 		{Key: "direct", Label: "直连 GitHub", Description: "直接从 GitHub 下载，适合有代理的用户"},
-	}
+	})
 }
 
 // DockerMirrorOptions Docker 镜像加速源（M4 接入 docker 拉取管线前仅展示/探测）。
 func DockerMirrorOptions() []MirrorOption {
-	return []MirrorOption{
+	return mergeCustomMirrors([]MirrorOption{
 		{Key: "auto", Label: "智能 · 自动选最快", Description: "系统周期性测速各源，自动选用最快且稳定的加速源"},
 		{Key: "daocloud", Label: "DaoCloud", URL: "https://m.daocloud.io/", Description: "DaoCloud 公共 Docker 镜像加速"},
 		// kspeeder = 独立 KSpeeder 应用（Blue-Mink 源，appname=kspeeder）的本地
@@ -57,11 +59,73 @@ func DockerMirrorOptions() []MirrorOption {
 		// 该 key 由读取侧归一（GET /api/settings → auto），不主动改用户配置。
 		{Key: "custom", Label: "自定义", Description: "使用自定义加速地址"},
 		{Key: "direct", Label: "直连 Docker Hub", Description: "直接拉取，适合有代理的用户"},
-	}
+	})
 }
 
 // KSpeederLocalAddr 独立 KSpeeder 应用默认的本地镜像代理地址（探测用）。
 const KSpeederLocalAddr = "127.0.0.1:5443"
+
+// ── 用户自定义加速源（2026-10-28 私人补丁）────────────────────────────
+//
+// 内置清单是硬编码的；自定义源由设置页维护、持久化在 Config.CustomMirrors。
+// 合并点放在这里（而非各消费点），使 buildCandidatesLimited / 健康探测 /
+// 下载引擎三处自动看到自定义源，零改动。
+//
+// hook 由 api 层在启动与设置更新时注入（SetCustomMirrorProvider），
+// 避免本包反向依赖 Config。
+
+var customMirrorProvider func() []MirrorOption
+
+// SetCustomMirrorProvider 注册自定义源提供者（nil = 清除，回到纯内置清单）。
+func SetCustomMirrorProvider(fn func() []MirrorOption) {
+	customMirrorProvider = fn
+}
+
+// mergeCustomMirrors 把自定义源并入选项副本：去 key 重复、去 URL 重复，
+// 追加在内置项之后、custom/direct 两个特殊项之前。
+func mergeCustomMirrors(opts []MirrorOption) []MirrorOption {
+	if customMirrorProvider == nil {
+		return opts
+	}
+	custom := customMirrorProvider()
+	if len(custom) == 0 {
+		return opts
+	}
+	seenKey := make(map[string]bool, len(opts))
+	seenURL := make(map[string]bool, len(opts))
+	for _, o := range opts {
+		seenKey[o.Key] = true
+		if o.URL != "" {
+			seenURL[normalizeMirrorURL(o.URL)] = true
+		}
+	}
+	out := make([]MirrorOption, 0, len(opts)+len(custom))
+	// custom/direct 两个「终端选项」沉底（自定义源插在它们之前）；
+	// auto 保持原位（内置清单的首项）。
+	var special []MirrorOption
+	for _, o := range opts {
+		if o.Key == "custom" || o.Key == "direct" {
+			special = append(special, o)
+			continue
+		}
+		out = append(out, o)
+	}
+	for _, c := range custom {
+		if c.Key == "" || c.URL == "" || seenKey[c.Key] || seenURL[normalizeMirrorURL(c.URL)] {
+			continue
+		}
+		seenKey[c.Key] = true
+		seenURL[normalizeMirrorURL(c.URL)] = true
+		out = append(out, c)
+	}
+	return append(out, special...)
+}
+
+// normalizeMirrorURL 归一化用于查重（小写、去尾部斜杠）。
+func normalizeMirrorURL(u string) string {
+	u = strings.ToLower(strings.TrimRight(u, "/"))
+	return u
+}
 
 // MirrorURL 按 key 查镜像地址（auto/direct/custom 返回空）。
 func MirrorURL(options []MirrorOption, key string) string {

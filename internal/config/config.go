@@ -91,6 +91,11 @@ type Config struct {
 	MirrorIncludeDirect bool   `json:"mirror_include_direct,omitempty"`
 	CustomGitHubMirror  string `json:"custom_github_mirror,omitempty"`
 	CustomDockerMirror  string `json:"custom_docker_mirror,omitempty"`
+	// CustomMirrors 用户自维护的 GitHub 加速源（2026-10-28 私人补丁）。
+	// 与内置清单（mirrors.go GitHubMirrorOptions）在读取侧合并；
+	// key 约定 "custom-<n>"，URL 须为 https 且主机名不重复。
+	// 结构复用 MirrorOption（mirrors.go），此处只声明不定义。
+	CustomMirrors []MirrorOption `json:"custom_mirrors,omitempty"`
 	// 加速源自动测速间隔（0.6.148，设置页双齿轮时间选择框）：
 	// Gh* = GitHub 加速组，Dk* = Docker 镜像组。0h0m（未设置）= 默认 5 分钟；
 	// 非法值（越界/总分钟 <1）解析为 5 分钟，上限 24 小时。
