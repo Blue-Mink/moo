@@ -2187,7 +2187,7 @@ const App: React.FC = () => {
                  {CATEGORIES.map(cat => (
                    <button
                      key={cat.key}
-                     onClick={() => setActiveCategory(cat.key)}
+                     onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
                      className={cn(
                        // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
                        "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
@@ -2199,7 +2199,6 @@ const App: React.FC = () => {
                    </button>
                  ))}
                </div>
-             </div>
            )}
         </header>
 
