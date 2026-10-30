@@ -188,6 +188,30 @@ func (c *mooClient) deleteSource(id string) error {
 	return nil
 }
 
+// renameSource 调 POST /api/sources/{id}/rename 改名（0.2.34：端口变更重建源后
+// 把 Moo 自动消歧出的名字改回原名）。返回 Moo 回报的新名。
+func (c *mooClient) renameSource(id, name string) (string, error) {
+	data, code, err := c.do(http.MethodPost, "/api/sources/"+id+"/rename", map[string]string{
+		"name": name,
+	})
+	if err != nil {
+		return "", err
+	}
+	if code != http.StatusOK {
+		return "", fmt.Errorf("Moo 改源名失败 HTTP %d: %s", code, strings.TrimSpace(string(data)))
+	}
+	var out struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return "", fmt.Errorf("解析改源名响应失败: %v", err)
+	}
+	if out.Name == "" {
+		out.Name = name
+	}
+	return out.Name, nil
+}
+
 // getMooRaw 只读端点：GET path（带 /api 前缀），返回原始 JSON（排障工具层再格式化）。
 // path 形如 "/api/status"、"/api/apps"、"/api/logs?lines=200"。
 func (c *mooClient) getMooRaw(path string) ([]byte, error) {

@@ -121,6 +121,23 @@ func main() {
 	// 软仓定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
 	go c.syncLoop()
 
+	// 0.2.34：端口变更后修复 Moo 里已添加的 Moo Mate 源地址（旧的回环端口会 404）。
+	// 后台延迟重试（Moo 可能与本应用同时启动），失败不阻塞。
+	go func() {
+		for _, d := range []time.Duration{3 * time.Second, 15 * time.Second, 45 * time.Second} {
+			time.Sleep(d)
+			fixed, err := c.reconcileSourceURLs()
+			if err != nil {
+				log.Printf("源地址校验失败（稍后重试）: %v", err)
+				continue
+			}
+			if fixed > 0 {
+				log.Printf("已把 %d 个 Moo Mate 源地址更新到当前端口（%s）", fixed, c.base)
+			}
+			return
+		}
+	}()
+
 	// 版本探测预热（启动后 3s 后台查一次，首个 /api/update-check 直接命中缓存）。
 	c.warmMateUpdate()
 

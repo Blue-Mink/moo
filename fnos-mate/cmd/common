@@ -1,20 +1,132 @@
 #!/bin/bash
-# Moo Mate — 生命周期公共函数（简化版）。
-# 与 Moo 同访问模型：统一网关 unix socket 为主入口（点图标走 /app/moo-mate），
-# TCP 127.0.0.1:38108 仅回环调试 + 本机 Moo 拉 moo.json 通道（零 LAN 端口暴露）。
-# 端口固定（manifest service_port=38108），不做向导改端口。
+# Moo Mate — 生命周期公共函数。
+# 访问模型（与 Moo 同）：统一网关 unix socket 为主入口（点图标走 /app/moo-mate），
+# TCP 127.0.0.1:PORT 仅回环调试 + 本机 Moo 拉 moo.json 通道（零 LAN 端口暴露）。
+# 0.2.34：端口闭环（移植 Moo 0.6.154 方案）。端口单一事实源 = ${PKG_ETC}/ports.conf；
+# 安装/配置向导改端口后同步：ports.conf → manifest service_port → .sc → AppCenter DB。
+# 端口变化后 Go 侧启动时把 Moo 里已添加的 Moo Mate 源地址换成新端口（reconcile）。
 
 DNAME="moo-mate"
 DEFAULT_PORT=38108
+PKG_ETC="${TRIM_PKGETC:-/var/apps/${TRIM_APPNAME}/etc}"
+PORTS_CONF="${PKG_ETC}/ports.conf"
 PKGVAR="${TRIM_PKGVAR:-/var/apps/${TRIM_APPNAME}/var}"
 LOG_FILE="${PKGVAR}/${TRIM_APPNAME:-moo-mate}.log"
 PID_FILE="${PKGVAR}/${TRIM_APPNAME:-moo-mate}.pid"
 APP_DEST="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME}}"
+# 0.2.34：微应用（micro_app=true）的真实二进制/网关 socket 在 /volN/@appcenter/<app>，
+# 不是 /var/apps/<app>；而平台只在部分生命周期回调注入 TRIM_APPDEST。
+# 默认目录里没有二进制时回落到 @appcenter，避免 config_callback 重启时起不来。
+if [ ! -x "${APP_DEST}/moo-mate" ]; then
+    for _d in /vol*"/@appcenter/${TRIM_APPNAME}"; do
+        [ -x "${_d}/moo-mate" ] && { APP_DEST="${_d}"; break; }
+    done
+fi
 BIN="${APP_DEST}/moo-mate"
 
-# 伴侣回环端口（固定，不随向导变化；manifest 登记基准）
+# 读当前端口：ports.conf（单一事实源，用户意图恒优先）→ TRIM_SERVICE_PORT
+# （应用中心注入，可能滞后于刚改的向导端口）→ 已安装 manifest → 默认 38108。
 read_web_port() {
-    echo "${DEFAULT_PORT}"
+    local p="" mf
+    if [ -r "${PORTS_CONF}" ]; then
+        p=$(grep -E "^WEB_PORT=" "${PORTS_CONF}" 2>/dev/null | tail -n1 | cut -d= -f2 | tr -d '[:space:]')
+    fi
+    case "${p}" in ''|*[!0-9]*) p="" ;; esac
+    if [ -z "${p}" ]; then
+        case "${TRIM_SERVICE_PORT:-}" in
+            ''|*[!0-9]*) p="" ;;
+            *) p="${TRIM_SERVICE_PORT}" ;;
+        esac
+    fi
+    if [ -z "${p}" ]; then
+        for mf in "${APP_DEST}/manifest" "/var/apps/${TRIM_APPNAME}/manifest"; do
+            [ -r "${mf}" ] || continue
+            p=$(grep -E "^service_port[[:space:]]*=" "${mf}" 2>/dev/null | head -n1 | grep -oE '[0-9]+' | head -n1)
+            case "${p}" in ''|*[!0-9]*) p="" ;; esac
+            [ -n "${p}" ] && break
+        done
+    fi
+    case "${p}" in ''|*[!0-9]*) p="${DEFAULT_PORT}" ;; esac
+    echo "${p}"
+}
+
+# 校验端口：纯数字且 1024-65535
+validate_port() {
+    local p="$1"
+    case "${p}" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "${p}" -ge 1024 ] 2>/dev/null && [ "${p}" -le 65535 ] 2>/dev/null || return 1
+    return 0
+}
+
+# 端口是否已被其它进程占用（回环调试端口冲突会让 daemon 起不来，配置向导里提前拒）
+port_in_use() {
+    local p="$1"
+    command -v ss >/dev/null 2>&1 || return 1
+    ss -lnt 2>/dev/null | awk 'NR>1 {print $4}' | grep -qE "[:.]${p}$"
+}
+
+# 同步 AppCenter DB（服务端口登记指向新端口）。只更新 app.service_url；
+# app_service.url 是 /app/moo-mate/ 网关入口，永不动。URL 里 ${host} 用 chr(36) 拼字面量。
+sync_appcenter_db() {
+    local port="$1" status_sql=""
+    [ "${2:-}" = "running" ] && status_sql="status='running',"
+    command -v psql >/dev/null 2>&1 || return 0
+    psql -h /var/run/postgresql -d appcenter -U postgres -v ON_ERROR_STOP=0 >/dev/null 2>&1 <<SQL || \
+        echo "sync_appcenter_db: psql 失败 (port=${port})" >> "${LOG_FILE}" 2>/dev/null
+UPDATE app
+   SET ${status_sql}
+       service_url='http://' || chr(36) || '{host}:${port}/',
+       updated_at=now()
+ WHERE app_name='${TRIM_APPNAME}';
+SQL
+    return 0
+}
+
+# 以应用中心同一权限上下文重启服务（config_callback 用；显式传 TRIM_SERVICE_PORT）
+restart_service() {
+    local main_script=""
+    for main_script in "/var/apps/${TRIM_APPNAME}/cmd/main" "${APP_DEST}/cmd/main" "${APP_DEST}/target/cmd/main"; do
+        [ -x "${main_script}" ] && break
+    done
+    [ -n "${main_script}" ] && [ -x "${main_script}" ] || return 0
+    TRIM_APPNAME="${TRIM_APPNAME}" TRIM_APPDEST="${APP_DEST}" \
+    TRIM_PKGETC="${PKG_ETC}" TRIM_PKGVAR="${PKGVAR}" \
+    TRIM_SERVICE_PORT="${1:-}" "${main_script}" stop >/dev/null 2>&1 || true
+    sleep 1
+    TRIM_APPNAME="${TRIM_APPNAME}" TRIM_APPDEST="${APP_DEST}" \
+    TRIM_PKGETC="${PKG_ETC}" TRIM_PKGVAR="${PKGVAR}" \
+    TRIM_SERVICE_PORT="${1:-}" "${main_script}" start >/dev/null 2>&1 || true
+    return 0
+}
+
+# 应用端口：写 ports.conf + 同步 .sc / manifest / AppCenter DB
+apply_port() {
+    local port="$1" status="${2:-}"
+    if ! validate_port "${port}"; then
+        echo "端口无效：${port}（必须是 1024-65535 的数字）" > "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
+        return 1
+    fi
+    if [ -d "${PKG_ETC}" ] || mkdir -p "${PKG_ETC}" 2>/dev/null; then
+        printf 'WEB_PORT=%s\n' "${port}" > "${PORTS_CONF}"
+        chmod 600 "${PORTS_CONF}" 2>/dev/null
+    fi
+    local sc
+    for sc in "${APP_DEST}/${TRIM_APPNAME}.sc" "${PKG_ETC}/${TRIM_APPNAME}.sc"; do
+        if [ -f "${sc}" ]; then
+            sed -i "s|^src\.ports=.*|src.ports=\"${port}/tcp\"|" "${sc}" 2>/dev/null
+            sed -i "s|^dst\.ports=.*|dst.ports=\"${port}/tcp\"|" "${sc}" 2>/dev/null
+        fi
+    done
+    local mf
+    for mf in "${APP_DEST}/manifest" "/var/apps/${TRIM_APPNAME}/manifest"; do
+        if [ -f "${mf}" ]; then
+            sed -i -E "s|^(service_port[[:space:]]*=).*|\1 ${port}|" "${mf}" 2>/dev/null
+        fi
+    done
+    sync_appcenter_db "${port}" "${status}"
+    return 0
 }
 
 start_daemon() {
@@ -31,6 +143,8 @@ start_daemon() {
     chmod 600 "${LOG_FILE}" 2>/dev/null
     # 访问模型（与 Moo 同）：统一网关 unix socket 为主入口；TCP 仅 127.0.0.1 回环调试
     # （本机 Moo 经它拉 moo.json）。加源地址写回环 127.0.0.1；moo-base 直连 Moo unix socket。
+    # 0.2.34：MOO_MATE_BOOTSTRAP 仍是固定引导目录（datadir 指针本身住这里），
+    # MOO_MATE_SELF_BASE 随端口变化（Go 侧启动时据此修复 Moo 里的旧源地址）。
     nohup env MOO_MATE_LISTEN="127.0.0.1:${port}" \
         MOO_MATE_SELF_BASE="http://127.0.0.1:${port}" \
         MOO_MATE_MOO_BASE="unix:///vol1/@appcenter/moo/app.sock" \

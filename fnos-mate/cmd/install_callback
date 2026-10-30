@@ -1,8 +1,46 @@
 #!/bin/bash
-# Moo Mate 安装回调（骨架版）：创建数据目录。
+# Moo Mate 安装回调（0.2.34：向导端口闭环）：创建数据目录 + 应用安装向导端口。
+# 端口传递：install-fpk -e / 面板安装传键名不统一，两种都接（wizard_access_port / access_port）
 COMMON=$(dirname $0)"/common"
 [ -r "${COMMON}" ] && . "${COMMON}"
 
-mkdir -p "${TRIM_PKGVAR}" /var/log/apps
-echo "moo-mate installed, version ${TRIM_PKGVERSION:-0.1.0}" >> "${LOG_FILE}"
+mkdir -p "${TRIM_PKGVAR}" 2>/dev/null || true
+mkdir -p /var/log/apps 2>/dev/null || true
+echo "moo-mate installed, version ${TRIM_PKGVERSION:-0.1.0}" >> "${LOG_FILE:-/var/log/apps/moo-mate.log}" 2>/dev/null
+
+wport_in="${wizard_access_port:-${access_port:-}}"
+if [ -n "${wport_in}" ]; then
+    echo "install wizard port=${wport_in} (wizard_access_port=${wizard_access_port:-} access_port=${access_port:-})" >> "${LOG_FILE}" 2>/dev/null
+fi
+wport="${wport_in:-$(read_web_port)}"
+if ! validate_port "${wport}"; then
+    echo "端口无效：${wport}（必须是 1024-65535 的数字）" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+fi
+# 端口被别的进程占用时装了也起不来，安装阶段就拒（旧实例应先 stop）。
+# 例外：占用的正是本应用当前配置端口（升级/重装时自身实例还在跑），放行 ——
+# 否则「端口没变的重装」会被自己挡下。与 config_callback 同口径。
+if [ "${wport}" != "$(read_web_port)" ] && port_in_use "${wport}"; then
+    echo "端口 ${wport} 已被占用，请换一个" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+fi
+apply_port "${wport}"
+
+# 留痕：安装向导走过的字段（CLI/非交互安装时这些变量不存在）。
+if [ -n "${wizard_license_agree+x}${wizard_access_port+x}" ]; then
+    cat > "${TRIM_PKGVAR}/wizard-install.json" <<EOF
+{
+  "installed_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
+  "version": "${TRIM_PKGVERSION:-unknown}",
+  "access_port": "${wport}",
+  "license": "MIT",
+  "license_agree_filled": $([ -n "${wizard_license_agree:-}" ] && echo true || echo false)
+}
+EOF
+    chmod 600 "${TRIM_PKGVAR}/wizard-install.json" 2>/dev/null
+fi
+
+# 应用 DB 行可能在回调之后才由应用中心创建：延迟多次重同步，防被默认值覆盖
+( for _d in 3 8 15; do sleep "${_d}"; sync_appcenter_db "${wport}" ""; done ) >/dev/null 2>&1 &
+echo "moo-mate install: port=${wport}"
 exit 0

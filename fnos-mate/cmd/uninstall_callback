@@ -1,13 +1,51 @@
 #!/bin/sh
 # Moo Mate 卸载回调：按向导选择是否删除数据（默认保留）。
+# 0.2.34：0.2.29 起数据目录可迁移到任意 /volN 可见目录（${PKGVAR}/datadir 指针）。
+# 自定义目录只删 Moo Mate 自有文件（index.json / config.json / 备份包），
+# 绝不 rm -rf 整个目录——那里可能还有用户自己的其它文件（对齐 Moo 不碰用户目录的原则）。
 set -e
 
+_ud() {
+    echo "[uninstall-data] $*"
+    [ -n "${TRIM_TEMP_LOGFILE:-}" ] && echo "[uninstall-data] $*" >> "${TRIM_TEMP_LOGFILE}" 2>/dev/null || true
+}
+
 if [ "${wizard_delete_data:-false}" = "true" ]; then
+    # 0) 先读自定义数据目录指针（它住 PKGVAR 里，下面删标准目录后会一起没掉）
+    _dd="$(cat "${TRIM_PKGVAR:-/var/apps/moo-mate/var}/datadir" 2>/dev/null | tr -d '\r\n')"
+
+    # 1) 标准应用目录（@appdata/@appconf/@appmeta/@apphome 下的 moo-mate）
     for p in /vol*/@appdata/moo-mate /vol*/@appconf/moo-mate /vol*/@appmeta/moo-mate /vol*/@apphome/moo-mate; do
         if [ -d "${p}" ]; then
-            rm -rf "${p}" 2>/dev/null || true
+            if rm -rf "${p}" 2>/dev/null; then
+                _ud "removed ${p}"
+            else
+                _ud "WARN failed to remove ${p}"
+            fi
         fi
     done
+
+    # 2) 自定义数据目录：只清 Moo Mate 自己的文件
+    #    路径安全：必须是 /volN 绝对路径且不含 ..（指针文件只有 root 可写，
+    #    这里再兜一层，避免异常值把删除动作带到卷外）。
+    case "${_dd}" in
+        *..*) _ud "custom data dir 含 ..，跳过：${_dd}"; _dd="" ;;
+    esac
+    case "${_dd}" in
+        /vol[1-9]*)
+            if [ -d "${_dd}" ]; then
+                _ud "custom data dir -> ${_dd} (only Moo Mate files)"
+                for f in index.json config.json; do
+                    [ -f "${_dd}/${f}" ] && rm -f "${_dd}/${f}" 2>/dev/null && _ud "removed ${_dd}/${f}"
+                done
+                if [ -d "${_dd}/backups" ]; then
+                    for b in "${_dd}/backups"/moo-mate-backup-*.tar.gz; do
+                        [ -f "${b}" ] && rm -f "${b}" 2>/dev/null && _ud "removed ${b}"
+                    done
+                fi
+            fi
+            ;;
+    esac
 fi
 echo "moo-mate uninstall cleanup done"
 exit 0

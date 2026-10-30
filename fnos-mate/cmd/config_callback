@@ -1,7 +1,27 @@
 #!/bin/bash
-# Moo Mate 配置回调（骨架版）：无向导端口，仅重启 daemon。
+# Moo Mate 配置回调（0.2.34：设置向导端口闭环）：校验→应用→重启→DB 重同步。
+# 键名与安装向导同款双收（wizard_access_port / access_port）。
 COMMON=$(dirname $0)"/common"
 [ -r "${COMMON}" ] && . "${COMMON}"
 
-echo "moo-mate config_callback" >> "${LOG_FILE:-/var/log/apps/moo-mate.log}" 2>/dev/null
+echo "moo-mate config_callback (port=${wizard_access_port:-${access_port:-}})" >> "${LOG_FILE:-/var/log/apps/moo-mate.log}" 2>/dev/null
+cport="${wizard_access_port:-${access_port:-}}"
+if [ -n "${cport}" ]; then
+    if ! validate_port "${cport}"; then
+        echo "端口无效：${cport}（必须是 1024-65535 的数字）" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+        exit 1
+    fi
+    # 换成另一个端口时要先确认没被别的进程占用（否则重启后 daemon 起不来）
+    if [ "${cport}" != "$(read_web_port)" ] && port_in_use "${cport}"; then
+        echo "端口 ${cport} 已被占用，请换一个" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+        exit 1
+    fi
+    apply_port "${cport}"
+    restart_service "${cport}"
+    sync_appcenter_db "${cport}" "running"
+    ( for _d in 3 8 15; do sleep "${_d}"; sync_appcenter_db "${cport}" "running"; done ) >/dev/null 2>&1 &
+    echo "Config updated: debug port=${cport}"
+    echo "Moo Mate 服务已自动重启并同步应用中心服务端口（面板入口 /app/moo-mate/ 不受影响）。"
+    echo "若曾在 Moo 里添加过 Moo Mate 的源，重启后源地址会自动换成新端口。"
+fi
 exit 0

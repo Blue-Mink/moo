@@ -93,15 +93,43 @@ func (ix *index) setPath(p string) {
 }
 
 // save 落盘（自动建目录）。
+// 0.2.34：原子写（同目录临时文件 + fsync + rename + 目录 fsync）。os.WriteFile 会先
+// truncate，期间任何读取方（备份、部署核对脚本、外部工具）都会读到 0 字节空文件；
+// 只 rename 不 fsync 时断电仍可能丢掉 tmp 内容或 rename 本身，所以写前 sync 文件、
+// rename 后 sync 目录。
 func (ix *index) save() error {
-	if dir := filepath.Dir(ix.path); dir != "" && dir != "." {
+	dir := filepath.Dir(ix.path)
+	if dir != "" && dir != "." {
 		_ = os.MkdirAll(dir, 0o755)
 	}
 	b, err := json.MarshalIndent(ix.doc, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(ix.path, b, 0o644)
+	tmp := ix.path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err = f.Write(b); err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, ix.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if d, derr := os.Open(dir); derr == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
 }
 
 // list 返回全部应用副本（注入 appname）。

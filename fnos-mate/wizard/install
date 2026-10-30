@@ -22,6 +22,32 @@
     ]
   },
   {
+    "stepTitle": "端口设置",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "Moo Mate 只在本机回环地址 <code>127.0.0.1</code> 上监听一个调试端口，用于本机 Moo 拉取生成的 <code>moo.json</code>。<br>主入口走面板网关 <code>/app/moo-mate/</code>，<strong>不受这里填写的端口影响</strong>。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_access_port",
+        "label": "调试端口",
+        "initValue": "38108",
+        "rules": [
+          {
+            "required": true,
+            "message": "请填写端口"
+          },
+          {
+            "pattern": "^[0-9]+$",
+            "message": "端口必须为数字（1024-65535）"
+          }
+        ],
+        "helpText": "本机回环调试端口（1024-65535，默认 38108）。保存后服务自动重启并把新端口写回应用中心服务登记；若曾在 Moo 里添加过 Moo Mate 的源，重启后会自动把源地址换成新端口。"
+      }
+    ]
+  },
+  {
     "stepTitle": "关于 Moo Mate",
     "items": [
       {

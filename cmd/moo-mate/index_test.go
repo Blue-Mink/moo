@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -82,5 +84,27 @@ func TestIndexSetSynced(t *testing.T) {
 	}
 	if err := ix.setSynced("nope", true, ""); err == nil {
 		t.Fatal("不存在的 appname 应报错")
+	}
+}
+
+// 0.2.34：原子写——落盘后不留 .tmp，内容可完整解析。
+func TestIndexSaveAtomic(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "index.json")
+	ix := newIndex(p)
+	ix.doc.Apps["demo"] = &indexedApp{Synced: true}
+	if err := ix.save(); err != nil {
+		t.Fatalf("save 失败: %v", err)
+	}
+	if _, err := os.Stat(p + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("临时文件未被 rename 掉: %v", err)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("读回失败: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("落盘内容不是合法 JSON: %v", err)
 	}
 }
