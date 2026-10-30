@@ -19,7 +19,6 @@ const AppDetailDialog = React.lazy(() => import('./components/AppDetailDialog'))
 const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
 const WizardDialog = React.lazy(() => import('./components/WizardDialog'));
 import ThemeToggle from './components/ThemeToggle';
-import WheelCategories from './components/WheelCategories';
 import MobileDock from './components/MobileDock';
 import FpkDownloads from './components/FpkDownloads';
 import { Dialog, DialogContent, DialogTitle } from './components/ui/dialog';
@@ -2014,23 +2013,22 @@ const App: React.FC = () => {
               <div className="flex gap-2 overflow-x-auto pill-bar">
                 {allCategoryPill}
                 {dedupPill}
-                <WheelCategories
-                  items={CATEGORIES.map(cat => ({
-                    key: cat.key,
-                    node: (
-                      <span
-                        className={cn(
-                          "inline-flex h-16 px-6 flex items-center justify-center rounded-full border text-[17px] font-semibold whitespace-nowrap leading-none transition-colors",
-                          activeCategory === cat.key ? "bg-primary/25 text-primary border-primary/50" : "bg-card/55 text-foreground border-white/10"
-                        )}
-                      >
-                        {cat.label}
-                      </span>
-                    ),
-                  }))}
-                  activeKey={activeCategory}
-                  onSelect={(key) => setActiveCategory((activeCategory === key ? null : key) as typeof activeCategory)}
-                />
+                <div className="flex gap-2 overflow-x-auto pill-bar">
+                {allCategoryPill}
+                {dedupPill}
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat.key}
+                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
+                    className={cn(
+                      "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap flex items-center justify-center",
+                      activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
               </div>
             )}
         </div>
@@ -2191,23 +2189,22 @@ const App: React.FC = () => {
                  {dedupPill}
                </div>
                <div className="flex items-center gap-2 overflow-x-auto pill-bar flex-1 min-w-0">
-                 <WheelCategories
-                  items={CATEGORIES.map(cat => ({
-                    key: cat.key,
-                    node: (
-                      <span
-                        className={cn(
-                          "inline-flex h-16 px-6 flex items-center justify-center rounded-full border text-[17px] font-semibold whitespace-nowrap leading-none transition-colors",
-                          activeCategory === cat.key ? "bg-primary/25 text-primary border-primary/50" : "bg-card/55 text-foreground border-white/10"
-                        )}
-                      >
-                        {cat.label}
-                      </span>
-                    ),
-                  }))}
-                  activeKey={activeCategory}
-                  onSelect={(key) => setActiveCategory((activeCategory === key ? null : key) as typeof activeCategory)}
-                />
+                 <div className="flex gap-2 overflow-x-auto pill-bar">
+                {allCategoryPill}
+                {dedupPill}
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat.key}
+                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
+                    className={cn(
+                      "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap flex items-center justify-center",
+                      activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
                </div>
              </div>
            )}
