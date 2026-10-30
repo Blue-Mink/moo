@@ -2013,9 +2013,6 @@ const App: React.FC = () => {
               <div className="flex gap-2 overflow-x-auto pill-bar">
                 {allCategoryPill}
                 {dedupPill}
-                <div className="flex gap-2 overflow-x-auto pill-bar">
-                {allCategoryPill}
-                {dedupPill}
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
@@ -2028,7 +2025,6 @@ const App: React.FC = () => {
                     {cat.label}
                   </button>
                 ))}
-              </div>
               </div>
             )}
         </div>
@@ -2189,10 +2185,7 @@ const App: React.FC = () => {
                  {dedupPill}
                </div>
                <div className="flex items-center gap-2 overflow-x-auto pill-bar flex-1 min-w-0">
-                 <div className="flex gap-2 overflow-x-auto pill-bar">
-                {allCategoryPill}
-                {dedupPill}
-                {CATEGORIES.map(cat => (
+                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
                     onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
@@ -2205,7 +2198,6 @@ const App: React.FC = () => {
                   </button>
                 ))}
               </div>
-               </div>
              </div>
            )}
         </header>
