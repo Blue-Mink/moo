@@ -589,7 +589,13 @@ const App: React.FC = () => {
     scrollPosRef.current[prev] = window.scrollY;
     activeFilterRef.current = next;
     setActiveFilter(next);
-    setActiveCategory(null);
+    // 2026-10-28 私人补丁：分类选择跨 tab 保留（all/installed/update_available
+    // 三个 tab 都有分类条，切换后分类过滤仍可用且有 UI 可取消）。
+    // 仅切到「发现」（recommended，无分类条）时清掉——无处取消会困住选择。
+    // 原实现无条件清空 = 选分类后每切一个 tab 都要重选，重复操作。
+    if (next === 'recommended') {
+      setActiveCategory(null);
+    }
   }, []);
   // 切回某 tab 时恢复其滚动位置：等新列表提交布局；目标超出当前文档高度时
   // 逐帧重试（列表还在渲染），最多 10 帧后钳制到当前最大值兜底。
