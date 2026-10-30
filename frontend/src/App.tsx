@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download, ArrowUpDown, Layers } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -507,7 +507,13 @@ const App: React.FC = () => {
   }, [apps, loadStatus, detailApp]);
   // App Store large title：内容滚动后标题收缩、头部转毛玻璃
   const [mainScrolled, setMainScrolled] = useState(false);
-  const [sortBy, setSortBy] = useState<SortKey>('default');
+  // 2026-10-28 私人补丁：排序偏好持久化（localStorage，与 web_view_mode 同模式）。
+  // 非法值回落 default；null = 首次使用，不写入（保持首次体验为随机）。
+  const [sortBy, setSortBy] = useState<SortKey>(() => {
+    const v = localStorage.getItem('moo.sort_by');
+    return v === 'downloads' || v === 'name' || v === 'alpha' || v === 'updated' ? v : 'default';
+  });
+  useEffect(() => { localStorage.setItem('moo.sort_by', sortBy); }, [sortBy]);
   // 「全部」视图随机展示（322R4 回退到 0.6.321 最早态 / 320 风格 Fisher-Yates）：
   // 每次数据加载后重新洗牌（setShuffleTick），同一次会话内顺序稳定
   //（切 tab 返回不重洗，记住的滚动位置仍落在同一应用上）。
@@ -591,6 +597,22 @@ const App: React.FC = () => {
     setActiveFilter(next);
     setActiveCategory(null);
   }, []);
+
+  // 2026-10-28 私人补丁（用户令）：Dock 的 tab（全部/已安装/有更新）**双击**
+  // = 切到该 tab 并把分类筛选清回「全部」。
+  // 设计取舍：单击必须保持即时切 tab（0.6.232 定下的"点下就有反应"），
+  // 所以不做「等 300ms 判断是否双击」的延迟；双击在第二次点击时补一个
+  // 清分类动作即可。350ms 窗口，命中后时间戳清零防三连击重复触发。
+  const lastDockTapRef = useRef<{ key: string; t: number } | null>(null);
+  const handleDockTap = useCallback((key: string) => {
+    if (key === 'settings') { setSettingsVisible(true); return; }
+    const now = Date.now();
+    const last = lastDockTapRef.current;
+    const isDouble = !!last && last.key === key && now - last.t < 350;
+    lastDockTapRef.current = { key, t: isDouble ? 0 : now };
+    switchFilter(key as 'all' | 'installed' | 'update_available' | 'recommended');
+    if (isDouble) setActiveCategory(null);
+  }, [switchFilter]);
   // 切回某 tab 时恢复其滚动位置：等新列表提交布局；目标超出当前文档高度时
   // 逐帧重试（列表还在渲染），最多 10 帧后钳制到当前最大值兜底。
   const skipScrollRestoreRef = useRef(false);
@@ -1518,11 +1540,7 @@ const App: React.FC = () => {
     } catch { /* 后端短暂不可用：保持旧值 */ }
   }, []);
 
-  const categoryCounts = useMemo(() => CATEGORIES.reduce((acc, cat) => {
-    // 0.6.326：与列表同口径（被禁用者不在分类列表里，不计入分类计数）
-    acc[cat.key] = apps.filter(a => a.category === cat.key && !a.user_hidden).length;
-    return acc;
-  }, {} as Record<string, number>), [apps]);
+  // 2026-10-28：滚轮条替代原分类胶囊后不再显示计数（原 useMemo 仅服务胶囊计数角标）
 
   // 排序 pill：pill 主体 = 选择全部分类（不变）；右侧 ▾ = 排序菜单（折叠在胶囊里）
   // 0.6.313（用户定稿）：胶囊内「全部」二字删除，pill 只显示当前排序名（随机/A-Z/…）
@@ -1540,12 +1558,15 @@ const App: React.FC = () => {
       <div className={cn(
         // 0.6.284：「全部」胶囊与其他胶囊统一 Dock 毛玻璃材质
         // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何排序项胶囊都保持原色
-        "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap"
+        "relative z-[60] flex items-center gap-1 shrink-0 h-10 pl-3 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap"
       )}>
         {/* 0.6.312c（用户定稿）：当前排序名直接显示在胶囊里（切哪种显哪种）；
             0.6.313（用户定稿）：「全部」二字删除，胶囊只显排序名；
             0.6.313r（用户定稿）：字体与去重胶囊统一（去 font-normal/muted，
             继承胶囊壳 13px/medium/foreground，两胶囊观感一致） */}
+        <span aria-hidden="true" className="flex items-center justify-center h-5 w-5 text-muted-foreground">
+          <ArrowUpDown className="h-3.5 w-3.5" />
+        </span>
         <button
           onClick={() => setActiveCategory(null)}
           className="bg-transparent border-0 p-0 cursor-pointer text-inherit font-inherit"
@@ -1568,7 +1589,7 @@ const App: React.FC = () => {
             // 取自然宽防裁切；去重菜单标签全 ≤2 字，实际就是胶囊宽
             // parentElement = 胶囊壳 div（0.6.315 拆嵌套后），取整胶囊矩形
             const r = ((e.currentTarget as HTMLElement).parentElement as HTMLElement).getBoundingClientRect();
-            const contentW = Math.max(...SORT_OPTIONS.map(o => [...o.label].length * 13)) + 16 + 8 + 2;
+            const contentW = Math.max(...SORT_OPTIONS.map(o => [...o.label].length * 15)) + 16 + 8 + 2;
             const menuW = Math.max(r.width, contentW);
             const menuH = 190;
             const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
@@ -1594,7 +1615,7 @@ const App: React.FC = () => {
                 key={o.value}
                 onClick={() => { setSortBy(o.value); setSortMenuOpen(false); }}
                 className={cn(
-                  "block w-full whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-muted",
+                  "block w-full whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-[15px] hover:bg-muted",
                   sortBy === o.value ? "font-medium text-primary" : "text-foreground"
                 )}
               >
@@ -1649,10 +1670,13 @@ const App: React.FC = () => {
           // 0.6.284 同款 Dock 毛玻璃材质
           // 0.6.313r（用户定稿）：胶囊无蓝色选中态——选中任何档位胶囊都保持原色
           //（与排序胶囊同款材质/字体，两胶囊观感一致）
-          "relative z-[60] flex items-center gap-0.5 shrink-0 h-8 pl-3.5 pr-1.5 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[13px] font-medium whitespace-nowrap transition-colors"
+          "relative z-[60] flex items-center gap-1 shrink-0 h-10 pl-3 pr-2 rounded-full border border-white/10 backdrop-blur-xl bg-card/55 text-foreground text-[15px] font-medium whitespace-nowrap transition-colors"
         )}
       >
         {/* 0.6.312c（用户定稿）：胶囊标签=当前档位名，切哪种去重显哪种 */}
+        <span aria-hidden="true" className="flex items-center justify-center h-5 w-5 text-muted-foreground">
+          <Layers className="h-3.5 w-3.5" />
+        </span>
         {DEDUP_OPTIONS.find(o => o.value === dedupPolicy)?.label ?? '默认'}
         <span className={cn("flex items-center justify-center h-6 w-6 rounded-full transition-colors", dedupMenuOpen && "bg-black/10")}>
           <ChevronsUpDown className="h-3.5 w-3.5" />
@@ -1673,7 +1697,7 @@ const App: React.FC = () => {
                 key={o.value}
                 onClick={() => applyDedup(o.value)}
                 className={cn(
-                  "block w-full whitespace-nowrap rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-muted",
+                  "block w-full whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-[15px] hover:bg-muted",
                   dedupPolicy === o.value ? "font-medium text-primary" : "text-foreground"
                 )}
               >
@@ -2014,10 +2038,9 @@ const App: React.FC = () => {
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
+                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
                     className={cn(
-                      // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
-                      "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
+                      "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap flex items-center justify-center",
                       activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
                     )}
                   >
@@ -2185,20 +2208,18 @@ const App: React.FC = () => {
                </div>
                <div className="flex items-center gap-2 overflow-x-auto pill-bar flex-1 min-w-0">
                  {CATEGORIES.map(cat => (
-                   <button
-                     key={cat.key}
-                     onClick={() => setActiveCategory(cat.key)}
-                     className={cn(
-                       // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
-                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
-                       activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground hover:bg-card/80"
-                     )}
-                   >
-                     {cat.label}
-                     <span className="ml-1 text-xs opacity-60 tabular-nums">{categoryCounts[cat.key] ?? 0}</span>
-                   </button>
-                 ))}
-               </div>
+                  <button
+                    key={cat.key}
+                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
+                    className={cn(
+                      "shrink-0 h-10 px-4 rounded-full border border-white/10 backdrop-blur-xl text-[15px] font-medium whitespace-nowrap flex items-center justify-center",
+                      activeCategory === cat.key ? "bg-primary/15 text-primary border-primary/40" : "bg-card/55 text-foreground"
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
              </div>
            )}
         </header>
@@ -2602,7 +2623,7 @@ const App: React.FC = () => {
       {!dockHidden && (
         <MobileDock
           active={activeFilter}
-          onSelect={(key) => { if (key === 'settings') setSettingsVisible(true); else switchFilter(key); }}
+          onSelect={handleDockTap}
           updateCount={counts.update_available}
           storeHasUpdate={storeHasUpdate}
           order={dockOrder ?? undefined}
@@ -2647,7 +2668,7 @@ const App: React.FC = () => {
             <button
               key={key}
               type="button"
-              onClick={() => switchFilter(key)}
+              onClick={() => handleDockTap(key)}
               title={`${label}（${count}）`}
               className={cn(
                 'relative flex w-[100px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',
