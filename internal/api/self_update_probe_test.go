@@ -21,11 +21,16 @@ import (
 // setProbeBases 覆写探测入口（api/web/fnDepot 源），返回还原函数。
 func setProbeBases(api, web, fd string) func() {
 	oldAPI, oldWeb, oldFD := selfUpdateAPIBase, selfUpdateWebBase, selfUpdateFnDepotURL
+	oldIdx := selfUpdateSelfIndexURL
 	selfUpdateAPIBase = api
 	selfUpdateWebBase = web
 	selfUpdateFnDepotURL = fd
+	// 0.6.371：moo.json 自索引默认指向不可达地址（不触外网）；需要覆盖该分支的
+	// 用例再用 setSelfIndexBase 单独覆写。
+	selfUpdateSelfIndexURL = "http://127.0.0.1:1/moo.json"
 	return func() {
 		selfUpdateAPIBase, selfUpdateWebBase, selfUpdateFnDepotURL = oldAPI, oldWeb, oldFD
+		selfUpdateSelfIndexURL = oldIdx
 	}
 }
 
@@ -110,8 +115,8 @@ func TestDoProbeFallbackOn403Ratelimit(t *testing.T) {
 	if assetURL != wantURL {
 		t.Fatalf("assetURL = %q, want %q", assetURL, wantURL)
 	}
-	if shaURL != "" {
-		t.Fatalf("shaURL = %q, want empty（web 通道无侧车 → 降级结构校验）", shaURL)
+	if shaURL != wantURL+".sha256" {
+		t.Fatalf("shaURL = %q, want %q（0.6.370：兜底通道按发布约定直拼侧车 URL）", shaURL, wantURL+".sha256")
 	}
 	if rl.IsZero() || !rl.After(time.Now()) {
 		t.Fatalf("ratelimitUntil = %v, want future", rl)
@@ -138,8 +143,10 @@ func TestDoProbeAllChannelsFail(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HTTP 500") ||
 		!strings.Contains(err.Error(), "web 兜底") ||
-		!strings.Contains(err.Error(), "FnDepot 源兜底") ||
-		!strings.Contains(err.Error(), "镜像兜底") {
+		!strings.Contains(err.Error(), "moo.json 索引") ||
+		!strings.Contains(err.Error(), "索引镜像") ||
+		!strings.Contains(err.Error(), "FnDepot 源") ||
+		!strings.Contains(err.Error(), "FnDepot 镜像") {
 		t.Fatalf("err = %v, want all channels reported", err)
 	}
 	if !rl.IsZero() {
@@ -202,7 +209,7 @@ func TestDoProbeFallbackOnFnDepot(t *testing.T) {
 	defer restore()
 
 	s := &Server{Cfg: config.Default()}
-	tag, assetURL, asset, shaURL, _, _, rl, err := s.doProbe()
+	tag, assetURL, asset, shaURL, minisigURL, _, rl, err := s.doProbe()
 	if err != nil {
 		t.Fatalf("doProbe (fnDepot fallback): %v", err)
 	}
@@ -213,8 +220,53 @@ func TestDoProbeFallbackOnFnDepot(t *testing.T) {
 		// 资产 URL 用 web base（none.URL 此处仅为 web 通道占位，应指向 webBase）
 		t.Fatalf("assetURL = %q, want %q", assetURL, want)
 	}
-	if shaURL != "" || !rl.IsZero() {
-		t.Fatalf("shaURL=%q rl=%v, want empty/zero", shaURL, rl)
+	// 0.6.370：兜底通道必须同时给出 .sha256 / .minisig 侧车 URL —— 缺任一个，
+	// 0.6.329 起的 fail-closed 校验都会让兜底 100% 失败（用户实测 toast：
+	// 「release v0.6.369 未附 .minisig 签名资产」，而 release 资产其实齐全）。
+	if shaURL != assetURL+".sha256" {
+		t.Fatalf("shaURL = %q, want %q", shaURL, assetURL+".sha256")
+	}
+	if minisigURL != assetURL+".minisig" {
+		t.Fatalf("minisigURL = %q, want %q", minisigURL, assetURL+".minisig")
+	}
+	if !rl.IsZero() {
+		t.Fatalf("ratelimitUntil = %v, want zero", rl)
+	}
+}
+
+// 0.6.370 回归：API 403 + web 302 兜底命中时，必须带签名/哈希侧车 URL，
+// 否则下载阶段必然被 fail-closed 拒绝（这是用户实报的自更新失败根因）。
+func TestDoProbeWebFallbackCarriesSidecars(t *testing.T) {
+	suppressProbeNotify(t)
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
+	}))
+	defer apiSrv.Close()
+	webSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/Blue-Mink/moo/releases/tag/v0.6.298", http.StatusFound)
+	}))
+	defer webSrv.Close()
+	restore := setProbeBases(apiSrv.URL, webSrv.URL, "https://fd.invalid")
+	defer restore()
+
+	s := &Server{Cfg: config.Default()}
+	tag, assetURL, asset, shaURL, minisigURL, _, _, err := s.doProbe()
+	if err != nil {
+		t.Fatalf("doProbe (web fallback): %v", err)
+	}
+	want := webSrv.URL + "/Blue-Mink/moo/releases/download/v0.6.298/moo_0.6.298_x86.fpk"
+	if runtime.GOARCH != "amd64" {
+		if tag != "0.6.298" || asset == "" {
+			t.Fatalf("tag/asset = %q/%q", tag, asset)
+		}
+	} else {
+		if tag != "0.6.298" || assetURL != want || asset != "moo_0.6.298_x86.fpk" {
+			t.Fatalf("tag/assetURL/asset = %q/%q/%q, want 0.6.298/%q/moo_0.6.298_x86.fpk",
+				tag, assetURL, asset, want)
+		}
+	}
+	if !strings.HasSuffix(shaURL, ".fpk.sha256") || !strings.HasSuffix(minisigURL, ".fpk.minisig") {
+		t.Fatalf("侧车 URL 缺失: sha=%q minisig=%q", shaURL, minisigURL)
 	}
 }
 

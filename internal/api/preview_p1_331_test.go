@@ -40,6 +40,10 @@ func TestPreviewBudgetAndSemaphores_P1(t *testing.T) {
 // 预热一轮必须把可见应用的预览图灌进两级缓存（页面最多展示 4 张，
 // 第 5 张不预热），已命中/负缓存的跳过。
 func TestWarmPreviewsPassFillsCache_P1(t *testing.T) {
+	// 0.6.377：本用例断言「预热必须现抓 4 张」，但 readmeStore 默认落包内
+	// moo-data/cache/readmes —— 同机重复跑会命中上一轮残留缓存 → 抓取数变 0
+	// 的假失败（2026-10-30 实测，非产品缺陷）。隔离数据目录。
+	t.Setenv("MOO_DATA", t.TempDir())
 	idx := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "fnpack.json") {
 			http.NotFound(w, r)

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -84,7 +85,10 @@ type staleIndexSrv struct {
 	mode           int32
 	freshN, staleN int
 	reqs           int32
-	firstFile      string // 首轮命中的索引文件名（第二轮的「记忆命中」路径）
+	// 0.6.377：firstFile 由 mu 保护 —— httptest.Handler 在多个连接协程里并发
+	// 执行，无锁读写会在 -race 下报 DATA RACE（测试自身缺陷，非产品问题）。
+	mu        sync.Mutex
+	firstFile string // 首轮命中的索引文件名（第二轮的「记忆命中」路径）
 }
 
 func newStaleIndexSrv(t *testing.T, freshN, staleN int) *staleIndexSrv {
@@ -95,15 +99,20 @@ func newStaleIndexSrv(t *testing.T, freshN, staleN int) *staleIndexSrv {
 		cnt := 0
 		switch atomic.LoadInt32(&s.mode) {
 		case 0:
+			s.mu.Lock()
 			if s.firstFile == "" {
 				s.firstFile = path.Base(r.URL.Path)
 			}
+			s.mu.Unlock()
 			cnt = s.freshN
 		case 1:
 			cnt = s.staleN
 		default:
 			// 记忆命中路径（首轮命中的索引名）给陈旧条目，其余一律 500
-			if strings.HasSuffix(r.URL.Path, s.firstFile) {
+			s.mu.Lock()
+			first := s.firstFile
+			s.mu.Unlock()
+			if strings.HasSuffix(r.URL.Path, first) {
 				cnt = s.staleN
 			} else {
 				http.Error(w, "boom", http.StatusInternalServerError)

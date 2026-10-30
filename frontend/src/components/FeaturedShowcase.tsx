@@ -49,15 +49,18 @@ const HeroBanner: React.FC<{ app: AppInfo; className?: string; onDetail: (a: App
 const RowCard: React.FC<{ app: AppInfo; onDetail: (a: AppInfo) => void }> = ({ app, onDetail }) => (
   <button
     onClick={() => onDetail(app)}
-    className="group w-[104px] shrink-0 text-left focus-visible:outline-none"
+    /* 0.6.373（用户令）：图标与下方名称居中排布。此前按钮是 text-left、图标贴左，
+       而名称段落占满 104px 宽左对齐 → 名称中心比图标中心偏右 16px（图标 72 宽），
+       看起来名称"不在图标下面居中"。改为纵向 flex 居中 + 文本居中。 */
+    className="group flex w-[104px] shrink-0 flex-col items-center text-center focus-visible:outline-none"
   >
     <AppIcon
       app={app}
       className="h-[72px] w-[72px] shadow-[0_2px_8px_rgb(0_0_0/0.10)]"
       iconClassName="h-9 w-9"
     />
-    <p className="mt-2 text-[13px] font-medium leading-tight truncate">{app.display_name}</p>
-    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
+    <p className="mt-2 w-full text-[13px] font-medium leading-tight truncate">{app.display_name}</p>
+    <p className="mt-0.5 w-full text-[11px] text-muted-foreground truncate">
       {appDownloadLabel(app) ?? `v${availableVersionLabel(app)}`}
     </p>
   </button>

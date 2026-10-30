@@ -352,7 +352,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
                   <button
                     onClick={() => onToggleFavorite(app)}
                     className={cn(
-                      "p-1 rounded-full transition-colors focus:outline-none focus-visible:outline-none", /* 0.6.146 星标去焦点环（触屏点按留常驻圆环） */
+                      "p-1.5 shrink-0 hit-40 rounded-full transition-colors focus:outline-none focus-visible:outline-none", /* 0.6.146 星标去焦点环（触屏点按留常驻圆环）；0.6.375 视觉 24→28 与另两槽统一、热区 40 */
                       favoriteSet?.has(app.key || app.appname) ? "text-amber-500" : "text-muted-foreground/50 hover:text-amber-500" /* 0.6.128 去圆圈底（hover 在触屏卡住会留常驻圆圈） */
                     )}
                     title={favoriteSet?.has(app.key || app.appname) ? '取消收藏' : '收藏'}

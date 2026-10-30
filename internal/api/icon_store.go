@@ -100,6 +100,12 @@ type iconStore struct {
 	failSkipped int
 
 	saverOnce sync.Once
+	// 0.6.377：saverStop 由 saverMu 保护。此前 Stop() 无锁读/close/置 nil，
+	// 与 ensureSaver 的赋值、以及 saver 协程每轮读字段并发 —— -race 下 3 个
+	// 用例 DATA RACE（TestIconStorePutCreatesMissingDir / …HealEntry… /
+	// TestRefreshAcceptsRealShrink）。生产影响限优雅退出路径（可能多 flush
+	// 一次或走收尾分支），不在请求路径上。
+	saverMu   sync.Mutex
 	saverStop chan struct{}
 }
 
@@ -429,13 +435,18 @@ func (st *iconStore) scheduleSave() {
 // ensureSaver 启动唯一的后台 saver（2s ticker 批量 flush）。
 func (st *iconStore) ensureSaver() {
 	st.saverOnce.Do(func() {
-		st.saverStop = make(chan struct{})
+		// 本地副本：协程只读 stop，不再每轮读 st.saverStop 字段（否则与
+		// Stop 的置 nil 竞争）。
+		stop := make(chan struct{})
+		st.saverMu.Lock()
+		st.saverStop = stop
+		st.saverMu.Unlock()
 		go func() {
 			t := time.NewTicker(2 * time.Second)
 			defer t.Stop()
 			for {
 				select {
-				case <-st.saverStop:
+				case <-stop:
 					return
 				case <-t.C:
 					st.Flush()
@@ -457,11 +468,16 @@ func (st *iconStore) Flush() {
 }
 
 // Stop 停止后台 saver（优雅退出前 Flush 收尾）。
+// 0.6.377：读/置 nil/close 全在 saverMu 内；重复 Stop 因 saverStop 已置 nil
+// 不会二次 close（旧逻辑并发下会 panic 或漏停）。
 func (st *iconStore) Stop() {
 	st.Flush()
-	if st.saverStop != nil {
-		close(st.saverStop)
-		st.saverStop = nil
+	st.saverMu.Lock()
+	stop := st.saverStop
+	st.saverStop = nil
+	st.saverMu.Unlock()
+	if stop != nil {
+		close(stop)
 	}
 }
 

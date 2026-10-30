@@ -11,7 +11,11 @@ import (
 	"time"
 )
 
-var testPng = []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x00}
+// 0.6.377：夹具改成「尾部完整」的极小 PNG。旧值只有 12 B 且没有 IEND，
+// 靠 imageComplete 的「<1024 B 一律放行」豁免才被判完整；该豁免按 F5b 盲点
+// 去掉后，它会被正确判成截断 —— 夹具失真，不是产品回归。
+var testPng = append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x00},
+	'I', 'E', 'N', 'D', 0xAE, 'B', '`', 0x82)
 
 func withPreviewFetcher(t *testing.T, fn func(*Server, context.Context, string) ([]byte, string, bool, string, error)) {
 	t.Helper()

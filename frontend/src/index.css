@@ -79,6 +79,22 @@
   border-radius: 9999px;
 }
 
+/* 0.6.375（用户令）：移动端行列表动作列的触控热区。
+   星标 / 主操作药丸 / ⋯ 的**视觉尺寸不变**，热区统一扩到 40×40（各向外
+   扩 6px）。原因：实测触控目标只有 24×24 与 28×28，而指腹宽度约 9~11mm
+   ≈34~40 CSS px（iOS 建议 44pt / Material 48dp），这才是误触根因——把
+   间距从 12px 加到 14px 只多 2px，治不了。
+   列间距同时取 14px（gap-3.5）⇒ 相邻热区间隔 42px > 40px，**不会互相
+   覆盖**；重叠会让边缘点击落到错误按钮上，比不扩热区更糟。 */
+@utility hit-40 {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
+}
+
 /* 横向滚动区隐藏滚动条 */
 @utility no-scrollbar {
   scrollbar-width: none;

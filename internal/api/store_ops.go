@@ -1454,6 +1454,73 @@ const previewTransientNegTTL = 60 * time.Second
 // errPreviewNotImage 上游返回的不是图片（网页/文本），属确定性无效地址。
 var errPreviewNotImage = errors.New("预览图地址无效（非图片）")
 
+// errPreviewTruncated 图片传输不完整（0.6.372）：属瞬态，短负缓存后可重试。
+var errPreviewTruncated = errors.New("预览图传输不完整（已丢弃，可稍后重试）")
+
+// imageComplete 判断图片字节流是否完整（0.6.372）。
+// 事故背景：上游直连/镜像在传输中断时仍可能回 200 + 半截内容，而老逻辑只看
+// 魔数（looksLikeImage）→ 截断图被当成功写入预览缓存 → 前端 <img> 解码失败，
+// 表现为「预览图加载不出来」且缓存命中后长期不恢复（实测 2230 条预览缓存里
+// 629 条截断/缺失）。
+func imageComplete(b []byte) bool {
+	// 0.6.377：去掉「<1024 B 一律放行」的豁免——全量测试 F5b 实测 900 B 的
+	// 截断 JPEG（无 Content-Length 时）就是从这里漏进缓存的；而合法的极小图
+	// （1×1 PNG 68 B / GIF 43 B）本身就带正确尾部标记，照常通过。
+	// 合法图片不可能短于 16 B，更短视为残缺（空 body 也在这里被拒）。
+	if len(b) < 16 {
+		return false
+	}
+	// 尾窗安全切片：短于窗口就整段当尾窗，避免 b[len-n:] 越界。
+	tail := func(n int) string {
+		if len(b) <= n {
+			return string(b)
+		}
+		return string(b[len(b)-n:])
+	}
+	switch {
+	case b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G':
+		// PNG 以 IEND chunk 收尾（\x00\x00\x00\x00IEND\xaeB`\x82）
+		return strings.Contains(tail(32), "IEND")
+	case b[0] == 0xFF && b[1] == 0xD8:
+		return strings.Contains(tail(64), "\xff\xd9")
+	case b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8':
+		return b[len(b)-1] == 0x3B
+	case b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' &&
+		b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P':
+		return int(binary.LittleEndian.Uint32(b[4:8]))+8 == len(b)
+	}
+	// SVG / BMP / ICO 无统一尾部标记，交回魔数判定。
+	return true
+}
+
+// respLenOK 声明长度与实收字节是否一致（0.6.377：从竞速候选处下沉，
+// README/图片共用同一口径）。declared<=0（无 Content-Length / chunked）
+// 或 >4MB（我们主动限读）时无法比对，返回 true —— 这类情况只能靠
+// imageComplete 的尾部标记兜底。
+func respLenOK(got, declared int64) bool {
+	if declared <= 0 || declared > 4<<20 {
+		return true
+	}
+	return got == declared
+}
+
+// truncLogAction 判定一次「读取失败」该记哪类日志（"" = 不记）。
+// 0.6.377：线上 130 条 TRUNC 里绝大多数是竞速落选被父 ctx 取消
+// （err=context canceled，甚至 got==want 已读满），把真截断彻底淹没。
+// 取消 → 不记（与上方 err 分支口径一致）；自身 12s 超时 → TIMEOUT；
+// 其余（读中断 / 声明长度不足）→ TRUNC。
+func truncLogAction(rerr error, got, want int64) string {
+	switch {
+	case rerr != nil && errors.Is(rerr, context.Canceled):
+		return ""
+	case rerr != nil && errors.Is(rerr, context.DeadlineExceeded):
+		return "TIMEOUT"
+	case rerr == nil && want > 0 && got == want:
+		return "" // 长度一致，不是截断（防御：边界口径变化时别误报）
+	}
+	return "TRUNC"
+}
+
 // previewFastDeadGrace 0.6.335 C1：声明地址（raw 直链）无响应、而其余候选
 // 已全部失败时，最多再等这么久就判死。实测 1Panel 预览：raw master 挂到
 // 12s 超时，镜像们 0.4s 就全 404——旧逻辑要陪挂满 13s 预算。
@@ -1512,6 +1579,11 @@ func (s *Server) fetchPreviewShared(ctx context.Context, rawURL string) ([]byte,
 		err = errPreviewNotImage
 		body, mime = nil, ""
 	}
+	// 0.6.372：截断图不能进缓存（否则前端永远加载不出来）。
+	if err == nil && !imageComplete(body) {
+		err = errPreviewTruncated
+		body, mime = nil, ""
+	}
 	call.body, call.mime, call.dead, call.err = body, mime, dead, err
 	return call.body, call.mime, call.dead, call.err
 }
@@ -1520,7 +1592,7 @@ func (s *Server) proxyPreview(w http.ResponseWriter, r *http.Request, rawURL str
 	rawURL = strings.TrimSpace(rawURL)
 	cacheKey := "preview|" + rawURL
 	st := s.readmeStore()
-	if body, ct, ok := st.Get(cacheKey); ok && looksLikeImage(body) {
+	if body, ct, ok := st.Get(cacheKey); ok && looksLikeImage(body) && imageComplete(body) {
 		servePreview(w, body, ct)
 		return
 	}
@@ -1546,7 +1618,7 @@ func (s *Server) proxyPreview(w http.ResponseWriter, r *http.Request, rawURL str
 		servePreview(w, body, mime)
 		return
 	}
-	if body, ct, ok := st.Get(cacheKey); ok && looksLikeImage(body) {
+	if body, ct, ok := st.Get(cacheKey); ok && looksLikeImage(body) && imageComplete(body) {
 		servePreview(w, body, ct)
 		return
 	}
@@ -1617,6 +1689,18 @@ var readmeImgHosts = map[string]bool{
 	"objects.githubusercontent.com":     true,
 }
 
+// readmeImgRaceFetch 是可替换的抓取入口（生产走 raceFetch；单测注入假
+// fetcher 以避开真实网络与 netguard 的私网拦截）。
+var readmeImgRaceFetch = func(s *Server, ctx context.Context, cands []string) ([]byte, string, bool, string, error) {
+	return s.raceFetch(ctx, cands)
+}
+
+// readmeImgCacheUsable 判断 readme-img 缓存内容能否直接服务（0.6.374）：
+// 图片必须完整；非图片（上游错误页等）保持原有行为，不在这里拦。
+func readmeImgCacheUsable(body []byte) bool {
+	return !looksLikeImage(body) || imageComplete(body)
+}
+
 // proxyReadmeImg README 内嵌图片代理（type=readme-img&u=<原始URL>）：
 // github 系走镜像竞速（raw 直链补 main↔master/jsDelivr/镜像候选，
 // github.com 资源走 gh-proxy 全路径代理），命中两级缓存（7 天）。
@@ -1629,7 +1713,12 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 	}
 	cacheKey := "readme-img|" + u
 	st := s.readmeStore()
-	if body, ct, ok := st.Get(cacheKey); ok {
+	// 0.6.374：缓存命中同样要校验完整性。0.6.372 只给预览图加了这道关，
+	// readme-img 会把「修复前写入的截断图」一直供到 7 天 TTL 到期——实测
+	// moo 自己 README 的两张手机截图（1,485 B / 4,125 B，缺 IEND）就是这样
+	// 坏了一整轮，浏览器解码失败 = 「README 图片加载不出来」。
+	// 不完整/非图片缓存视为未命中 → 走下面重抓并覆盖。
+	if body, ct, ok := st.Get(cacheKey); ok && readmeImgCacheUsable(body) {
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		_, _ = w.Write(body)
@@ -1670,16 +1759,23 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	body, mime, dead, _, rerr := s.raceFetch(ctx, cands)
+	body, mime, dead, _, rerr := readmeImgRaceFetch(s, ctx, cands)
 	if rerr != nil && !dead && ctx.Err() == nil {
 		// 瞬态失败（raw 限流/黑洞窗口）：剩余预算内重试一次竞速
-		body, mime, dead, _, rerr = s.raceFetch(ctx, cands)
+		body, mime, dead, _, rerr = readmeImgRaceFetch(s, ctx, cands)
 	}
 	if rerr == nil {
 		if mime == "" || mime == "text/plain" || mime == "text/html" {
 			if ct := detectImageCT(body); ct != "" {
 				mime = ct
 			}
+		}
+		// 0.6.374：截断图不入缓存（与预览图 0.6.372 同一道关）。
+		// 上游偶发「200 + 半截 body」且未声明长度时，读不会报错，
+		// 只能靠尾部标记判定——不拦就会像事故那样被缓存 7 天。
+		if looksLikeImage(body) && !imageComplete(body) {
+			writeErr(w, http.StatusBadGateway, errors.New("图片不完整（传输中断），已拒绝缓存"))
+			return
 		}
 		st.Put(cacheKey, body, mime)
 		w.Header().Set("Content-Type", mime)
@@ -1769,7 +1865,21 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 			defer resp.Body.Close()
 			elapsed := time.Since(t0)
 			if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusForbidden {
-				b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+				// 0.6.372：读中断 / 声明长度不足 → 该候选直接判失败。老逻辑
+				// 丢掉 ReadAll 的错误，把截断的图/README 当成功返回并写缓存，
+				// 造成「预览图加载不出来」长期不愈（实测 629/2230 条缓存坏）。
+				b, rerr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+				// 0.6.377：长度口径下沉到 respLenOK（README / 图片共用）。
+				if rerr != nil || !respLenOK(int64(len(b)), resp.ContentLength) {
+					// 0.6.377：按类别记日志（取消不记 / 超时 TIMEOUT / 真截断 TRUNC），
+					// 但无论记不记，该候选一律判失败——截断内容绝不进缓存。
+					if act := truncLogAction(rerr, int64(len(b)), resp.ContentLength); act != "" {
+						logagg.Default.Record("race", mustParseURL(u).Hostname(),
+							"%s %s: err=%v got=%d want=%d", act, u, rerr, len(b), resp.ContentLength)
+					}
+					ch <- rres{u: u, status: 0, t: time.Since(t0)}
+					return
+				}
 				mime := resp.Header.Get("Content-Type")
 				if mime == "" {
 					mime = detectImageCT(b)

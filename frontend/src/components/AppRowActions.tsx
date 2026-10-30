@@ -19,7 +19,18 @@ import { useAppMoreMenu } from '@/lib/useAppMoreMenu';
      太近、容易误触」；改为固定三槽（24/28/28 + gap-3=12px）后三处间距一致。
    ②收藏星标改由本组件承载（props.favorite）→ 天然与动作列同轴居中，
      无主操作的行不再出现「星标贴右缘、⋯ 居中」的 18px 错位。
-   菜单内容由 useAppMoreMenu 统一构建（0.6.366 起与收藏卡共用同一份）。 */
+   菜单内容由 useAppMoreMenu 统一构建（0.6.366 起与收藏卡共用同一份）。
+
+   0.6.375（用户令，本轮改）：三钮「间距一致 + 不易误触 + 不能太散 + 与左侧
+   对称」。实测（390×844 真机模拟，33 行）显示间距本来就等距 12/12、左右
+   16/16 与上下 16 也对称，真正的误触根因是**触控目标只有 24×24 / 28×28**
+   （指腹约 34~40 CSS px）。故：①星标 p-1→p-1.5（24→28，图标仍 16，视觉
+   不变）让三槽同宽；②列间距 12→14（gap-3.5）；③三钮加 hit-40 伪元素热区
+   40×40。pitch=28+14=42 > 40 ⇒ 相邻热区不重叠（重叠比不扩更糟）。
+   ④三槽均 shrink-0：行高由左侧信息块决定时（实测 104），列内容 112 会被
+   flex 压缩——药丸被压到 21.5px、热区只剩 33.5px（实测 33/46 行中招）。
+   加 shrink-0 后列撑开行高到 144（+8px），三钮才是真正的 28/28/28。
+   注意：⋯ 的空占位槽**不加** hit-40，否则空热区会吞掉整行点击。 */
 
 interface Props {
   app: AppInfo;
@@ -60,7 +71,7 @@ const AppRowActions: React.FC<Props> = ({
   const primaryBtn = !isInstalled ? (
     <button
       onClick={() => onInstall(app)}
-      className="pill bg-muted/60 text-foreground border border-border/50 h-7 px-4 text-[13px] font-semibold active:bg-muted"
+      className="pill hit-40 shrink-0 bg-muted/60 text-foreground border border-border/50 h-7 px-4 text-[13px] font-semibold active:bg-muted"
     >
       安装
     </button>
@@ -68,7 +79,7 @@ const AppRowActions: React.FC<Props> = ({
     <button
       onClick={() => onUpdate(app)}
       disabled={!upgradeAllowed}
-      className="pill h-7 px-3.5 text-[13px] font-semibold border border-border/50 bg-muted/60 text-foreground active:bg-muted disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
+      className="pill hit-40 shrink-0 h-7 px-3.5 text-[13px] font-semibold border border-border/50 bg-muted/60 text-foreground active:bg-muted disabled:border-muted disabled:bg-transparent disabled:text-muted-foreground"
     >
       {upgradeAllowed ? '更新' : '需手动'}
     </button>
@@ -76,7 +87,7 @@ const AppRowActions: React.FC<Props> = ({
     <button
       disabled
       aria-label={app.status === 'starting' ? '启动中' : '停用中'}
-      className="pill h-7 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground inline-flex items-center gap-1"
+      className="pill hit-40 shrink-0 h-7 px-3 text-[13px] font-semibold border border-border/60 bg-muted/40 text-muted-foreground inline-flex items-center gap-1"
     >
       <Loader2 className="h-3 w-3 animate-spin" />
       {app.status === 'starting' ? '启动中' : '停用中'}
@@ -87,7 +98,7 @@ const AppRowActions: React.FC<Props> = ({
       disabled={controlling === app.appname}
       aria-label={`启动 ${app.display_name}`}
       title={`「${app.display_name}」已停止，点击启动`}
-      className="pill h-7 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground active:bg-muted disabled:opacity-60 inline-flex items-center gap-1"
+      className="pill hit-40 shrink-0 h-7 px-4 text-[13px] font-semibold border border-border/60 bg-muted/60 text-muted-foreground active:bg-muted disabled:opacity-60 inline-flex items-center gap-1"
     >
       {controlling === app.appname
         ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -98,7 +109,7 @@ const AppRowActions: React.FC<Props> = ({
     <button
       onClick={() => onOpenApp?.(app)}
       aria-label={`打开 ${app.display_name}`}
-      className="pill bg-muted/60 text-foreground border border-border/50 h-7 px-4 text-[13px] font-semibold active:bg-muted"
+      className="pill hit-40 shrink-0 bg-muted/60 text-foreground border border-border/50 h-7 px-4 text-[13px] font-semibold active:bg-muted"
     >
       打开
     </button>
@@ -109,7 +120,7 @@ const AppRowActions: React.FC<Props> = ({
       items={items}
       dangerItems={dangerItems}
       portal
-      className="h-7 w-7"
+      className="h-7 w-7 shrink-0 hit-40"
       ariaLabel="更多操作"
       dot={fpkBusy}
     />
@@ -117,7 +128,7 @@ const AppRowActions: React.FC<Props> = ({
 
   return (
     <div
-      className="relative shrink-0 self-stretch flex flex-col items-center justify-center gap-3 min-w-[60px]"
+      className="relative shrink-0 self-stretch flex flex-col items-center justify-center gap-3.5 min-w-[60px]"
       onClick={(e) => e.stopPropagation()}
     >
       {favorite}
@@ -126,7 +137,7 @@ const AppRowActions: React.FC<Props> = ({
       {hasPrimary ? primaryBtn : moreBtn}
       {/* ⋯ 槽恒占位（0.6.367）：三槽总高固定 ⇒ 收藏星标、主操作、⋯ 在
          有/无主操作的行里相对行中心偏移逐像素一致，跨行不跳位 */}
-      <div className="h-7 w-7">{hasPrimary ? moreBtn : null}</div>
+      <div className="h-7 w-7 shrink-0">{hasPrimary ? moreBtn : null}</div>
     </div>
   );
 };
