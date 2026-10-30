@@ -507,7 +507,13 @@ const App: React.FC = () => {
   }, [apps, loadStatus, detailApp]);
   // App Store large title：内容滚动后标题收缩、头部转毛玻璃
   const [mainScrolled, setMainScrolled] = useState(false);
-  const [sortBy, setSortBy] = useState<SortKey>('default');
+  // 2026-10-28 私人补丁：排序偏好持久化（localStorage，与 web_view_mode 同模式）。
+  // 非法值回落 default；null = 首次使用，不写入（保持首次体验为随机）。
+  const [sortBy, setSortBy] = useState<SortKey>(() => {
+    const v = localStorage.getItem('moo.sort_by');
+    return v === 'downloads' || v === 'name' || v === 'alpha' || v === 'updated' ? v : 'default';
+  });
+  useEffect(() => { localStorage.setItem('moo.sort_by', sortBy); }, [sortBy]);
   // 「全部」视图随机展示（322R4 回退到 0.6.321 最早态 / 320 风格 Fisher-Yates）：
   // 每次数据加载后重新洗牌（setShuffleTick），同一次会话内顺序稳定
   //（切 tab 返回不重洗，记住的滚动位置仍落在同一应用上）。
