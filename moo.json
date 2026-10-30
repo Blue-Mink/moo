@@ -16,7 +16,7 @@
     "x86",
     "arm"
    ],
-   "desc": "飞牛 NAS 上的第三方应用中心：1800+ 应用浏览 / 安装 / 更新 / 下载；三源同步（官方应用中心 / FnDepot / fnos-apps）、14 领域智能归类；30+ 事件 × 7 渠道通知推送；GitHub 加速与应用内自更新。",
+   "desc": "飞牛 NAS 上的第三方应用中心：聚合应用浏览 / 安装 / 更新 / 下载；三源同步（官方应用中心 / FnDepot / fnos-apps）、14 领域智能归类；30+ 事件 × 7 渠道通知推送；GitHub 加速与应用内自更新。",
    "author": "Blue-Mink",
    "distributor": "Blue-Mink",
    "homepage": "https://github.com/Blue-Mink/moo",
