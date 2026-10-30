@@ -22,6 +22,24 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.377": {
+     "updated_at": "2026-10-30T06:33:29+08:00",
+     "changelog": "• 修复图标缓存后台落盘协程的并发竞态（-race 下 3 个用例报数据竞争，优雅退出时可能重复落盘）；• 抓图日志不再把「请求取消」误记为截断（TRUNC），超时单独记 TIMEOUT，真截断才记 TRUNC；• 图片完整性加固：取消「小于 1KB 一律视为完整」的豁免（900 B 的截断 JPEG 曾因此被缓存 7 天），合法极小图照常通过，Content-Length 校验口径统一",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_x86.fpk",
+       "sha256": "2e8d1f098eaf0e6296811ae52d6b4f0225985824791e800e9974a3d67c820ff0",
+       "size": 5176019,
+       "size_mb": 4.9
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_arm.fpk",
+       "sha256": "0d3c4fac0f4bf62ee7833875ead06ec7e91b743fa70082891923fd4bc2ba1695",
+       "size": 4716160,
+       "size_mb": 4.5
+      }
+     }
+    },
     "0.6.369": {
      "updated_at": "2026-10-29T12:10:44+08:00",
      "changelog": "修复了一些 UI 问题。",
@@ -39,27 +57,9 @@
        "sha256": "10de0359d1800d0fd6c4588e709fe35809af747a14536815040f06f0bd267ce5"
       }
      }
-    },
-    "0.6.355": {
-     "updated_at": "2026-10-28T10:30:00+08:00",
-     "changelog": "arm 设备支持应用内自更新（按 CPU 架构自动选 x86 / arm 安装包）；应用卡片与详情页去掉「发布：」文字前缀，分发者徽章只显示名字；Moo Mate 自动复用本机 Moo 的 GitHub Token，伴侣侧不再单独配置；修复应用溯源误判：聚合索引源（如 moo-mate）不再被当作上游打包者。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_x86.fpk",
-       "size": 5164516,
-       "size_mb": 4.9,
-       "sha256": "2e304765f190af2fce5b105ff051da91cd6c416ae1c415471b427b505492cd17"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.355/moo_0.6.355_arm.fpk",
-       "size": 4702611,
-       "size_mb": 4.5,
-       "sha256": "427d83be201464f133976eeb4d3cecd5d69899910cafd1610eaa399d20ce1378"
-      }
-     }
     }
    },
-   "sha256": "8d8e117ba8e74539028f9e8e29520ea726b1c024012e32a39cc5d00c794e5873",
+   "sha256": "2e8d1f098eaf0e6296811ae52d6b4f0225985824791e800e9974a3d67c820ff0",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -71,13 +71,13 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-29T12:10:44+08:00",
-   "version": "0.6.369",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.369/moo_0.6.369_x86.fpk",
-   "size": 5167643,
+   "updated_at": "2026-10-30T06:33:29+08:00",
+   "version": "0.6.377",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_x86.fpk",
+   "size": 5176019,
    "service_port": "38100",
    "size_mb": 4.9,
-   "changelog": "修复了一些 UI 问题。"
+   "changelog": ""
   },
   "moo-mate": {
    "display_name": "Moo Mate",

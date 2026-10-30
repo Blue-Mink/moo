@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.369-1f6feb?style=flat-square"></a>
-  <img alt="Go" src="https://img.shields.io/badge/Go-%E5%8D%95%E4%BA%8C%E8%BF%9B%E5%88%B6-0a84ff?style=flat-square">
-  <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64%2Farm64-6f42c1?style=flat-square">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" height="20" src="docs/badges/fpk.png"></a>
+  <img alt="Go" height="20" src="docs/badges/go.png">
+  <img alt="Platform" height="20" src="docs/badges/platform.png">
+  <a href="LICENSE"><img alt="License" height="20" src="docs/badges/license.png"></a>
 </p>
 
 <p align="center">
@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.369` · x86 `8d8e117ba8e74539028f9e8e29520ea726b1c024012e32a39cc5d00c794e5873`（4.9MB） / arm `10de0359d1800d0fd6c4588e709fe35809af747a14536815040f06f0bd267ce5`（4.5MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.377` · x86 `2e8d1f098eaf0e6296811ae52d6b4f0225985824791e800e9974a3d67c820ff0`（4.9MB） / arm `0d3c4fac0f4bf62ee7833875ead06ec7e91b743fa70082891923fd4bc2ba1695`（4.5MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
