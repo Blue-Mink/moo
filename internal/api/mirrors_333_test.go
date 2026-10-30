@@ -109,7 +109,7 @@ func TestProbeGhOne403IsFail(t *testing.T) {
 
 // F3：首位资产 404（下线）→ 自动顺延试下一个（自有资产挂了也不整体误判）。
 func TestProbeGhOneAsset404FallsThrough(t *testing.T) {
-	body := strings.Repeat("x", 600*1024) // > ghProbeMinBytes(512KB)
+	body := strings.Repeat("x", 1600*1024) // > ghProbeMinBytes(1.5MB)：门槛是「10s 读满 1.5MB」
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "gone") {
 			w.WriteHeader(http.StatusNotFound)
