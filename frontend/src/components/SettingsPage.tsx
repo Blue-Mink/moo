@@ -826,18 +826,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 「消失」，且死区挡滚轮/触摸。dock 高度实测（callback ref + ResizeObserver，
   // 键盘态/显隐变化自动跟随），内容滚动框据此设 paddingBottom：文字可滚到
   // 按钮下方穿过，滚到底静止时最后一行正好停在按钮上方不被遮。
-  const [saveDockH, setSaveDockH] = useState(0);
-  const saveDockRoRef = useRef<ResizeObserver | null>(null);
-  const onSaveDockRef = useCallback((el: HTMLDivElement | null) => {
-    saveDockRoRef.current?.disconnect();
-    saveDockRoRef.current = null;
-    if (!el) { setSaveDockH(0); return; }
-    const measure = () => setSaveDockH(el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    saveDockRoRef.current = ro;
-  }, []);
+  // 2026-10-28 v2：保存区改 flex 底栏，高度由布局天然预留，无需测量。
   // 0.6.316 ①：手机桌面模拟（飞牛 app 桌面模式）→ 对话框挂 .mds-sim 去玻璃
   const mdsSim = useMobileDesktopSim();
   // 0.6.225（用户 2026-10-01 定稿）：「保存按钮**不管键盘有没有弹出都一直在底部**，
@@ -1788,13 +1777,11 @@ mdsSim && "mds-sim")}>
           </div>
 
           {/* 内容区
-              0.6.319g：滚动框贯穿到对话框最底（保存 dock 不再占 flex 段），
-              paddingBottom=dock 实测高度——文字滚到底正好停在按钮上方。
-              0.6.358（用户实报「设置页卡片和顶部 tab 胶囊间距太大」）：滚动框原 pt-3
-              叠加各 tab 自己的 py 让桌面 32 / 移动 28，现由各 tab 的 py-4(py-4 桌面同款)
-              独占 16px——tab 胶囊底到首卡顶统一 16px，与卡片间距齐平。 */}
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain"
-            style={saveDockH > 0 ? { paddingBottom: saveDockH } : undefined}>
+              2026-10-28 私人补丁 v2（rebase 到 0.6.377）：保存区为独立实体底栏
+              （flex 常驻段，不透明、不遮内容），滚动框不再贯穿到底、无需
+              paddingBottom 预留——原 overlay 半透按钮盖住滚动内容与参数控件（使用者报）。
+              0.6.358（上游）：tab 胶囊底到首卡顶统一 16px，与卡片间距齐平。 */}
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
             {tab === 'backup' ? (
               <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
                 {/* 设置备份 */}
@@ -2939,29 +2926,22 @@ mdsSim && "mds-sim")}>
             // 移动端按钮底边「挨着 home 线、留一点点距离」：安卓=安全区+8px、
             // iOS=安全区-16px（319d「位置很好」位）；319i 的 pb-0（顶死屏底、
             // 压 home 指示条=操作冲突）已废弃；桌面 sm+ 保持 8px。
+            // 2026-10-28 私人补丁 v2：独立实体底栏（flex 常驻段，非 overlay 半透按钮）。
+            // 原悬浮半透按钮盖住滚动内容与底部的参数控件（使用者报）。
+            // 不透明背景 + 顶部分隔线；save-dock-pad 安全区逻辑保留。
             <div
-              ref={onSaveDockRef}
-              className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pt-2 save-dock-pad sm:px-6"
+              className="shrink-0 border-t border-white/10 bg-background/95 sm:bg-background px-3 sm:px-6 py-2.5 save-dock-pad"
             >
-              {/* 0.6.221：不再做 translateY 上抬——对话框底边已等于可见底边
-                  （见上方 dialogKeyboardStyle），再抬就会过冲：按钮浮在键盘上方、
-                  不像"固定在底部"（用户实报）。absolute bottom-0 同样恒钉底边。
-                  0.6.302（用户定稿）：0.6.301 的卡框+贴底改动回退，恢复原胶囊按钮。
-                  0.6.319g（用户定稿）：shadow-lg 底阴影去掉——悬浮感改由内容
-                  从按钮下穿过体现（与详情页下载胶囊逐字同款语言）。 */}
-              <div className="pointer-events-auto mx-auto w-full sm:w-72">
-                {/* 0.6.367（用户令）：「保存按钮也不要蓝底色了」——与 0.6.364 的
-                    安装/打开胶囊同款中性药丸（bg-muted/60 + 描边 + 前景字），
-                    去掉默认主色的浅蓝玻璃底。 */}
-                <Button
-                  className="w-full h-11 rounded-2xl bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none"
-                  onClick={handleSave}
-                  disabled={saving || loading}
-                >
-                  {saving && <Loader2 className="-ml-1 mr-2 h-4 w-4 animate-spin" />}
-                  保存
-                </Button>
-              </div>
+              {/* 0.6.367（上游用户令）：中性药丸按钮（bg-muted/60 + 描边），
+                  实体底栏内保留同款样式。 */}
+              <Button
+                className="w-full h-11 rounded-2xl bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none"
+                onClick={handleSave}
+                disabled={saving || loading}
+              >
+                {saving && <Loader2 className="-ml-1 mr-2 h-4 w-4 animate-spin" />}
+                保存
+              </Button>
             </div>
           )}
         </div>
