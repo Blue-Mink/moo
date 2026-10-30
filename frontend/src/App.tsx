@@ -597,6 +597,22 @@ const App: React.FC = () => {
     setActiveFilter(next);
     setActiveCategory(null);
   }, []);
+
+  // 2026-10-28 私人补丁（用户令）：Dock 的 tab（全部/已安装/有更新）**双击**
+  // = 切到该 tab 并把分类筛选清回「全部」。
+  // 设计取舍：单击必须保持即时切 tab（0.6.232 定下的"点下就有反应"），
+  // 所以不做「等 300ms 判断是否双击」的延迟；双击在第二次点击时补一个
+  // 清分类动作即可。350ms 窗口，命中后时间戳清零防三连击重复触发。
+  const lastDockTapRef = useRef<{ key: string; t: number } | null>(null);
+  const handleDockTap = useCallback((key: string) => {
+    if (key === 'settings') { setSettingsVisible(true); return; }
+    const now = Date.now();
+    const last = lastDockTapRef.current;
+    const isDouble = !!last && last.key === key && now - last.t < 350;
+    lastDockTapRef.current = { key, t: isDouble ? 0 : now };
+    switchFilter(key as 'all' | 'installed' | 'update_available' | 'recommended');
+    if (isDouble) setActiveCategory(null);
+  }, [switchFilter]);
   // 切回某 tab 时恢复其滚动位置：等新列表提交布局；目标超出当前文档高度时
   // 逐帧重试（列表还在渲染），最多 10 帧后钳制到当前最大值兜底。
   const skipScrollRestoreRef = useRef(false);
@@ -2607,7 +2623,7 @@ const App: React.FC = () => {
       {!dockHidden && (
         <MobileDock
           active={activeFilter}
-          onSelect={(key) => { if (key === 'settings') setSettingsVisible(true); else switchFilter(key); }}
+          onSelect={handleDockTap}
           updateCount={counts.update_available}
           storeHasUpdate={storeHasUpdate}
           order={dockOrder ?? undefined}
@@ -2652,7 +2668,7 @@ const App: React.FC = () => {
             <button
               key={key}
               type="button"
-              onClick={() => switchFilter(key)}
+              onClick={() => handleDockTap(key)}
               title={`${label}（${count}）`}
               className={cn(
                 'relative flex w-[100px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',
