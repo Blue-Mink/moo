@@ -26,7 +26,7 @@ info "Moo Mate v$VERSION (target=$TARGET)"
 
 # Step 2: 构建 Go 二进制（x86；伴侣默认只打 x86）
 info "构建 Go 二进制 (x86)..."
-GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o "$BUILD_DIR/moo-mate-x86" ./cmd/moo-mate/
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.buildVersion=$APP_VERSION" -o "$BUILD_DIR/moo-mate-x86" ./cmd/moo-mate/
 info "Go 构建完成"
 
 # Step 3: 打包
@@ -56,7 +56,7 @@ case "$TARGET" in
     x86) pack_fpk x86 ;;
     arm)
         info "构建 Go 二进制 (arm64)..."
-        GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o "$BUILD_DIR/moo-mate-arm" ./cmd/moo-mate/
+        GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.buildVersion=$APP_VERSION" -o "$BUILD_DIR/moo-mate-arm" ./cmd/moo-mate/
         pack_fpk arm ;;
     *) error "未知构建目标: $TARGET（可选 x86 / arm）" ;;
 esac

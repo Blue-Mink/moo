@@ -173,3 +173,29 @@ func (ix *index) setSynced(appname string, synced bool, name string) error {
 	}
 	return ix.save()
 }
+
+// setSyncedMany 批量更新同步状态：全部改完只落盘一次。
+// 0.2.32：原批量推送逐个调 setSynced，每个都把整份 index.json 序列化写一遍
+// （N 个应用 = N 次全量写盘），几百个应用要等十几秒。改为一次保存。
+func (ix *index) setSyncedMany(appnames []string, synced bool, name string) (int, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	n := 0
+	for _, appname := range appnames {
+		a, ok := ix.doc.Apps[appname]
+		if !ok {
+			continue
+		}
+		a.Synced = synced
+		if synced {
+			a.SyncedName = name
+		} else {
+			a.SyncedName = ""
+		}
+		n++
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	return n, ix.save()
+}

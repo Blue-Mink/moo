@@ -597,15 +597,16 @@ func (c *companion) handleBatchSync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "本机 Moo 不可达："+err.Error())
 		return
 	}
-	synced := 0
+	names := make([]string, 0, len(body.Appnames))
 	for _, appname := range body.Appnames {
-		appname = strings.TrimSpace(appname)
-		if appname == "" || c.idx.get(appname) == nil {
-			continue
+		if s := strings.TrimSpace(appname); s != "" {
+			names = append(names, s)
 		}
-		if err := c.idx.setSynced(appname, true, mateSourceName); err == nil {
-			synced++
-		}
+	}
+	synced, serr := c.idx.setSyncedMany(names, true, mateSourceName)
+	if serr != nil {
+		writeErr(w, http.StatusInternalServerError, serr.Error())
+		return
 	}
 	if synced == 0 {
 		writeErr(w, http.StatusNotFound, "选中的应用均不在索引里")
@@ -740,9 +741,10 @@ func (c *companion) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	lastSync, syncErr := c.syncState()
 	status := map[string]any{
-		"total":  len(apps),
-		"synced": synced,
-		"moo_ok": mooOK,
+		"total":   len(apps),
+		"synced":  synced,
+		"moo_ok":  mooOK,
+		"version": buildVersion,
 	}
 	if !lastSync.IsZero() {
 		status["last_sync"] = lastSync.Format(time.RFC3339)
@@ -818,14 +820,19 @@ func (c *companion) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	source := c.cfg.softstoreSource()
 	interval := c.cfg.syncInterval()
 	backupDir := c.cfg.BackupDir
+	backupAuto := c.cfg.BackupAuto
+	backupDays := c.cfg.backupIntervalDays()
 	c.mu.RUnlock()
 	tok, src, _ := c.githubTokenWithSource()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"github_token_set":    tok != "",
-		"github_token_source": src,
-		"softstore_source":    source,
-		"sync_interval":       interval,
-		"backup_dir":          backupDir,
+		"github_token_set":     tok != "",
+		"github_token_source":  src,
+		"softstore_source":     source,
+		"sync_interval":        interval,
+		"backup_dir":           backupDir,
+		"backup_auto":          backupAuto,
+		"backup_interval_days": backupDays,
+		"last_backup_at":       c.lastBackupAt(),
 	})
 }
 
@@ -838,6 +845,8 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		SoftstoreSource *string `json:"softstore_source"`
 		SyncInterval    *string `json:"sync_interval"`
 		BackupDir       *string `json:"backup_dir"`
+		BackupAuto      *bool   `json:"backup_auto"`
+		BackupDays      *int    `json:"backup_interval_days"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -878,6 +887,16 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.cfg.BackupDir = v
+	}
+	if body.BackupAuto != nil {
+		c.cfg.BackupAuto = *body.BackupAuto
+	}
+	if body.BackupDays != nil {
+		if *body.BackupDays < 1 || *body.BackupDays > 30 {
+			writeErr(w, http.StatusBadRequest, "备份周期须为 1–30 天")
+			return
+		}
+		c.cfg.BackupIntervalDays = *body.BackupDays
 	}
 	if err := c.cfg.save(c.cfgPath); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

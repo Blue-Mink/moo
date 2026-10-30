@@ -86,6 +86,7 @@ func main() {
 	mux.HandleFunc("GET /moo/{appname}", c.handleHost)
 	mux.HandleFunc("GET /api/icon/{appname}", c.handleIcon)
 	mux.HandleFunc("GET /api/status", c.handleStatus)
+	mux.HandleFunc("GET /api/update-check", c.handleUpdateCheck)
 	mux.HandleFunc("GET /api/index", c.handleListIndex)
 	mux.HandleFunc("GET /api/config", c.handleConfigGet)
 	mux.HandleFunc("PUT /api/config", c.handleConfigPut)
@@ -108,6 +109,7 @@ func main() {
 	mux.HandleFunc("GET /api/backup/download", c.handleBackupDownload)
 	mux.HandleFunc("POST /api/backup", c.handleBackupWrite)
 	mux.HandleFunc("GET /api/backups", c.handleBackupList)
+	mux.HandleFunc("DELETE /api/backup", c.handleBackupDelete)
 	mux.HandleFunc("POST /api/backup/restore", c.handleBackupRestore)
 	mux.HandleFunc("POST /api/backup/restore-upload", c.handleBackupRestoreUpload)
 	mux.HandleFunc("POST /api/clear-data", c.handleClearData)
@@ -118,6 +120,12 @@ func main() {
 
 	// 软仓定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
 	go c.syncLoop()
+
+	// 版本探测预热（启动后 3s 后台查一次，首个 /api/update-check 直接命中缓存）。
+	c.warmMateUpdate()
+
+	// 自动备份循环（参考 Moo：每 N 天写一份，同目录保留最近 20 份）。
+	go c.backupLoop()
 
 	// 统一网关（与 Moo 同访问方式）：若注入 MOO_MATE_SOCKET（unix socket
 	// 路径），在上面额外服务 Web UI——面板网关按 /app/moo-mate 前缀转发，

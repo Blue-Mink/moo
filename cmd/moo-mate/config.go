@@ -17,6 +17,25 @@ type mateConfig struct {
 
 	// 数据备份目录（空 = 数据目录本身；可指向 /volN 下任意目录，参考 Moo backup_dir）。
 	BackupDir string `json:"backup_dir,omitempty"`
+
+	// 自动备份（参考 Moo 备份设置）：开启后每 N 天自动写一份快照，
+	// 同目录保留最近 backupRetention 份，更早自动淘汰。
+	BackupAuto         bool `json:"backup_auto,omitempty"`
+	BackupIntervalDays int  `json:"backup_interval_days,omitempty"`
+}
+
+// backupRetention 同目录保留的备份份数（与 Moo 一致）。
+const backupRetention = 20
+
+// defaultBackupIntervalDays 备份周期默认值（天）。
+const defaultBackupIntervalDays = 7
+
+// backupIntervalDays 返回生效的备份周期天数（clamp 1–30，默认 7）。
+func (c *mateConfig) backupIntervalDays() int {
+	if c.BackupIntervalDays < 1 || c.BackupIntervalDays > 30 {
+		return defaultBackupIntervalDays
+	}
+	return c.BackupIntervalDays
 }
 
 // defaultSoftstoreURL 软仓个人源默认地址（私有，UI 不暴露）。
