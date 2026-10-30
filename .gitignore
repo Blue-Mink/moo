@@ -80,3 +80,9 @@ ARM_354_REPORT.md
 BUILD_355_REPORT.md
 GATE_354_ARM_REPORT.md
 AUDIT_355_RESULT.md
+
+# 发版卫生：本地验证/调度脚本不入库
+verify_mate_*.sh
+test_uninstall_sandbox.sh
+update_index_mate_*.py
+RELEASE_MATE_*.md
