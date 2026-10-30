@@ -2014,7 +2014,7 @@ const App: React.FC = () => {
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
+                    onClick={() => setActiveCategory(activeCategory === cat.key ? null : cat.key)}
                     className={cn(
                       // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
