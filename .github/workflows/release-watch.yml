@@ -1,0 +1,105 @@
+name: Release Watch
+
+# 夜间复检（RELEASE_GATE P5）：发出去之后没人再看，是 10-29 事故能藏一整天的原因。
+# 这里只做只读检查，不影响发版流水线：
+#   1) 索引声明的版本必须是「公开」release（不是 draft / prerelease）
+#   2) 用客户端同款逻辑、全部通道真下载 + 验签 + 解包
+#   3) 不得存在超过 24h 仍未转正的预发布（忘了 flip 的哨兵）
+
+on:
+  schedule:
+    - cron: "17 2 * * *"   # 每天 10:17（北京时间）跑一次
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-watch
+  cancel-in-progress: false
+
+jobs:
+  verify-published:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Resolve published version from index
+        run: |
+          V=$(python3 -c "import json;print(json.load(open('moo.json',encoding='utf-8'))['apps']['moo']['version'])")
+          [ -n "$V" ] || { echo "::error::moo.json 取不到 apps.moo.version"; exit 1; }
+          echo "V=$V" >> "$GITHUB_ENV"
+          echo "索引声明版本：$V"
+
+      - name: Release must be public (not draft / not prerelease)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          json=$(gh release view "v${V}" --json isDraft,isPrerelease,assets 2>/dev/null) || {
+            echo "::error::release v${V} 不存在（索引已前进但 release 没有）"; exit 1; }
+          draft=$(echo "$json" | python3 -c "import json,sys;print(json.load(sys.stdin)['isDraft'])")
+          pre=$(echo "$json" | python3 -c "import json,sys;print(json.load(sys.stdin)['isPrerelease'])")
+          if [ "$draft" = "True" ] || [ "$pre" = "True" ]; then
+            echo "::error::release v${V} 仍不可见（draft=$draft prerelease=$pre）——用户收不到更新"; exit 1
+          fi
+          echo "$json" | python3 -c "import json,sys,os;d=json.load(sys.stdin);open(os.environ['GITHUB_ENV'],'a').write('HAS_ARM=%s\n' % ('1' if any(a['name'].endswith('_arm.fpk') for a in d['assets']) else '0'))"
+
+      - name: Client-path verification (all channels, real download + signature)
+        run: |
+          set -uo pipefail
+          go build -trimpath -o "$RUNNER_TEMP/moo-release" ./cmd/moo-release
+          "$RUNNER_TEMP/moo-release" --tag "$V" --arch x86 --verify --verify-all || {
+            echo "::error::x86 客户端同款验收失败（用户升级会失败）"; exit 1; }
+          if [ "${HAS_ARM:-0}" = "1" ]; then
+            "$RUNNER_TEMP/moo-release" --tag "$V" --arch arm --verify --verify-all || {
+              echo "::error::arm 客户端同款验收失败"; exit 1; }
+          fi
+
+      - name: No stale prerelease (forgot to flip)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          gh release list --limit 30 --json tagName,isPrerelease,createdAt > "$RUNNER_TEMP/rels.json"
+          python3 - "$RUNNER_TEMP/rels.json" <<'PY'
+          import json, sys, datetime
+          rels = json.load(open(sys.argv[1], encoding="utf-8"))
+          now = datetime.datetime.now(datetime.timezone.utc)
+          stale = []
+          for r in rels:
+              if not r.get("isPrerelease"):
+                  continue
+              t = datetime.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
+              hours = (now - t).total_seconds() / 3600
+              if hours >= 24:
+                  stale.append("%s（%.0f 小时）" % (r["tagName"], hours))
+          if stale:
+              print("::error::存在超过 24h 未转正的预发布：%s" % ", ".join(stale))
+              sys.exit(1)
+          print("无残留预发布 ✓")
+          PY
+
+      # D（RELEASE_GATE §十）：失败时至少要「一眼看清哪一环挂了」。不接外部推送渠道
+      # （新增渠道 = 新增凭据与写权限 = 扩大攻击面），通知沿用 GitHub 默认的 Actions 失败邮件。
+      - name: Write watch summary
+        if: always()
+        run: |
+          {
+            echo "## Release Watch 汇总"
+            echo ""
+            echo "- 索引声明版本：\`${V:-<未解析>}\`"
+            echo "- 本次结果：${{ job.status }}"
+            echo "- 失败定位：依次看上面四个 step（公开态断言 → 全通道客户端同款验收 → 残留预发布哨兵）"
+            echo "- 外部通知渠道：**未启用**（新增渠道需新凭据/写权限，属扩大攻击面）。当前通知 = GitHub Actions 失败邮件（仓库 owner）+ Actions 页面红点。"
+          } >> "$GITHUB_STEP_SUMMARY"

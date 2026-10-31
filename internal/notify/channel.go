@@ -27,11 +27,11 @@ type Field struct {
 
 // ChannelDef 一类渠道的静态定义。
 type ChannelDef struct {
-	Type        string  `json:"type"`
-	Label       string  `json:"label"`
-	Desc        string  `json:"desc"`
-	Fields      []Field `json:"fields"`
-	SupportsMD  bool    `json:"supports_markdown"`
+	Type       string  `json:"type"`
+	Label      string  `json:"label"`
+	Desc       string  `json:"desc"`
+	Fields     []Field `json:"fields"`
+	SupportsMD bool    `json:"supports_markdown"`
 }
 
 // ChannelDefs 渠道目录（顺序 = 前端「添加渠道」下拉序）。

@@ -44,17 +44,17 @@ type localFpkInfo struct {
 //     如 istoreos.fpk → com.istoreos.vm）；
 //  2. 按应用惰性解析：索引未就绪时，先解析文件名含该应用名的候选包。
 type fpkLocal struct {
-	mu       sync.Mutex
-	files    []string
-	listedAt time.Time
-	index    map[string]localFpkInfo // 归一化 appname → manifest（全量扫描，版本最高者）
-	cache    map[string]localFpkInfo // 归一化 appname → manifest（按应用惰性解析）
-	parsing  map[string]bool         // 惰性解析进行中标记
-	missed   map[string]time.Time    // 未命中记录（目录刷新周期内不重试）
-	scanning bool
-	scanFor  time.Time          // 索引对应的目录快照时间
-	byPath   map[string]pathEntry // 文件路径 → manifest（按 mtime 失效；DisplayFor/NotePath 用）
-	parsingPath map[string]bool   // 路径级后台解析进行中标记（防并发重复解析同一文件）
+	mu          sync.Mutex
+	files       []string
+	listedAt    time.Time
+	index       map[string]localFpkInfo // 归一化 appname → manifest（全量扫描，版本最高者）
+	cache       map[string]localFpkInfo // 归一化 appname → manifest（按应用惰性解析）
+	parsing     map[string]bool         // 惰性解析进行中标记
+	missed      map[string]time.Time    // 未命中记录（目录刷新周期内不重试）
+	scanning    bool
+	scanFor     time.Time            // 索引对应的目录快照时间
+	byPath      map[string]pathEntry // 文件路径 → manifest（按 mtime 失效；DisplayFor/NotePath 用）
+	parsingPath map[string]bool      // 路径级后台解析进行中标记（防并发重复解析同一文件）
 }
 
 var fpkLocalInstance = &fpkLocal{

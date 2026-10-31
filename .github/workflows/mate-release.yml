@@ -1,14 +1,18 @@
 name: Moo Mate Release
 
 # ── 为什么这里只「校验」不构建 ────────────────────────────────────────
-# 1) Mate 无自更新机制，release 资产仅供手动下载；产物由发布机构建并人工验收，
-#    其 sha256 已写进 moo.json（以及 FnDepot 索引）。CI 若再重建并 --clobber
-#    覆盖，资产字节就变了，索引里的 sha256 立刻对不上。
-# 2) 官方 fnpack 下载 URL（https://static2.fnnas.com/fnpack/fnpack）间歇 404
+# 1) Mate 0.2.35 起支持「应用内自更新」：客户端下载 release 资产 → sha256 校验
+#    + minisign 验签（内嵌公钥，fail-closed）→ 走应用中心 daemon 就地升级。
+#    因此 release 资产就是升级源，字节必须与 moo.json 索引逐字一致；CI 若重建
+#    再 --clobber，索引 sha256 立刻失配，且已发布客户端的校验也会对不上。
+# 2) 每个架构的 `<fpk>.sha256` 与 `<fpk>.minisig` 侧车是自更新的**必需件**——
+#    缺任一件新版客户端都会 fail-closed 拒绝升级（安全设计，不是 bug）。
+#    因此三件套必须同批上传，缺一即发布无效（verify_mate_release.py 会判红）。
+# 3) 官方 fnpack 下载 URL（https://static2.fnnas.com/fnpack/fnpack）间歇 404
 #    （2026-10-28 实测 404），CI 无法可靠组包。
-# 因此流水线职责改为：tag 推上来后核对 release 资产与 moo.json 索引是否一致
+# 因此流水线职责：tag 推上来后核对 release 资产与 moo.json 索引是否一致
 # （架构齐全 + size/sha256 逐字相符 + .sha256 侧车在场）。构建仍在发布机执行
-# （`bash build-mate.sh x86|arm`），签名/校验同机完成。
+# （`bash build-mate.sh x86|arm`，含 -trimpath 防二进制内嵌构建机路径）。
 on:
   push:
     tags:
@@ -33,12 +37,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
         with:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
         with:
           go-version-file: 'go.mod'
 
@@ -55,7 +59,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
         with:
           persist-credentials: false
 

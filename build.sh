@@ -14,6 +14,17 @@ info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
+# 产物脱敏自检：二进制不得内嵌构建机绝对路径（缺 -trimpath 时会内嵌；
+# 该路径含本机用户名/工作区结构，公开 FPK 里不能出现）。
+assert_clean_binary() {
+    local bin="$1"
+    [ -f "$bin" ] || error "产物缺失：$bin"
+    if grep -aqF "$SCRIPT_DIR" "$bin"; then
+        error "产物内嵌构建机路径（检查 -trimpath）：$bin"
+    fi
+}
+
+
 cleanup() { rm -rf "$BUILD_DIR/tmp"; }
 trap cleanup EXIT
 
@@ -97,9 +108,9 @@ fi
 info "构建 Go 二进制 (x86)..."
 # -s -w：剥离符号表+DWARF（0.6.304 起 FPK 精简）：二进制 15.6M→11.1M，
 # 运行时行为零变化，panic 堆栈仍带函数名+文件:行（.gopclntab 不剥，已实测）。
-GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
 info "构建 Go 二进制 (arm64)..."
-GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
 info "Go 构建完成"
 
 # ── Step 3: 打包 FPK（pack_fpk <x86|arm>；arm 包 manifest platform=arm）────
@@ -118,6 +129,7 @@ pack_fpk() {
     # manifest platform 单一事实源=x86；arm 包在 staging 里改写（不动源文件）
     sed -i "s/^platform[ \t]*=.*/platform        = $archline/" "$STAGING/manifest"
 
+    assert_clean_binary "$BUILD_DIR/$server"
     cp "$BUILD_DIR/$server" "$STAGING/app/moo-server"
     # 0.6.304 起：不再把 web/ 打进 app.tgz。前端经 web/embed.go 的 go:embed
     # 全量内嵌进二进制（server.go 无磁盘回退分支），FPK 里的 web/ 目录自 0.6.258

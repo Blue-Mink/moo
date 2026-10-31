@@ -23,12 +23,12 @@ import (
 var bundledDefaultSources string
 
 // bundledLegacyDefaultSources 0.6.318：0.6.316 之前的旧全量默认源清单
-//（157 条 = 156 社区源 + fn-knock 官方源），供「删除默认源」按钮一键清理
-//历史遗留的社区源。
+// （157 条 = 156 社区源 + fn-knock 官方源），供「删除默认源」按钮一键清理
+// 历史遗留的社区源。
 // 语义（用户 2026-10-09 定稿）：命中本清单的现有源一律可一键删除，
 // 不做官源保护——新 21 条精选官源中 19 条包含在本清单里，删除后由
-//「恢复官源」按钮（BundledDefaultSources）一键找回，构成
-//「删旧 157 默认 → 恢复 21 官源」的清单重置工作流。
+// 「恢复官源」按钮（BundledDefaultSources）一键找回，构成
+// 「删旧 157 默认 → 恢复 21 官源」的清单重置工作流。
 //
 //go:embed default_sources_legacy.txt
 var bundledLegacyDefaultSources string
@@ -53,7 +53,7 @@ func BundledDefaultSources() []string {
 
 // BundledLegacyDefaultSources 返回旧全量默认源清单（去重、补协议）。
 // 仅用于「删除默认源」：现有源地址归一后命中本清单即视为可一键删除的
-//历史默认源（含与新 21 条官源重叠的 19 条；官源可由「恢复官源」找回）。
+// 历史默认源（含与新 21 条官源重叠的 19 条；官源可由「恢复官源」找回）。
 func BundledLegacyDefaultSources() []string {
 	var out []string
 	seen := map[string]bool{}

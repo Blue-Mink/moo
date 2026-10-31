@@ -26,7 +26,7 @@ type sourceCacheSnapshot struct {
 }
 
 type cacheFile struct {
-	SavedAt string                   `json:"saved_at"`
+	SavedAt string                         `json:"saved_at"`
 	Sources map[string]sourceCacheSnapshot `json:"sources"`
 }
 

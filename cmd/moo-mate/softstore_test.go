@@ -9,11 +9,11 @@ import (
 
 func TestSoftstoreType(t *testing.T) {
 	cases := map[string]string{
-		"原生":    "fpk",
+		"原生":     "fpk",
 		"docker": "docker",
 		"Docker": "docker",
-		"容器":    "docker",
-		"":      "fpk",
+		"容器":     "docker",
+		"":       "fpk",
 	}
 	for in, want := range cases {
 		if got := softstoreType(in); got != want {

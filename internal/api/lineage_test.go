@@ -125,9 +125,9 @@ func newForkLineageServer(t *testing.T) *Server {
 	}}
 	m := source.NewManager(cfg)
 	m.SeedCacheForTest(map[string]map[string]*source.App{
-		"上游源":    {"picoclaw": {Name: "picoclaw", Source: "上游源", Version: "0.3.1"}},
+		"上游源":     {"picoclaw": {Name: "picoclaw", Source: "上游源", Version: "0.3.1"}},
 		"Fork搬运源": {"picoclaw": {Name: "picoclaw", Source: "Fork搬运源", Version: "0.2.8"}},
-		"自打打包源":  {"app-x": {Name: "app-x", Source: "自打打包源", Version: "1.0.0"}},
+		"自打打包源":   {"app-x": {Name: "app-x", Source: "自打打包源", Version: "1.0.0"}},
 	})
 	f := source.NewGHForks("")
 	f.SetForTest("chordi0124/fndepot", "EWEDLCM/FnDepot") // fork → 上游是 fork parent

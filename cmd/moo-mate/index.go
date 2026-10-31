@@ -38,6 +38,8 @@ type index struct {
 
 func newIndex(path string) *index {
 	ix := &index{path: path, doc: &indexDoc{Version: 1, Apps: map[string]*indexedApp{}}}
+	// 内置默认索引的写入**不在这里**：由 main 启动路径调 bootstrapDefaultIndex，
+	// 避免把所有「空索引」单测污染成 486 条（那是出厂数据，不是 v 单元行为）。
 	_ = ix.load()
 	return ix
 }

@@ -32,9 +32,9 @@ const (
 
 // detailPayload 磁盘层存储结构（单应用单版本的详情重字段）。
 type detailPayload struct {
-	Cl      string            `json:"cl,omitempty"`          // changelog 全文
-	Rel     map[string]string `json:"rel,omitempty"`         // releases 版本 → 说明
-	Entries []ChangelogEntry  `json:"entries,omitempty"`     // 预解析条目（F7②）
+	Cl      string            `json:"cl,omitempty"`      // changelog 全文
+	Rel     map[string]string `json:"rel,omitempty"`     // releases 版本 → 说明
+	Entries []ChangelogEntry  `json:"entries,omitempty"` // 预解析条目（F7②）
 }
 
 type detailMemEntry struct {
@@ -49,7 +49,7 @@ type detailDiskRef struct {
 
 // detailStore 详情两级缓存（dir 为空 = 仅内存层，单元测试用）。
 type detailStore struct {
-	dir string
+	dir     string
 	memMax  int // 内存层容量（缺省 512，测试可调）
 	diskMax int // 磁盘层容量（缺省 4096，测试可调）
 

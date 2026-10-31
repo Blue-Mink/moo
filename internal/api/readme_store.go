@@ -19,7 +19,7 @@ import (
 // 缓存是唯一可靠的解法）：
 //
 //	① 内存层 1h；② 磁盘层 7 天（<DataDir>/cache/readmes/，重启不丢）；
-//	③ 负缓存 30min（仅原始 URL 明确 404 才记，纯超时不记）；
+//	③ 负缓存 5min（仅原始 URL 明确 404 才记，纯超时不记）；
 //	④ 后台预热（图标预热之后补 README 轮，3 并发）。
 //
 // stale-while-revalidate：竞速失败但磁盘层有旧内容时直接回退旧版，
@@ -27,8 +27,10 @@ import (
 const (
 	readmeMemTTL  = time.Hour
 	readmeDiskTTL = 7 * 24 * time.Hour
-	readmeNegTTL  = 30 * time.Minute
-	readmeMemMax  = 512 // ~10KB × 512 ≈ 5MB
+	// 0.6.383：30min → 5min。0.6.382 已收紧「两条镜像 404 互票」判死口径，
+	// 但残留误判仍要等半小时才自愈；缩短到 5min 让误判尽快自动重试。
+	readmeNegTTL = 5 * time.Minute
+	readmeMemMax = 512 // ~10KB × 512 ≈ 5MB
 	// 0.6.326 终测（finding）：目录 2157 卡 > 2000 → 全量访问时 LRU 挤出已命中
 	// 条目，叠加 raw 429 出现「200→502 反弹」（两轮扫描 24 例）。放宽到 4096，
 	// 单条几 KB，磁盘增量约 20MB 量级。

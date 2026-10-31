@@ -169,7 +169,7 @@ func TestAppsWithEtag_BodyCache_06313(t *testing.T) {
 }
 
 // TestCatalog_SWR_StaleReturn_06313 F11：过期且有旧数据 → 立即返回旧数据
-//（不阻塞），后台重建随后原子换入新切片。
+// （不阻塞），后台重建随后原子换入新切片。
 func TestCatalog_SWR_StaleReturn_06313(t *testing.T) {
 	s := newCatalogTestServer(t)
 	s.catalogTTL = time.Hour
@@ -315,7 +315,7 @@ func TestCatalog_TTLFromEnv_06313(t *testing.T) {
 		{"", 60 * time.Second},
 		{"90s", 90 * time.Second},
 		{"1m", time.Minute},
-		{"abc", 60 * time.Second},  // 非法 → 回退默认
+		{"abc", 60 * time.Second}, // 非法 → 回退默认
 		{"-5s", 60 * time.Second}, // 负值非法 → 回退默认
 	}
 	for _, c := range cases {

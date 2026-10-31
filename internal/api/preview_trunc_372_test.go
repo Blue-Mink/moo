@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // 构造一张"完整"PNG：魔数 + 填充 + IEND 尾块；截断版去掉 IEND。
@@ -115,7 +116,7 @@ func TestRaceFetchRejectsTruncatedBody(t *testing.T) {
 	defer srv.Close()
 
 	s := &Server{}
-	body, _, _, _, err := s.raceFetchOnce(context.Background(), []string{srv.URL + "/t.png"}, true)
+	body, _, _, _, err := s.raceFetchOnce(context.Background(), []string{srv.URL + "/t.png"}, true, 5*time.Second)
 	if err == nil {
 		t.Fatalf("截断响应应判失败，却返回了 %d 字节", len(body))
 	}

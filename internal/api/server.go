@@ -55,6 +55,16 @@ type Server struct {
 	// WireOfficialOAuth / panelApp / officialRoutes 共享同一实例。
 	OfficialStore *officialStore
 
+	// 0.6.379：发现页推荐位清单缓存（远程 recommend_list，10min TTL +
+	// last-known-good）。recoURL 记录缓存所属地址，改设置即失效重拉。
+	recoMu      sync.Mutex
+	recoEntries []recommendEntry
+	recoAt      time.Time
+	recoLoaded  bool
+	recoURL     string
+	// 0.6.380：后台单飞刷新标志（TTL 过期不再阻塞请求路径，见 recommend_list.go）。
+	recoRefreshing bool
+
 	iconStoreOnce sync.Once
 	iconStoreV    *iconStore // 图标两级缓存（内存 1h，容量 env MOO_ICON_MEM_MAX 默认 256/0=禁用 + 磁盘 7 天 + 负缓存 30min）
 
@@ -151,7 +161,7 @@ type Server struct {
 
 // 0.6.312 B3/F6（客户端活性门控）阈值：
 const (
-	uiInactiveGate     = 30 * time.Minute // 无 UI 访问超过 30 分钟 = 不活跃
+	uiInactiveGate     = 30 * time.Minute  // 无 UI 访问超过 30 分钟 = 不活跃
 	ghStatsIdleGap     = 120 * time.Minute // 不活跃时 GHStats 最多每 120min 一轮（活跃=30min tick）
 	mirrorProbeIdleGap = 15 * time.Minute  // 不活跃时镜像探针最多每 15min 一次（活跃=配置间隔）
 )
@@ -260,6 +270,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 		writeJSON(w, map[string]any{"v": s.lastCheckStamp()})
 	})
 	mux.HandleFunc("GET /api/recommended", s.recommended)
+	// 0.6.379：清缓存立刻重拉推荐清单（admin）——改完远程清单点此即时生效。
+	mux.HandleFunc("POST /api/recommended/refresh", s.requireAdmin(s.recommendedRefresh))
 	// 去重三档计数（0.6.312 B2，首页胶囊预览）
 	mux.HandleFunc("GET /api/dedup", s.dedupSummary)
 	mux.HandleFunc("POST /api/check", s.requireAdmin(s.checkUpdates))
@@ -276,7 +288,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/sources/reorder", s.requireAdmin(s.reorderSources))
 	mux.HandleFunc("POST /api/sources/sync-list", s.requireAdmin(s.syncList))
 	mux.HandleFunc("POST /api/sources/restore-defaults", s.requireAdmin(s.restoreDefaults)) // 0.6.172 一键恢复默认源列表（含去重）
-	mux.HandleFunc("POST /api/sources/delete-defaults", s.requireAdmin(s.deleteDefaults))  // 0.6.318 一键删除历史默认社区源（新官源 21 条由「恢复源」找回）
+	mux.HandleFunc("POST /api/sources/delete-defaults", s.requireAdmin(s.deleteDefaults))   // 0.6.318 一键删除历史默认社区源（新官源 21 条由「恢复源」找回）
 	mux.HandleFunc("POST /api/sources/{id}/sync", s.requireAdmin(s.syncSource))
 	mux.HandleFunc("POST /api/sources/sync-all", s.requireAdmin(s.syncAllSources)) // 0.6.171 一键刷新所有源
 	mux.HandleFunc("POST /api/sources/{id}/toggle", s.requireAdmin(s.toggleSource))
@@ -315,6 +327,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("PUT /api/settings", s.requireAdmin(s.putSettings))
 	// 0.6.354：Moo Mate 读取 Moo 的 GitHub token（伴侣专用，见 mate.go）
 	mux.HandleFunc("GET /api/mate/github-token", s.requireAdmin(s.mateGithubToken))
+	mux.HandleFunc("GET /api/mate/mirrors", s.requireAdmin(s.mateMirrors))
 	mux.HandleFunc("POST /api/settings/proxy-test", s.requireAdmin(s.proxyTestHandler))
 	mux.HandleFunc("GET /api/backups", s.requireAdmin(s.getBackups))
 	mux.HandleFunc("GET /api/logs", s.requireAdmin(s.getLogs)) // 0.6.249 设置页「日志」在线查看

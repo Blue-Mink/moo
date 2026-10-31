@@ -90,10 +90,10 @@ func TestAppTypeOf(t *testing.T) {
 		{map[string]any{"app_type": "fpk"}, ""},
 		{map[string]any{"app_type": "native"}, ""},
 		{map[string]any{"app_type": "tpk"}, ""},
-		{map[string]any{"isdocker": "true"}, "true"},   // FnDepot 字符串写法
-		{map[string]any{"is_docker": true}, "true"},    // FnDepot bool 写法
-		{map[string]any{"isdocker": "false"}, ""},      //
-		{map[string]any{"app_type": "fpk", "isdocker": "true"}, ""}, // Moo 原生优先
+		{map[string]any{"isdocker": "true"}, "true"},                      // FnDepot 字符串写法
+		{map[string]any{"is_docker": true}, "true"},                       // FnDepot bool 写法
+		{map[string]any{"isdocker": "false"}, ""},                         //
+		{map[string]any{"app_type": "fpk", "isdocker": "true"}, ""},       // Moo 原生优先
 		{map[string]any{"app_type": "weird", "isdocker": "true"}, "true"}, // 未知值回退
 		{map[string]any{}, ""},
 	}

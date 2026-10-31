@@ -7,7 +7,7 @@ import (
 )
 
 // TestAddSourceSchemeNormalization 0.6.141：无协议源地址入库时补 https://
-//（修复 Blue-Mink 源以 github.com/… 形式入库、复制出的链接缺协议不可用）。
+// （修复 Blue-Mink 源以 github.com/… 形式入库、复制出的链接缺协议不可用）。
 func TestAddSourceSchemeNormalization(t *testing.T) {
 	cfg := &config.Config{}
 	m := NewManager(cfg)
@@ -64,7 +64,7 @@ func TestHealLegacyURLs(t *testing.T) {
 	cfg := &config.Config{Sources: []config.SourceRef{
 		{Name: "bm", URL: "github.com/Blue-Mink/FnDepot"}, // 存量无协议
 		{Name: "ok", URL: "https://github.com/x/y"},       // 已带协议
-		{Name: "emp", URL: ""},                             // 空
+		{Name: "emp", URL: ""},                            // 空
 	}}
 	if n := HealLegacyURLs(cfg); n != 1 {
 		t.Fatalf("应自愈 1 个，实际 %d: %+v", n, cfg.Sources)

@@ -33,6 +33,7 @@ var searchKeyGHHosts = []string{
 //   - GitHub 系（含 raw 域 / jsDelivr / 镜像前缀）→ "github.com/owner/repo"
 //     （分支、文件、.git、/tree/... 一律剥掉）
 //   - 其他主机 → 剥协议、/raw/<分支>/ 段、索引文件名后的 host+path
+//
 // 非链接形态返回 ""。
 func SourceURLKey(raw string) string {
 	u := strings.ToLower(strings.TrimSpace(raw))

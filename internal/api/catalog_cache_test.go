@@ -11,7 +11,7 @@ import (
 )
 
 // newCatalogTestServer 造一个带 1 个真实应用的目录测试环境
-//（httptest 源 + 空 daemon，ListInstalled 失败被忽略→仅源条目）。
+// （httptest 源 + 空 daemon，ListInstalled 失败被忽略→仅源条目）。
 func newCatalogTestServer(t *testing.T) *Server {
 	t.Helper()
 	mux := http.NewServeMux()

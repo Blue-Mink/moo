@@ -15,6 +15,15 @@ func GitHubMirrorOptions() []MirrorOption {
 		{Key: "auto", Label: "智能 · 自动选最快", Description: "系统周期性测速各源，自动选用最快且稳定的加速源"},
 		{Key: "gh-proxy-hk", Label: "GH-Proxy HK", URL: "https://hk.gh-proxy.org/", Description: "HK 节点，实测最快（419ms）"},
 		{Key: "cdn-ghproxy", Label: "CDN GHProxy", URL: "https://cdn.gh-proxy.org/", Description: "CDN 节点 GitHub 加速（450ms）"},
+		// 2026-10-31：从 FnDepot 服务端下发的加速源里复测挑选（顺序 curl + 6 路并发×3轮）。
+		// gh-tbap：release 1MB 1.5s（577-696KB/s，本批最快），但会时段性抖动
+		// （同日 12:5x 曾 44% 超时 / HTTP 500）→ 由 auto 的健康降权与下载看门狗兜底。
+		// 真机测速（0.6.381，/api/mirrors/check）：372ms / 2527KB/s，列表第一。
+		{Key: "gh-tbap", Label: "GH TBAP", URL: "https://github.tbap.top/", Description: "社区 GitHub 加速（实测 1.5s/1MB，偶有抖动）"},
+		// 2026-10-31 未采纳 fndepot1.36337681.xyz：其 HTTPS 证书是腾讯云 CDN 泛域名
+		// CN=*.cdn.myqcloud.com，SAN 不含该域名（openssl verify error 62 / Go x509 校验失败），
+		// 严格 TLS 客户端一律拒绝；HTTP 虽可用但明文索引（moo.json/fnpack.json 无签名）
+		// 可被中间人替换并指向任意 FPK，用户明确否决 → 不加入。
 		{Key: "ghproxy-cxkpro", Label: "GHProxy CXK", URL: "https://ghproxy.cxkpro.top/", Description: "社区 GitHub 加速（实测 534ms）"},
 		{Key: "yylx", Label: "YYLX Git", URL: "https://git.yylx.win/", Description: "社区 GitHub 加速（实测 535ms）"},
 		{Key: "gh-proxy", Label: "GH-Proxy", URL: "https://gh-proxy.com/", Description: "公共 GitHub 文件代理，长期稳定运营（552ms）"},

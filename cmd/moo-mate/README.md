@@ -4,7 +4,7 @@ Moo 的伴侣工具 —— **免上传 GitHub 的飞牛应用源生成器**。
 
 贴一个第三方 GitHub 仓库链接，Moo Mate 自动发现其中打包的飞牛（fnOS）应用，生成 `moo.json` 索引并在本机托管，一键加源到同机的 Moo，应用随后就能在 Moo 里浏览 / 安装 / 更新。
 
-- 版本：**0.2.34**　平台：**x86 / arm**　端口：**38108**（仅本机回环，经飞牛面板网关访问）
+- 版本：**0.2.35**　平台：**x86 / arm**　端口：**38108**（仅本机回环，经飞牛面板网关访问）
 - 维护者：[Blue-Mink](https://github.com/Blue-Mink)　许可：MIT
 
 ## 它解决什么问题
@@ -32,7 +32,7 @@ Moo 的伴侣工具 —— **免上传 GitHub 的飞牛应用源生成器**。
 
 1. **Moo 商店**：在 Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜索「Moo Mate」安装。
 2. **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate。
-3. **手动**：下载 `moo-mate_0.2.34_x86.fpk`（或 `_arm.fpk`）与同名 `.sha256` 校验后在飞牛应用中心手动安装。
+3. **手动**：下载 `moo-mate_0.2.35_x86.fpk`（或 `_arm.fpk`）与同名 `.sha256` 校验后在飞牛应用中心手动安装。
 
 ## 首次使用
 
@@ -49,5 +49,6 @@ Moo 的伴侣工具 —— **免上传 GitHub 的飞牛应用源生成器**。
 
 ## 说明
 
-- Moo Mate **不带自更新**，升级请重新安装新版本 FPK（数据保留）。
+- Moo Mate **支持应用内自更新**：从 GitHub 拉取新包 → 校验同名 `.sha256` → 交给飞牛应用中心就地升级；校验不过或下载失败一律拒绝（fail-closed），数据保留。也可继续手动安装新版 FPK。
+- **内置默认应用索引**：首次启动（数据目录里还没有索引文件）时写入一份出厂索引，新装/离线也有可用应用列表；网络恢复后自动同步覆盖，已有数据不会被覆盖。
 - GitHub Token 只在请求 GitHub API 时使用，不出现在页面与日志中。

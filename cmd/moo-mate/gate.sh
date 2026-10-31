@@ -38,6 +38,17 @@ else
   FAIL=1
 fi
 
+# ---------- 门 1.5：gofmt（CI release.yml 同门；本地提前拦）----------
+echo "=== 门 1.5: gofmt ==="
+GOFMT_OUT=$(gofmt -l cmd/moo-mate 2>/dev/null)
+if [ -z "$GOFMT_OUT" ]; then
+  echo "gofmt PASS"
+else
+  echo "$GOFMT_OUT"
+  echo "gofmt FAIL（本地执行 gofmt -w cmd/moo-mate）"
+  FAIL=1
+fi
+
 # ---------- 门 2：go vet ----------
 echo "=== 门 2: go vet ==="
 export PATH="/usr/local/bin:$PATH"

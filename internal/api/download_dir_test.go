@@ -36,11 +36,11 @@ func TestIsAccessibleDownloadDir(t *testing.T) {
 		t.Skip("测试环境无 /vol1，跳过允许分支")
 	}
 	good := []string{
-		"/vol1",                    // 卷根本身
-		"/vol1/some-share",         // 卷下顶层可见目录（尚不存在也允许，MkdirAll 创建）
-		"/vol1/downloads",          // 常见共享目录名
-		"/vol1/downloads/fpk",      // 共享目录子层（0.6.75 起允许任意深度）
-		"/vol1/a/b/c",              // 任意深度可见路径
+		"/vol1",               // 卷根本身
+		"/vol1/some-share",    // 卷下顶层可见目录（尚不存在也允许，MkdirAll 创建）
+		"/vol1/downloads",     // 常见共享目录名
+		"/vol1/downloads/fpk", // 共享目录子层（0.6.75 起允许任意深度）
+		"/vol1/a/b/c",         // 任意深度可见路径
 	}
 	for _, p := range good {
 		if !s.isAccessibleDownloadDir(p) {

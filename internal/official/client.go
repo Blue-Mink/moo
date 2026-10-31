@@ -23,27 +23,27 @@ import (
 
 // StoreApp 是 /app-center/v1/app/list 条目的子集（Moo 需要的字段）。
 type StoreApp struct {
-	AppName    string  `json:"appName"`
-	Name       string  `json:"name"`
-	Version    string  `json:"version"`
-	Icon       string  `json:"icon"`
-	Download   int64   `json:"download"`
-	Source     string  `json:"source"`    // official / thirdparty
-	SourceID   string  `json:"sourceID"`
-	Status     string  `json:"status"`    // noinstall / install / running ...
-	Docker     bool    `json:"docker"`
-	Beta       bool    `json:"beta"`
+	AppName    string   `json:"appName"`
+	Name       string   `json:"name"`
+	Version    string   `json:"version"`
+	Icon       string   `json:"icon"`
+	Download   int64    `json:"download"`
+	Source     string   `json:"source"` // official / thirdparty
+	SourceID   string   `json:"sourceID"`
+	Status     string   `json:"status"` // noinstall / install / running ...
+	Docker     bool     `json:"docker"`
+	Beta       bool     `json:"beta"`
 	Tags       []string `json:"tags"`
-	DevName    string  `json:"devName,omitempty"`
-	UpdateTime int64   `json:"updateTime,omitempty"`
+	DevName    string   `json:"devName,omitempty"`
+	UpdateTime int64    `json:"updateTime,omitempty"`
 	// 原始数据保留一份（详情弹窗/未映射字段兜底）
 	Raw json.RawMessage `json:"-"`
 }
 
 type envelope struct {
-	Code float64           `json:"code"`
-	Msg  string            `json:"msg"`
-	Data json.RawMessage   `json:"data"`
+	Code float64         `json:"code"`
+	Msg  string          `json:"msg"`
+	Data json.RawMessage `json:"data"`
 }
 
 func (m *Manager) doGet(ctx context.Context, bizPath string, query url.Values) (json.RawMessage, error) {
@@ -75,10 +75,10 @@ func (m *Manager) StoreList(ctx context.Context) ([]StoreApp, error) {
 			return nil, err
 		}
 		var payload struct {
-			Page  int           `json:"page"`
-			Limit int           `json:"limit"`
-			Total int           `json:"total"`
-			List  []StoreApp    `json:"list"`
+			Page  int        `json:"page"`
+			Limit int        `json:"limit"`
+			Total int        `json:"total"`
+			List  []StoreApp `json:"list"`
 		}
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return nil, fmt.Errorf("列表解析失败: %w", err)

@@ -420,6 +420,7 @@ func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 //     备份本就不应承载口令的「回滚/抹除」语义，故口令永远取 live。
 //   - 渠道敏感参数：备份中 **** 掩码的，按渠道 ID 匹配 live，用 live 真值替换
 //     （与 notifyChannelsPost 的「**** 回填」语义一致，0.6.144）。
+//
 // 只改掩码位，不触碰备份里的其他配置值。
 func (s *Server) reinstateSecrets(restored *config.Config) {
 	if restored.PanelPassword == "" && s.Cfg.PanelPassword != "" {

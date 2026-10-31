@@ -85,7 +85,7 @@ var notifyEventCatalog = []notifyEvent{
 }
 
 var (
-	notifyEventKeys   = func() map[string]bool {
+	notifyEventKeys = func() map[string]bool {
 		m := make(map[string]bool, len(notifyEventCatalog))
 		for _, e := range notifyEventCatalog {
 			m[e.Key] = true
@@ -216,7 +216,7 @@ func (s *Server) notifyEventRich(key, title, content, table string, rows []notif
 }
 
 // notifyEventRichV 同 notifyEventRich，附 0.6.175 通知信息长度变体
-//（v=nil = 无变体，friendly 默认行为）。
+// （v=nil = 无变体，friendly 默认行为）。
 func (s *Server) notifyEventRichV(key, title, content, table string, rows []notify.CardRow, emphTitle, emphDesc string, ok bool, v *notify.Variants) {
 	if !s.IsNotifyEventOn(key) {
 		return
@@ -293,7 +293,7 @@ const welcomeTable = "## Moo is more\n\n" +
 // welcomeCardSub 卡片副题（0.6.163）：三行致谢整段 + 句间空行（全角空格行）。
 // 版式演进：0.6.160/0.6.161 纯折行被反馈「行间距太紧凑」→ 0.6.162 两列列表
 // 块间距够但 value 客户端渲染上限约 23 字，26 字首句被截「…项目测试者」
-//（用户反馈「有内容被略掉了」）→ 0.6.163 回到 sub_title_text（上限 160 字，
+// （用户反馈「有内容被略掉了」）→ 0.6.163 回到 sub_title_text（上限 160 字，
 // 完整不截断），句间插「\n　\n」空行拉开行距（全角空格是内容字符，
 // 不依赖渲染器保留连续换行，空行必现）。
 const welcomeCardSub = "🙌 感谢所有投身飞牛应用生态的开发者·爱好者·项目测试者\n　\n" +
@@ -308,7 +308,7 @@ const welcomeCardSign = "蓝貂（Blue-Mink）"
 // 与其他事件同语义：开关关 = 完全静默）。自动（首启）与手动（POST 端点）共用入口。
 // 0.6.163 卡片版式（用户五轮真机反馈后定稿，以 1:39 卡片截图为骨架）：
 // 大字 hero「Moo is more」+ hero 下居中小字署名「蓝貂（Blue-Mink）」
-//（emphasis_content.desc，落款）+ 副题三行致谢（完整不截断，句间空行
+// （emphasis_content.desc，落款）+ 副题三行致谢（完整不截断，句间空行
 // 拉开行距）；无 🦦；全文每句只出现一次。
 // welcomeMessage 欢迎语三形式消息构造（0.6.164 起真实发送与渠道测试共用）：
 // 卡片 = hero 大字 + 居中落款 + 副题三行致谢（句间空行）；
@@ -417,12 +417,12 @@ func (s *Server) notifySettingsGet(w http.ResponseWriter, _ *http.Request) {
 		events[e.Key] = s.IsNotifyEventOn(e.Key)
 	}
 	writeJSON(w, map[string]any{
-		"enabled":        s.Cfg.IsNotifyEnabled(),
-		"events":         events,
-		"catalog":        notifyEventCatalog,
-		"mem_alert_mb":   orDefaultInt(s.Cfg.NotifyMemAlertMB, 256),
-		"cpu_alert_pct":  orDefaultInt(s.Cfg.NotifyCPUPctAlert, 80),
-		"view_base":      s.Cfg.NotifyViewBase,
+		"enabled":       s.Cfg.IsNotifyEnabled(),
+		"events":        events,
+		"catalog":       notifyEventCatalog,
+		"mem_alert_mb":  orDefaultInt(s.Cfg.NotifyMemAlertMB, 256),
+		"cpu_alert_pct": orDefaultInt(s.Cfg.NotifyCPUPctAlert, 80),
+		"view_base":     s.Cfg.NotifyViewBase,
 	})
 }
 
@@ -434,11 +434,11 @@ func (s *Server) notifySettingsGet(w http.ResponseWriter, _ *http.Request) {
 // 均缺省 = 不改动；events 为**合并语义**（只改提交的 key）。
 func (s *Server) notifySettingsPut(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Enabled      *bool           `json:"enabled"`
-		Events       map[string]bool `json:"events"`
-		MemAlertMB   *int            `json:"mem_alert_mb"`
-		CPUAlertPct  *int            `json:"cpu_alert_pct"`
-		ViewBase     *string         `json:"view_base"` // 0.6.144：详情页基础地址（"" = 清除）
+		Enabled     *bool           `json:"enabled"`
+		Events      map[string]bool `json:"events"`
+		MemAlertMB  *int            `json:"mem_alert_mb"`
+		CPUAlertPct *int            `json:"cpu_alert_pct"`
+		ViewBase    *string         `json:"view_base"` // 0.6.144：详情页基础地址（"" = 清除）
 	}
 	if err := jsonDecode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -600,8 +600,8 @@ func (s *Server) notifyChannelPut(w http.ResponseWriter, r *http.Request) {
 	cur := s.Cfg.NotifyChannels[idx]
 	merged := cur
 	merged.Name = orEmpty(in.Name, cur.Name)
-	merged.Enabled = in.Enabled // 表单总是显式提交开关状态
-	merged.Format = in.Format // 0.6.144：表单总是显式提交形式（wecom=markdown 默认，其他类型空串）
+	merged.Enabled = in.Enabled     // 表单总是显式提交开关状态
+	merged.Format = in.Format       // 0.6.144：表单总是显式提交形式（wecom=markdown 默认，其他类型空串）
 	merged.Verbosity = in.Verbosity // 0.6.175：表单总是显式提交信息长度（缺省 friendly）
 	if in.Timeout > 0 {
 		merged.Timeout = in.Timeout
@@ -657,7 +657,7 @@ func (s *Server) notifyChannelDelete(w http.ResponseWriter, r *http.Request) {
 // welcomeTestMessage 渠道测试消息（0.6.164 起改发欢迎语：测试结果 = 欢迎语
 // 在该渠道形式下的真实观感，卡片/markdown/markdown_v2 三形式各预览各的版式）。
 // 不写通知记录（测试只是探针，不落 notify_log）。0.6.326 起卡片不带
-//「打开通知详情」入口；ViewURL 仅剩企微卡片整卡点击跳转（card_action）用，
+// 「打开通知详情」入口；ViewURL 仅剩企微卡片整卡点击跳转（card_action）用，
 // 未配置 NotifyViewBase 时企微卡片自动降级默认 markdown。
 func (s *Server) welcomeTestMessage() *notify.Message {
 	msg := welcomeMessage("channel_test")
@@ -693,7 +693,7 @@ func (s *Server) notifyChannelTest(w http.ResponseWriter, r *http.Request) {
 }
 
 // notifyChannelTestDraft POST /api/notify-channels/test：弹窗内「测试提供商」
-//（0.6.139，参照 knock「新增通知提供商」弹窗的测试按钮）：用当前表单值直接
+// （0.6.139，参照 knock「新增通知提供商」弹窗的测试按钮）：用当前表单值直接
 // 发一条测试消息，不落盘保存。
 func (s *Server) notifyChannelTestDraft(w http.ResponseWriter, r *http.Request) {
 	var in config.NotifyChannel

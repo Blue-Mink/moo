@@ -278,8 +278,8 @@ var curatedCategories = map[string]string{
 	"wechat-on-cloud": "efficiency", "wikijs": "efficiency", "wordmbdy": "efficiency",
 	"xboard": "efficiency",
 	// 跨源描述差异统一（2026-09-26 审计补充）
-	"fntermx": "devtools", // 终端（个别源简介为 base64 图片垃圾数据）
-	"read": "lifestyle",    // 轻阅读（个别源为 APP 后端变体）
+	"fntermx": "devtools",  // 终端（个别源简介为 base64 图片垃圾数据）
+	"read":    "lifestyle", // 轻阅读（个别源为 APP 后端变体）
 	// driver (15)
 	"amd-container-toolkit": "driver", "amd.rocm-7.2": "driver", "binder_linux_driver": "driver",
 	"fn-aic8800": "driver", "fn-broadcom-sta": "driver", "fn-ntfs3": "driver",

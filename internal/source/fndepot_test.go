@@ -34,13 +34,13 @@ func TestTranslateEntryV2Releases(t *testing.T) {
 	// RROrg 风格：无顶层 version/download_url，版本包全在 releases；
 	// 字段名变体 maintainer/categories 数组/platform 数组。
 	m := mustJSON(t, map[string]any{
-		"display_name": "VirtualHereServer",
-		"desc":         "VirtualHere USB 服务端",
-		"platform":     []any{"all"},
-		"categories":   []any{"系统工具"},
-		"maintainer":   "VirtualHere Pty. Ltd.",
+		"display_name":   "VirtualHereServer",
+		"desc":           "VirtualHere USB 服务端",
+		"platform":       []any{"all"},
+		"categories":     []any{"系统工具"},
+		"maintainer":     "VirtualHere Pty. Ltd.",
 		"maintainer_url": "https://www.virtualhere.com",
-		"distributor":  "RROrg",
+		"distributor":    "RROrg",
 		"releases": map[string]any{
 			"4.8.8-1": map[string]any{
 				"changelog": "Initial release",
@@ -99,14 +99,14 @@ func TestTranslateEntryV2Releases(t *testing.T) {
 
 func TestTranslateEntryV1Flat(t *testing.T) {
 	m := mustJSON(t, map[string]any{
-		"display_name": "code-server",
-		"desc":         "VS Code 在线版",
-		"version":      "1.0.1",
-		"download_url": "https://github.com/RROrg/fn-apps/releases/download/x/fn-codeserver_v1.0.1.fpk",
-		"labels":       "工具",
-		"author":       "Ing",
-		"size":         "0.026",
-		"isdocker":     "false",
+		"display_name":   "code-server",
+		"desc":           "VS Code 在线版",
+		"version":        "1.0.1",
+		"download_url":   "https://github.com/RROrg/fn-apps/releases/download/x/fn-codeserver_v1.0.1.fpk",
+		"labels":         "工具",
+		"author":         "Ing",
+		"size":           "0.026",
+		"isdocker":       "false",
 		"download_count": 1234,
 	})
 	a := translateEntry("fn-codeserver", m, "RROrg", "https://github.com/RROrg/fn-apps", "")
@@ -190,12 +190,12 @@ func TestIndexBaseDir(t *testing.T) {
 	cases := map[string]string{
 		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json":    "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main",
 		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json": "https://raw.githubusercontent.com/Blue-Mink/FnDepot/main",
-		"https://github.com/Blue-Mink/FnDepot/fnpack.json":                    "https://github.com/Blue-Mink/FnDepot",
-		"http://192.0.2.15:3033/bluemink/moo/moo.json":                      "http://192.0.2.15:3033/bluemink/moo",
+		"https://github.com/Blue-Mink/FnDepot/fnpack.json":                     "https://github.com/Blue-Mink/FnDepot",
+		"http://192.0.2.15:3033/bluemink/moo/moo.json":                         "http://192.0.2.15:3033/bluemink/moo",
 		// 地址本身是目录（末段非 .json）→ 原样
-		"https://example.com/store/":   "https://example.com/store/",
-		"https://example.com/store":    "https://example.com/store",
-		"http://127.0.0.1:18899":       "http://127.0.0.1:18899",
+		"https://example.com/store/": "https://example.com/store/",
+		"https://example.com/store":  "https://example.com/store",
+		"http://127.0.0.1:18899":     "http://127.0.0.1:18899",
 		// 根目录索引（无路径目录）→ 主机根（相对资源直接拼主机根下）
 		"https://example.com/fnpack.json": "https://example.com",
 	}
@@ -207,7 +207,7 @@ func TestIndexBaseDir(t *testing.T) {
 }
 
 // TestFetchJSONRealErrorTransparent 0.6.271：直链不可达时透传真实错误
-//（旧实现在 fallback 为空时报「无候选地址」，把 404/连接失败/登录墙吞掉）。
+// （旧实现在 fallback 为空时报「无候选地址」，把 404/连接失败/登录墙吞掉）。
 func TestFetchJSONRealErrorTransparent(t *testing.T) {
 	f := NewFnDepot("t", "http://127.0.0.1:1/x.json") // 1 端口必不可达
 	if _, err := f.Fetch(); err == nil {

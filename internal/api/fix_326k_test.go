@@ -134,9 +134,9 @@ func TestFix326K_F2_NonGitHubSourceSkipsForkCache(t *testing.T) {
 		{Name: "上游源", URL: "https://github.com/alice/awesome-apps"},
 	}
 	cache := map[string]map[string]*source.App{
-		"内网源":    f326kSrcCache(map[string]string{"app-a": "1.0.0"}),
+		"内网源":     f326kSrcCache(map[string]string{"app-a": "1.0.0"}),
 		"GitHub源": f326kSrcCache(map[string]string{"app-a": "1.0.0"}),
-		"上游源":    f326kSrcCache(map[string]string{"app-a": "2.5.0"}),
+		"上游源":     f326kSrcCache(map[string]string{"app-a": "2.5.0"}),
 	}
 	// GitHub 上的 bluemink/moo 恰好是 alice/awesome-apps 的 fork（与内网源无关）。
 	s := f326kEnv(t, refs, cache, map[string]string{"bluemink/moo": "alice/awesome-apps"})

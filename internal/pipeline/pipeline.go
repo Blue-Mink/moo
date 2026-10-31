@@ -23,8 +23,8 @@ type ProgressFn func(msg string, pct float64)
 // Pipeline 聚合管道依赖。
 type Pipeline struct {
 	Src       *source.Manager
-	Staging   string // 临时 FPK 目录（{dataDir}/staging）
-	Downloads string // 已下载 FPK 目录（{dataDir}/downloads）
+	Staging   string       // 临时 FPK 目录（{dataDir}/staging）
+	Downloads string       // 已下载 FPK 目录（{dataDir}/downloads）
 	Engine    *task.Engine // 统一下载引擎（aria2 多连接 + 镜像候选 + 续传）
 	// FPKCandidates 生成 GitHub FPK 候选 URL 顺序（可选；nil = 仅直连）
 	FPKCandidates func(app *source.App) []string

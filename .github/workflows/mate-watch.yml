@@ -1,0 +1,126 @@
+name: Moo Mate Release Watch
+
+# 夜间复检（与 Moo 的 release-watch 同思路，2026-10-31 用户要求「mate 也加一条」）：
+# 发出去就没人再看，是 10-29 那类事故能藏一整天的原因。这里只做只读检查：
+#   1) 索引声明版本必须是「公开」release（不是 draft / prerelease），且六件套齐全
+#   2) 用 **mate 自己的二进制**跑客户端同款验收：client 通道 + fallback 约定通道
+#      各自真下载 FPK / .sha256 / .minisig，验签 + 解包核 manifest 与 ELF 架构
+#   3) 不得存在超过 24h 仍未转正的 mate 预发布（忘了 flip 的哨兵）
+#
+# 为什么用 mate 二进制而不是另写脚本：验收必须与被验收的代码同一份实现。
+# `moo-mate -verify-release` 调的就是客户端真实的资产选择 / 镜像轮换 / 侧车解析 /
+# 验签函数——兜底只拼 FPK 漏侧车（Moo 0.6.369 事故）会当场判红。
+
+on:
+  schedule:
+    - cron: "37 2 * * *"   # 每天 10:37（北京时间）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mate-release-watch
+  cancel-in-progress: false
+
+jobs:
+  verify-published:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Resolve mate version from index
+        run: |
+          V=$(python3 -c "import json;print(json.load(open('moo.json',encoding='utf-8'))['apps']['moo-mate']['version'])")
+          [ -n "$V" ] || { echo "::error::moo.json 取不到 apps.moo-mate.version"; exit 1; }
+          echo "V=$V" >> "$GITHUB_ENV"
+          echo "索引声明 mate 版本：$V"
+
+      - name: Release must be public with six assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          json=$(gh release view "mate-v${V}" --json isDraft,isPrerelease,assets 2>/dev/null) || {
+            echo "::error::release mate-v${V} 不存在（索引已前进但 release 没有）"; exit 1; }
+          draft=$(echo "$json" | python3 -c "import json,sys;print(json.load(sys.stdin)['isDraft'])")
+          pre=$(echo "$json" | python3 -c "import json,sys;print(json.load(sys.stdin)['isPrerelease'])")
+          if [ "$draft" = "True" ] || [ "$pre" = "True" ]; then
+            echo "::error::release mate-v${V} 仍不可见（draft=$draft prerelease=$pre）——用户收不到更新"; exit 1
+          fi
+          echo "$json" | python3 - "$V" <<'PY'
+          import json, sys
+          ver = sys.argv[1]
+          d = json.load(sys.stdin)
+          names = {a["name"] for a in d["assets"]}
+          miss = []
+          for arch in ("x86", "arm"):
+              base = "moo-mate_%s_%s.fpk" % (ver, arch)
+              for suf in ("", ".sha256", ".minisig"):
+                  if base + suf not in names:
+                      miss.append(base + suf)
+          if miss:
+              print("::error::release 缺资产：%s（0.2.35+ 缺任一侧车客户端会拒绝自更新）" % ", ".join(miss))
+              sys.exit(1)
+          print("六件套齐全 ✓")
+          PY
+
+      - name: Build mate binary (same code as client)
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/moo-mate" ./cmd/moo-mate
+
+      - name: Client-identical verification (client + fallback channels, both arches)
+        env:
+          MOO_MATE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          "$RUNNER_TEMP/moo-mate" -verify-release "$V" -verify-arch both -verify-index moo.json || {
+            echo "::error::客户端同款验收失败（真机自更新会失败：下载 / sha256 / 验签 / 解包 任一环）"; exit 1; }
+
+      - name: No stale mate prerelease (forgot to flip)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          gh release list --limit 50 --json tagName,isPrerelease,createdAt > "$RUNNER_TEMP/rels.json"
+          python3 - "$RUNNER_TEMP/rels.json" <<'PY'
+          import json, sys, datetime
+          rels = json.load(open(sys.argv[1], encoding="utf-8"))
+          now = datetime.datetime.now(datetime.timezone.utc)
+          stale = []
+          for r in rels:
+              if not r.get("isPrerelease"):
+                  continue
+              if not r.get("tagName", "").startswith("mate-v"):
+                  continue
+              t = datetime.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
+              hours = (now - t).total_seconds() / 3600
+              if hours >= 24:
+                  stale.append("%s（%.0f 小时）" % (r["tagName"], hours))
+          if stale:
+              print("::error::存在超过 24h 未转正的 mate 预发布：%s" % ", ".join(stale))
+              sys.exit(1)
+          print("无残留 mate 预发布 ✓")
+          PY
+
+      - name: Write watch summary
+        if: always()
+        run: |
+          {
+            echo "## Moo Mate Release Watch 汇总"
+            echo ""
+            echo "- 索引声明 mate 版本：\`${V:-<未解析>}\`"
+            echo "- 本次结果：${{ job.status }}"
+            echo "- 失败定位：公开态/六件套 → 客户端同款验收（client + fallback 两通道 × x86/arm）→ 残留预发布哨兵"
+            echo "- 兜底为何必验：国内出口 \`api.github.com\` 常限流，线上几乎恒走 fallback 约定 URL；只验主通道等于没验。"
+          } >> "$GITHUB_STEP_SUMMARY"

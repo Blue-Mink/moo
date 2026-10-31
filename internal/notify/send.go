@@ -33,10 +33,10 @@ type Message struct {
 	Content string // markdown（外部渠道发送的正文）
 	// Full 完整正文（0.6.143）：仅应用内通知记录展示用（方格折叠卡）；
 	// 空 = 记录里展示 Content。
-	Full    string
-	Event   string // 事件 key
-	OK      bool
-	TS      int64 // Unix 秒
+	Full  string
+	Event string // 事件 key
+	OK    bool
+	TS    int64 // Unix 秒
 	// Table markdown_v2 表格正文（0.6.144，列表类事件：应用更新摘要/源同步摘要等）；
 	// 空 = markdown_v2 形式用 Content。
 	Table string
@@ -424,8 +424,8 @@ func sendWeComCard(client *http.Client, ch config.NotifyChannel, msg *Message) e
 		title = string(r[:21]) + "…"
 	}
 	tc := map[string]any{
-		"card_type": "text_notice",
-		"source":    map[string]any{"desc": "Moo"},
+		"card_type":  "text_notice",
+		"source":     map[string]any{"desc": "Moo"},
 		"main_title": map[string]any{"title": "Moo · " + title, "desc": time.Unix(msg.TS, 0).Format("01-02 15:04")},
 		// 0.6.326：按用户令去掉卡片尾部「打开通知详情」跳转列表项；
 		// 整卡点击跳转（card_action，无文字入口）保留。
@@ -788,7 +788,7 @@ func postJSON(client *http.Client, u string, body any, checkBiz func(map[string]
 
 // TestMessage 通用测试消息（包内 Send/Fanout 机制测试用）。
 // 0.6.164 起生产渠道测试（「测试」/「测试提供商」按钮）改发欢迎语
-//（api 层 welcomeTestMessage），不再使用本函数。
+// （api 层 welcomeTestMessage），不再使用本函数。
 func TestMessage() *Message {
 	return &Message{
 		Title:   "Moo 通知渠道测试",
@@ -808,7 +808,7 @@ func TestMessage() *Message {
 // Fanout 向多个渠道并发发送（单飞保护 + 每渠道独立错误）。
 // 返回 渠道名 → 错误（空 map = 全部成功；无启用渠道 = nil）。
 // MaskSecretInErr（0.6.144 安全审计 P1-4）：Go 的 http 错误串含完整请求 URL
-//（url.Error: Post "https://...?key=xxxx": ...），直接落盘/回显会把 webhook
+// （url.Error: Post "https://...?key=xxxx": ...），直接落盘/回显会把 webhook
 // key 泄进 notify_log / API 响应。写盘与回显前统一掩码敏感查询参数值。
 var secretQueryRe = regexp.MustCompile(`([?&](?:key|token|secret|password|passwd|authorization|access_token)=)[^&"']+`)
 

@@ -88,7 +88,7 @@ func TestIconStore_NegativeExpiry(t *testing.T) {
 
 // 到顶淘汰：不清空全部，保留最近的 memMax/2（用户热图标不被 warm 连锅端）
 // 0.6.313 B4：memMax 跟随 env（默认 iconMemMax=256）；改用临时目录
-//（mem 直接操作不受影响，Put 的磁盘写落临时目录）。
+// （mem 直接操作不受影响，Put 的磁盘写落临时目录）。
 func TestIconStore_EvictionKeepsRecent(t *testing.T) {
 	st := newIconStore(t.TempDir())
 	st.mem = map[string]iconMemEntry{}

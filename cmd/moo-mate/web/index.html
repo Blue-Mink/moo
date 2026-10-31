@@ -1198,9 +1198,9 @@ $('verChip').onclick = async () => {
     const ok = await ask('发现新版本 v' + verInfo.available_version,
       '当前版本 v' + verInfo.current_version
       + (verInfo.notes ? '\n\n' + verInfo.notes : '')
-      + '\n\n在 GitHub Release 下载 FPK 后，到应用中心升级即可（数据保留）。',
-      '打开下载页');
-    if (ok && verInfo.page_url) window.open(verInfo.page_url, '_blank');
+      + '\n\n现在可以直接在应用内更新，数据保留。',
+      '立即更新');
+    if (ok) startSelfUpdate();
     return;
   }
   msg('正在检查更新…', 'info');
@@ -1208,6 +1208,105 @@ $('verChip').onclick = async () => {
   if (verInfo.has_update) msg('发现新版本 v' + verInfo.available_version, 'ok');
   else if (verInfo.last_error) msg('检查失败：' + verInfo.last_error, 'err');
   else msg('已是最新版本 v' + verInfo.current_version, 'ok');
+};
+
+// —— 应用内自更新：POST api/self-update → 轮询 api/self-update/status ——
+// daemon 升级中会杀掉 mate 进程：轮询连接失败/5xx = 正在重启，转而等 api/status。
+const SU_POLL_MS = 1000, SU_LIMIT_MS = 3 * 60 * 1000;
+let suBusy = false;
+
+const suStatus = async () => {
+  const r = await fetch('api/self-update/status', { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+};
+
+const suSleep = ms => new Promise(res => setTimeout(res, ms));
+
+const suStageText = st => {
+  switch (st.stage) {
+    case 'downloading': return '正在下载安装包' + (st.percent ? ' ' + st.percent + '%' : '') + '…';
+    case 'verifying': return '正在校验安装包…';
+    case 'staging': return '安装包校验通过，准备安装…';
+    case 'upgrading': return '应用中心正在安装…';
+    default: return st.message || '正在更新…';
+  }
+};
+
+// 等重启完成：api/status 回来且版本已变
+const suWaitRestart = async oldVer => {
+  const deadline = Date.now() + SU_LIMIT_MS;
+  while (Date.now() < deadline) {
+    await suSleep(1500);
+    try {
+      const r = await fetch('api/status', { cache: 'no-store' });
+      if (!r.ok) continue;
+      const s = await r.json();
+      if (s && s.version && s.version !== oldVer) {
+        msg('✅ 已更新到 v' + s.version, 'ok');
+        setTimeout(() => location.reload(), 1200);
+        return true;
+      }
+    } catch (e) { /* 还没起来，继续等 */ }
+  }
+  msg('更新耗时较久，请稍后手动刷新页面查看版本', 'warn');
+  return false;
+};
+
+const startSelfUpdate = async () => {
+  if (suBusy) return;
+  suBusy = true;
+  const oldVer = (verInfo && verInfo.current_version) || '';
+  let started = false;
+  try {
+    const body = await post('api/self-update', {});
+    started = true;
+    msg('正在开始更新到 v' + (body.target_version || '?') + '…', 'info');
+  } catch (e) {
+    msg('无法开始更新：' + e.message, 'err');
+    return;
+  } finally {
+    suBusy = false;
+  }
+  if (!started) return;
+
+  // 轮询状态机；连接失败或 5xx 视为 daemon 已杀进程
+  const deadline = Date.now() + SU_LIMIT_MS;
+  let sawRestart = false;
+  while (Date.now() < deadline) {
+    await suSleep(SU_POLL_MS);
+    let st;
+    try {
+      st = await suStatus();
+    } catch (e) {
+      sawRestart = true;
+      break;
+    }
+    if (st.stage === 'failed') {
+      msg('更新失败：' + (st.error || st.message || '未知错误'), 'err');
+      if (verInfo && verInfo.page_url) {
+        const go = await ask('更新失败',
+          (st.error || st.message || '未知错误')
+          + '\n\n也可以到 GitHub Release 手动下载 FPK，再到应用中心升级（数据保留）。',
+          '打开下载页');
+        if (go) window.open(verInfo.page_url, '_blank');
+      }
+      return;
+    }
+    if (st.stage === 'done') {
+      msg('✅ ' + (st.message || '更新完成'), 'ok');
+      setTimeout(() => location.reload(), 1200);
+      return;
+    }
+    msg(suStageText(st), 'info');
+  }
+  if (Date.now() >= deadline && !sawRestart) {
+    msg('更新超时，请稍后刷新页面确认版本；也可到 GitHub Release 手动下载', 'warn');
+    return;
+  }
+  // daemon 接管：等新进程回来
+  msg('应用中心正在安装，等待应用重启…', 'info');
+  await suWaitRestart(oldVer);
 };
 
 

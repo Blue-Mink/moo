@@ -29,6 +29,7 @@ import (
 	"moo/internal/config"
 	"moo/internal/lang"
 	"moo/internal/netx"
+	"moo/internal/release"
 )
 
 // 商店自更新：官方渠道 = GitHub Releases（Blue-Mink/moo），TLS 直连
@@ -79,6 +80,14 @@ const (
 	selfStatusPoll    = 2 * time.Second
 )
 
+// 0.6.380：下载阶段通道级看护阈值（见 downloadSelfUpdateOne）——连上不吐
+// 字节 / 中途掉到 0 都要尽快换通道，而不是等 8 分钟总超时。
+// var 不是 const —— 单测压到百毫秒级。
+var (
+	selfUpdateFirstByteTimeout = 12 * time.Second
+	selfUpdateStallWindow      = 20 * time.Second
+)
+
 // selfUpdateSocketPath 飞牛应用中心 daemon 的内部 RPC socket（测试可覆写）。
 var selfUpdateSocketPath = "/var/run/com.trim.app.center.sock"
 
@@ -124,22 +133,14 @@ func selfUpdateArchSuffix() string { return selfUpdateArchSuffixFor(runtime.GOAR
 
 // selfUpdateArchSuffixFor 与 GOARCH 解耦，便于单测覆盖 arm 分支。
 func selfUpdateArchSuffixFor(goarch string) string {
-	switch goarch {
-	case "arm64", "arm":
-		return "_arm"
-	default:
-		return "_x86"
-	}
+	// 规则单源：架构映射只在 internal/release 里实现一份。
+	return release.ArchSuffix(goarch)
 }
 
 // selfUpdateArchSupported 自更新只对有发布资产的双架构开放；
 // 其它架构（386 等）没有对应 FPK，保持 0.6.354 前的行为：不提供自更新。
 func selfUpdateArchSupported() bool {
-	switch runtime.GOARCH {
-	case "amd64", "arm64", "arm":
-		return true
-	}
-	return false
+	return release.ArchSupported(runtime.GOARCH)
 }
 
 // selfUpdateAsset release 里的一个资产（只为把「按架构选包」抽成可单测的纯函数）。
@@ -174,9 +175,12 @@ func pickSelfUpdateAsset(assets []selfUpdateAsset, suffix string) (url, name str
 // 误导为「release 未附签名资产」（实际资产齐全）。发布流程本就要求三件套，
 // 侧车 URL 可直接由 FPK URL 拼出。
 func selfUpdateFallbackAsset(tag string) (assetURL, assetName string) {
-	assetName = "moo_" + tag + selfUpdateArchSuffix() + ".fpk"
-	return fmt.Sprintf("%s/%s/releases/download/v%s/%s",
-		selfUpdateWebBase, selfUpdateRepo, tag, assetName), assetName
+	// 规则单源：三件套拼装只在 internal/release.FallbackAssets 里实现一份。
+	a := release.FallbackAssets(selfUpdateWebBase, selfUpdateRepo, tag, selfUpdateArchSuffix())
+	if i := strings.LastIndex(a.FPK, "/"); i >= 0 {
+		return a.FPK, a.FPK[i+1:]
+	}
+	return a.FPK, a.FPK
 }
 
 type selfUpdateProbe struct {
@@ -909,14 +913,17 @@ var selfUpdateMirrorRewrite = func(prefix, u string) string {
 	return u
 }
 
-// selfUpdateDownloadCandidates 构造下载候选：直连在前，其后是用户配置的
-// GitHub 加速镜像（最多 3 个，按吞吐排序）。0.6.328 曾为消除中间人换包面
-// 取消镜像候选；0.6.329 起强制 minisign 验签（私钥离线），镜像最多只能改动
-// 传输内容、改不了签名，故可安全恢复镜像兜底（0.6.371）。
+// selfUpdateDownloadCandidates 构造下载候选：**加速镜像在前、直连最后**。
+//
+// 0.6.380（用户令「点更新用不了 GitHub 加速、进度很慢」）：旧顺序是直连在
+// 首、失败才换镜像，而国内出口直连 objects.githubusercontent.com 常是
+// 0 字节（实测 25s 一字节不下）→ 界面一直卡在「下载中」。现在镜像先试，
+// 直连只作兜底。安全性不变：0.6.329 起强制 minisign 验签 + sha256（私钥
+// 离线），镜像最多改动传输内容、换不了包。
 func selfUpdateDownloadCandidates(s *Server, assetURL, shaURL, minisigURL string) []selfUpdateDownloadCandidate {
-	out := []selfUpdateDownloadCandidate{{asset: assetURL, sha: shaURL, minisig: minisigURL}}
+	out := make([]selfUpdateDownloadCandidate, 0, 4)
 	for _, p := range selfUpdateMirrorPrefixes(s) {
-		if len(out) > 3 {
+		if len(out) >= 3 {
 			break
 		}
 		a := selfUpdateMirrorRewrite(p, assetURL)
@@ -929,6 +936,7 @@ func selfUpdateDownloadCandidates(s *Server, assetURL, shaURL, minisigURL string
 			minisig: selfUpdateMirrorRewrite(p, minisigURL),
 		})
 	}
+	out = append(out, selfUpdateDownloadCandidate{asset: assetURL, sha: shaURL, minisig: minisigURL})
 	return out
 }
 
@@ -944,11 +952,14 @@ func (s *Server) downloadSelfUpdateFPK(w http.ResponseWriter, f http.Flusher, ct
 	}
 	client := netx.NewClient(8 * time.Minute)
 	cands := selfUpdateDownloadCandidates(s, assetURL, shaURL, minisigURL)
+	if len(cands) > 1 {
+		sseSend(w, f, map[string]any{"step": "downloading", "message": "正在通过 GitHub 加速通道下载…"})
+	}
 	var fails []string
 	for i, c := range cands {
 		if i > 0 {
 			sseSend(w, f, map[string]any{"step": "downloading",
-				"message": fmt.Sprintf("直连通道失败，改用加速通道重试（%d/%d）…", i, len(cands)-1)})
+				"message": fmt.Sprintf("当前通道未成功，切换备用通道重试（%d/%d）…", i+1, len(cands))})
 		}
 		dst, err := downloadSelfUpdateOne(w, f, ctx, client, c.asset, tag)
 		if err != nil {
@@ -975,7 +986,12 @@ func (s *Server) downloadSelfUpdateFPK(w http.ResponseWriter, f http.Flusher, ct
 // 校验失败后换下一个通道）。返回可直接交给 verifyMinisig/verifySha256 的路径。
 func downloadSelfUpdateOne(w http.ResponseWriter, f http.Flusher, ctx context.Context, client *http.Client, assetURL, tag string) (string, error) {
 	dst := filepath.Join(os.TempDir(), fmt.Sprintf("moo-selfupdate-%d-%s.fpk", os.Getpid(), tag))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+	// 0.6.380：首字节/停滞看护——直连常出现「TCP 连上但一个字节不吐」或
+	// 「吐几百 KB 后掉到 0」，旧实现只有 8 分钟总超时，界面就一直卡在下载中。
+	// 这里按「首字节 12s / 连续 20s 无进展」主动取消，交给上层切下一个通道。
+	dctx, dcancel := context.WithCancel(ctx)
+	defer dcancel()
+	req, err := http.NewRequestWithContext(dctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -993,7 +1009,38 @@ func downloadSelfUpdateOne(w http.ResponseWriter, f http.Flusher, ctx context.Co
 		return "", err
 	}
 	total := resp.ContentLength
-	var downloaded int64
+	var downloaded atomic.Int64
+	var lastProg atomic.Int64
+	lastProg.Store(time.Now().UnixNano())
+	var stallMsg atomic.Value
+	stopWatch := make(chan struct{})
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-stopWatch:
+				return
+			case <-t.C:
+			}
+			got := downloaded.Load()
+			idle := time.Since(time.Unix(0, lastProg.Load()))
+			if got == 0 {
+				if idle >= selfUpdateFirstByteTimeout {
+					stallMsg.Store(fmt.Sprintf("首字节超时（%s 无数据）", idle.Round(time.Second)))
+					dcancel()
+					return
+				}
+				continue
+			}
+			if idle >= selfUpdateStallWindow {
+				stallMsg.Store(fmt.Sprintf("下载停滞（%s 无进展，已下 %d KB）", idle.Round(time.Second), got>>10))
+				dcancel()
+				return
+			}
+		}
+	}()
+	defer close(stopWatch)
 	lastEmit := time.Now()
 	lastPct := -1
 	buf := make([]byte, 256*1024)
@@ -1010,13 +1057,14 @@ func downloadSelfUpdateOne(w http.ResponseWriter, f http.Flusher, ctx context.Co
 				os.Remove(dst)
 				return "", werr
 			}
-			downloaded += int64(n)
+			dl := downloaded.Add(int64(n))
+			lastProg.Store(time.Now().UnixNano())
 			now := time.Now()
 			if now.Sub(lastEmit) > 400*time.Millisecond {
 				lastEmit = now
-				ev := map[string]any{"step": "downloading", "message": "下载 v" + tag + " 安装包…", "downloaded": downloaded, "total": total}
+				ev := map[string]any{"step": "downloading", "message": "下载 v" + tag + " 安装包…", "downloaded": dl, "total": total}
 				if total > 0 {
-					pct := int(downloaded * 100 / total)
+					pct := int(dl * 100 / total)
 					ev["progress"] = pct
 					lastPct = pct
 				}
@@ -1028,6 +1076,11 @@ func downloadSelfUpdateOne(w http.ResponseWriter, f http.Flusher, ctx context.Co
 	resp.Body.Close()
 	if rerr != nil && rerr != io.EOF {
 		os.Remove(dst)
+		if v := stallMsg.Load(); v != nil {
+			if msg, ok := v.(string); ok && msg != "" {
+				return "", errors.New(msg)
+			}
+		}
 		return "", rerr
 	}
 	if total > 0 && lastPct < 100 {

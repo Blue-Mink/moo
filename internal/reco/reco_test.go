@@ -13,7 +13,7 @@ func TestSnapshotFileWellFormed(t *testing.T) {
 	if err := json.Unmarshal(snapshotsJSON, &d); err != nil {
 		t.Fatalf("snapshots.json 解析失败: %v", err)
 	}
-	want := []string{"fnos-apps-store", "fndepot", "fn-knock"}
+	want := []string{"fnos-apps-store", "fndepot", "fn-knock", "moo-mate"}
 	if len(d.Apps) != len(want) {
 		t.Fatalf("快照应含 3 个应用，实际 %d", len(d.Apps))
 	}
@@ -30,7 +30,7 @@ func TestSnapshotFileWellFormed(t *testing.T) {
 // TestFixedOrderAndLookup 固定顺序输出 + 大小写/分隔符漂移不敏感查找。
 func TestFixedOrderAndLookup(t *testing.T) {
 	order := FixedOrder()
-	want := []string{"fnos-apps-store", "fndepot", "fn-knock"}
+	want := []string{"fnos-apps-store", "fndepot", "fn-knock", "moo-mate"}
 	if len(order) != len(want) {
 		t.Fatalf("FixedOrder 长度 %d，期望 %d", len(order), len(want))
 	}

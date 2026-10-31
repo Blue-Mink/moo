@@ -173,7 +173,7 @@ func TestFavoriteSourceReportZeroApps(t *testing.T) {
 	injectCatalog(t, s, []AppInfo{
 		{Key: "a@s1", AppName: "a", DisplayName: "应用A", Source: "s1", LatestVersion: "1.0.0"},
 	})
-	s.favoriteSourceReportPass() // 基线
+	s.favoriteSourceReportPass()     // 基线
 	injectCatalog(t, s, []AppInfo{}) // 源空了
 	s.favoriteSourceReportPass()
 	if n := countReportEvent(s); n != 1 {

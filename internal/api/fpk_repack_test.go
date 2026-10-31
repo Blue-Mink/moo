@@ -75,8 +75,8 @@ func TestRepackTpkDirToFpk_StructureAndContent(t *testing.T) {
 	}
 	entries := readTarEntries(t, dst)
 	want := map[string]string{
-		"manifest":            "appname = test-app\nversion = 1.0.0\n",
-		"app.tgz":             "APP-TGZ-BYTES-PLACEHOLDER",
+		"manifest":             "appname = test-app\nversion = 1.0.0\n",
+		"app.tgz":              "APP-TGZ-BYTES-PLACEHOLDER",
 		"cmd/install_callback": "#!/bin/bash\nexit 0\n",
 		"wizard/config":        `[{"stepTitle":"端口"}]`,
 		"ICON.PNG":             "PNGDATA",

@@ -33,8 +33,8 @@ func TestValidate(t *testing.T) {
 // TestMasked 敏感字段脱敏保留尾 4 位；非敏感字段不动。
 func TestMasked(t *testing.T) {
 	ch := config.NotifyChannel{
-		Type:   "wecom",
-		Name:   "bot",
+		Type: "wecom",
+		Name: "bot",
 		Params: map[string]string{
 			"webhook_url":    "https://qyapi.weixin.qq.com/x?key=abcdef123456",
 			"mentioned_list": "@all",

@@ -53,13 +53,13 @@ const (
 )
 
 const (
-	daemonStatusRunning      = 1
-	daemonStatusSuccess      = 2
-	daemonStatusUnknownTask  = 5
-	daemonCodeValidation     = 10030
+	daemonStatusRunning        = 1
+	daemonStatusSuccess        = 2
+	daemonStatusUnknownTask    = 5
+	daemonCodeValidation       = 10030
 	daemonCodeTransientTimeout = 10050
-	daemonCodePackageMissing = 10100
-	daemonCodeWizardRequired = 19000
+	daemonCodePackageMissing   = 10100
+	daemonCodeWizardRequired   = 19000
 )
 
 // 错误三态：
@@ -67,9 +67,9 @@ const (
 //   - ErrDaemonAmbiguous：已连接但结果未知，禁止重试（可能已执行）
 //   - ErrTaskOutcomeUnknown：任务结果未观察到，禁止自动重试
 var (
-	ErrDaemonUnreachable   = errors.New("app center daemon 不可达")
-	ErrDaemonAmbiguous     = errors.New("app center 请求结果未知")
-	ErrTaskOutcomeUnknown  = errors.New("无法确认操作结果")
+	ErrDaemonUnreachable  = errors.New("app center daemon 不可达")
+	ErrDaemonAmbiguous    = errors.New("app center 请求结果未知")
+	ErrTaskOutcomeUnknown = errors.New("无法确认操作结果")
 )
 
 // DaemonError 携带 daemon 的业务错误码（如 19000=向导必填项缺失）。
@@ -837,8 +837,8 @@ func InstallCloud(ctx context.Context, appName, sourceID, version string, volume
 func FetchCloudWizard(ctx context.Context, appName, version string) (*AppWizard, error) {
 	var info infoResponse
 	if err := daemonCall(ctx, routeInstallInfo, map[string]any{
-		"appName": appName,
-		"version": version,
+		"appName":  appName,
+		"version":  version,
 		"language": "zh-CN",
 	}, &info); err != nil {
 		return nil, fmt.Errorf("获取安装向导失败: %w", err)
@@ -988,19 +988,19 @@ type UpgradeInfo struct {
 
 // InstalledApp 是 daemon 报告的已安装应用记录。
 type InstalledApp struct {
-	AppName     string `json:"appName"`
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Source      string `json:"source"`
-	SourceID    string `json:"sourceID,omitempty"`
-	Status      string `json:"status"`
-	Icon        string `json:"icon"`
+	AppName  string `json:"appName"`
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Source   string `json:"source"`
+	SourceID string `json:"sourceID,omitempty"`
+	Status   string `json:"status"`
+	Icon     string `json:"icon"`
 	// Docker 标记该应用是 Docker 类（0.6.348：真实运行态探测用它选判定通道）。
-	Docker      bool   `json:"docker"`
-	IsOpen      bool   `json:"isOpen"`
-	IsStartStop bool   `json:"isStartStop"`
-	IsUninstall bool   `json:"isUninstall"`
-	Upgrade     bool   `json:"upgrade"`
+	Docker      bool `json:"docker"`
+	IsOpen      bool `json:"isOpen"`
+	IsStartStop bool `json:"isStartStop"`
+	IsUninstall bool `json:"isUninstall"`
+	Upgrade     bool `json:"upgrade"`
 	// UpgradeInfo 非 nil 表示平台认为该应用有可升级版本（版本即目标版本）。
 	UpgradeInfo *UpgradeInfo `json:"upgradeInfo,omitempty"`
 	// Web 是应用可打开的 Web 入口（iframe/url 类型才有）。
@@ -1030,24 +1030,24 @@ func ListInstalled(ctx context.Context) ([]InstalledApp, error) {
 	var resp struct {
 		Total int `json:"total"`
 		List  []struct {
-			AppName     string `json:"appName"`
-			Name        string `json:"name"`
-			Version     string `json:"version"`
-			Source      string `json:"source"`
-			SourceID    string `json:"sourceID"`
-			Status      string `json:"status"`
-			Icon        string `json:"icon"`
-			Docker      bool   `json:"docker"`
+			AppName     string       `json:"appName"`
+			Name        string       `json:"name"`
+			Version     string       `json:"version"`
+			Source      string       `json:"source"`
+			SourceID    string       `json:"sourceID"`
+			Status      string       `json:"status"`
+			Icon        string       `json:"icon"`
+			Docker      bool         `json:"docker"`
 			UpgradeInfo *UpgradeInfo `json:"upgradeInfo"`
-			Control struct {
+			Control     struct {
 				IsOpen      bool `json:"isOpen"`
 				IsStartStop bool `json:"isStartStop"`
 				IsUninstall bool `json:"isUninstall"`
 				Upgrade     bool `json:"upgrade"`
 			} `json:"control"`
 			AppServiceInfo struct {
-				Type     string `json:"type"`
-				URLs     struct {
+				Type string `json:"type"`
+				URLs struct {
 					Protocol string `json:"protocol"`
 					Host     string `json:"host"`
 					Port     string `json:"port"`
@@ -1066,7 +1066,7 @@ func ListInstalled(ctx context.Context) ([]InstalledApp, error) {
 		a := InstalledApp{
 			AppName: d.AppName, Name: d.Name, Version: d.Version, Source: d.Source,
 			SourceID: d.SourceID,
-			Status: d.Status, Icon: d.Icon, Docker: d.Docker,
+			Status:   d.Status, Icon: d.Icon, Docker: d.Docker,
 			IsOpen: d.Control.IsOpen, IsStartStop: d.Control.IsStartStop,
 			IsUninstall: d.Control.IsUninstall, Upgrade: d.Control.Upgrade,
 		}

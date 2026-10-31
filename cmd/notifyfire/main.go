@@ -18,13 +18,13 @@ import (
 )
 
 type ev struct {
-	key    string
-	label  string
-	group  string
-	plain  string // 列表/普通文案（F1 默认 markdown + F3 卡片用；classic markdown 不支持表格）
-	table  string // markdown_v2 表格版（F2 用）；空 = 与 plain 相同
-	ok     bool
-	link   bool // 是否带详情页链接（源同步摘要）
+	key   string
+	label string
+	group string
+	plain string // 列表/普通文案（F1 默认 markdown + F3 卡片用；classic markdown 不支持表格）
+	table string // markdown_v2 表格版（F2 用）；空 = 与 plain 相同
+	ok    bool
+	link  bool // 是否带详情页链接（源同步摘要）
 }
 
 var events = []ev{
@@ -173,7 +173,7 @@ func classicPayload(e ev) map[string]any {
 		c += "\n\n[查看完整 155 源明细](" + detailURL + ")"
 	}
 	return map[string]any{
-		"msgtype": "markdown",
+		"msgtype":  "markdown",
 		"markdown": map[string]string{"content": "### Moo · " + e.label + "\n\n" + c},
 	}
 }
@@ -198,11 +198,11 @@ func v2Payload(e ev, now string) map[string]any {
 // F3 = 模板卡片（text_notice）——与生产 sendWeComCard 同款：
 // 列表类事件走两列列表（horizontal_content_list），普通事件折行清洗后单行。
 var cardRows = map[string][][2]string{
-	"updates_available": {{"Fluxor", "1.3.0 → 1.3.1"}, {"KSpeeder", "2.0.1 → 2.0.3"}, {"轻阅读", "3.4.6.2 → 3.4.7"}},
-	"favorite_update":   {{"Gitea", "1.20.0 → 1.21.3"}},
+	"updates_available":    {{"Fluxor", "1.3.0 → 1.3.1"}, {"KSpeeder", "2.0.1 → 2.0.3"}, {"轻阅读", "3.4.6.2 → 3.4.7"}},
+	"favorite_update":      {{"Gitea", "1.20.0 → 1.21.3"}},
 	"favorite_source_apps": {{"应用 A", "v1.2.0"}, {"应用 B", "v0.9.1"}},
-	"source_sync_failed": {{"Hxido-RXM", "连接超时"}, {"mac1256", "404 Not Found"}},
-	"source_sync_summary": {{"飞牛应用中心", "375 个应用"}, {"fnos-store", "165 个应用"}, {"shuangji66", "100 个应用"}, {"wabisabi926", "100 个应用"}, {"SaucdX233", "91 个应用"}},
+	"source_sync_failed":   {{"Hxido-RXM", "连接超时"}, {"mac1256", "404 Not Found"}},
+	"source_sync_summary":  {{"飞牛应用中心", "375 个应用"}, {"fnos-store", "165 个应用"}, {"shuangji66", "100 个应用"}, {"wabisabi926", "100 个应用"}, {"SaucdX233", "91 个应用"}},
 }
 var cardEmph = map[string][2]string{
 	"source_sync_summary": {"1778", "应用总数（含多源重复）"},
@@ -240,9 +240,9 @@ func cardPayload(e ev, now string) map[string]any {
 		jumpTitle = "查看完整 155 源明细"
 	}
 	tc := map[string]any{
-		"card_type":    "text_notice",
-		"source":       map[string]any{"desc": "Moo"},
-		"main_title":   map[string]any{"title": "Moo · " + e.label, "desc": e.group + " · " + now},
+		"card_type":      "text_notice",
+		"source":         map[string]any{"desc": "Moo"},
+		"main_title":     map[string]any{"title": "Moo · " + e.label, "desc": e.group + " · " + now},
 		"sub_title_text": sub,
 		"jump_list": []map[string]any{
 			{"type": 1, "url": detailURL, "title": jumpTitle},

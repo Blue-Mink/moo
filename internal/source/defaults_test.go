@@ -49,8 +49,8 @@ func TestSourceNameFromURL(t *testing.T) {
 		"github.com/Blue-Mink/FnDepot":         "Blue-Mink",
 		"https://www.github.com/a/b.git":       "a",
 		// 0.6.271：GitHub 系直链也取作者（保留原始大小写），不再叫 "moo.json"
-		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json":                  "Blue-Mink",
-		"https://cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/moo.json":                            "Blue-Mink",
+		"https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json":                      "Blue-Mink",
+		"https://cdn.jsdelivr.net/gh/Blue-Mink/FnDepot/moo.json":                                 "Blue-Mink",
 		"https://gh-proxy.com/https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/moo.json": "Blue-Mink",
 		// 0.6.271：Gitea raw 分支直链取仓库名（先剥 /raw/branch/<分支>/ 与索引文件名）
 		"http://192.0.2.15:3033/bluemink/moo/raw/branch/main/moo.json": "moo",

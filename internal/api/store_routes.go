@@ -311,86 +311,65 @@ func installConflictOf(self *AppInfo, group []SameNameEntry) string {
 	return "different"
 }
 
-// recommended GET /api/recommended：固定前三 + 其余随机（0.6.314 C）。
+// recommended GET /api/recommended（0.6.379 起：清单驱动，不再写死）。
 //
-// 前三固定位（上→下，用户定稿、不随机）：fnos-apps-store / fndepot /
-// fn-knock。每位每请求按当前目录判定（不粘性）：源在目录里=实时条目；
-// 源被删/抓取失败=回落内嵌完整元数据快照（internal/reco）。源恢复后
-// 自动切回实时。SWR 说明：目录过期有旧时（最长 TTL 默认 60s），「源刚
-// 删」最多多 60s 仍显示实时卡，下一轮重建后回落快照——可接受。
+// 清单来自远程 recommend_list（每行 `appname@源名`，顺序即展示顺序），
+// 改清单不需要重建 FPK。解析规则：
 //
-// 总位数 >3（?count=N，3≤N≤12）时其余位置维持既有随机逻辑（优先有
-// 图标、同名只取一张、Hidden/UserHidden 卡不参与），且不得重复出现前三 key。
+//	· 只取当前目录里的实时卡；目录里没有的条目**整条跳过**——不留空位、
+//	  不随机补位、不回落内嵌快照（用户 2026-10-31 定稿）；
+//	· 被去重隐藏（Hidden）或被用户禁用（UserHidden）的卡同样跳过；
+//	· 同一 appname 多源命中取「有图标优先、更新时间新优先」（确定性）；
+//	· ?count=N（1≤N≤12）只做**上限**裁剪，绝不补足。
 //
-// 0.6.326z5（2.1 修复）：固定位对应的**实时卡**若被去重隐藏（Hidden）或被
-// 用户禁用（UserHidden）⇒ 整位跳过且**不回落快照**（回落=照样展示，等于
-// 禁用/去重对这个位置无效）；空位由下方随机补足池填补。仅「目录里根本没
-// 有该应用」（fixedSlotLive 未命中）才回落到内嵌快照。
+// 清单拉取失败沿用上次成功值；从未成功过才用内嵌兜底清单
+// （internal/api/default_recommend.txt），保证首装断网也有推荐位。
 func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 	catalog := s.cachedCatalog(lang.From(r.Context()))
-	want := 3
-	if n, err := strconv.Atoi(r.URL.Query().Get("count")); err == nil && n > 3 && n <= 12 {
-		want = n
+	limit := recoListMaxItems
+	if n, err := strconv.Atoi(r.URL.Query().Get("count")); err == nil && n >= 1 && n <= recoListMaxItems {
+		limit = n
 	}
-	out := make([]AppInfo, 0, want)
-	used := map[string]bool{} // appname 归一（前三 + 已选随机卡），防重复
-	for _, appName := range reco.FixedOrder() {
-		if len(out) >= want {
+	entries, _ := s.recommendEntries(r.Context())
+	out := make([]AppInfo, 0, len(entries))
+	used := map[string]bool{}
+	for _, e := range entries {
+		if len(out) >= limit {
 			break
 		}
-		var ai AppInfo
-		var ok bool
-		if live, lOK := fixedSlotLive(catalog, appName); lOK {
-			// 0.6.326z5 2.1：实时卡被隐藏/禁用 ⇒ 整位跳过，不回落快照
-			//（快照回落=隐藏位照样出现，等于禁用失效）。空位由随机池补。
-			if live.Hidden || live.UserHidden {
-				continue
-			}
-			ai, ok = live, true
-		} else if snap := reco.Lookup(appName); snap != nil {
-			ai, ok = snapshotAppInfo(snap), true
+		ai, ok := resolveRecommendEntry(catalog, e)
+		if !ok || ai.Hidden || ai.UserHidden {
+			continue // 缺卡 / 被去重隐藏 / 被用户禁用 → 整位跳过（不补位）
 		}
-		if !ok {
+		k := reco.NormAppName(ai.AppName)
+		if used[k] {
 			continue
 		}
+		used[k] = true
 		out = append(out, ai)
-		used[reco.NormAppName(ai.AppName)] = true
 	}
-	if len(out) >= want {
-		writeJSON(w, map[string]any{"apps": out})
-		return
-	}
-	// 其余位置：既有随机逻辑（优先有图标），排除前三 key（归一 appname）
-	withIcon := make([]AppInfo, 0)
-	rest := make([]AppInfo, 0)
-	// 0.6.312 B2：同名应用只取一张（去重档未开启时也能保证发现页不推
-	// 两张同应用）；Hidden 卡不参与。0.6.326-ui：被用户「禁用」的卡
-	//（UserHidden）同样不参与——禁用后不得出现在发现页推荐位。
-	seen := map[string]bool{}
-	for _, a := range catalog {
-		if a.Hidden || a.UserHidden || seen[a.AppName] {
-			continue
-		}
-		seen[a.AppName] = true
-		if used[reco.NormAppName(a.AppName)] {
-			continue
-		}
-		if a.IconURL != "" {
-			withIcon = append(withIcon, a)
-		} else {
-			rest = append(rest, a)
-		}
-	}
-	need := want - len(out)
-	pool := withIcon
-	if len(pool) < need {
-		pool = append(withIcon, rest...)
-	}
-	if len(pool) > need {
-		pool = pickWithDailySeed(pool, need)
-	}
-	out = append(out, pool...)
 	writeJSON(w, map[string]any{"apps": out})
+}
+
+// recommendedRefresh POST /api/recommended/refresh（admin）：丢弃缓存立刻
+// 重拉清单，返回生效条目（改完 Gitea/GitHub 清单可点此立即生效）。
+//
+// 0.6.380：走 refreshRecommendList 同步拉取（**不能**再调 recommendEntries——
+// 后者改为 SWR 后，命中旧值时会立刻返回旧值 + 后台刷新，管理员点「刷新」
+// 会看到旧结果）。
+func (s *Server) recommendedRefresh(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), recoRefreshBudget)
+	defer cancel()
+	entries, ok := s.refreshRecommendList(ctx)
+	keys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Source != "" {
+			keys = append(keys, e.AppName+"@"+e.Source)
+		} else {
+			keys = append(keys, e.AppName)
+		}
+	}
+	writeJSON(w, map[string]any{"ok": ok, "url": s.recommendListURL(), "count": len(entries), "entries": keys})
 }
 
 // pickWithDailySeed 稳定随机选卡（321R7）：种子 = UTC 日期 → 同一天内
@@ -1886,6 +1865,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		// SourceManager 回传恒 undefined。透出生效前的存储值
 		// （空串=未自定义，前端自行回落展示 DefaultSourceListURL）。
 		SourceListURL: s.Cfg.SourceListURL,
+		// 0.6.379：发现页推荐位清单地址（空串=内置公网默认）。
+		RecommendListURL: s.Cfg.RecommendListURL,
 		// 0.6.325 安全加固 R1：随设置页下发（默认 false）。
 		SourceListAllowPrivate: s.Cfg.SourceListAllowPrivate,
 		// 0.6.334：只下发「是否已配置」，token 本身绝不回传。
@@ -1983,6 +1964,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 此前 `>0` 守卫让显式 0 被静默忽略（「改了没反应」）。
 		CheckIntervalHours *int    `json:"check_interval_hours"`
 		SourceListURL      *string `json:"source_list_url"`
+		// 0.6.379：推荐位清单地址。nil=不改动；空串=回内置默认。
+		RecommendListURL *string `json:"recommend_list_url"`
 		// 指针区分「未提交」与「显式开/关」：此前 `url != "" || disabled` 条件
 		// 在列表地址为空时无法把自动同步切回开启（false 被忽略）。
 		SourceListDisabled *bool `json:"source_list_disabled"`
@@ -2077,6 +2060,20 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.SourceListURL != nil {
 		s.Cfg.SourceListURL = *in.SourceListURL
+	}
+	if in.RecommendListURL != nil {
+		u := strings.TrimSpace(*in.RecommendListURL)
+		if u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			writeErr(w, http.StatusBadRequest, errors.New("推荐清单地址须以 http:// 或 https:// 开头"))
+			return
+		}
+		s.Cfg.RecommendListURL = u
+		// 换地址立即失效缓存（下次请求重拉）。条目一并清掉：残留旧地址的条目
+		// 会被 SWR 当成「同地址旧值」先返回，导致换源后短时间仍显示旧清单。
+		s.recoMu.Lock()
+		s.recoLoaded, s.recoAt = false, time.Time{}
+		s.recoEntries = nil
+		s.recoMu.Unlock()
 	}
 	if in.SourceListDisabled != nil {
 		s.Cfg.SourceListOff = *in.SourceListDisabled

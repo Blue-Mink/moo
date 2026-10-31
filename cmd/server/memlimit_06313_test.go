@@ -18,8 +18,8 @@ func TestParseMemLimit_06313(t *testing.T) {
 		{"4KB", 4 << 10, false},
 		{"1024B", 1024, false},
 		{" 256mb ", 256 << 20, false}, // 容许首尾空白
-		{"0", 0, false},                // 0 = 不设（逃生阀）
-		{"-8", 0, false},               // 负数 = 不设
+		{"0", 0, false},               // 0 = 不设（逃生阀）
+		{"-8", 0, false},              // 负数 = 不设
 		{"abc", 0, true},
 		{"12X", 0, true},
 		{"1.5MB", 0, true},

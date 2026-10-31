@@ -5,8 +5,8 @@ import "testing"
 // 0.6.355：Moo 正式发布双架构 FPK 后，arm 设备也要能应用内自更新。
 // 此前（0.6.329~0.6.354）探测一律只挑 _x86 资产、非 amd64 直接关闭自更新，
 // arm 机器即使装的是 arm 包也会被判定「无新版本」。这里锁死两件事：
-//   1) GOARCH → 资产后缀映射；
-//   2) 按后缀选包 + 无同架构资产时回落任意 fpk 的兼容行为。
+//  1. GOARCH → 资产后缀映射；
+//  2. 按后缀选包 + 无同架构资产时回落任意 fpk 的兼容行为。
 func TestSelfUpdateArchSuffixFor_P355(t *testing.T) {
 	cases := map[string]string{
 		"amd64": "_x86",

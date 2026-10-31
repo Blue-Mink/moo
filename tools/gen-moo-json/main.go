@@ -108,11 +108,11 @@ func main() {
 	doc := map[string]any{
 		"schema_version": "moo",
 		"source_info": map[string]any{
-			"name":        *name,
-			"homepage":    *homepage,
-			"distributor": *distributor,
+			"name":         *name,
+			"homepage":     *homepage,
+			"distributor":  *distributor,
 			"generated_by": "gen-moo-json",
-			"updated_at":  time.Now().Format(time.RFC3339),
+			"updated_at":   time.Now().Format(time.RFC3339),
 		},
 		"apps": apps,
 	}

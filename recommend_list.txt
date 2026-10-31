@@ -1,0 +1,7 @@
+# Moo 发现页推荐位清单（一行一条 appname@源名，# 起注释）
+# 顺序即展示顺序；目录里找不到的应用整条跳过，不补位、不留空位。
+# 条数上限 12；改这个文件无需重建 FPK。
+fnos-apps-store@fnos-store
+fndepot@Blue-Mink
+fn-knock@kci-lnk
+moo-mate@Blue-Mink

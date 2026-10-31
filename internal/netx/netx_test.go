@@ -14,7 +14,7 @@ func TestIsGitHubHost(t *testing.T) {
 		"camo.githubusercontent.com",
 		"githubassets.com",
 		"github.dev",
-		"GITHUB.COM", // 大小写不敏感
+		"GITHUB.COM",  // 大小写不敏感
 		"github.com.", // 尾点
 	}
 	for _, h := range yes {

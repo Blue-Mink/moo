@@ -80,7 +80,9 @@ func TestWireOAuth_CatalogPreferOAuth(t *testing.T) {
 			atomic.AddInt32(&origCalls, 1)
 			return []panel.PanelApp{{AppName: "homebox", Name: "面板通道应用", Version: "0.1"}}, nil
 		},
-		detailFn:    func(ctx context.Context, name string) (*panel.PanelDetail, error) { return nil, errors.New("不应走面板详情") },
+		detailFn: func(ctx context.Context, name string) (*panel.PanelDetail, error) {
+			return nil, errors.New("不应走面板详情")
+		},
 		iconCache:   map[string]iconEntry{},
 		detailCache: map[string]detailEntry{},
 	}

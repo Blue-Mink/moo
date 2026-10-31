@@ -52,6 +52,13 @@ def main():
     badge("Go", "单二进制", (0x0A, 0x84, 0xFF), os.path.join(OUT, "go.png"))
     badge("fnOS", "x86_64 / arm64", (0x6F, 0x42, 0xC1), os.path.join(OUT, "platform.png"))
     badge("License", "MIT", (0x11, 0x18, 0x27), os.path.join(OUT, "license.png"))
+    # 版本侧车（2026-10-31）：PNG 是二进制，没法从图里读出版本号，于是单独落一份
+    # 纯文本，供 check_refs.py 断言「徽章版本 == fnos/manifest 版本」。
+    # 治的是「忘了重跑本脚本、README 徽章一直显示旧版本」这类低级错误（0.6.380 推前
+    # 实测徽章还停在 0.6.377）。
+    with open(os.path.join(OUT, "fpk.version"), "w", encoding="utf-8") as fh:
+        fh.write(ver.strip() + "\n")
+    print("fpk.version  %s" % ver.strip())
 
 
 if __name__ == "__main__":

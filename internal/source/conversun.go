@@ -24,10 +24,10 @@ import (
 // 下载链接保持 github.com 纯直链，实际下载走 Moo 的 GitHub 镜像竞速
 // （ghOrderedKeys），与其他社区源一致。
 const (
-	conversunRepoOwner     = "conversun"
-	conversunRepoName      = "fnos-apps"
-	conversunReleaseBase   = "https://github.com/conversun/fnos-apps/releases/download"
-	conversunRawRepo       = "https://raw.githubusercontent.com/conversun/fnos-apps"
+	conversunRepoOwner   = "conversun"
+	conversunRepoName    = "fnos-apps"
+	conversunReleaseBase = "https://github.com/conversun/fnos-apps/releases/download"
+	conversunRawRepo     = "https://raw.githubusercontent.com/conversun/fnos-apps"
 )
 
 // Conversun 是 conversun/fnos-apps 源适配器（apps.json 格式，区别于 FnDepot 的 fnpack.json）。

@@ -37,12 +37,12 @@ import (
 )
 
 const (
-	ClientID       = "YJNMPJUGA9"
-	DefaultScope   = "trim.user.all trim.file.read trim.file.write trim.download.all trim.appcenter.all trim.system.all trim.log.all trim.storage.all trim.docker.all"
-	DeviceName     = "Moo"
-	DeviceModel    = "CLI"
-	TokenLifetime  = time.Hour
-	RefreshWindow  = 60 * time.Second // 临期刷新阈值
+	ClientID        = "YJNMPJUGA9"
+	DefaultScope    = "trim.user.all trim.file.read trim.file.write trim.download.all trim.appcenter.all trim.system.all trim.log.all trim.storage.all trim.docker.all"
+	DeviceName      = "Moo"
+	DeviceModel     = "CLI"
+	TokenLifetime   = time.Hour
+	RefreshWindow   = 60 * time.Second // 临期刷新阈值
 	sessionFilePerm = 0o600
 )
 
@@ -84,9 +84,9 @@ type Manager struct {
 	client  *http.Client
 	dataDir string // session.json 所在目录（@appdata/moo）
 
-	session  *Session
-	pending  *PendingAuthorization
-	lastErr  string
+	session   *Session
+	pending   *PendingAuthorization
+	lastErr   string
 	refreshMu sync.Mutex
 
 	// 0.6.254：面板前端授权 UI 支持探测缓存（仅 fnOS 8.0.0+ 前端支持）。

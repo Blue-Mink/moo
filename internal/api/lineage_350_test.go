@@ -21,35 +21,35 @@ import (
 // fork=false 同 owner 不误判、自环、非 GitHub 主机不查 fork 缓存。
 func TestWS3_ForkMatrix(t *testing.T) {
 	type tc struct {
-		name       string
-		refs       []config.SourceRef
-		cache      map[string]map[string]*source.App
-		forks      map[string]string
-		dist       string
-		url        string // "" = 无包地址（走 fork 兜底）
-		wantRepo   string
-		wantSrc    string
-		wantVer    string
-		wantURL    string
+		name     string
+		refs     []config.SourceRef
+		cache    map[string]map[string]*source.App
+		forks    map[string]string
+		dist     string
+		url      string // "" = 无包地址（走 fork 兜底）
+		wantRepo string
+		wantSrc  string
+		wantVer  string
+		wantURL  string
 	}
 	cases := []tc{
 		{
-			name:  "整仓fork搬运·parent在源列表",
-			refs:  []config.SourceRef{{Name: "本源", URL: "https://github.com/carol/fndepot"}, {Name: "父源", URL: "https://github.com/alice/awesome-apps"}},
-			cache: map[string]map[string]*source.App{"本源": srcCache(map[string]string{"app-a": "1.0.0"}), "父源": srcCache(map[string]string{"app-a": "2.5.0"})},
-			forks: map[string]string{"carol/fndepot": "alice/awesome-apps"},
-			dist:  "第三方打包者",
-			url:   "https://github.com/carol/fndepot/releases/download/v1.0.0/app-a.fpk",
+			name:     "整仓fork搬运·parent在源列表",
+			refs:     []config.SourceRef{{Name: "本源", URL: "https://github.com/carol/fndepot"}, {Name: "父源", URL: "https://github.com/alice/awesome-apps"}},
+			cache:    map[string]map[string]*source.App{"本源": srcCache(map[string]string{"app-a": "1.0.0"}), "父源": srcCache(map[string]string{"app-a": "2.5.0"})},
+			forks:    map[string]string{"carol/fndepot": "alice/awesome-apps"},
+			dist:     "第三方打包者",
+			url:      "https://github.com/carol/fndepot/releases/download/v1.0.0/app-a.fpk",
 			wantRepo: "alice/awesome-apps", wantSrc: "父源", wantVer: "2.5.0",
 			wantURL: "https://github.com/alice/awesome-apps",
 		},
 		{
-			name:  "整仓fork搬运·parent不在源列表（只填repo/url）",
-			refs:  []config.SourceRef{{Name: "本源", URL: "https://github.com/carol/fndepot"}},
-			cache: map[string]map[string]*source.App{"本源": srcCache(map[string]string{"app-a": "1.0.0"})},
-			forks: map[string]string{"carol/fndepot": "alice/awesome-apps"},
-			dist:  "第三方打包者",
-			url:   "https://github.com/carol/fndepot/releases/download/v1.0.0/app-a.fpk",
+			name:     "整仓fork搬运·parent不在源列表（只填repo/url）",
+			refs:     []config.SourceRef{{Name: "本源", URL: "https://github.com/carol/fndepot"}},
+			cache:    map[string]map[string]*source.App{"本源": srcCache(map[string]string{"app-a": "1.0.0"})},
+			forks:    map[string]string{"carol/fndepot": "alice/awesome-apps"},
+			dist:     "第三方打包者",
+			url:      "https://github.com/carol/fndepot/releases/download/v1.0.0/app-a.fpk",
 			wantRepo: "alice/awesome-apps", wantSrc: "", wantVer: "",
 			wantURL: "https://github.com/alice/awesome-apps",
 		},
@@ -187,7 +187,10 @@ func TestWS3_DisplayNameAndVersionGuard(t *testing.T) {
 	}
 
 	// D2 不可解析版本 → comparableVersion=false；D3 预发布 → isPrereleaseVersion=true；D4 前导 v
-	for _, tc := range []struct{ in string; comparable, prerelease bool }{
+	for _, tc := range []struct {
+		in                     string
+		comparable, prerelease bool
+	}{
 		{"1.2.3", true, false},
 		{"v1.2.3", true, false},
 		{"abc", false, false},

@@ -11,7 +11,10 @@ import (
 )
 
 func TestCmpVersions(t *testing.T) {
-	cases := []struct{ a, b string; want int }{
+	cases := []struct {
+		a, b string
+		want int
+	}{
 		{"0.6.111", "0.6.111", 0},
 		{"v0.6.111", "0.6.111", 0},
 		{"0.6.112", "0.6.111", 1},

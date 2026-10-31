@@ -1914,11 +1914,9 @@ const App: React.FC = () => {
                   收起
                 </button>
               </div>
-              {/* 0.6.301：展开态搜索框后同样给三模式入口（仅发现页）；
-                  0.6.319F：习惯钮在模式组左侧（触屏 coarse 时为 null 不渲染） */}
-              {activeFilter === 'recommended' && (
-                <div className="flex items-center gap-1.5">{clickHabitButton}{viewModeSwitchGroup}</div>
-              )}
+              {/* 0.6.379（用户令）：展开态**只留拉长的搜索框**，与会话/全部页一致——
+                  此前发现页在三模式入口后会折到第二行，头变高；现按「其他页搜索时
+                  其他图标折叠」的口径统一（0.6.301 的展开态模式入口取消）。 */}
             </>
             ) : (
               /* 收起态：标题 + 紧凑搜索药丸 + 三个按钮（间距加大防误触） */
@@ -2221,7 +2219,7 @@ const App: React.FC = () => {
               {/* 0.6.314r（用户定稿）：发现页前三=固定推荐位（/api/recommended
                   前三，顺序固定不随机；源缺=后端快照条目回落） */}
               {apps.length > 0 && (
-                <FeaturedShowcase apps={apps} featured={recommendedApps.slice(0, 3)} onDetail={setDetailApp} />
+                <FeaturedShowcase apps={apps} featured={recommendedApps} onDetail={setDetailApp} />
               )}
               {/* 收藏列表（原「探索推荐」位）：收藏的应用按收藏先后呈现；
                   保留折叠按钮（默认折叠）；空态给收藏入口提示。 */}
@@ -2620,7 +2618,7 @@ const App: React.FC = () => {
           0.6.316（用户定稿「大一点、长一点」）：按钮 88→100px、图标 28→32px、
           字号 11→12px、gap-3→gap-4、px-4 py-3→px-5 py-3.5、圆角 26→28px，
           整体宽 ~530→~620px；移动端 Dock 不加尺寸（只贴底，见 MobileDock）。 */}
-      {/* 0.6.319j（用户令）：Dock 再往下挪，距底边 24px→8px（bottom-6→bottom-2），挨着底边一点点距离 */}
+      {/* 0.6.379（用户令）：Dock 自适应**只做移动端**，网页端保持原固定宽度样式。 */}
       <nav className="hidden md:flex fixed bottom-2 left-1/2 -translate-x-1/2 z-30 items-end gap-4 rounded-[28px] border border-white/10 bg-card/55 px-5 py-3.5 shadow-2xl shadow-black/40 backdrop-blur-2xl">
         {(() => {
           type DockKey = 'recommended' | 'all' | 'installed' | 'update_available';

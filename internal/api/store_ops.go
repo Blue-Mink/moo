@@ -1121,8 +1121,8 @@ func readmeWinnerBase(winner string) string {
 // 两个不同来源 404 才判死。
 func readmePathKey(u string) string {
 	x := normalizeGitHubURL(u)
-	for _, opt := range config.GitHubMirrorOptions() {
-		p := strings.TrimRight(opt.URL, "/")
+	// 与 deadVoteEligible 共用同一份镜像前缀清单（包级变量便于单测注入）
+	for _, p := range mirrorPrefixesForVote() {
 		if p != "" && strings.HasPrefix(x, p+"/") {
 			x = strings.TrimPrefix(x, p+"/")
 		}
@@ -1138,6 +1138,77 @@ func readmePathKey(u string) string {
 		return pu.Path + "?" + pu.RawQuery
 	}
 	return pu.Path
+}
+
+// mirrorPrefixesForVote 返回镜像前缀清单（包级变量便于单测注入）。
+// 生产直接用 config.GitHubMirrorOptions()，与候选构造、readmePathKey 同源。
+var mirrorPrefixesForVote = func() []string {
+	var out []string
+	for _, opt := range config.GitHubMirrorOptions() {
+		if p := strings.TrimRight(opt.URL, "/"); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// mirrorPrefixedURL 判定候选是否为「镜像前缀 + 原始 URL」形态。
+func mirrorPrefixedURL(u string) bool {
+	for _, p := range mirrorPrefixesForVote() {
+		if strings.HasPrefix(u, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// rawHostURL 判定候选是否 raw.githubusercontent.com 直链。
+func rawHostURL(u string) bool {
+	p := mustParseURL(u)
+	return p != nil && strings.EqualFold(p.Hostname(), "raw.githubusercontent.com")
+}
+
+// deadVoteEligible 0.6.382：一个候选的 404 能否当作「源确实缺失」的证据。
+// 只有两类算数：①声明候选本身（cands[0]）；②非镜像候选（源真身）。
+// 镜像候选仅在**声明地址是 raw.githubusercontent.com** 时才认——gh-proxy 系
+// 对 raw 是 1:1 路径代理，而对 github.com/user-attachments/、/assets/<id>/、
+// user-images.githubusercontent.com 等路径一律回 404（它们根本不代理）。
+// 2026-10-31 实锤：图标空间站的 8 张 README 图，两条镜像 0.8s 就凑满「同路径
+// 两票」判死，而直链 302→S3 实际 200/877KB —— 好图被镜像的 404 吞掉。
+func deadVoteEligible(u string, cands []string) bool {
+	if len(cands) == 0 {
+		return true
+	}
+	if u == cands[0] {
+		return true
+	}
+	if !mirrorPrefixedURL(u) {
+		return true
+	}
+	return rawHostURL(cands[0])
+}
+
+// githubUserAssetURL 判定「GitHub 用户附件类」路径：镜像一律不代理。
+// 这类 URL 只走原链（github.com 302 → S3 签名地址），挂镜像只会每次多打
+// 二十多个必败请求、并往 [race] 日志灌 404。
+func githubUserAssetURL(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "user-images.githubusercontent.com", "avatars.githubusercontent.com":
+		return true
+	case "github.com":
+		if strings.HasPrefix(u.Path, "/user-attachments/") {
+			return true
+		}
+		seg := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+		// /<owner>/<repo>/assets/<userID>/<uuid>（旧版附件路径，同样 302→S3）
+		if len(seg) >= 4 && seg[2] == "assets" {
+			return true
+		}
+	}
+	return false
 }
 
 // swapReadmeCase 在 README.md / readme.md 之间互换大小写（同目录兜底候选）。
@@ -1692,7 +1763,10 @@ var readmeImgHosts = map[string]bool{
 // readmeImgRaceFetch 是可替换的抓取入口（生产走 raceFetch；单测注入假
 // fetcher 以避开真实网络与 netguard 的私网拦截）。
 var readmeImgRaceFetch = func(s *Server, ctx context.Context, cands []string) ([]byte, string, bool, string, error) {
-	return s.raceFetch(ctx, cands)
+	// 0.6.382：README 内嵌图常见 1MB 级 PNG/WebP，弱网下首字节+整包可能 >12s
+	// （实测 GitHub user-asset 的 S3 出口 877KB 用 16s）。单候选预算单独放宽到
+	// 20s，避免「源是好的、只是慢」被当成失败。
+	return s.raceFetchWithBudget(ctx, cands, false, 20*time.Second)
 }
 
 // readmeImgCacheUsable 判断 readme-img 缓存内容能否直接服务（0.6.374）：
@@ -1727,6 +1801,10 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 	// 候选构造：raw 直链 → 完整竞速链；github.com/<u>/<r>/raw/BR/PATH →
 	// 转 raw 直链再竞速；其余 github 资源（release 附件等）→ 原链 +
 	// gh-proxy 全路径变体
+	// 0.6.382：GitHub 用户附件类路径（user-attachments / assets/<id> /
+	// user-images）镜像一律不代理，只走原链（302→S3 签名地址）。实测原链
+	// 2.7s 出图，而二十多个镜像全 404 —— 挂上去纯浪费并把日志灌满。
+	noMirror := githubUserAssetURL(pu)
 	var cands []string
 	switch pu.Hostname() {
 	case "raw.githubusercontent.com":
@@ -1738,6 +1816,9 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 		} else {
 			cands = []string{u}
 			for _, st2 := range s.Mirrors.gh() {
+				if noMirror {
+					break
+				}
 				if st2.Status != "ok" {
 					continue
 				}
@@ -1749,6 +1830,9 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 	default:
 		cands = []string{u}
 		for _, st2 := range s.Mirrors.gh() {
+			if noMirror {
+				break
+			}
 			if st2.Status != "ok" {
 				continue
 			}
@@ -1757,7 +1841,8 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	// 0.6.382：单候选预算 20s，整体留出一次瞬态重试的余量。
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	body, mime, dead, _, rerr := readmeImgRaceFetch(s, ctx, cands)
 	if rerr != nil && !dead && ctx.Err() == nil {
@@ -1818,8 +1903,16 @@ func fastDeadOnDeclared(decl, resURL string, status int) bool {
 
 // raceFetchWith 竞速（fastDead 仅预览图使用，见 fastDeadOnDeclared）。
 func (s *Server) raceFetchWith(ctx context.Context, cands []string, fastDead bool) ([]byte, string, bool, string, error) {
+	return s.raceFetchWithBudget(ctx, cands, fastDead, 12*time.Second)
+}
+
+// raceFetchWithBudget 同 raceFetchWith，perCand 指定单个候选的抓取预算。
+func (s *Server) raceFetchWithBudget(ctx context.Context, cands []string, fastDead bool, perCand time.Duration) ([]byte, string, bool, string, error) {
+	if perCand <= 0 {
+		perCand = 12 * time.Second
+	}
 	raceAgg.begin()
-	body, mime, dead, winner, err := s.raceFetchOnce(ctx, cands, fastDead)
+	body, mime, dead, winner, err := s.raceFetchOnce(ctx, cands, fastDead, perCand)
 	if err != nil {
 		raceAgg.fail()
 	} else {
@@ -1829,7 +1922,7 @@ func (s *Server) raceFetchWith(ctx context.Context, cands []string, fastDead boo
 }
 
 // raceFetchOnce 竞速本体（只在聚合器里记数；具体失败仍走 logagg）。
-func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead bool) ([]byte, string, bool, string, error) {
+func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead bool, perCand time.Duration) ([]byte, string, bool, string, error) {
 	type rres struct {
 		u      string
 		body   []byte
@@ -1850,7 +1943,7 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 				ch <- rres{u: u, status: http.StatusForbidden}
 				return
 			}
-			cctx, c2 := context.WithTimeout(ctx, 12*time.Second)
+			cctx, c2 := context.WithTimeout(ctx, perCand)
 			defer c2()
 			resp, err := upstreamClient.Do((&http.Request{Method: http.MethodGet, URL: mustParseURL(u)}).WithContext(cctx))
 			if err != nil {
@@ -1893,7 +1986,7 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 			ch <- rres{u: u, status: resp.StatusCode, t: elapsed}
 		}(u)
 	}
-	deadline := time.After(13 * time.Second)
+	deadline := time.After(perCand + time.Second)
 	miss := map[string]int{}   // 目标路径 → 404 来源数（仅直链/镜像）
 	paths := map[string]bool{} // 需被判定的不同目标路径（jsDelivr 不作证据，也不计入）
 	for _, u := range cands {
@@ -1912,6 +2005,9 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 	sawResult := false
 	// 0.6.335 C1（fastDead）：声明地址是否已回、其余候选失败数、宽限计时器
 	declaredSeen := false
+	// 0.6.382：声明候选自己是否明确 404（末尾「全 404」判死必须由它背书，
+	// 否则镜像的 404 + 声明候选超时会被误判成源缺失）
+	declared404 := false
 	othersFailed := 0
 	var graceCh <-chan time.Time
 	allDead := func() bool {
@@ -1924,6 +2020,9 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 		select {
 		case res := <-ch:
 			sawResult = true
+			if len(cands) > 0 && res.u == cands[0] && res.status == http.StatusNotFound {
+				declared404 = true
+			}
 			raceAgg.cand(res.t, res.u)
 			isJd := strings.Contains(res.u, "cdn.jsdelivr.net")
 			if !isJd {
@@ -1959,7 +2058,11 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 			// 非默认分支/未收录仓库的 404/301 有歧义，不作证据。
 			// **同一路径**被两个独立来源 404 → 该文件真缺失，快速判死；
 			// 不同变体（README.md vs readme.md、main vs master）互不背书。
-			if res.status == http.StatusNotFound && !strings.Contains(res.u, "cdn.jsdelivr.net") {
+			// 0.6.382：镜像的 404 只在声明地址是 raw 直链时才算票（见
+			// deadVoteEligible）——否则「两个镜像都不代理该路径」会被当成
+			// 「源没有这个文件」。
+			if res.status == http.StatusNotFound && !strings.Contains(res.u, "cdn.jsdelivr.net") &&
+				deadVoteEligible(res.u, cands) {
 				k := readmePathKey(res.u)
 				miss[k]++
 				if miss[k] >= 2 {
@@ -1983,7 +2086,10 @@ func (s *Server) raceFetchOnce(ctx context.Context, cands []string, fastDead boo
 			return nil, "", allDead(), "", errors.New("拉取超时")
 		}
 	}
-	if allDead() || (sawResult && all404) || (sawNonJd && nonJdAll404) {
+	// 0.6.382：末尾这档「回过话的候选都 404」必须由**声明候选自己 404**
+	// 背书——此前声明候选超时/挂起时，两条镜像的 404 就能把好图判死
+	// （图标空间站实锤）。deadPaths 那档已在投票时按来源过滤，不受影响。
+	if allDead() || (declared404 && ((sawResult && all404) || (sawNonJd && nonJdAll404))) {
 		return nil, "", true, "", errors.New("源 404")
 	}
 	return nil, "", false, "", errors.New("所有候选均不可达")

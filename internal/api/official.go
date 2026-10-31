@@ -22,11 +22,11 @@ import (
 var errKeywordRequired = errors.New("keyword 不能为空")
 
 type officialStore struct {
-	mu    sync.Mutex
-	mgr   *official.Manager
-	data  []official.StoreApp
-	at    time.Time
-	ttl   time.Duration
+	mu       sync.Mutex
+	mgr      *official.Manager
+	data     []official.StoreApp
+	at       time.Time
+	ttl      time.Duration
 	fetchErr string
 	// 0.6.259：OAuth 不可用（无会话/拉空/失败）时的面板账号兜底（WireOfficialOAuth 注入）。
 	fallback func(ctx context.Context) ([]official.StoreApp, error)

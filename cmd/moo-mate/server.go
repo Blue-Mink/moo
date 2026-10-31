@@ -29,11 +29,11 @@ type companion struct {
 	moo     *mooClient
 	base    string // 伴侣自身对外地址（用于加源 url）
 	httpc   *http.Client
-	token   string       // GitHub token 兜底（-token / MOO_MATE_TOKEN，仅调试用）
-	cfgPath string          // 配置文件路径（config.json）
-	bootDir string          // 引导目录（datadir 指针文件所在，默认 = 初始数据目录）
-	cfg     *mateConfig     // 配置（不含 token：0.2.28 起复用 Moo 的那一份）
-	sealer  *secret.Sealer  // 敏感字段加解密器（保留：旧配置兼容/后续敏感项）
+	token   string         // GitHub token 兜底（-token / MOO_MATE_TOKEN，仅调试用）
+	cfgPath string         // 配置文件路径（config.json）
+	bootDir string         // 引导目录（datadir 指针文件所在，默认 = 初始数据目录）
+	cfg     *mateConfig    // 配置（不含 token：0.2.28 起复用 Moo 的那一份）
+	sealer  *secret.Sealer // 敏感字段加解密器（保留：旧配置兼容/后续敏感项）
 	webFS   http.Handler
 
 	// GitHub token 缓存：向 Moo 取（Moo 未配置时回落 token 兜底）。
@@ -42,6 +42,12 @@ type companion struct {
 	tokCache string
 	tokSrc   string // "moo" | "flag" | ""
 	tokAt    time.Time
+
+	// 0.2.35：GitHub 加速镜像表（向 Moo 取 /api/mate/mirrors，10 分钟缓存）。
+	// 自更新下载按它展开候选，避免伴侣侧再维护第二份镜像列表。
+	mirrorMu    sync.Mutex
+	mirrorCache []string
+	mirrorAt    time.Time
 
 	syncWake    chan struct{} // 软仓同步循环唤醒信号（配置变更/手动触发）
 	syncStateMu sync.Mutex
@@ -59,7 +65,7 @@ func newCompanion(mooBase, selfBase, token string, webFS http.Handler, idx *inde
 		hosted:   map[string][]byte{},
 		moo:      newMooClient(mooBase),
 		base:     strings.TrimRight(selfBase, "/"),
-		httpc:    &http.Client{Timeout: 60 * time.Second},
+		httpc:    mateExternalClient(60 * time.Second),
 		token:    token,
 		cfg:      &mateConfig{},
 		webFS:    webFS,
@@ -121,6 +127,44 @@ func (c *companion) githubTokenWithSource() (string, string, error) {
 	c.tokCache, c.tokSrc, c.tokAt = tok, src, time.Now()
 	c.tokMu.Unlock()
 	return tok, src, err
+}
+
+// mateMirrorPrefixes 取 Moo 侧健康 GitHub 加速前缀（10 分钟缓存）。
+//
+// 0.2.35（用户令「moo 的 github 加速给 mate 复用」）：镜像表只在 Moo 维护
+// 一份（GET /api/mate/mirrors，requireAdmin + X-Moo-Mate），Mate 跟着 Moo
+// 的健康度走。Moo 不可达/未配置 → 返回 nil，调用方回落 githubMirrorPrefixes。
+// 空结果同样缓存，避免 Moo 挂掉时每个下载都先等 3s 超时。
+func (c *companion) mateMirrorPrefixes() []string {
+	const ttl = 10 * time.Minute
+	c.mirrorMu.Lock()
+	if time.Since(c.mirrorAt) < ttl {
+		out := c.mirrorCache
+		c.mirrorMu.Unlock()
+		return out
+	}
+	c.mirrorMu.Unlock()
+
+	var out []string
+	if c.moo != nil {
+		data, code, err := c.moo.doTimeout(http.MethodGet, "/api/mate/mirrors", nil, 3*time.Second)
+		if err == nil && code == http.StatusOK {
+			var resp struct {
+				Prefixes []string `json:"prefixes"`
+			}
+			if json.Unmarshal(data, &resp) == nil {
+				for _, p := range resp.Prefixes {
+					if p = strings.TrimSpace(p); p != "" {
+						out = append(out, p)
+					}
+				}
+			}
+		}
+	}
+	c.mirrorMu.Lock()
+	c.mirrorCache, c.mirrorAt = out, time.Now()
+	c.mirrorMu.Unlock()
+	return out
 }
 
 // writeJSON 统一 JSON 响应。
@@ -631,9 +675,9 @@ func (c *companion) handleBatchSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"synced":     synced,
-		"app_count":  syncedInfo.AppCount,
-		"message":    fmt.Sprintf("已批量推送 %d 个应用到 Moo Mate 源（app_count=%d）", synced, syncedInfo.AppCount),
+		"synced":    synced,
+		"app_count": syncedInfo.AppCount,
+		"message":   fmt.Sprintf("已批量推送 %d 个应用到 Moo Mate 源（app_count=%d）", synced, syncedInfo.AppCount),
 	})
 }
 

@@ -45,10 +45,10 @@ func newAuthorUpstreamServer(t *testing.T) *Server {
 		},
 	})
 	f := source.NewGHForks("")
-	f.SetForTest("ganx2024/fndepot", "mah1618/FnDepot") // ganx2024 fork 自 mah1618
-	f.SetForTest("mah1618/fndepot", "")                 // mah1618 非 fork（搬运镜像）
+	f.SetForTest("ganx2024/fndepot", "mah1618/FnDepot")       // ganx2024 fork 自 mah1618
+	f.SetForTest("mah1618/fndepot", "")                       // mah1618 非 fork（搬运镜像）
 	f.SetForTest("wabisabi926/fndepot", "shuangji66/FnDepot") // fork 自 shuangji66
-	f.SetForTest("shuangji66/fndepot", "")               // shuangji66 非 fork（打包者）
+	f.SetForTest("shuangji66/fndepot", "")                    // shuangji66 非 fork（打包者）
 	return &Server{Cfg: cfg, Src: m, Forks: f}
 }
 

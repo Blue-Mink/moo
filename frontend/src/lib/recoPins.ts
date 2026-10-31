@@ -47,7 +47,7 @@ export function resolvePinnedRecommended(
 ): PinnedRecommended {
   const pinned: AppInfo[] = [];
   const baseKeys = new Set<string>();
-  for (const rec of recommendedApps.slice(0, 3)) {
+  for (const rec of recommendedApps) {
     const base = baseKeyOf(rec);
     const hit = base ? apps.find(a => baseKeyOf(a) === base) : undefined;
     if (base) baseKeys.add(base);
@@ -58,20 +58,17 @@ export function resolvePinnedRecommended(
 }
 
 /**
- * 发现页横幅前三（FeaturedShowcase）。
+ * 发现页横幅（FeaturedShowcase，0.6.379 起清单驱动）。
  *
  * 行为契约：
- *  · `featuredProp` 非空 → **先过滤 user_hidden 再 slice(0, 3)**；
- *  · 过滤后不足 3 位 → 回落既有随机补足逻辑（池 = `apps` 中非禁用、且 base 未占位的卡；
- *    splice 抽取天然不重复）；
- *  · `featuredProp` 缺省/为空 → 与旧行为完全一致（全目录非禁用随机 3 款）。
+ *  · `featuredProp` **已提供**（含空数组）→ 过滤 user_hidden 后**原样返回全部**：
+ *    条数由远程 recommend_list 决定，不截断、不随机补位、不为缺失项留空位；
+ *  · `featuredProp` 为 undefined（接口未返回）→ 旧行为：全目录非禁用随机 3 款。
  */
 export function pickFeaturedApps(apps: AppInfo[], featuredProp?: AppInfo[]): AppInfo[] {
-  const pinned = (featuredProp ?? []).filter(a => !isHiddenApp(a)).slice(0, 3);
-  const out: AppInfo[] = [...pinned];
-  if (out.length >= 3) return out;
-  const taken = new Set(pinned.map(baseKeyOf).filter(Boolean));
-  const pool = apps.filter(a => !isHiddenApp(a) && !taken.has(baseKeyOf(a)));
+  if (featuredProp !== undefined) return featuredProp.filter(a => !isHiddenApp(a));
+  const out: AppInfo[] = [];
+  const pool = apps.filter(a => !isHiddenApp(a));
   while (out.length < 3 && pool.length > 0) {
     const j = Math.floor(Math.random() * pool.length);
     out.push(pool.splice(j, 1)[0]);
@@ -99,7 +96,7 @@ export interface DisplayAppsInput {
  */
 export function resolveDisplayApps(input: DisplayAppsInput): AppInfo[] {
   const { apps, filteredApps, recommendedApps, activeFilter, searchQuery, activeCategory } = input;
-  if (activeFilter !== 'recommended' || recommendedApps.length < 3 || searchQuery.trim() || activeCategory) {
+  if (activeFilter !== 'recommended' || recommendedApps.length < 1 || searchQuery.trim() || activeCategory) {
     return filteredApps;
   }
   const { pinned, baseKeys } = resolvePinnedRecommended(apps, recommendedApps);

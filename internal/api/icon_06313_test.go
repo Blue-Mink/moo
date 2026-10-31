@@ -114,7 +114,7 @@ func TestIconStore_06313_EvictionPairsFilesAndIndex(t *testing.T) {
 	now := time.Now().Unix()
 	for i := 0; i < 1999; i++ {
 		k := "fake@" + kvKey(i)
-		st.index[k] = iconDiskRef{File: diskIconFile(k, "image/png"), CT: "image/png", TS: now - int64(20000 - i)}
+		st.index[k] = iconDiskRef{File: diskIconFile(k, "image/png"), CT: "image/png", TS: now - int64(20000-i)}
 	}
 	st.Put("real-new", testPNG, "image/png")
 	if n := len(st.index); n != iconDiskMax {

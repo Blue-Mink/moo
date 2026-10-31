@@ -4,8 +4,15 @@
 判定项：moo.json `apps.moo-mate.releases.<ver>.packages` 里的每个架构
   - release 里存在同名 .fpk 资产，size 与索引逐字相符；
   - 资产 digest（服务端 sha256）与索引 sha256 一致；
-  - 同名 `.sha256` 侧车存在。
-任一不符 → 退出码 1（流水线红），便于发现「资产被覆盖 / 索引写错」。
+  - 同名 `.sha256` 侧车存在；
+  - 同名 `.minisig` 签名存在（0.2.35 起自更新强制验签，缺了客户端会拒绝升级）。
+任一不符 → 退出码 1（流水线红），便于发现「资产被覆盖 / 索引写错 / 漏签名」。
+
+职责边界（RELEASE_GATE S2）：本脚本只做「索引 ↔ 资产枚举 + 三件套在场」，
+不涉及下载 / 验签 / 解包。Moo 本体那套「客户端同款验收」规则的唯一实现是
+Go 侧 `internal/release`（`VerifyAssets` 远端 / `VerifyLocal` 本地），由
+`moo-release` 二进制执行；mate 的验签实现是客户端 `cmd/moo-mate/selfupdate.go`
+（内嵌公钥），此处刻意不复制那份逻辑，避免两处规则漂移。
 """
 import json
 import os
@@ -67,6 +74,10 @@ for arch, spec in sorted(pkgs.items()):
         print(f"[warn] {arch}: 服务端未返回 digest，跳过 sha256 比对（仅比 size）")
     if name + ".sha256" not in assets:
         bad.append(f"{arch}: 缺侧车 {name}.sha256")
+    # 0.2.35 起 mate 自更新强制 minisign 验签（fail-closed）：
+    # 缺 .minisig 时客户端会拒绝升级，等于发布无效，所以这里必须拦。
+    if name + ".minisig" not in assets:
+        bad.append(f"{arch}: 缺签名 {name}.minisig（0.2.35+ 客户端会拒绝自更新）")
 
 if bad:
     print("\n".join("FAIL: " + b for b in bad))

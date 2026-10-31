@@ -10,7 +10,7 @@ import (
 )
 
 // getLogs 0.6.249：设置页「日志」在线查看——返回 moo.log 末尾 N 行
-//（默认 200、上限 2000）+ 文件大小 + 轮转归档清单。moo.log 由
+// （默认 200、上限 2000）+ 文件大小 + 轮转归档清单。moo.log 由
 // StartLogRotator 控制在 ~5MB 内，全量读取无压力；日志落盘时已过
 // MaskSecretInErr 脱敏（0.6.144 P1-4），此处不再二次处理。
 func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {

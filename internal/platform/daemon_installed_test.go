@@ -23,7 +23,7 @@ func installedFixture() string {
 			"list": []map[string]any{
 				{
 					"appName": "deepseek.harness", "name": "DeepSeek", "version": "1.0.0",
-					"status": "running",
+					"status":  "running",
 					"control": map[string]any{"isOpen": true, "isStartStop": true, "isUninstall": true, "upgrade": false},
 					"appServiceInfo": map[string]any{
 						"type": "iframe", "openType": "iframe", "serviceName": "deepseek.harness.Application",
@@ -32,7 +32,7 @@ func installedFixture() string {
 				},
 				{
 					"appName": "Gitea", "name": "Gitea", "version": "1.27.3",
-					"status": "running",
+					"status":  "running",
 					"control": map[string]any{"isOpen": true, "isStartStop": true, "isUninstall": true, "upgrade": false},
 					"appServiceInfo": map[string]any{
 						"type": "url", "openType": "url", "serviceName": "Gitea.Application",
@@ -41,7 +41,7 @@ func installedFixture() string {
 				},
 				{
 					"appName": "vmweb", "name": "VM", "version": "0.1",
-					"status": "running",
+					"status":  "running",
 					"control": map[string]any{"isOpen": true, "isStartStop": false, "isUninstall": true, "upgrade": false},
 					"appServiceInfo": map[string]any{
 						"type": "url", "openType": "url", "serviceName": "vmweb.Application",
@@ -134,7 +134,7 @@ func TestListInstalled_UpgradeInfoParsed(t *testing.T) {
 					"control": map[string]any{"isOpen": false, "isStartStop": true, "isUninstall": true, "upgrade": true},
 					"upgradeInfo": map[string]any{
 						"version": "0.2.4", "versionID": 2689, "publishAt": 1790249980000,
-						"changeLog": "新增19种格式支持预览：<br/>1. 压缩及归档文件；",
+						"changeLog":        "新增19种格式支持预览：<br/>1. 压缩及归档文件；",
 						"autoUpdateFailed": true,
 					},
 					"appServiceInfo": map[string]any{"type": "iframe", "serviceName": "trim.preview.Application"},
@@ -142,8 +142,8 @@ func TestListInstalled_UpgradeInfoParsed(t *testing.T) {
 				{
 					"appName": "Gitea", "name": "Gitea", "version": "1.27.3",
 					"source": "official", "sourceID": "48", "status": "running",
-					"control": map[string]any{"isOpen": true, "isStartStop": true, "isUninstall": true, "upgrade": false},
-					"upgradeInfo": map[string]any{"version": "", "versionID": 0},
+					"control":        map[string]any{"isOpen": true, "isStartStop": true, "isUninstall": true, "upgrade": false},
+					"upgradeInfo":    map[string]any{"version": "", "versionID": 0},
 					"appServiceInfo": map[string]any{"type": "url", "serviceName": "Gitea.Application"},
 				},
 			},

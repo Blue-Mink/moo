@@ -237,7 +237,7 @@ func fetchMateAtom(client *http.Client, url string) (ver, page, notes string, ok
 // token 只用于 auth=true 的官方通道，第三方镜像一律匿名。
 func probeMateUpdate(cur, token string) mateUpdateInfo {
 	info := mateUpdateInfo{CurrentVersion: cur, LastCheck: time.Now().Unix()}
-	client := &http.Client{Timeout: 6 * time.Second}
+	client := mateExternalClient(6 * time.Second)
 	var errs []string
 	for _, p := range mateUpdateProviders {
 		u := p.url

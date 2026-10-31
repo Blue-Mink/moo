@@ -72,6 +72,8 @@ cmd/moo-mate/web/index.html.pre-strip-*
 /moo-mate
 /moo-companion
 /cmd/moo-mate/moo-mate
+# 验收器二进制（go build -o moo-release ./cmd/moo-release 生成，随用随建）
+/moo-release
 # 审计期临时探针（子 agent 写入，非产品代码，绝不入库）
 internal/source/zz_probe*_test.go
 
@@ -86,3 +88,12 @@ verify_mate_*.sh
 test_uninstall_sandbox.sh
 update_index_mate_*.py
 RELEASE_MATE_*.md
+
+# 工作区审计/临时脚本（可能含本机路径或敏感串，绝不入库）
+AUDIT_*.md
+commit_*.sh
+__pycache__/
+*.pyc
+
+# 本机部署脚本（含内网路径，绝不入库）
+deploy_moo_*.sh

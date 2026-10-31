@@ -101,9 +101,9 @@ func TestWelcomeFireEndpoint(t *testing.T) {
 
 // TestWelcomeCardPayload 抓企微 webhook 实际收到的卡片 JSON（0.6.163 卡片版式验收，
 // 以用户 1:39 卡片截图为骨架）：大字 hero「Moo is more」+ hero 下居中小字署名
-//「蓝貂（Blue-Mink）」（emphasis_content.desc 落款）+ 副题三行致谢（完整文案，
+// 「蓝貂（Blue-Mink）」（emphasis_content.desc 落款）+ 副题三行致谢（完整文案，
 // 句间 \n　\n 空行拉开行距，sub_title_text 上限 160 字不截断）；无两列列表
-//（0.6.162 的 value 渲染上限约 23 字，26 字首句被截断后废弃）；
+// （0.6.162 的 value 渲染上限约 23 字，26 字首句被截断后废弃）；
 // 全文无 🦦（用户反馈弃用），「Moo is more」「蓝貂」「为爱发电」各只出现 1 次。
 func TestWelcomeCardPayload(t *testing.T) {
 	var body map[string]any

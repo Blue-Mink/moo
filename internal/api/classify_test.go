@@ -12,23 +12,23 @@ func appFor(name string) *AppInfo {
 
 func TestClassifyAllCuratedBeatsEverything(t *testing.T) {
 	cases := map[string]string{
-		"amd.rocm-7.2":             "driver", // 官方 [AI,Drive]：AMD AI 驱动族归驱动（用户定稿）
+		"amd.rocm-7.2":                 "driver", // 官方 [AI,Drive]：AMD AI 驱动族归驱动（用户定稿）
 		"trim.ai-runtime-amd-migraphx": "driver",
-		"fn-ntfs3":         "driver",
-		"fn-aic8800":       "driver",
-		"komari":           "devtools", // 监控，非网络
-		"komari-agent":     "devtools",
-		"sunshine":         "game",     // 游戏串流
-		"nexplay":          "media",    // IPTV 播放器，非摄影摄像
-		"vibenvr":          "photo",    // AI NVR
-		"bililive-go":      "automation",
-		"fygo-browser":     "browser",
-		"fn-88jizhang":     "lifestyle",
-		"homebox":          "lifestyle", // 家庭物品资产，非开发工具
-		"docker-baota":     "devtools",  // 服务器面板
-		"docker-homepage":  "efficiency", // 仪表盘
-		"trim.vm":          "devtools",  // 虚拟机
-		"wol":              "network",   // 局域网唤醒
+		"fn-ntfs3":                     "driver",
+		"fn-aic8800":                   "driver",
+		"komari":                       "devtools", // 监控，非网络
+		"komari-agent":                 "devtools",
+		"sunshine":                     "game",  // 游戏串流
+		"nexplay":                      "media", // IPTV 播放器，非摄影摄像
+		"vibenvr":                      "photo", // AI NVR
+		"bililive-go":                  "automation",
+		"fygo-browser":                 "browser",
+		"fn-88jizhang":                 "lifestyle",
+		"homebox":                      "lifestyle",  // 家庭物品资产，非开发工具
+		"docker-baota":                 "devtools",   // 服务器面板
+		"docker-homepage":              "efficiency", // 仪表盘
+		"trim.vm":                      "devtools",   // 虚拟机
+		"wol":                          "network",    // 局域网唤醒
 	}
 	out := make([]AppInfo, 0, len(cases))
 	for name := range cases {

@@ -101,6 +101,10 @@ type Config struct {
 	// 内置源列表自动同步
 	SourceListURL string `json:"source_list_url,omitempty"`
 	SourceListOff bool   `json:"source_list_disabled,omitempty"`
+	// RecommendListURL 0.6.379：发现页推荐位清单地址（每行 `appname@源名`，
+	// `#` 注释；空串=用 DefaultRecommendListURL）。运行时改设置即时生效，
+	// 改清单不需要重建 FPK。留空不写内网地址——测试用设置项覆盖。
+	RecommendListURL string `json:"recommend_list_url,omitempty"`
 	// 0.6.325 安全加固 R1：允许「源列表同步」添加非公共地址（内网/环回）的源。
 	// 默认 false = 远端清单里的非公共地址一律跳过（防清单驱动 SSRF）；
 	// 管理员显式手工添加源（应用源页输入框）不受此开关影响。
@@ -319,6 +323,11 @@ func (c *Config) IsNotifyEventOn(key string) bool {
 // 自带的精选清单 repo_list.txt（0.6.316 起 20 条 → 0.6.326 起 21 条，Blue-Mink 维护），
 // 「立即同步源列表」只认这份清单。
 const DefaultSourceListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/repo_list.txt"
+
+// DefaultRecommendListURL 0.6.379：发现页推荐位清单（纯文本，一行一条，
+// 格式 `appname@源名`，`#` 注释）。与 repo_list.txt 同一套拉取/镜像链逻辑；
+// 顺序即展示顺序，目录里找不到的条目直接跳过（不留空位、不随机补位）。
+const DefaultRecommendListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/recommend_list.txt"
 
 // Default 返回默认配置（含默认社区源：首装即有可浏览目录）。
 func Default() *Config {

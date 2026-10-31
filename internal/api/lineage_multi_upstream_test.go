@@ -66,7 +66,7 @@ func newMultiUpstreamServer(t *testing.T) *Server {
 }
 
 // mkMultiCard 造多上游测试卡。mu=maintainer_url（作者声明），releaseRepo=包所在仓库
-//（聚合/搬运源通常把包放自己仓，releaseRepo==本源仓库，触发「包在本源内」分支）。
+// （聚合/搬运源通常把包放自己仓，releaseRepo==本源仓库，触发「包在本源内」分支）。
 func mkMultiCard(key, app, src, disp, ver, mu, releaseRepo, distributor string) AppInfo {
 	a := AppInfo{Key: key, AppName: app, DisplayName: disp, Source: src, LatestVersion: ver}
 	if mu != "" {

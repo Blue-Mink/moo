@@ -101,10 +101,11 @@ func c326kTail(s *Server, out []AppInfo, byName map[string]platform.InstalledApp
 //
 // **0.6.326k 修复后语义**（原断言的是修复前的缺陷，见 CORRECT_BLINDSPOT_326K.md
 // 盲点 K1/K2/K3）：判定链现在是
-//   ①comparableVersion(上游) && comparableVersion(已装)（F5=K1，不可解析 = 未知）
-//   ②!isPrereleaseVersion(上游)（F6=K2，预发布不主动推）
-//   ③compareVersions(上游, 已装) > 0（F7=K3 后 v 前缀两侧同值）
-//   ④已有目标不低于上游时跳过（不降级）
+//
+//	①comparableVersion(上游) && comparableVersion(已装)（F5=K1，不可解析 = 未知）
+//	②!isPrereleaseVersion(上游)（F6=K2，预发布不主动推）
+//	③compareVersions(上游, 已装) > 0（F7=K3 后 v 前缀两侧同值）
+//	④已有目标不低于上游时跳过（不降级）
 func TestCorrect326K_UpstreamVersionShapes(t *testing.T) {
 	cells := []struct {
 		name    string
@@ -275,6 +276,7 @@ func TestCorrect326K_UpstreamSourceUnusable(t *testing.T) {
 		t.Fatalf("兄弟卡缺席（源禁用/下架）时纠正必须静默跳过：%#v", only[0])
 	}
 }
+
 // ── 2) 未安装 / 已装版本未知 ⇒ 必须不纠正 ────────────────────────────────────
 func TestCorrect326K_SkipUninstalledOrUnknownVersion(t *testing.T) {
 	// ① 卡未安装（但有完整溯源信息）

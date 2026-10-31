@@ -14,15 +14,15 @@ import (
 // verbosityBase 带齐三形式 × 三长度变体的测试消息。
 func verbosityBase() *Message {
 	return &Message{
-		Title:   "Moo · 源同步摘要",
-		Content: "友好正文（紧凑）",
-		Table:   "友好表格",
-		Rows:    []CardRow{{Key: "源A", Value: "3 个应用"}},
+		Title:          "Moo · 源同步摘要",
+		Content:        "友好正文（紧凑）",
+		Table:          "友好表格",
+		Rows:           []CardRow{{Key: "源A", Value: "3 个应用"}},
 		ContentConcise: "应用源 3 个 | 应用 7 个",
 		RowsConcise:    []CardRow{{Key: "应用源", Value: "3 个"}, {Key: "应用", Value: "共 7 个"}},
-		ContentFull: "完整正文（全量）",
-		TableFull:   "完整表格",
-		RowsFull:    []CardRow{{Key: "源A", Value: "3"}, {Key: "源B", Value: "2"}, {Key: "源C", Value: "2"}},
+		ContentFull:    "完整正文（全量）",
+		TableFull:      "完整表格",
+		RowsFull:       []CardRow{{Key: "源A", Value: "3"}, {Key: "源B", Value: "2"}, {Key: "源C", Value: "2"}},
 	}
 }
 
@@ -173,7 +173,6 @@ func TestValidateVerbosity(t *testing.T) {
 		t.Fatal("非法 verbosity 应报错")
 	}
 }
-
 
 func TestForChannelConciseSubOverride(t *testing.T) {
 	// 0.6.178：简洁卡副题用 ConciseSub 显式覆盖（防副题/大字/两列行重复

@@ -11,8 +11,9 @@ import (
 // 更新判定完全交给 appcenter daemon 权威。手动 FPK（无 sourceID）保留社区源更新。
 
 // ① 平台应用（daemon source=thirdparty 但 sourceID 非空，即从 appcenter 登记源
-//    安装的官方应用，如 nodejs_v22/1Panel/python312/git）断连 + 无 daemon 升级：
-//    社区同名更高版本 → 假更新被清除。这是用户 2026-10-03 报的 6 条假更新场景。
+//
+//	安装的官方应用，如 nodejs_v22/1Panel/python312/git）断连 + 无 daemon 升级：
+//	社区同名更高版本 → 假更新被清除。这是用户 2026-10-03 报的 6 条假更新场景。
 func TestApplyPlatformUpdateAuthority_TrackedThirdpartyClearsCommunity(t *testing.T) {
 	byName := map[string]platform.InstalledApp{
 		"nodejs_v22": {AppName: "nodejs_v22", Version: "22.18.0-1", Source: "thirdparty", SourceID: "98"},
@@ -70,7 +71,8 @@ func TestApplyPlatformUpdateAuthority_OfficialClearsCommunity(t *testing.T) {
 }
 
 // ③ 平台应用断连 + 有 daemon 升级目标：真平台更新保留，目标=daemon 版本
-//    （即使社区同名版本更高也不顶替）。
+//
+//	（即使社区同名版本更高也不顶替）。
 func TestApplyPlatformUpdateAuthority_DaemonUpgradeForcedTarget(t *testing.T) {
 	byName := map[string]platform.InstalledApp{
 		"trim.preview": {
@@ -106,7 +108,8 @@ func TestApplyPlatformUpdateAuthority_DaemonUpgradeForcedTarget(t *testing.T) {
 }
 
 // ④ 手动 FPK 应用（sourceID 空、source=thirdparty）：appcenter 不跟踪，
-//    社区同名更高版本是合法更新，保留（零回归）。
+//
+//	社区同名更高版本是合法更新，保留（零回归）。
 func TestApplyPlatformUpdateAuthority_ManualFpkPreservesCommunity(t *testing.T) {
 	byName := map[string]platform.InstalledApp{
 		"wb2api": {AppName: "wb2api", Version: "1.11.1", Source: "thirdparty"}, // 无 sourceID

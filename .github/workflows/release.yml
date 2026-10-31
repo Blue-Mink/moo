@@ -7,6 +7,13 @@ on:
     # main 分支级门禁：每次 main 推送也跑 gate（只跑门，不跑发布）
     branches:
       - main
+  # 发布前预检（手动触发，硬门）：tag 推送前先点一次，失败就别推
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要校验的 release tag（如 v0.6.377；留空则用当前 ref）'
+        required: false
+        default: ''
 
 # 同一 tag 的发布流程串行去重（force-push 重触发不会双跑）；不同 tag 并行
 concurrency:
@@ -22,6 +29,7 @@ jobs:
   # 任一检查失败 → 后续 build-and-release 不执行，tag 不会产出 release。
   gate:
     name: Gate (sanitize/vet/test)
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -45,64 +53,17 @@ jobs:
           go-version-file: 'go.mod'
 
       # 注：secrets API 写被账号企业策略 404 拦截（主 NAS/.2 双出口实锤），
-      # 扩展模式存于 secrets.SANITIZE_EXTRA_PATTERNS（用户在 Web UI 手动创建，热更也走 Web UI）
-      - name: Sanitize scan (整树；公开模式 .github/sanitize-patterns.txt + 扩展 secrets.SANITIZE_EXTRA_PATTERNS)
+      # 扩展模式：vars.SANITIZE_EXTRA_PATTERNS 为主（secrets API 写被账号企业策略 404，
+      # 见 .github/sanitize-patterns.txt 头注释），secrets 同名兼容旧配置。
+      # 之前只读 secrets → 若按文件头指引配在 vars 里，扩展模式全程失效（假绿）。
+      # 单一门禁入口：与本地 `bash .github/scripts/moo-gate.sh` 完全同一实现，
+      # 消除「本地跑子集、CI 跑另一套」的漂移（2026-10-30 RELEASE_GATE P1）。
+      # 内部顺序 = 脱敏 → 前端构建（web/dist 供 go:embed）→ gofmt → vet → test。
+      - name: Unified gate (.github/scripts/moo-gate.sh)
         shell: bash
         env:
-          EXTRA_PATTERNS: ${{ secrets.SANITIZE_EXTRA_PATTERNS }}
-        run: |
-          set -uo pipefail
-          PATS=.github/sanitize-patterns.txt
-          if [ -n "${EXTRA_PATTERNS:-}" ]; then
-            PATS="$(mktemp)"
-            cat .github/sanitize-patterns.txt > "$PATS"
-            printf '\n%s\n' "$EXTRA_PATTERNS" >> "$PATS"
-          fi
-          echo "sanitize: $(grep -Ev '^[[:space:]]*(#|$)' "$PATS" | wc -l) 条模式（公开 + 扩展）"
-          fails=0
-          while IFS= read -r pat; do
-            case "$pat" in '' | \#*) continue ;; esac
-            # -e 防止以 - 开头的模式（PEM 块）被当成 git 选项；
-            # rc>1（git grep 自身异常）判 fail-closed，防静默漏扫；
-            # 「|| rc=$?」写法：git grep 无匹配=exit 1，CI 包装器带 errexit，
-            # 直接赋值会被当场杀死（canary 首跑实锤），必须 || 兜住
-            rc=0
-            m=$(git grep -I -n -E -e "$pat" -- . ':(exclude).github/sanitize-patterns.txt' 2>&1) || rc=$?
-            if [ $rc -gt 1 ]; then
-              echo "::error::git grep 异常（rc=$rc）模式: $pat —— 按失败处理（fail-closed）"
-              echo "$m"
-              exit 1
-            fi
-            if [ $rc -eq 0 ] && [ -n "$m" ]; then
-              echo "::error title=脱敏命中::模式: $pat"
-              echo "$m"
-              fails=$((fails+1))
-            fi
-          done < "$PATS"
-          if [ "$fails" -gt 0 ]; then
-            echo "::error::共 $fails 个敏感模式命中，发布流程终止（公开模式 .github/sanitize-patterns.txt + 密文扩展）"
-            exit 1
-          fi
-          echo "sanitize: 0 命中 ✓"
-
-      - name: Build Frontend (web/dist，go:embed 编译依赖)
-        run: |
-          cd frontend
-          npm ci
-          npm run build
-
-      # vet/test 已完成全模块类型检查与编译，不再单列 go build；
-      # node_modules 在 npm ci 后位于模块内，显式排除避免把依赖库当门对象
-      - name: go vet
-        run: |
-          PKGS=$(go list ./... | grep -v node_modules)
-          echo "vet $(echo "$PKGS" | wc -l) packages"
-          go vet $PKGS
-
-      - name: go test
-        run: |
-          PKGS=$(go list ./... | grep -v node_modules)
-          go test $PKGS
+          EXTRA_PATTERNS: ${{ secrets.SANITIZE_EXTRA_PATTERNS || vars.SANITIZE_EXTRA_PATTERNS }}
+        run: bash .github/scripts/moo-gate.sh
 
   # ── 构建与发布（原流程保持不变：前端构建 + 二进制 + release upsert）──
   build-and-release:
@@ -142,7 +103,7 @@ jobs:
       - name: Build Linux amd64
         # -s -w 剥离符号表：与 FPK 内二进制同规格（0.6.304 起 FPK 已 strip，
         # CI 二进制此前未 strip 14.2M vs 11.1M，属已知遗留，本次收口）
-        run: GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o moo-server-linux-amd64 ./cmd/server/
+        run: GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o moo-server-linux-amd64 ./cmd/server/
 
       - name: Create Release
         run: |
@@ -151,10 +112,128 @@ jobs:
             echo "Release $TAG exists, uploading assets..."
             gh release upload "$TAG" moo-server-linux-amd64 --clobber
           else
+            # --prerelease：发布机独占「转正」权（RELEASE_GATE D′）。
+            # 预发布不进 /releases/latest 与 web 302，客户端看不到；
+            # 发布机补完 FPK/侧车/签名、通过客户端同款验收后再 PATCH 转正。
+            # 若这里建成正式 release，坏包会在资产上传完成前就对全量客户端可见。
             gh release create "$TAG" \
               --title "Moo $TAG" \
+              --prerelease \
               --generate-notes \
               moo-server-linux-amd64
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 校验 release 资产 == moo.json 索引（advisory，不阻塞 tag 流水线）──────
+  # 用户 2026-10-30 定策：CI 不能红。据此分层：
+  #   可自愈（缺 .sha256 侧车）→ --fix-sidecars 现场补传 → 绿；
+  #   不可自愈（缺 FPK / 缺 .minisig / digest 与索引不符 / 索引指错架构）
+  #     → 只写 job summary + annotation，不 fail（continue-on-error）。
+  # 真正的硬拦截前移到发布机预检（推 tag 之前跑，失败就别推）：
+  #   python3 .github/scripts/verify_moo_release.py --local-dir <产物目录>
+  # 手动硬门（不影响 tag 流水线）：Actions → Run workflow → 填 tag。
+  verify-release:
+    name: Verify release assets (advisory)
+    needs: build-and-release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: write   # 补传 .sha256 侧车需要写权限
+    steps:
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
+        with:
+          go-version-file: 'go.mod'
+
+      # 客户端同款验收的唯一实现（internal/release）→ Python 只做索引↔资产枚举
+      # F（RELEASE_GATE §十）：tag 推送时 tag 树里的 moo.json 按设计仍是上一版（索引晚于 release），
+      # 此时 advisory 验收必红却是假红灯。这里显式判时序跳过 —— 不新增 on:release 触发器（避免翻牌连锁），
+      # 真验收由 flip 前的本地门禁与夜间 release-watch 覆盖。
+      - name: Skip advisory verify when index not yet advanced
+        id: idx
+        run: |
+          set -uo pipefail
+          V=$(python3 -c "import json;print(json.load(open('moo.json',encoding='utf-8'))['apps']['moo']['version'])" 2>/dev/null || echo "")
+          T="${GITHUB_REF_NAME#v}"
+          echo "### advisory 验收" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$V" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::error::读不到 moo.json 的 apps.moo.version → 跳过 advisory 验收（索引本身有问题，需人工查）"
+            echo "**已跳过**：读不到 \`moo.json\` 的 \`apps.moo.version\`。" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$V" != "$T" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::索引 v${V} != tag v${T}（索引后置属设计）→ 跳过 advisory 验收"
+            echo "**已跳过**：tag 树 \`moo.json\` 为 \`$V\`，本次 tag 为 \`$T\`。索引后置是发布铁律，故此 job 在 tag 推送时无法验收；真验收由 flip 前本地门禁与夜间 release-watch 覆盖。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "索引与 tag 一致（\`$V\`）→ 正常验收。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build moo-release
+        if: steps.idx.outputs.skip != 'true'
+        run: go build -o "$RUNNER_TEMP/moo-release" ./cmd/moo-release
+
+      - name: Verify assets against moo.json (auto-fix sidecars)
+        if: steps.idx.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          MOO_RELEASE_BIN: ${{ runner.temp }}/moo-release
+        run: python3 .github/scripts/verify_moo_release.py --fix-sidecars
+
+  # ── 发布前预检（手动触发，硬门；红也不影响 tag 流水线）──────────────────
+  preflight-release:
+    name: Preflight (manual, hard gate)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve tag
+        id: t
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::tag 必须形如 vX.Y.Z，实际：$TAG"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Go
+        uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build moo-release
+        run: go build -o "$RUNNER_TEMP/moo-release" ./cmd/moo-release
+
+      # 硬门顺序：先跑 Python（索引侧，快失败），再跑客户端同款验收（下载+验签+解包，慢）
+      - name: Verify release assets (hard)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.t.outputs.tag }}
+          MOO_RELEASE_BIN: ${{ runner.temp }}/moo-release
+        run: python3 .github/scripts/verify_moo_release.py
+
+      - name: Verify client-parity (hard)
+        env:
+          TAG: ${{ steps.t.outputs.tag }}
+        run: '"$RUNNER_TEMP/moo-release" --tag "${TAG#v}" --arch x86 --verify'

@@ -37,7 +37,7 @@ func TestApplyDetailFallbackArch(t *testing.T) {
 		{Arch: "", Archs: nil, ReleaseURL: "https://github.com/conversun/fnos-apps/releases/download/v1/1panel_1.0_x86.fpk"},
 		{Arch: "", Archs: nil, ReleaseURL: "https://github.com/x/y/releases/download/v1/app_arm.fpk"},
 		{Arch: "", Archs: nil, ReleaseURL: "https://github.com/x/y/releases/download/v1/app_amd64.fpk"},
-		{Arch: "", Archs: nil, ReleaseURL: "https://raw.githubusercontent.com/x/y/main/app.fpk"}, // 非 release
+		{Arch: "", Archs: nil, ReleaseURL: "https://raw.githubusercontent.com/x/y/main/app.fpk"},                          // 非 release
 		{Arch: "arm", Archs: []string{"x86", "arm"}, ReleaseURL: "https://github.com/x/y/releases/download/v1/a_x86.fpk"}, // 已有不覆盖
 	}
 	applyDetailFallback(out)

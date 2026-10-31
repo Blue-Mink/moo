@@ -30,7 +30,7 @@ type MirrorStat struct {
 	// Docker 镜像加速源拉 library/nginx 层；0 = 未测出）。
 	// 2026-09-22 实测：延迟相近的镜像吞吐差可达 400 倍（57MB/s ↔ 139KB/s），
 	// 故选路以 SpeedBPS 为准、LatencyMS（首字节延迟）仅作参考。
-	SpeedBPS int64  `json:"speed_bps,omitempty"`
+	SpeedBPS int64 `json:"speed_bps,omitempty"`
 	// Status 健康状态（0.6.333 F2 扩为三态）：
 	//   ok      = 探测通过（参与优选排名）
 	//   limited = 429 限流（链路可达但被限流，临时性；不算故障——冻结连败

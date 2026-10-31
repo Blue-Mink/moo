@@ -31,8 +31,8 @@ import (
 
 // Engine 可复用下载引擎（任务管理器与安装管线共享同一实例）。
 type Engine struct {
-	Aria2Bin string // 空 = aria2 不可用，全部走内置单连接
-	Aria2Conn int   // aria2 并行连接/分片数
+	Aria2Bin  string // 空 = aria2 不可用，全部走内置单连接
+	Aria2Conn int    // aria2 并行连接/分片数
 	// MinAria2Bytes：已知大小低于该值时跳过 aria2（小文件无多连接收益，
 	// 还浪费镜像的并行连接额度——镜像会掐部分并行连接）。
 	MinAria2Bytes int64
@@ -411,4 +411,3 @@ func (e *Engine) notify(o DownloadOpts, done, size int64) {
 	}
 	o.Progress(done, size)
 }
-

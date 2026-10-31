@@ -151,10 +151,10 @@ func (s *Server) dockerMirrorApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{
-		"ok":       true,
-		"mirrors":  mirrorsForState(url),
-		"applied":  true,
-		"message":  "已应用，Docker 已重启",
+		"ok":        true,
+		"mirrors":   mirrorsForState(url),
+		"applied":   true,
+		"message":   "已应用，Docker 已重启",
 		"restarted": dockerServiceActive(),
 	}
 	if autoKey != "" {

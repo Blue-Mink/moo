@@ -22,9 +22,27 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
+    "0.6.383": {
+     "updated_at": "2026-11-01T07:40:00+08:00",
+     "changelog": "新增 GH TBAP GitHub 加速源，实测下载最快（偶有抖动会自动换源）\n发现页推荐位改读远程清单（一行一条 appname@源名）：顺序、条数随清单调整，改清单免重建 FPK，缺的应用整条跳过不留空位；推荐位扩到四张，横幅按条数自适应\n发现页不再被推荐清单的网络抓取阻塞：改为缓存直出 + 后台刷新，首屏从最坏十几秒降到毫秒级\n应用内更新改为镜像优先，并加首字节/停滞看护：GitHub 直连不通时也能完成升级\nMoo 的加速镜像表开放给 Moo Mate 复用（新增 /api/mate/mirrors），Mate 拉包同样走镜像\n修复 README 图片与预览图偶发「404」误判：同一文件需两个独立来源都 404 才判死，并放宽单图抓取预算\n误判负缓存由 30 分钟缩短到 5 分钟，失败后更快自动重试\n移动端：底部 Dock 与应用列表同宽，搜索展开不再把展示模式按钮挤到第二行",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.383/moo_0.6.383_x86.fpk",
+       "sha256": "9a7b90b31ec0e3e1669308f077cb78569a711453cc1a95940ea117f9cd19ca92",
+       "size": 5195238,
+       "size_mb": 4.95
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.383/moo_0.6.383_arm.fpk",
+       "sha256": "0e8b6c1ac9c6dfbb32341523cfc6ce9c029f1093e14052f12e76098a00733aaf",
+       "size": 4731246,
+       "size_mb": 4.51
+      }
+     }
+    },
     "0.6.377": {
      "updated_at": "2026-10-30T06:33:29+08:00",
-     "changelog": "• 修复图标缓存后台落盘协程的并发竞态（-race 下 3 个用例报数据竞争，优雅退出时可能重复落盘）；• 抓图日志不再把「请求取消」误记为截断（TRUNC），超时单独记 TIMEOUT，真截断才记 TRUNC；• 图片完整性加固：取消「小于 1KB 一律视为完整」的豁免（900 B 的截断 JPEG 曾因此被缓存 7 天），合法极小图照常通过，Content-Length 校验口径统一",
+     "changelog": "修复图标缓存后台落盘协程的并发竞态（-race 下 3 个用例报数据竞争，优雅退出时可能重复落盘）\n抓图日志不再把「请求取消」误记为截断（TRUNC），超时单独记 TIMEOUT，真截断才记 TRUNC\n图片完整性加固：取消「小于 1KB 一律视为完整」的豁免（900 B 的截断 JPEG 曾因此被缓存 7 天），合法极小图照常通过，Content-Length 校验口径统一",
      "packages": {
       "x86": {
        "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_x86.fpk",
@@ -39,27 +57,9 @@
        "size_mb": 4.5
       }
      }
-    },
-    "0.6.369": {
-     "updated_at": "2026-10-29T12:10:44+08:00",
-     "changelog": "修复了一些 UI 问题。",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.369/moo_0.6.369_x86.fpk",
-       "size": 5167643,
-       "size_mb": 4.9,
-       "sha256": "8d8e117ba8e74539028f9e8e29520ea726b1c024012e32a39cc5d00c794e5873"
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.369/moo_0.6.369_arm.fpk",
-       "size": 4708352,
-       "size_mb": 4.5,
-       "sha256": "10de0359d1800d0fd6c4588e709fe35809af747a14536815040f06f0bd267ce5"
-      }
-     }
     }
    },
-   "sha256": "2e8d1f098eaf0e6296811ae52d6b4f0225985824791e800e9974a3d67c820ff0",
+   "sha256": "9a7b90b31ec0e3e1669308f077cb78569a711453cc1a95940ea117f9cd19ca92",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -71,12 +71,12 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-10-30T06:33:29+08:00",
-   "version": "0.6.377",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_x86.fpk",
-   "size": 5176019,
+   "updated_at": "2026-11-01T07:40:00+08:00",
+   "version": "0.6.383",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.383/moo_0.6.383_x86.fpk",
+   "size": 5195238,
    "service_port": "38100",
-   "size_mb": 4.9,
+   "size_mb": 4.95,
    "changelog": ""
   },
   "moo-mate": {
@@ -92,61 +92,61 @@
    "homepage": "https://github.com/Blue-Mink/moo",
    "license": "MIT",
    "releases": {
-    "0.2.34": {
-     "updated_at": "2026-10-30T17:35:00+08:00",
-     "changelog": "新增安装与配置向导的端口设置：可在向导里改本机调试端口（默认 38108），保存后自动重启并同步应用中心服务登记；改端口后本机 Moo 里已添加的 Moo Mate 源地址会自动跟到新端口。卸载向导「删除应用数据」现在也会清理自定义数据目录（只删索引、配置与备份包，不动目录里的其它文件）。索引改为原子落盘，避免写入瞬间被读到空文件。",
+    "0.2.36": {
+     "updated_at": "2026-11-01T07:40:00+08:00",
+     "changelog": "复用本机 GitHub 加速：自动探测本机 Dog-dev 加速代理\nGitHub 系请求（release 资产 / raw 索引 / api）经它转发，其它域名与回环地址一律直连\n探不到加速时完全保持旧行为；可用 MOO_MATE_NO_ACCEL=1 强制关闭",
      "packages": {
       "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.34/moo-mate_0.2.34_x86.fpk",
-       "size": 3664058,
-       "size_mb": 3.5,
-       "sha256": "fc4eaba6fe2a267f54972eff10b1bafe6ed416fc2ef7e7a15a439a4233a847a4"
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.36/moo-mate_0.2.36_x86.fpk",
+       "sha256": "141722f177b67993d2c6154af5654f1ebf54a2c1794eaf2e0db746f8a86858fb",
+       "size": 3857939,
+       "size_mb": 3.68
       },
       "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.34/moo-mate_0.2.34_arm.fpk",
-       "size": 3308064,
-       "size_mb": 3.2,
-       "sha256": "f17813b21ed1a2e440229494de71af3c8b0e3352d6ae618edf3c69ecfe0da0d4"
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.36/moo-mate_0.2.36_arm.fpk",
+       "sha256": "7b73f6d05089f1552e4910560154cdddfd676a6e6b96773b13e4ec530cc6ec37",
+       "size": 3490269,
+       "size_mb": 3.33
       }
      }
     },
-    "0.2.33": {
-     "updated_at": "2026-10-30T14:24:00+08:00",
-     "changelog": "新增版本检测：设置页顶栏显示当前版本，有新版本时提示并可一键跳转下载。新增自动备份：按周期（默认 7 天，可调 1–30 天）自动生成备份，同一目录保留最近 20 份，备份列表支持逐份下载、恢复与删除。批量推送改为一次写盘，几百个应用不再卡顿。",
+    "0.2.35": {
+     "updated_at": "2026-10-31T00:45:00+08:00",
+     "changelog": "应用内可直接更新：下载后校验安装包，再交给应用中心安装，数据保留\n内置默认索引：新装或离线首次打开即有完整应用列表，联网后自动同步\n应用内更新下载优先走 GitHub 加速通道（复用 Moo 的镜像表），卡住自动切换\n应用内更新改为签名校验：只接受本发布者签名的安装包，签名不符或缺签名一律拒绝升级",
      "packages": {
       "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.33/moo-mate_0.2.33_x86.fpk",
-       "size": 3656518,
-       "size_mb": 3.5,
-       "sha256": "123885e5baf6068be3ab1b796afacd8a7f1f519c867ae4db597023f629cd6cc4"
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.35/moo-mate_0.2.35_x86.fpk",
+       "size": 3854532,
+       "size_mb": 3.68,
+       "sha256": "c294c111d998a460e4dadb5e13d84a5f7fc55ef58a381238fd61a61a6323d8b1"
       },
       "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.33/moo-mate_0.2.33_arm.fpk",
-       "size": 3298082,
-       "size_mb": 3.1,
-       "sha256": "d06e74f612a6fd11a8af81b9e8abb2a52b99163aee77729550fd781dcf06aa62"
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.35/moo-mate_0.2.35_arm.fpk",
+       "size": 3485634,
+       "size_mb": 3.32,
+       "sha256": "0c1266d45ffe3902c4a7e757c7828542777d26fd49710e4dcfb23b200b392176"
       }
      }
     }
    },
-   "sha256": "fc4eaba6fe2a267f54972eff10b1bafe6ed416fc2ef7e7a15a439a4233a847a4",
+   "sha256": "141722f177b67993d2c6154af5654f1ebf54a2c1794eaf2e0db746f8a86858fb",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos-mate/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/cmd/moo-mate/README.md",
    "labels": "系统工具",
    "install_type": "系统空间",
    "download_count": 0,
    "first_release_at": "2026-10-28T09:29:16+08:00",
-   "updated_at": "2026-10-30T17:35:00+08:00",
-   "version": "0.2.34",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.34/moo-mate_0.2.34_x86.fpk",
-   "size": 3664058,
+   "updated_at": "2026-11-01T07:40:00+08:00",
+   "version": "0.2.36",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.36/moo-mate_0.2.36_x86.fpk",
+   "size": 3857939,
    "service_port": "38108",
-   "size_mb": 3.5,
+   "size_mb": 3.68,
    "preview_urls": [
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-list.png",
-    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps.png",
-    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-mobile-list.png"
-   ]
+    "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps.png"
+   ],
+   "changelog": ""
   }
  }
 }

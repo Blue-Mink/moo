@@ -8,17 +8,17 @@ import (
 func TestPublicRejectsInternal(t *testing.T) {
 	SetRebuilder(nil)
 	cases := []string{
-		"http://127.0.0.1:5666/",            // 环回
-		"http://172.16.0.5/admin",           // 私网
-		"http://172.16.0.1/",               // 私网
-		"http://172.16.0.10/",               // 私网
-		"http://169.254.169.254/latest/",    // 链路本地/元数据
-		"http://[::1]/",                     // IPv6 环回
-		"http://localhost/x",                // 环回别名
-		"ftp://github.com/a/b",              // 非 http(s)
-		"--exec=whoami",                     // aria2 选项注入形态
-		"file:///etc/passwd",                // 文件协议
-		"http:///path",                      // 缺主机
+		"http://127.0.0.1:5666/",         // 环回
+		"http://172.16.0.5/admin",        // 私网
+		"http://172.16.0.1/",             // 私网
+		"http://172.16.0.10/",            // 私网
+		"http://169.254.169.254/latest/", // 链路本地/元数据
+		"http://[::1]/",                  // IPv6 环回
+		"http://localhost/x",             // 环回别名
+		"ftp://github.com/a/b",           // 非 http(s)
+		"--exec=whoami",                  // aria2 选项注入形态
+		"file:///etc/passwd",             // 文件协议
+		"http:///path",                   // 缺主机
 	}
 	for _, u := range cases {
 		if _, err := Public(u); err == nil {

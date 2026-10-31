@@ -103,11 +103,20 @@ const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, fea
 
   if (featured.length === 0) return null;
 
+  // 0.6.379（用户令「自适应」）：横幅列数随条数走，且**不补位**——
+  //   1 条 → 整行；2 条 → 两列；4 条 → 2×2；其余（3/5/6/7+）→ 3 列自然换行。
+  // 用静态类名（动态拼接会被 Tailwind 清掉）。
+  const gridCls =
+    featured.length === 1
+      ? 'grid-cols-1'
+      : featured.length === 2 || featured.length === 4
+        ? 'grid-cols-1 md:grid-cols-2'
+        : 'grid-cols-1 md:grid-cols-3';
+
   return (
     <div className="space-y-8">
-      {/* 横幅区（0.6.232 用户定稿）：三张推荐**等宽一排**（原「2+1 / 1空+2」锯齿错位
-          布局被用户判定为"排列有问题"→ 回归对称三列） */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* 横幅区（0.6.232 用户定稿三列对称；0.6.379 起列数随清单条数自适应） */}
+      <div className={cn('grid gap-4', gridCls)}>
         {featured.map((app, i) => (
           <HeroBanner
             key={app.appname}

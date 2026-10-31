@@ -44,7 +44,15 @@ func main() {
 	selfBase := flag.String("self-base", "http://127.0.0.1:38108", "Moo Mate 对外地址（写进加源 url）")
 	token := flag.String("token", "", "GitHub token（可选，解除 60/h 限额）")
 	dataFile := flag.String("data", "moo-mate-index.json", "索引持久化文件路径")
+	// 0.2.35：CI 夜间复检用的「客户端同款验收」入口（只读，验收完直接退出，不启动服务）。
+	verifyRelease := flag.String("verify-release", "", "只做发布包验收：版本号，或 auto=读索引（校验完退出）")
+	verifyArch := flag.String("verify-arch", "x86", "配合 -verify-release 的架构：x86 / arm / both")
+	verifyIndex := flag.String("verify-index", "moo.json", "配合 -verify-release 的索引文件路径")
 	flag.Parse()
+
+	if strings.TrimSpace(*verifyRelease) != "" {
+		os.Exit(runReleaseSelfCheck(*verifyRelease, *verifyArch, *verifyIndex))
+	}
 
 	listenVal := envOr("MOO_MATE_LISTEN", *listen)
 	mooBaseVal := envOr("MOO_MATE_MOO_BASE", *mooBase)
@@ -66,8 +74,17 @@ func main() {
 	}
 	web := http.FileServer(http.FS(sub))
 
+	// 0.2.35：首次启动（索引文件不存在）写入出厂默认索引；已有数据一律不覆盖。
+	// 放在启动路径而不是 newIndex 内，避免污染单测里「空索引」的语义。
+	if n, err := bootstrapDefaultIndex(dataVal); err != nil {
+		logf("内置默认索引写入失败（继续空索引启动）：%v", err)
+	} else if n > 0 {
+		logf("已写入内置默认索引 %d 条（首次启动）", n)
+	}
 	c := newCompanion(mooBaseVal, selfBaseVal, tokenVal, web, newIndex(dataVal))
 	c.bootDir = bootDir
+	// 0.2.35：自更新下载复用 Moo 的 GitHub 加速镜像表（GET /api/mate/mirrors）。
+	mateMirrorProvider = c.mateMirrorPrefixes
 	// 配置 + 加解密器：GitHub token 落盘 enc:v1（密钥文件 .moo-secret.key 在数据目录）。
 	dataDir := filepath.Dir(dataVal)
 	cfgPath := filepath.Join(dataDir, "config.json")
@@ -87,6 +104,9 @@ func main() {
 	mux.HandleFunc("GET /api/icon/{appname}", c.handleIcon)
 	mux.HandleFunc("GET /api/status", c.handleStatus)
 	mux.HandleFunc("GET /api/update-check", c.handleUpdateCheck)
+	// 应用内自更新（下载 + sha256 校验 + appcenter daemon 就地升级）
+	mux.HandleFunc("POST /api/self-update", c.handleSelfUpdate)
+	mux.HandleFunc("GET /api/self-update/status", c.handleSelfUpdateStatus)
 	mux.HandleFunc("GET /api/index", c.handleListIndex)
 	mux.HandleFunc("GET /api/config", c.handleConfigGet)
 	mux.HandleFunc("PUT /api/config", c.handleConfigPut)
@@ -140,6 +160,15 @@ func main() {
 
 	// 版本探测预热（启动后 3s 后台查一次，首个 /api/update-check 直接命中缓存）。
 	c.warmMateUpdate()
+
+	// 自更新需要 release 资产列表，复用 Moo 侧下发的 GitHub token。
+	mateTokenFn = func() string {
+		tok, _, err := c.githubTokenWithSource()
+		if err != nil {
+			return ""
+		}
+		return tok
+	}
 
 	// 自动备份循环（参考 Moo：每 N 天写一份，同目录保留最近 20 份）。
 	go c.backupLoop()

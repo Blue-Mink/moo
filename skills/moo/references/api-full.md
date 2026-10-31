@@ -302,7 +302,21 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 - `wizard=1`：附加安装向导信息（配置项表单 schema）。
 
 ### 6.3 `GET /api/recommended`（公开）
-推荐应用列表（探索页）。
+发现页推荐位列表。数据来自远程清单 `recommend_list`（纯文本，一行一条
+`appname@源名`，`#` 注释；顺序即展示顺序，地址见设置项 `recommend_list_url`）。
+只返回当前目录里存在的卡：缺卡 / 已去重隐藏 / 用户禁用的条目**整条跳过**，
+不随机补位、不留空位。`?count=N`（1–12）只做上限裁剪。
+
+拉取策略（0.6.380）：**请求路径不阻塞**——缓存 10 分钟；过期后先返回上一次
+成功值并在后台单飞刷新（stale-while-revalidate）；冷启动（无任何缓存）最多
+同步等 2.5s，超时立刻回内嵌清单兜底。清单地址是 GitHub 时**镜像优先、直连
+最后**（单候选 8s 超时），避免直连不可达时每个 TTL 周期首请求卡十几秒。
+
+### 6.3.1 `POST /api/recommended/refresh`（admin）
+丢弃缓存立刻重拉清单（改完远程清单即时生效）。
+```json
+{"ok": true, "url": "https://…/recommend_list.txt", "count": 4, "entries": ["moo-mate@Blue-Mink", "…"]}
+```
 
 ### 6.4 `GET /api/installed-detail`（公开）
 已安装应用的平台详情（状态/启停/入口）。
@@ -484,13 +498,21 @@ daemon.json 损坏时拒绝写入。
 
 ---
 
-### 11.8 `GET /api/mate/github-token`（admin，0.6.354）
-供本机 **Moo Mate** 复用 Moo 已配置的 GitHub API token（伴侣侧不再单独保存凭据）。
+### 11.8 `GET /api/mate/github-token`（admin，0.6.354）供本机 **Moo Mate** 复用 Moo 已配置的 GitHub API token（伴侣侧不再单独保存凭据）。
 必须额外携带 `X-Moo-Mate: 1`（伴侣专用标记）；缺头 → 403。
 ```json
 响应：{"github_token_set": true, "github_token": "ghp_…"}   // 未配置时 set=false、token=""
 ```
 token 只出现在响应体，不写日志；Moo Mate 侧缓存 2 分钟，不会逐请求调用。
+
+### 11.9 `GET /api/mate/mirrors`（admin，0.6.380）
+供本机 **Moo Mate** 复用 Moo 的 GitHub 加速镜像表（伴侣侧自更新下载按它展开
+候选，不再维护第二份列表）。必须携带 `X-Moo-Mate: 1`，缺头 → 403。
+```json
+响应：{"prefixes": ["https://…/", "…"], "count": 3}
+```
+只返回**状态 ok 且按吞吐降序**的前缀（最多 6 个）；无健康数据时按设置里的
+声明顺序回退。不返回任何凭据。Mate 侧缓存 10 分钟（空结果也缓存）。
 
 ---
 
@@ -667,6 +689,11 @@ data: {"step":"installing","message":"提交飞牛应用中心就地升级…"}
 data: {"step":"done","progress":100,"message":"…"}      // 或 {"step":"error","error":"…"}
 ```
 错误分支：已有任务进行中 / 探测失败 / 已是最新 / release 缺 FPK 资产 / 下载失败 / sha256 校验失败 / 提交升级失败。成功后推 `store_update_success` 通知。
+
+下载通道（0.6.380）：候选为**加速镜像在前、直连最后**（最多 3 个镜像，按吞吐
+排序）；单通道有首字节 12s / 连续 20s 无进展的看护，卡死即换下一个通道，不再
+等 8 分钟总超时。每个通道下载完都必须过 **minisign 验签 + sha256** 双校验，
+镜像只能改传输、改不了包。
 
 ---
 

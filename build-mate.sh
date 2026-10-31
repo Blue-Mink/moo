@@ -12,6 +12,17 @@ FNPACK="$BUILD_DIR/fnpack"
 info()  { echo -e "\033[0;32m[INFO]\033[0m $1"; }
 error() { echo -e "\033[0;31m[ERROR]\033[0m $1" >&2; exit 1; }
 
+# 产物脱敏自检：二进制不得内嵌构建机绝对路径（缺 -trimpath 时会内嵌；
+# 该路径含本机用户名/工作区结构，公开 FPK 里不能出现）。
+assert_clean_binary() {
+    local bin="$1"
+    [ -f "$bin" ] || error "产物缺失：$bin"
+    if grep -aqF "$SCRIPT_DIR" "$bin"; then
+        error "产物内嵌构建机路径（检查 -trimpath）：$bin"
+    fi
+}
+
+
 mkdir -p "$BUILD_DIR/tmp"
 
 # fnpack 存在性（复用 Moo 的 build/fnpack）
@@ -26,7 +37,7 @@ info "Moo Mate v$VERSION (target=$TARGET)"
 
 # Step 2: 构建 Go 二进制（x86；伴侣默认只打 x86）
 info "构建 Go 二进制 (x86)..."
-GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.buildVersion=$APP_VERSION" -o "$BUILD_DIR/moo-mate-x86" ./cmd/moo-mate/
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.buildVersion=$APP_VERSION" -o "$BUILD_DIR/moo-mate-x86" ./cmd/moo-mate/
 info "Go 构建完成"
 
 # Step 3: 打包
@@ -42,6 +53,7 @@ pack_fpk() {
     rm -rf "$STAGING"
     cp -a "$FNOS_DIR" "$STAGING"
     sed -i "s/^platform[ \t]*=.*/platform        = $archline/" "$STAGING/manifest"
+    assert_clean_binary "$BUILD_DIR/$server"
     cp "$BUILD_DIR/$server" "$STAGING/app/moo-mate"
     cd "$SCRIPT_DIR"
     "$FNPACK" build --directory "$STAGING"
@@ -56,7 +68,7 @@ case "$TARGET" in
     x86) pack_fpk x86 ;;
     arm)
         info "构建 Go 二进制 (arm64)..."
-        GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.buildVersion=$APP_VERSION" -o "$BUILD_DIR/moo-mate-arm" ./cmd/moo-mate/
+        GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.buildVersion=$APP_VERSION" -o "$BUILD_DIR/moo-mate-arm" ./cmd/moo-mate/
         pack_fpk arm ;;
     *) error "未知构建目标: $TARGET（可选 x86 / arm）" ;;
 esac

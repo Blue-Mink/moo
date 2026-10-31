@@ -70,10 +70,9 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
       ? { bottom: `-${bottomOffset}px` }
       : { bottom: 0 }}
     // 0.6.274（用户反馈「太短很拥挤」）：按钮 70px 加宽。
-    // 0.6.275（用户仍反馈「不够长」）：胶囊改近全宽 —— w-[calc(100%-24px)]
-    //（左右各留 12px）+ max-w-[380px] 防平板宽屏下胶囊过宽，
-    // 按钮改 flex-1 均匀铺满胶囊（375px 屏 ≈75px/钮，<360px 小屏自动收缩防溢出）
-    className="md:hidden fixed left-1/2 -translate-x-1/2 z-30 flex w-[calc(100%-24px)] max-w-[380px] items-end rounded-[24px] border border-white/10 bg-card/55 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/40 backdrop-blur-2xl"
+    // 0.6.379（用户令）：宽度随屏幕自适应且与应用列表卡片区同宽——
+    // 列表 main 是 p-4（左右各 16px）→ 100% - 2rem；去掉旧的 380px 上限。
+    className="md:hidden fixed left-1/2 -translate-x-1/2 z-30 flex w-[calc(100%-2rem)] items-end rounded-[24px] border border-white/10 bg-card/55 px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/40 backdrop-blur-2xl"
     aria-label="主导航"
   >
     <div className="flex w-full items-end gap-2">

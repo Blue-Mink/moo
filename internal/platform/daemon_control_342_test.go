@@ -13,7 +13,7 @@ import (
 )
 
 // 0.6.342：daemon 秒完成的启停任务记录会被回收 → common/status 返回 5
-//（unknown task），旧逻辑直接报「无法确认操作结果」，但应用实际已启动/停用。
+// （unknown task），旧逻辑直接报「无法确认操作结果」，但应用实际已启动/停用。
 // 新逻辑用权威已装列表复核：达到目标状态即视为成功。
 type fakeControlDaemon struct {
 	unknown  bool

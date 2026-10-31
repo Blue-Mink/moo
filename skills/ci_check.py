@@ -26,12 +26,26 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
 LINK_RE = re.compile(r"\]\((\.{0,2}/?[^)\s]+\.md)(#[^)]+)?\)")
-SECRET_PATTERNS = [
+# 敏感模式与发布门同源：.github/sanitize-patterns.txt（单一事实来源）。
+# 本文件是公开仓库，绝不写入真实凭据的字面或前缀——此前这里硬编码过
+# 一条真实口令的前缀模式，等于把凭据结构写进公开仓，已移除。找不到主清单时才用 fallback。
+SECRET_FALLBACK = [
     (r"ghp_[A-Za-z0-9]{20,}", "GitHub token"),
-    (r"Abc\d{6}", "疑似口令"),
     (r"192\.168\.\d+\.\d+", "内网地址"),
     (r"10\.0\.0\.\d+", "内网地址"),
 ]
+
+
+def load_secret_patterns() -> list[tuple[str, str]]:
+    f = ROOT / ".github" / "sanitize-patterns.txt"
+    out: list[tuple[str, str]] = []
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.lstrip("\ufeff").strip()
+            if not line or line.startswith("#"):
+                continue
+            out.append((line, "敏感模式"))
+    return out or SECRET_FALLBACK
 failures: list[str] = []
 
 
@@ -141,7 +155,7 @@ def check_secrets() -> None:
             text = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        for pat, label in SECRET_PATTERNS:
+        for pat, label in load_secret_patterns():
             m = re.search(pat, text)
             if m:
                 fail(f"{p.relative_to(ROOT)}: 命中{label} → {m.group(0)[:40]}")

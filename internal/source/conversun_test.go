@@ -79,22 +79,22 @@ func TestConversunCandidateURLs(t *testing.T) {
 
 func TestTranslateConversun(t *testing.T) {
 	it := conversunApp{
-		Slug:        "1panel",
-		AppName:     "1panel",
-		FilePrefix:  "1panel",
-		DisplayName: "1Panel",
-		Description: "现代化、开源的 Linux 服务器运维管理面板",
-		Version:     "1.10.34-lts",
-		FpkVersion:  "1.10.34-lts-r8",
-		ReleaseTag:  "1panel/v1.10.34-lts-r8",
-		ServicePort: 9562,
-		HomepageURL: "https://1panel.cn/",
-		IconURL:     "https://raw.githubusercontent.com/conversun/fnos-apps/main/apps/1panel/icon.png",
-		Platforms:   []string{"x86", "arm"},
-		UpdatedAt:   "2026-09-20T00:00:00Z",
+		Slug:          "1panel",
+		AppName:       "1panel",
+		FilePrefix:    "1panel",
+		DisplayName:   "1Panel",
+		Description:   "现代化、开源的 Linux 服务器运维管理面板",
+		Version:       "1.10.34-lts",
+		FpkVersion:    "1.10.34-lts-r8",
+		ReleaseTag:    "1panel/v1.10.34-lts-r8",
+		ServicePort:   9562,
+		HomepageURL:   "https://1panel.cn/",
+		IconURL:       "https://raw.githubusercontent.com/conversun/fnos-apps/main/apps/1panel/icon.png",
+		Platforms:     []string{"x86", "arm"},
+		UpdatedAt:     "2026-09-20T00:00:00Z",
 		DownloadCount: 12345,
-		AppType:     "docker",
-		Category:    "运维管理",
+		AppType:       "docker",
+		Category:      "运维管理",
 	}
 	a := translateConversun(it, "conversun")
 	if a == nil {

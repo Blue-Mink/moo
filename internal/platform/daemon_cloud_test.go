@@ -18,13 +18,13 @@ import (
 type fakeCloudDaemon struct {
 	mux *http.ServeMux
 
-	dlBody     map[string]any
-	instBody   map[string]any
-	dlFails    bool
-	dlPolls    int32
-	instPolls  int32
-	dlPath     string
-	gotStatus  int32 // common/status 收到的任务终态
+	dlBody    map[string]any
+	instBody  map[string]any
+	dlFails   bool
+	dlPolls   int32
+	instPolls int32
+	dlPath    string
+	gotStatus int32 // common/status 收到的任务终态
 }
 
 func newFakeCloudDaemon(t *testing.T) (*fakeCloudDaemon, string) {

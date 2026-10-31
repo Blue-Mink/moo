@@ -59,17 +59,6 @@ function legacyDisplayApps(p: {
   });
   return [...pinned, ...rest];
 }
-// FeaturedShowcase.tsx（修复前）featuredProp 分支
-function legacyFeatured(apps: AppInfo[], featuredProp?: AppInfo[]): AppInfo[] {
-  if (featuredProp && featuredProp.length > 0) return featuredProp.slice(0, 3);
-  const arr = apps.filter((a) => !a.user_hidden);
-  const out: AppInfo[] = [];
-  while (out.length < 3 && arr.length > 0) {
-    const j = Math.floor(Math.random() * arr.length);
-    out.push(arr.splice(j, 1)[0]);
-  }
-  return out;
-}
 // ─────────────────────────────────────────────────────────────────────────
 
 describe('baseKeyOf / isHiddenApp', () => {
@@ -120,9 +109,13 @@ describe('resolvePinnedRecommended — 钉位矩阵', () => {
     expect([...r.baseKeys].sort()).toEqual(['fa', 'fb', 'fc']);
   });
 
-  it('recommendedApps < 3：只处理给定的位（slice 语义，不虚补）', () => {
-    const r = resolvePinnedRecommended([mk('fa@moo'), mk('fb@moo')], [mk('fa@s'), mk('fb@s')]);
-    expect(keys(r.pinned)).toEqual(['fa@moo', 'fb@moo']);
+  it('清单任意条数：全部处理（0.6.379 去掉 slice(0,4)）', () => {
+    const rec = ['a', 'b', 'c', 'd', 'e'].map((n) => mk(`${n}@s`));
+    const apps = ['a', 'b', 'c', 'd', 'e'].map((n) => mk(`${n}@moo`));
+    expect(keys(resolvePinnedRecommended(apps, rec).pinned)).toEqual(
+      ['a@moo', 'b@moo', 'c@moo', 'd@moo', 'e@moo']
+    );
+    expect(keys(resolvePinnedRecommended([mk('fa@moo')], [mk('fa@s')]).pinned)).toEqual(['fa@moo']);
   });
 
   it('推荐条目 base 为空串：不查 apps、原样钉入、不记 baseKeys', () => {
@@ -133,67 +126,39 @@ describe('resolvePinnedRecommended — 钉位矩阵', () => {
   });
 });
 
-describe('pickFeaturedApps — 横幅矩阵', () => {
+describe('pickFeaturedApps — 横幅矩阵（0.6.379 清单驱动）', () => {
   afterEach(() => vi.restoreAllMocks());
 
   const pool = () => [mk('p1@moo'), mk('p2@moo'), mk('p3@moo', { user_hidden: true }), mk('p4@moo')];
 
-  it('featuredProp 全可见：原序取前三（第 4 个被 slice 掉）', () => {
+  it('featuredProp 全可见：原序返回全部（不再截断到 3）', () => {
     const f = [mk('a@r'), mk('b@r'), mk('c@r'), mk('d@r')];
-    expect(keys(pickFeaturedApps(pool(), f))).toEqual(['a@r', 'b@r', 'c@r']);
+    expect(keys(pickFeaturedApps(pool(), f))).toEqual(['a@r', 'b@r', 'c@r', 'd@r']);
   });
 
-  it('featuredProp 含 user_hidden：先过滤再 slice(0,3)（第 4 位补进前三）', () => {
+  it('featuredProp 含 user_hidden：过滤掉该条，其余顺序不变（不补位）', () => {
     const f = [mk('a@r', { user_hidden: true }), mk('b@r'), mk('c@r'), mk('d@r')];
     expect(keys(pickFeaturedApps(pool(), f))).toEqual(['b@r', 'c@r', 'd@r']);
   });
 
-  it('过滤后不足 3 位：回落既有随机补足（池首、不重复、不取禁用卡）', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0); // splice(0,1)：按 apps 原序取
-    const out = pickFeaturedApps(pool(), [mk('x@r'), mk('y@r')]);
-    expect(keys(out)).toEqual(['x@r', 'y@r', 'p1@moo']); // p3 禁用不入选
-    expect(new Set(keys(out)).size).toBe(3);
-  });
-
-  it('补足时跳过与 pinned 同 base 的卡（不重复展示同一应用）', () => {
+  it('清单只有 2 条：只返回 2 条，不随机补位、不留空位', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    const apps = [mk('x@other'), mk('q1@moo'), mk('q2@moo')];
-    const out = pickFeaturedApps(apps, [mk('x@r')]);
-    expect(keys(out)).toEqual(['x@r', 'q1@moo', 'q2@moo']); // x@other 同 base x → 不入池
+    expect(keys(pickFeaturedApps(pool(), [mk('x@r'), mk('y@r')]))).toEqual(['x@r', 'y@r']);
   });
 
-  it('featuredProp 全禁用：等同于未提供（全目录非禁用随机 3 款）', () => {
+  it('空清单 / 全被禁用：返回空（不回落随机）', () => {
+    expect(pickFeaturedApps(pool(), [])).toEqual([]);
+    expect(keys(pickFeaturedApps(pool(), [mk('h1@r', { user_hidden: true })]))).toEqual([]);
+  });
+
+  it('清单 6 条：原序全部返回（布局层按条数分列）', () => {
+    const f = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => mk(`${n}@r`));
+    expect(keys(pickFeaturedApps(pool(), f))).toEqual(['a@r', 'b@r', 'c@r', 'd@r', 'e@r', 'f@r']);
+  });
+
+  it('featuredProp 未提供（undefined）：保留旧行为=全目录非禁用随机 3 款', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    const apps = [mk('q1@moo'), mk('q2@moo'), mk('q3@moo'), mk('q4@moo', { user_hidden: true })];
-    expect(keys(pickFeaturedApps(apps, [mk('h1@r', { user_hidden: true })]))).toEqual(['q1@moo', 'q2@moo', 'q3@moo']);
-  });
-
-  it('可用卡不足 3：返回全部可用（不虚补、不返回禁用卡）', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    const apps = [mk('q1@moo'), mk('q2@moo', { user_hidden: true })];
-    expect(keys(pickFeaturedApps(apps, [mk('h@r', { user_hidden: true })]))).toEqual(['q1@moo']);
-  });
-
-  it('等价对拍：无禁用命中 + 无 featuredProp/空 featuredProp → 与修复前逐项一致', () => {
-    for (const seed of [0, 0.37, 0.99]) {
-      vi.spyOn(Math, 'random').mockReturnValue(seed);
-      const apps = [mk('s1@moo'), mk('s2@moo'), mk('s3@moo'), mk('s4@moo'), mk('s5@moo')];
-      expect(keys(pickFeaturedApps(apps, undefined))).toEqual(keys(legacyFeatured(apps, undefined)));
-      expect(keys(pickFeaturedApps(apps, []))).toEqual(keys(legacyFeatured(apps, [])));
-      vi.restoreAllMocks();
-    }
-  });
-
-  it('等价对拍：featuredProp 无禁用且 ≥3 → 与修复前逐项一致', () => {
-    const f = [mk('a@r'), mk('b@r'), mk('c@r'), mk('d@r')];
-    expect(keys(pickFeaturedApps(pool(), f))).toEqual(keys(legacyFeatured(pool(), f)));
-  });
-
-  it('反向验证（修复前必失败）：featuredProp 首位禁用 → 修复前把禁用卡当横幅', () => {
-    const f = [mk('a@r', { user_hidden: true }), mk('b@r'), mk('c@r')];
-    const before = legacyFeatured(pool(), f);
-    expect(keys(before)[0]).toBe('a@r'); // 修复前：禁用卡出现在横幅首位
-    expect(keys(pickFeaturedApps(pool(), f))).not.toContain('a@r');
+    expect(keys(pickFeaturedApps(pool(), undefined))).toEqual(['p1@moo', 'p2@moo', 'p4@moo']);
   });
 });
 
@@ -215,9 +180,14 @@ describe('resolveDisplayApps — 发现页钉序 + 门控矩阵', () => {
     }
   });
 
-  it('recommendedApps < 3 → 不钉序，原样返回 filteredApps', () => {
-    const input = { ...base(), activeFilter: 'recommended', searchQuery: '', recommendedApps: [mk('fa@snap')] };
+  it('recommendedApps 为空 → 不钉序，原样返回 filteredApps', () => {
+    const input = { ...base(), activeFilter: 'recommended', searchQuery: '', recommendedApps: [] };
     expect(resolveDisplayApps(input as never)).toBe(input.filteredApps);
+  });
+
+  it('recommendedApps 只有 1 条 → 照样钉序（0.6.379 门控由 <3 放宽到 <1）', () => {
+    const input = { ...base(), activeFilter: 'recommended', searchQuery: '', recommendedApps: [mk('fa@snap')] };
+    expect(keys(resolveDisplayApps(input as never))).toEqual(['fa@moo', 'fb@moo', 'fc@moo', 'zz@moo', 'yy@moo']);
   });
 
   it('有搜索词 → 不钉序（纯空格不算：trim 后为空仍钉）', () => {
@@ -279,7 +249,6 @@ describe('resolveDisplayApps — 发现页钉序 + 门控矩阵', () => {
       { ...b, activeFilter: 'all', searchQuery: '' },
       { ...b, activeFilter: 'installed', searchQuery: '' },
       { ...b, activeFilter: 'recommended', searchQuery: '', recommendedApps: [] },
-      { ...b, activeFilter: 'recommended', searchQuery: '', recommendedApps: [mk('fa@snap'), mk('fb@snap')] },
     ];
     for (const c of cases) {
       expect(keys(resolveDisplayApps(c as never))).toEqual(keys(legacyDisplayApps(c as never)));

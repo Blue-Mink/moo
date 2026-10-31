@@ -1,0 +1,7 @@
+# 发现页推荐位内置兜底清单（0.6.379）
+# 仅当远程 recommend_list 拉取失败且无历史成功值时使用；顺序即展示顺序。
+# 格式：一行一条 `appname@源名`，`#` 起注释。
+fnos-apps-store@fnos-store
+fndepot@Blue-Mink
+fn-knock@kci-lnk
+moo-mate@Blue-Mink

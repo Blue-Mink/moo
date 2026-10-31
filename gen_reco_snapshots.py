@@ -323,8 +323,23 @@ def build_fn_knock():
     )
 
 
+def build_moo_mate():
+    """0.6.378：第 4 个固定推荐位（用户 2026-10-31 定：排在 fn-knock 之后）。
+
+    数据源 = 本仓自索引 moo.json 的 apps.moo-mate（与 Moo 商店里安装的那份同源，
+    含双架构 packages 与 releases 明细）。remote 未推送新版本时这里会拿到上一版，
+    属预期：源在设备上时走实时目录，快照只在源缺失时兜底。
+    """
+    return build_fnpack_app(
+        "Blue-Mink", "moo", "moo-mate", "Blue-Mink",
+        "https://github.com/Blue-Mink/moo",
+        [raw("Blue-Mink", "moo", "main", "moo.json"),
+         jsdelivr("Blue-Mink", "moo", "moo.json")],
+    )
+
+
 def self_check(apps):
-    order = ["fnos-apps-store", "fndepot", "fn-knock"]
+    order = ["fnos-apps-store", "fndepot", "fn-knock", "moo-mate"]
     if [a["appname"] for a in apps] != order:
         raise RuntimeError(f"三 key 或顺序错误: {[a['appname'] for a in apps]}")
     for a in apps:
@@ -352,8 +367,8 @@ def main():
                        "internal/reco/snapshots.json")
     if "--out" in sys.argv:
         out = sys.argv[sys.argv.index("--out") + 1]
-    # 顺序=用户定稿（上→下）：fnos-apps-store → fndepot → fn-knock
-    apps = [build_conversun(), build_fndepot(), build_fn_knock()]
+    # 顺序=用户定稿（上→下）：fnos-apps-store → fndepot → fn-knock → moo-mate
+    apps = [build_conversun(), build_fndepot(), build_fn_knock(), build_moo_mate()]
     self_check(apps)
     doc = {
         "generated_at": datetime.datetime.now(datetime.timezone.utc)

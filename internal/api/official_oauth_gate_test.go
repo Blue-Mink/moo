@@ -52,7 +52,7 @@ func TestHasOAuthSessionGateAllowsExpiredButRefreshable(t *testing.T) {
 		}, true},
 		{"access 过期+无 refresh（需重新授权）", &official.Session{
 			AccessToken: "a",
-			ExpiresAt: now.Add(-time.Hour).UnixMilli(), UpdatedAt: now.Add(-2 * time.Hour).UnixMilli(),
+			ExpiresAt:   now.Add(-time.Hour).UnixMilli(), UpdatedAt: now.Add(-2 * time.Hour).UnixMilli(),
 		}, false},
 	}
 	for _, c := range cases {

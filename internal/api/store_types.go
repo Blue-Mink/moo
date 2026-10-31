@@ -41,39 +41,39 @@ type AppInfo struct {
 	// Arch 当前选中安装包的架构（fnpack 约定 x86/arm/all；0.6.303：
 	// 源未提供架构信息时为空。arm 设备上 bestRelease 按 currentArch()=arm
 	// 自动选中 arm 包（x86→all 回退），此字段=实际会装的包架构）。
-	Arch            string   `json:"arch,omitempty"`
-	Archs           []string `json:"archs,omitempty"` // 源提供的全部架构（x86/arm/all，展示序）
-	ReleaseURL      string   `json:"release_url,omitempty"`
-	ReleaseNotes    string   `json:"release_notes,omitempty"`
-	Status          string   `json:"status,omitempty"`
-	StartStop       *bool    `json:"start_stop,omitempty"`
-	Uninstallable   *bool    `json:"uninstallable,omitempty"`
-	WebProtocol     string   `json:"web_protocol,omitempty"`
-	WebURL          string   `json:"web_url,omitempty"`
-	WebPort         int      `json:"web_port,omitempty"`
-	WebPath         string   `json:"web_path,omitempty"`
-	WebOnWebUI      bool     `json:"web_on_webui,omitempty"`
-	WebServiceName  string   `json:"web_service_name,omitempty"`
-	ServicePort     int      `json:"service_port,omitempty"`
+	Arch           string   `json:"arch,omitempty"`
+	Archs          []string `json:"archs,omitempty"` // 源提供的全部架构（x86/arm/all，展示序）
+	ReleaseURL     string   `json:"release_url,omitempty"`
+	ReleaseNotes   string   `json:"release_notes,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	StartStop      *bool    `json:"start_stop,omitempty"`
+	Uninstallable  *bool    `json:"uninstallable,omitempty"`
+	WebProtocol    string   `json:"web_protocol,omitempty"`
+	WebURL         string   `json:"web_url,omitempty"`
+	WebPort        int      `json:"web_port,omitempty"`
+	WebPath        string   `json:"web_path,omitempty"`
+	WebOnWebUI     bool     `json:"web_on_webui,omitempty"`
+	WebServiceName string   `json:"web_service_name,omitempty"`
+	ServicePort    int      `json:"service_port,omitempty"`
 	// InstallVolume / InstallPath（0.6.337）：已安装应用的真实落盘位置。
 	// InstallVolume>0 = /volN/@appcenter/<app>；=0 且 InstallPath 非空 =
 	// 系统空间 /var/apps/<app>（root 应用）。未安装为空。
-	InstallVolume int    `json:"install_volume,omitempty"`
-	InstallPath   string `json:"install_path,omitempty"`
-	Homepage        string   `json:"homepage,omitempty"`
-	IconURL         string   `json:"icon_url,omitempty"`
-	UpdatedAt       string   `json:"updated_at,omitempty"`
-	DownloadCount   *int     `json:"download_count,omitempty"`
-	LocalInstalls   int      `json:"local_installs,omitempty"`
-	AppType         string   `json:"app_type,omitempty"`
-	Category        string   `json:"category,omitempty"`
-	PostInstallNote string   `json:"post_install_note,omitempty"`
-	Source          string   `json:"source,omitempty"`
-	Maintainer      string   `json:"maintainer,omitempty"`
-	MaintainerURL   string   `json:"maintainer_url,omitempty"`
-	Distributor     string   `json:"distributor,omitempty"`
-	DistributorURL  string   `json:"distributor_url,omitempty"`
-	Changelog       string   `json:"changelog,omitempty"`
+	InstallVolume   int    `json:"install_volume,omitempty"`
+	InstallPath     string `json:"install_path,omitempty"`
+	Homepage        string `json:"homepage,omitempty"`
+	IconURL         string `json:"icon_url,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
+	DownloadCount   *int   `json:"download_count,omitempty"`
+	LocalInstalls   int    `json:"local_installs,omitempty"`
+	AppType         string `json:"app_type,omitempty"`
+	Category        string `json:"category,omitempty"`
+	PostInstallNote string `json:"post_install_note,omitempty"`
+	Source          string `json:"source,omitempty"`
+	Maintainer      string `json:"maintainer,omitempty"`
+	MaintainerURL   string `json:"maintainer_url,omitempty"`
+	Distributor     string `json:"distributor,omitempty"`
+	DistributorURL  string `json:"distributor_url,omitempty"`
+	Changelog       string `json:"changelog,omitempty"`
 	// ChangelogEntries：changelog 解析后的版本化条目（最新在前），
 	// 供详情页「更新内容」列表渲染；无 changelog 时为空。
 	ChangelogEntries []ChangelogEntry `json:"changelog_entries,omitempty"`
@@ -265,7 +265,9 @@ type Settings struct {
 	DedupPolicy       string `json:"dedup_policy"`
 	SourceAutoCareOff bool   `json:"source_auto_care_disabled"`
 	SourceListURL     string `json:"source_list_url,omitempty"`
-	SourceListOff     bool   `json:"source_list_disabled"`
+	// 0.6.379：发现页推荐位清单地址（空=内置公网默认）。
+	RecommendListURL string `json:"recommend_list_url,omitempty"`
+	SourceListOff    bool   `json:"source_list_disabled"`
 	// 0.6.325 安全加固 R1：允许「源列表同步」添加非公共地址的源（默认 false）。
 	SourceListAllowPrivate bool `json:"source_list_allow_private"`
 	// GitHubTokenSet 0.6.334：是否已配置 GitHub API token（**只透出是否设置，

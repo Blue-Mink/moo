@@ -158,9 +158,9 @@ func discoverFromSoftstore(ctx context.Context, baseURL string, httpc *http.Clie
 				Homepage:    strings.TrimSpace(first.Repo),
 				Labels:      first.Tags,
 			},
-			Appname:    id,
-			Source:     base, // 软仓源地址（baseURL）
-			Publisher:  "softstore",
+			Appname:   id,
+			Source:    base, // 软仓源地址（baseURL）
+			Publisher: "softstore",
 		}
 		// 多架构合并 packages + 汇总候选下载链。
 		pkgs := map[string]*appPackage{}
