@@ -7,13 +7,16 @@ import (
 
 // TestBundledDefaultSources 0.6.247：内置默认源集完整且规范——
 // 0.6.316 起 20 条精选源、0.6.326 起 21 条（并入 javycoder/fnos_music_ext）、
-// 0.6.384 起 29 条（并入 8 个 2026-11-01 普查确认的自建原生源），与仓库根
+// 0.6.384 起 29 条（并入 8 个 2026-11-01 普查确认的自建原生源）；同日再追加
+// bekafka/FnDepot、latte03/fnos-apps、bearhero520/FnDepot 3 条 → 32 条；复核后
+// 再追加 mac1256/maxsusu/ccyo-fang 3 条 → 35 条；随后追加自带 moo.json 的
+// 17funnyway8-ux/niudao、yujian0815/fnmedia-ext 2 条 → 37 条，与仓库根
 // repo_list.txt 逐条一致；此前 0.6.314 起 157 条）、全部带协议、
 // 去重后唯一、无回环/空地址、含 fn-knock 官方源（kci-lnk/fn-knock-turborepo）。
 func TestBundledDefaultSources(t *testing.T) {
 	urls := BundledDefaultSources()
-	if len(urls) != 29 {
-		t.Fatalf("内置默认源应为 29 条，实际 %d", len(urls))
+	if len(urls) != 37 {
+		t.Fatalf("内置默认源应为 37 条，实际 %d", len(urls))
 	}
 	hasKnock := false
 	for _, u := range urls {

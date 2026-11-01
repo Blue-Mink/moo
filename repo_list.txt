@@ -30,3 +30,15 @@ https://github.com/moxyis/FnDepot
 https://github.com/zyp1690/FnDepot
 https://github.com/kasbuky-sudo/fndepot
 https://github.com/cliii-one/FnDepot
+
+# 2026-11-01 追加（用户点名 bekafka/FnDepot + 普查同期新增，口径同上）
+https://github.com/bekafka/FnDepot
+https://github.com/latte03/fnos-apps
+https://github.com/bearhero520/FnDepot
+# 2026-11-01 复核后追加（口径同上：非 fork、自建原生、有独有应用且包实测可下）
+https://github.com/mac1256/FnDepot
+https://github.com/maxsusu/FnDepot
+https://github.com/ccyo-fang/FnDepot
+# 2026-11-01 再追加：已自带 moo.json 协议的两个作者仓库
+https://github.com/17funnyway8-ux/niudao
+https://github.com/yujian0815/fnmedia-ext

@@ -7,13 +7,15 @@ import (
 )
 
 // TestSeedPipelineUnique 0.6.248 回归：首装种子管道（main.go 同款逻辑）
-// 对内置源（0.6.316 起 20 精选源、0.6.326 起 21 条、0.6.384 起 29 条，含 Blue-Mink 同 owner 双仓库）必须
+// 对内置源（0.6.316 起 20 精选源、0.6.326 起 21 条、0.6.384 起 29 条、
+// 2026-11-01 追加至 32 条、复核后再追加至 35 条、再并入 niudao/fnmedia-ext 至 37 条，
+// 含 Blue-Mink 等同 owner 双仓库）必须
 // 产出全部唯一源名——命名规则取 owner 会同 owner 重名，旧逻辑重名折叠
 // 丢条（0.6.314 时代 157 源实测丢 7 条）。
 func TestSeedPipelineUnique(t *testing.T) {
 	urls := BundledDefaultSources()
-	if len(urls) != 29 {
-		t.Fatalf("内置基准集应为 29 源，实际 %d", len(urls))
+	if len(urls) != 37 {
+		t.Fatalf("内置基准集应为 37 源，实际 %d", len(urls))
 	}
 	var seeded []config.SourceRef
 	taken := make(map[string]bool, len(urls))
@@ -28,8 +30,8 @@ func TestSeedPipelineUnique(t *testing.T) {
 		taken[name] = true
 		seeded = append(seeded, config.SourceRef{Name: name, URL: u})
 	}
-	if len(seeded) != 29 {
-		t.Fatalf("种子应 29 条，实际 %d", len(seeded))
+	if len(seeded) != 37 {
+		t.Fatalf("种子应 37 条，实际 %d", len(seeded))
 	}
 }
 
