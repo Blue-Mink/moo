@@ -58,10 +58,14 @@ jobs:
           if [ "$draft" = "True" ] || [ "$pre" = "True" ]; then
             echo "::error::release mate-v${V} 仍不可见（draft=$draft prerelease=$pre）——用户收不到更新"; exit 1
           fi
-          echo "$json" | python3 - "$V" <<'PY'
+          # ⚠️ 不能写 `echo "$json" | python3 - <<PY`：python3 - 的**程序**来自 stdin，
+          # 与管道抢同一个 stdin，heredoc 生效后 json.load(sys.stdin) 读到空 → JSONDecodeError
+          # （2026-11-01 首次手动触发实测就是这个失败）。改成落临时文件再按参数传入。
+          printf '%s' "$json" > "$RUNNER_TEMP/rel.json"
+          python3 - "$V" "$RUNNER_TEMP/rel.json" <<'PY'
           import json, sys
           ver = sys.argv[1]
-          d = json.load(sys.stdin)
+          d = json.load(open(sys.argv[2], encoding="utf-8"))
           names = {a["name"] for a in d["assets"]}
           miss = []
           for arch in ("x86", "arm"):
