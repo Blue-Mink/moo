@@ -3,7 +3,7 @@ name: Update moo.json
 # 发 Release 后自动把 moo.json 的 releases 节点更新到新版本并提交。
 # 用法：复制到你的仓库 .github/workflows/moo-json.yml，按需改 env：
 #   FPK_GLOB    release 里安装包的通配（x86+arm 会被一次性收进来）
-#   TAG_PREFIX  Release tag 前缀（v1.2.3 → v）
+#   KEEP        保留最近几个版本节点（默认 2；0 = 全部保留）
 #   MOO_JSON    索引路径（默认仓库根 moo.json）
 #   BRANCH      提交回哪个分支（默认 main）
 #   SCRIPT_REF  维护脚本来源 ref（建议锁到 tag/commit，避免上游改动影响你）
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FPK_GLOB: "*.fpk"
-      TAG_PREFIX: "v"
+      KEEP: "2"
       MOO_JSON: "moo.json"
       BRANCH: "main"
       SCRIPT_REF: "main"
@@ -43,10 +43,8 @@ jobs:
         run: |
           TAG="${{ github.event.release.tag_name || inputs.tag }}"
           [ -n "$TAG" ] || { echo "::error::拿不到 tag"; exit 1; }
-          VERSION="${TAG#${TAG_PREFIX}}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "将同步：tag=$TAG version=$VERSION"
+          echo "将同步 release：$TAG（版本号以包内 manifest 为准）"
 
       - name: Download FPK from release
         env:
@@ -71,12 +69,17 @@ jobs:
           python3 /tmp/update_moo_json.py --help >/dev/null
 
       - name: Update moo.json
+        env:
+          TAG: ${{ steps.t.outputs.tag }}
         run: |
+          # 版本号以包内 manifest 为准：tag 与包内版本可能不同（如 tag v2.11.0 ↔ 包内 2.11.0-4），
+          # 所以这里只传 --tag（决定下载直链的 release 段），不传 --version。
+          KEEP="${KEEP:-2}"
           python3 /tmp/update_moo_json.py \
             --file "$MOO_JSON" \
-            --version "${{ steps.t.outputs.version }}" \
+            --tag "$TAG" \
             --fpk /tmp/fpk/*.fpk \
-            --keep 2
+            --keep "$KEEP"
 
       - name: Commit if changed
         run: |
@@ -87,7 +90,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$MOO_JSON"
-          git commit -m "chore(moo.json): 同步 ${{ steps.t.outputs.version }} 版本节点"
+          git commit -m "chore(moo.json): 同步 ${{ steps.t.outputs.tag }} 版本节点"
           git push origin "HEAD:${BRANCH}" || {
             echo "::warning::push 失败，rebase 后重试一次（可能是他人刚推送）"
             git pull --rebase --autostash origin "${BRANCH}" && git push origin "HEAD:${BRANCH}" \

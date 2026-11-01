@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/Blue-Mink/moo/main/tools/update_moo
 ## 方式二：交给 GitHub Actions（发版后全自动）
 
 把 `moo-autoupdate.yml` 复制到自己仓库的 `.github/workflows/moo-json.yml`，
-按需改 `FPK_GLOB` / `TAG_PREFIX` / `BRANCH`。之后每次 **published release**：
+按需改 `FPK_GLOB` / `KEEP` / `BRANCH`。之后每次 **published release**：
 
 1. 从 release 下载 FPK；2. 跑同一个更新脚本；3. 有变化就自动提交 `moo.json`。
 
