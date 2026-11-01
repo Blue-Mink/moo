@@ -19,3 +19,14 @@ https://github.com/Blue-Mink/moo
 https://github.com/kci-lnk/fn-knock-turborepo
 https://github.com/qilin-zhu/LitePan-fpk
 https://github.com/javycoder/fnos_music_ext
+# 2026-11-01 新增：主 NAS 全量源普查筛出的自建原生源
+# 口径：非 GitHub fork 关系、应用包发布在作者自己仓库（source_is_fork=false）、
+# 无 upstream 搬运标记、与既有 21 条应用名重叠极低且仍在更新。
+https://github.com/tnnevol/fn-os-apps
+https://github.com/ctllo-bit/FnDepot
+https://github.com/IMGZCQ/FnDepot
+https://github.com/yaya918/FnDepot
+https://github.com/moxyis/FnDepot
+https://github.com/zyp1690/FnDepot
+https://github.com/kasbuky-sudo/fndepot
+https://github.com/cliii-one/FnDepot

@@ -19,3 +19,12 @@ https://github.com/Blue-Mink/moo
 https://github.com/kci-lnk/fn-knock-turborepo
 https://github.com/qilin-zhu/LitePan-fpk
 https://github.com/javycoder/fnos_music_ext
+# 2026-11-01 新增（8 条，与仓库根 repo_list.txt 同步）：自建原生源
+https://github.com/tnnevol/fn-os-apps
+https://github.com/ctllo-bit/FnDepot
+https://github.com/IMGZCQ/FnDepot
+https://github.com/yaya918/FnDepot
+https://github.com/moxyis/FnDepot
+https://github.com/zyp1690/FnDepot
+https://github.com/kasbuky-sudo/fndepot
+https://github.com/cliii-one/FnDepot

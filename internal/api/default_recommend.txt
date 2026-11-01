@@ -5,3 +5,4 @@ fnos-apps-store@fnos-store
 fndepot@Blue-Mink
 fn-knock@kci-lnk
 moo-mate@Blue-Mink
+dog-dev@Blue-Mink

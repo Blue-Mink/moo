@@ -7,7 +7,8 @@ import (
 )
 
 // bundledDefaultSources 0.6.247 起：内置默认应用源集（0.6.316 起 20 条，
-// 0.6.326 起 21 条 = 并入 javycoder/fnos_music_ext，与仓库根 repo_list.txt
+// 0.6.326 起 21 条 = 并入 javycoder/fnos_music_ext；0.6.384 起 29 条 = 再并入 8 个
+// 主 NAS 全量普查确认的自建原生源），与仓库根 repo_list.txt
 // 逐条一致；每行一个源地址，全部带协议）。0.6.316 前 = 2026-10-02 备用
 // 测试机在用全量 156 源 + fn-knock 官方源（157 条）；0.6.316 起按用户
 // 指令收敛为 Blue-Mink 精选源，不含官方飞牛应用中心（它是面板账号派生
