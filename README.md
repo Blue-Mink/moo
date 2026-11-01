@@ -76,6 +76,7 @@
 - 或 设置 → 应用源 → 添加源：仓库地址 / raw 直链（`…/raw/main/moo.json`）均可
 
 这也是协议的最小可用示例源；字段规范、多版本与 `packages` 结构、版本比较规则见 [docs/Moo应用源协议.md](docs/Moo应用源协议.md)。
+想把自己的仓库也做成这样的源？用 [`tools/update_moo_json.py`](tools/update_moo_json.py) 一条命令维护（见 [维护指南](templates/MOO_JSON_MAINTENANCE.md)，可配 [发版自动更新](templates/moo-autoupdate.yml)）。
 
 ## 为什么这样设计
 
@@ -162,6 +163,8 @@ fnos/         FPK manifest 与生命周期脚本
 fnos-mate/    Moo Mate 的 FPK manifest 与生命周期脚本
 build-mate.sh Moo Mate 打包脚本（x86 / arm）
 docs/         文档（API / 应用源协议 / 设计记录）与 README 配图
+tools/        辅助工具：索引生成（Go/Python）、索引一键维护、邀请新源
+templates/    给第三方源作者的模板：维护指南 / GitHub Actions 工作流 / 邀请 issue 模板
 skills/       Agent Skills：使用与诊断（moo/）、构建并发布到 Moo（fpk-build-to-moo/）、应用内 AI 资料包（ai/）、第三方应用安全审核（moo-app-security-audit/）
 ```
 
@@ -181,7 +184,8 @@ go test ./...     # 单元测试
 | [应用介绍（图文）](应用介绍.md) | 面向用户的完整图文手册：逐页功能讲解（Dock 五键 / 七 tab 设置 / 详情 / 向导）+ moo.json 源协议 + FAQ，全部截图为应用内真实界面 | [zip](downloads/moo-doc-intro.zip) |
 | [API 文档](docs/API.md) | 全部 HTTP 端点、请求/响应字段、SSE 事件、鉴权与错误码 | [zip](downloads/moo-doc-api.zip) |
 | [应用源协议](docs/Moo应用源协议.md) | `moo.json` 完整规范：字段全表、14 项固定分类、多版本与 `packages`、版本比较规则、7 份带注释示例、FAQ | [zip](downloads/moo-doc-protocol.zip) |
-| [索引维护脚本](templates/MOO_JSON_MAINTENANCE.md) | 已有 `moo.json` 的仓库只更新一个应用：读包内 manifest 自动算 sha256 与字节、按 Release 约定拼直链、加/更新 `releases` 节点（默认只留最近 2 版），**其余应用逐字节不变**；附 GitHub Actions 工作流（`templates/moo-autoupdate.yml`）与排错表 | — |
+| [索引维护脚本](tools/update_moo_json.py) | 已有 `moo.json` 的仓库只更新一个应用：读包内 manifest 自动算 sha256 与字节、按 Release 约定拼直链、加/更新 `releases` 节点（默认只留最近 2 版），**其余应用逐字节不变**；`--check` 供 CI 复算。附 [维护指南](templates/MOO_JSON_MAINTENANCE.md) 与 [发版自动更新工作流](templates/moo-autoupdate.yml) | — |
+| [邀请新源工具](tools/moo_invite.py) | 一条命令生成 `moo.json` 草稿、一键新建预填链接与邀请 issue 正文（模板见 [INVITE_SOURCE_ISSUE.md](templates/INVITE_SOURCE_ISSUE.md)），用于邀请上游作者把项目做成 Moo 应用源 | — |
 | [仓库手册 AGENTS.md](docs/AGENTS.md) | 面向在仓库内工作的 Agent 与维护者：项目速览与目录地图、构建与提交前本地门、部署到 fnOS 的四铁律与回滚、发布顺序、脱敏硬规则、反复踩过的坑 | [zip](downloads/moo-doc-agents.zip) |
 | [使用与诊断技能](skills/moo/) | Agent Skill：四平面核心模型、完整 API 镜像、安装与热替换、安全规则、排障 | [zip](downloads/moo-skill-usage.zip) |
 | [构建并发布到 Moo 技能](skills/fpk-build-to-moo/) | Agent Skill：**从构建 FPK 到发布 Moo 的全流程**——构建与本地验证 → 写 `moo.json` → 放仓库（匿名可达）→ 搜索框自测 → 添加为源与详情页验收 → 版本迭代与发布脱敏 | [zip](downloads/moo-skill-build-export.zip) |
