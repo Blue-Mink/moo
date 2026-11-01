@@ -26,6 +26,9 @@ concurrency:
 
 jobs:
   update:
+    # 只处理正式发布：预发布（prerelease）不进索引 —— Moo 收录的是稳定版，
+    # 否则用户会被提示「有新版本」但装到的是测试包。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
     runs-on: ubuntu-latest
     env:
       FPK_GLOB: "*.fpk"
@@ -54,6 +57,37 @@ jobs:
           gh release download "${{ steps.t.outputs.tag }}" --pattern "$FPK_GLOB" --dir /tmp/fpk
           ls -l /tmp/fpk
           [ -n "$(ls -A /tmp/fpk)" ] || { echo "::error::release 里没有匹配 $FPK_GLOB 的资产"; exit 1; }
+
+      - name: Verify FPK against release digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.t.outputs.tag }}
+        run: |
+          # 与 GitHub 记录的 asset.digest 对账：防下载被中间镜像替换 / 截断。
+          # 老 release 可能没有 digest 字段（GitHub 后加的能力），此时只告警不失败。
+          if ! gh api "repos/${{ github.repository }}/releases/tags/$TAG" \
+                 --jq '.assets[] | "\(.name) \(.digest)"' > /tmp/digests.txt; then
+            echo "::warning::取不到 release 元数据，跳过 digest 对账"
+            exit 0
+          fi
+          fail=0
+          for f in /tmp/fpk/*.fpk; do
+            [ -f "$f" ] || continue
+            n=$(basename "$f")
+            want=$(awk -v n="$n" '$1 == n {print $2}' /tmp/digests.txt | sed 's/^sha256://')
+            if [ -z "$want" ]; then
+              echo "::warning::$n 在 release 里没有 sha256 digest（老 release），跳过"
+              continue
+            fi
+            got=$(sha256sum "$f" | awk '{print $1}')
+            if [ "$want" != "$got" ]; then
+              echo "::error::$n 下载字节与 GitHub 记录的 sha256 不一致｜期望 $want｜实际 $got"
+              fail=1
+            else
+              echo "$n digest OK（$got）"
+            fi
+          done
+          exit $fail
 
       - name: Fetch updater
         run: |

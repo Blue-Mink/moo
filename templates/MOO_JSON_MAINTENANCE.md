@@ -41,12 +41,22 @@ curl -fsSL https://raw.githubusercontent.com/Blue-Mink/moo/main/tools/update_moo
 
 两个辅助开关：`--dry-run` 只打印 diff 不落盘；`--check` 只校验（文件已是最新则退出码 0，需要更新则 1，适合放进 CI 做「索引是否跟版」的巡检）。脚本幂等——同一输入重复运行不会产生改动（内容没变时不刷新 `updated_at`），写入用「临时文件 + 原子替换」，中途被杀也不会留下半截 JSON。
 
+另外两个安全开关：
+
+- **`--allow-downgrade`**：默认拒绝「写入比索引里已有版本更旧」的版本。防的是手动 `workflow_dispatch` 传错旧 tag、给旧分支补发版时把索引写回旧版（顶层虽取最大值不降级，但旧节点会被重新加回）。确实要给老版本线补一次包时才加。
+- **`--sync-meta`**：把包内 `manifest` 的展示字段（`display_name` / `desc` / `license` / `install_type` / `os_min_version`→`min_fnos`）同步进索引。默认**不动**这些字段（它们常被作者手工润色过）；改了 manifest 里的简介/显示名又想让它跟到索引时才加。`manifest.desc` 是多行三引号块时脚本只能读首行片段，会自动跳过并在输出里提示。
+
 ## 方式二：交给 GitHub Actions（发版后全自动）
 
 把 `moo-autoupdate.yml` 复制到自己仓库的 `.github/workflows/moo-json.yml`，
 按需改 `FPK_GLOB` / `KEEP` / `BRANCH`。之后每次 **published release**：
 
 1. 从 release 下载 FPK；2. 跑同一个更新脚本；3. 有变化就自动提交 `moo.json`。
+
+工作流自带的两个门禁：
+
+- **预发布不进门**：`release.prerelease == true` 时整个 job 跳过（Moo 收录稳定版，否则用户会被提示更新却装到测试包）。
+- **下载字节对账**：下载后用 `gh api` 取该 release 的 `asset.digest`，与本地 `sha256sum` 逐包比对，不一致直接 fail（防中间镜像换包/截断）。老 release 没有 digest 字段时只告警，不阻断。
 
 ### CI 侧兜底（三层，任一可用即可）
 
@@ -100,3 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/Blue-Mink/moo/main/tools/update_moo
 | 报「同版本换包被拒」 | 已发布版本不能静默换包（用户缓存校验和会失配）→ 递增版本号；确认要覆盖才加 `--allow-republish` |
 | Windows 上索引是 UTF-16 / 整文件 diff | 索引必须是 UTF-8（BOM 会自动去除）；CRLF 会原样保留，不会整文件重排 |
 | `--fpk "dist/*.fpk"` 带引号没展开 | 脚本会自动展开通配符；无匹配会直接报错，不会静默跳过 |
+| 报「索引里已有更高版本 X」 | 这次要写的版本更旧（手动传错 tag、给旧分支补发版）→ 确实要给老版本线补包才加 `--allow-downgrade` |
+| 预发布 release 没触发工作流 | 设计如此：`prerelease == true` 时 job 直接跳过，只有正式发布才进索引 |
+| CI 报「下载字节与 GitHub 记录的 sha256 不一致」 | 下载被代理/镜像替换或截断 → 重跑一次；持续不一致就换通道，别用该代理 |
+| 改了 manifest 的简介/显示名，索引里没变 | 默认不动展示字段（作者常手工润色）→ 加 `--sync-meta` 才同步 |

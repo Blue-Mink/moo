@@ -21,6 +21,8 @@
   --tag-prefix v       Release tag 前缀（默认 v，即 v1.2.3）
   --tag TAG            完整 tag（tag 命名不规律时用，如 release-1.2.3）
   --allow-republish    允许同版本同架构换包（默认拒绝，防已缓存用户校验失败）
+  --allow-downgrade    允许写入比索引里已有版本更旧的版本（默认拒绝，防索引被写回旧版）
+  --sync-meta          把包内 manifest 的展示字段（显示名/简介/许可证/安装类型/最低系统）同步进索引
   --allow-appname-mismatch  --appname 与包内 manifest.appname 不一致时仍写入（默认拒绝）
 
 路径支持 ~ 与通配符（`--fpk 'dist/*.fpk'` 不展开也能用）；索引须为 UTF-8（BOM 自动去除，
@@ -113,7 +115,8 @@ def read_fpk(path):
         raise
     except Exception as e:  # noqa: BLE001
         die(f"读 FPK 失败（{path}）：{e}")
-    return info.get("appname", ""), info.get("version", ""), info.get("platform", "all"), size, h.hexdigest()
+    return (info.get("appname", ""), info.get("version", ""),
+            info.get("platform", "all"), size, h.hexdigest(), info)
 
 
 def normalize_repo(s):
@@ -305,6 +308,11 @@ def main():
                    help="允许 --appname 与包内 manifest.appname 不一致（默认拒绝）")
     p.add_argument("--dry-run", action="store_true", help="只打印 diff，不写文件")
     p.add_argument("--check", action="store_true", help="只校验：文件是否已与预期一致（CI 用）")
+    p.add_argument("--allow-downgrade", action="store_true",
+                   help="允许写入比索引里已有版本更旧的版本（默认拒绝，防把索引写回旧版）")
+    p.add_argument("--sync-meta", action="store_true",
+                   help="把包内 manifest 的展示字段（display_name / desc / license / "
+                        "install_type / min_fnos）同步进索引（默认不动这些字段）")
     a = p.parse_args()
     a.appname = (a.appname or "").strip()
     a.version = (a.version or "").strip()
@@ -350,8 +358,9 @@ def main():
     appname, mver = a.appname, ""
     pkgs = []  # [{arch, filename, size, sha256, url}]
     f_apps = set()
+    meta = {}  # 包内 manifest 的展示类字段（供 --sync-meta 用）
     for path in fpk_paths:
-        f_app, f_ver, f_plat, f_size, f_sha = read_fpk(path)
+        f_app, f_ver, f_plat, f_size, f_sha, f_info = read_fpk(path)
         if f_app:
             f_apps.add(f_app)
         appname = appname or f_app
@@ -370,6 +379,8 @@ def main():
                 f"常见原因：release 里同时有 full / lite 两个包，或同一版本重复上传。\n"
                 f"请只传主包（CI 里把 FPK_GLOB 收窄，例如 '*-full.fpk'）")
         pkgs.append({"arch": arch, "filename": os.path.basename(path), "size": f_size, "sha256": f_sha})
+        if not meta:
+            meta = f_info  # 多包时以第一个包的 manifest 为准（appname/version 已在上方校验一致）
         print(f"FPK：{os.path.basename(path)} | appname={f_app} version={f_ver} "
               f"platform={f_plat} → {arch} | size={f_size} sha256={f_sha[:16]}…")
     if len(f_apps) > 1:
@@ -457,6 +468,20 @@ def main():
     releases = entry.setdefault("releases", {})
     if not isinstance(releases, dict):
         die("apps.%s.releases 不是对象" % appname)
+
+    # 防回溯：索引里已有更高版本时，默认拒绝把索引写回旧版本。
+    # 触发场景：手动 workflow_dispatch 传了旧 tag、给旧分支补发版、脚本被重放。
+    # 后果：旧节点被重新加回 releases，顶层跟版虽取最大值不降级，但索引会「长回去」。
+    # 需要时用 --allow-downgrade（例如确实要给老版本线补一次包）。
+    if releases and not a.allow_downgrade and parse_version(version)[3]:
+        comparable = [v for v in releases if isinstance(v, str) and parse_version(v)[3]]
+        if comparable:
+            cur_max = max(comparable, key=cmp_to_key(compare_version))
+            if compare_version(version, cur_max) < 0:
+                die(f"索引里已有更高版本 {cur_max}，本次要写的是 {version}（更旧）。\n"
+                    f"把索引写回旧版本会让已升级的用户看不到更新；\n"
+                    f"确实要给旧分支 / 旧 tag 补发版，请加 --allow-downgrade。")
+
     node = releases.setdefault(version, {})
     if not isinstance(node, dict):
         die(f"apps.{appname}.releases.{version} 不是对象")
@@ -477,6 +502,28 @@ def main():
         pk.update({"download_url": p["url"], "sha256": p["sha256"],
                    "size": p["size"], "size_mb": round(p["size"] / 1048576, 2)})
         node_pkgs[p["arch"]] = pk
+    # --sync-meta（可选）：把包内 manifest 的展示字段同步进索引。
+    # 默认不动这些字段——它们常被作者手工润色过；只有显式加参数才覆盖。
+    if a.sync_meta:
+        if not meta:
+            print("提示：--sync-meta 需要 --fpk（从包内 manifest 取值），本次跳过")
+        else:
+            for src_key, dst_key in (("display_name", "display_name"), ("desc", "desc"),
+                                     ("license", "license"), ("install_type", "install_type"),
+                                     ("os_min_version", "min_fnos")):
+                val = (meta.get(src_key) or "").strip()
+                if not val:
+                    continue
+                if src_key == "desc" and '"""' in val:
+                    print("提示：manifest.desc 是多行块（含三引号），脚本只能读到首行片段，"
+                          "为避免写坏简介已跳过 desc 同步")
+                    continue
+                old_val = entry.get(dst_key)
+                if old_val == val:
+                    continue
+                entry[dst_key] = val
+                print(f"同步字段 {dst_key}：{str(old_val)[:36]!r} → {val[:36]!r}")
+
     node["changelog"] = changelog or node.get("changelog", "")
     # 幂等：内容没变就不刷新 updated_at（重复运行不产生无意义 diff / 假更新）
     if not node.get("updated_at") or json.dumps(node, sort_keys=True, ensure_ascii=False) != prev_sig:
