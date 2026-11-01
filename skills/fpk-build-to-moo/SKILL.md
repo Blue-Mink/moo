@@ -41,6 +41,7 @@ name: fpk-build-to-moo
 | **操作流程**（每步的"做完判据" / 多应用仓库维护 / 发布新版） | [references/publish-workflow.md](references/publish-workflow.md) |
 | 协议全文（字段表 / 14 项固定分类 / 7 份带注释示例 / 错误与缓存 / FAQ） | [docs/Moo应用源协议.md](../../docs/Moo应用源协议.md) |
 | 只想抄一份能用的索引 | 本文件 §2 的两个生成器 + 协议文档 §6 示例合集 |
+| 已有 `moo.json`，只想增量更新一个应用 | 本文件 §2.4 + [维护指南](../../templates/MOO_JSON_MAINTENANCE.md) |
 | 排查「搜不到 / 没图标 / 体积 0.0MB / 更新红点不消」 | [docs/Moo应用源协议.md](../../docs/Moo应用源协议.md#10-faq--排查手册) |
 | 构建 / 打包 / 安装 / 热替换 FPK | 姊妹技能 `fn-fpk-builder` |
 | 发布到 FnDepot 商店（fnpack.json） | 姊妹技能 `fpk-build-to-fndepot` |
@@ -95,6 +96,24 @@ python3 tools/gen-repo-moo-json.py \
   }
 }
 ```
+
+### 2.4 已有索引的一键维护（持续发版推荐）
+
+仓库里已经有 `moo.json` 时别重跑生成器——用零依赖脚本增量更新，只动目标应用的
+`releases` 节点与顶层跟版字段，**其余应用逐字节不变**：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Blue-Mink/moo/main/tools/update_moo_json.py -o update_moo_json.py
+python3 update_moo_json.py --version 1.2.3 --fpk dist/myapp_1.2.3_x86.fpk --repo OWNER/REPO
+python3 update_moo_json.py --check --version 1.2.3 --fpk dist/myapp_1.2.3_x86.fpk --repo OWNER/REPO
+```
+
+- 版本 / appname / 平台默认从包内 `manifest` 读，`--version` 与包内不一致时脚本直接拒绝；
+- 多应用索引必须能定位目标条目（包内 appname 或 `--appname`），脚本不会猜；
+- `--tag` 处理非规范 tag（如 `release-1.2.3`）；`--keep` 控制保留版本数（默认 2）；
+- 同版本换包默认拒绝（防已缓存用户校验失败），确需覆盖加 `--allow-republish`；
+- 想让它跟着 Release 自动跑：把 `templates/moo-autoupdate.yml` 放进自己仓库的 `.github/workflows/`；
+- 三种接入方式与排错表见 [`templates/MOO_JSON_MAINTENANCE.md`](../../templates/MOO_JSON_MAINTENANCE.md)。
 
 ## 三、自测与发布（别跳过第 4 步）
 

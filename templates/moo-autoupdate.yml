@@ -1,0 +1,95 @@
+name: Update moo.json
+
+# 发 Release 后自动把 moo.json 的 releases 节点更新到新版本并提交。
+# 用法：复制到你的仓库 .github/workflows/moo-json.yml，按需改 env：
+#   FPK_GLOB    release 里安装包的通配（x86+arm 会被一次性收进来）
+#   TAG_PREFIX  Release tag 前缀（v1.2.3 → v）
+#   MOO_JSON    索引路径（默认仓库根 moo.json）
+#   BRANCH      提交回哪个分支（默认 main）
+#   SCRIPT_REF  维护脚本来源 ref（建议锁到 tag/commit，避免上游改动影响你）
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要同步的 release tag（留空=用触发本次运行的 tag）"
+        required: false
+
+permissions:
+  contents: write
+
+# 串行化：两个 release 几乎同时发布时，避免后一个基于旧索引提交、把前一个版本节点冲掉
+concurrency:
+  group: moo-json-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      FPK_GLOB: "*.fpk"
+      TAG_PREFIX: "v"
+      MOO_JSON: "moo.json"
+      BRANCH: "main"
+      SCRIPT_REF: "main"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+
+      - name: Resolve tag
+        id: t
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          [ -n "$TAG" ] || { echo "::error::拿不到 tag"; exit 1; }
+          VERSION="${TAG#${TAG_PREFIX}}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "将同步：tag=$TAG version=$VERSION"
+
+      - name: Download FPK from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/fpk
+          gh release download "${{ steps.t.outputs.tag }}" --pattern "$FPK_GLOB" --dir /tmp/fpk
+          ls -l /tmp/fpk
+          [ -n "$(ls -A /tmp/fpk)" ] || { echo "::error::release 里没有匹配 $FPK_GLOB 的资产"; exit 1; }
+
+      - name: Fetch updater
+        run: |
+          # 兜底顺序：仓库内 vendor 副本 → GitHub raw → jsDelivr → gh-proxy
+          if [ -f tools/update_moo_json.py ]; then
+            cp tools/update_moo_json.py /tmp/update_moo_json.py && echo "使用仓库内副本"
+          else
+            curl -fsSL --connect-timeout 10 --max-time 60 "https://raw.githubusercontent.com/Blue-Mink/moo/${SCRIPT_REF}/tools/update_moo_json.py" -o /tmp/update_moo_json.py \
+              || curl -fsSL --connect-timeout 10 --max-time 60 "https://cdn.jsdelivr.net/gh/Blue-Mink/moo@${SCRIPT_REF}/tools/update_moo_json.py" -o /tmp/update_moo_json.py \
+              || curl -fsSL --connect-timeout 10 --max-time 60 "https://gh-proxy.com/https://raw.githubusercontent.com/Blue-Mink/moo/${SCRIPT_REF}/tools/update_moo_json.py" -o /tmp/update_moo_json.py \
+              || { echo "::error::取不到 update_moo_json.py（三个通道全失败）；把脚本 vendor 到 tools/ 即可离线兜底"; exit 1; }
+          fi
+          python3 /tmp/update_moo_json.py --help >/dev/null
+
+      - name: Update moo.json
+        run: |
+          python3 /tmp/update_moo_json.py \
+            --file "$MOO_JSON" \
+            --version "${{ steps.t.outputs.version }}" \
+            --fpk /tmp/fpk/*.fpk \
+            --keep 2
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- "$MOO_JSON"; then
+            echo "moo.json 无变化，跳过提交"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MOO_JSON"
+          git commit -m "chore(moo.json): 同步 ${{ steps.t.outputs.version }} 版本节点"
+          git push origin "HEAD:${BRANCH}" || {
+            echo "::warning::push 失败，rebase 后重试一次（可能是他人刚推送）"
+            git pull --rebase --autostash origin "${BRANCH}" && git push origin "HEAD:${BRANCH}" \
+              || { echo "::error::仍无法推送：分支保护请放行该 bot，或改用提 PR 方式"; exit 1; }
+          }
