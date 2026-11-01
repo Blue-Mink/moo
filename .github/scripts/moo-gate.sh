@@ -66,7 +66,13 @@ else
   step "frontend"
   FRONT_OK=1
   if [ ! -d frontend/node_modules ]; then
-    (cd frontend && npm ci) || FRONT_OK=0
+    # npm 自带 cacache 偶发 EEXIST/ENOENT（runner 预置缓存与写入竞争），一旦失败
+    # 后面 go:embed web/dist 缺失会把 vet/test 一起带红，看起来像代码问题。
+    # 所以失败后清/校验缓存并重试一次（2026-11-01 实测命中过）。
+    (cd frontend && npm ci) || {
+      echo "[gate] npm ci 失败（多为 npm cache 竞态），校验缓存后重试一次…"
+      (cd frontend && { npm cache verify >/dev/null 2>&1 || true; npm ci; })
+    } || FRONT_OK=0
   fi
   [ "$FRONT_OK" -eq 1 ] && { (cd frontend && npm run build) || FRONT_OK=0; }
   [ "$FRONT_OK" -eq 1 ] && { (cd frontend && npm run test:unit) || FRONT_OK=0; }
