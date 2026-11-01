@@ -204,7 +204,7 @@ go test ./...     # 单元测试
 | [FPK 构建技能](https://github.com/Blue-Mink/fn-fpk-builder-skill) | Agent Skill：FPK 打包 / 校验 / 发布 / SSH 部署与排障 | [main.zip](https://github.com/Blue-Mink/fn-fpk-builder-skill/archive/refs/heads/main.zip) |
 | [构建并发布到 Moo 技能](skills/fpk-build-to-moo/) | Agent Skill：**从构建 FPK 到发布 Moo 的全流程**——构建与本地验证 → 写 `moo.json` → 放仓库（匿名可达）→ 搜索框自测 → 添加为源与详情页验收 → 版本迭代与发布脱敏 | [zip](downloads/moo-skill-build-export.zip) |
 | [发布到 FnDepot 技能](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill) | Agent Skill：FnDepot V2 协议与上架流程 | [main.zip](https://github.com/Blue-Mink/fpk-build-to-fndepot-skill/archive/refs/heads/main.zip) |
-| [索引维护脚本](tools/update_moo_json.py) | 已有 `moo.json` 的仓库只更新一个应用：读包内 manifest 自动算 sha256 与字节、按 Release 约定拼直链、加/更新 `releases` 节点（默认只留最近 2 版，`--keep 0` 全留），**其余应用逐字节不变**；`--check` 供 CI 复算。附 [维护指南](templates/MOO_JSON_MAINTENANCE.md) 与 [发版自动更新工作流](templates/moo-autoupdate.yml) | — |
+| [索引维护脚本](tools/update_moo_json.py) | 已有 `moo.json` 的仓库只更新一个应用：读包内 manifest 自动算 sha256 与字节、按 Release 约定拼直链、加/更新 `releases` 节点（默认只留最近 2 版，`--keep 0` 全留），**其余应用逐字节不变**；`--check` 供 CI 复算；默认拒绝把索引写回更旧版本（要补录旧版才加 `--allow-downgrade`）；`--sync-meta` 可选按 manifest 同步显示名 / 简介 / 许可证等字段。附 [维护指南](templates/MOO_JSON_MAINTENANCE.md) 与 [发版自动更新工作流](templates/moo-autoupdate.yml)（预发布不进索引、下载后与 `asset.digest` 逐包对账） | — |
 
 > `fn-fpk-builder` / `fpk-build-to-fndepot` 为独立仓库的技能，克隆到工作区的 `skills/` 目录即可被 Agent 识别（「下载」列为 GitHub 自动归档）；`skills/fpk-build-to-moo` 随本仓库分发。
 
