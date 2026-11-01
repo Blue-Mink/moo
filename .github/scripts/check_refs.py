@@ -39,7 +39,13 @@ def tracked(path):
 
 def ignored(path):
     rc, _, _ = sh("git", "check-ignore", "-q", "--", path)
-    return rc == 0
+    if rc == 0:
+        return True
+    # 目录型忽略规则（如 `dist/`）对**不存在**的目录不生效：CI 全新 checkout 里没有
+    # web/dist，`git check-ignore -q -- web/dist` 会返回「未忽略」→ refs 假失败
+    # （2026-10-31 实测：本地有构建产物时通过、CI 必红）。补一次带尾斜杠的探测。
+    rc2, _, _ = sh("git", "check-ignore", "-q", "--", path.rstrip("/") + "/")
+    return rc2 == 0
 
 
 def rel(p):
