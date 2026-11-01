@@ -9,7 +9,9 @@ name: Update moo.json
 #   SCRIPT_REF  维护脚本来源 ref（建议锁到 tag/commit，避免上游改动影响你）
 on:
   release:
-    types: [published]
+    # released 覆盖「发布机把 CI 建的 prerelease 转正」这条路径（release.yml 的默认分支），
+    # published 覆盖「直接建正式 release」；两者重复触发时第二次幂等跳过，无副作用。
+    types: [published, released]
   workflow_dispatch:
     inputs:
       tag:
