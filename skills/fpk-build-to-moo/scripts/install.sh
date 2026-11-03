@@ -125,10 +125,13 @@ bundle_repo_assets() {
     if [ ! -f "$root/tools/gen-repo-moo-json.py" ]; then return 0; fi
     echo "  + 附带生成器与协议文档 → $DEST/$NAME/bundled/"
     if [ "$APPLY" -eq 1 ]; then
-        mkdir -p "$DEST/$NAME/bundled/tools" "$DEST/$NAME/bundled/docs"
+        mkdir -p "$DEST/$NAME/bundled/tools" "$DEST/$NAME/bundled/docs" "$DEST/$NAME/bundled/templates"
         cp -R "$root/tools/gen-moo-json" "$DEST/$NAME/bundled/tools/" 2>/dev/null || true
         cp "$root/tools/gen-repo-moo-json.py" "$DEST/$NAME/bundled/tools/" 2>/dev/null || true
+        cp "$root/tools/update_moo_json.py" "$DEST/$NAME/bundled/tools/" 2>/dev/null || true
         cp "$root/docs/Moo应用源协议.md" "$DEST/$NAME/bundled/docs/" 2>/dev/null || true
+        cp "$root/templates/MOO_JSON_MAINTENANCE.md" "$DEST/$NAME/bundled/templates/" 2>/dev/null || true
+        cp "$root/templates/moo-autoupdate.yml" "$DEST/$NAME/bundled/templates/" 2>/dev/null || true
     fi
 }
 

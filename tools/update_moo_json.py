@@ -23,6 +23,7 @@
   --allow-republish    允许同版本同架构换包（默认拒绝，防已缓存用户校验失败）
   --allow-downgrade    允许写入比索引里已有版本更旧的版本（默认拒绝，防索引被写回旧版）
   --sync-meta          把包内 manifest 的展示字段（显示名/简介/许可证/安装类型/最低系统）同步进索引
+  --no-platform-sync   不把新架构写进应用级 platform（默认会增补）
   --allow-appname-mismatch  --appname 与包内 manifest.appname 不一致时仍写入（默认拒绝）
 
 路径支持 ~ 与通配符（`--fpk 'dist/*.fpk'` 不展开也能用）；索引须为 UTF-8（BOM 自动去除，
@@ -283,6 +284,31 @@ def normalize_arch(p):
     return s
 
 
+def entry_platforms(entry):
+    value = entry.get("platform")
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def merge_platforms(entry, arches):
+    """把新写入的架构补进应用级 platform；all 已是全集时不改。"""
+    current = entry_platforms(entry)
+    if "all" in current:
+        return []
+    added = [arch for arch in arches if arch not in current]
+    if not current:
+        added = list(arches)
+    if not added:
+        return []
+    order = {"x86": 0, "arm": 1, "all": 2}
+    merged = sorted(dict.fromkeys(current + added), key=lambda item: (order.get(item, 9), item))
+    entry["platform"] = merged
+    return merged
+
+
 def main():
     p = argparse.ArgumentParser(description="一键更新 moo.json（Moo 应用源协议）")
     p.add_argument("--file", default="moo.json")
@@ -313,6 +339,8 @@ def main():
     p.add_argument("--sync-meta", action="store_true",
                    help="把包内 manifest 的展示字段（display_name / desc / license / "
                         "install_type / min_fnos）同步进索引（默认不动这些字段）")
+    p.add_argument("--no-platform-sync", action="store_true",
+                   help="不把新架构写进应用级 platform（默认会增补）")
     a = p.parse_args()
     a.appname = (a.appname or "").strip()
     a.version = (a.version or "").strip()
@@ -502,6 +530,10 @@ def main():
         pk.update({"download_url": p["url"], "sha256": p["sha256"],
                    "size": p["size"], "size_mb": round(p["size"] / 1048576, 2)})
         node_pkgs[p["arch"]] = pk
+    if not a.no_platform_sync:
+        merged_platform = merge_platforms(entry, [p["arch"] for p in pkgs])
+        if merged_platform:
+            print(f"应用 platform 增补：{', '.join(merged_platform)}")
     # --sync-meta（可选）：把包内 manifest 的展示字段同步进索引。
     # 默认不动这些字段——它们常被作者手工润色过；只有显式加参数才覆盖。
     if a.sync_meta:

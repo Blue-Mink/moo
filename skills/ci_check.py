@@ -119,14 +119,34 @@ def check_skill(skill: pathlib.Path) -> None:
 
     tests = skill / "tests"
     if tests.is_dir():
-        r = subprocess.run(
-            [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
-            cwd=skill, capture_output=True, text=True,
-        )
-        if r.returncode != 0:
-            fail(f"{name}: 测试失败\n{r.stderr[-400:]}")
+        ci = tests / "ci.sh"
+        if ci.is_file():
+            r = subprocess.run(
+                ["sh", str(ci)], cwd=skill, capture_output=True, text=True, timeout=300,
+            )
+            if r.returncode != 0:
+                fail(f"{name}: CI 门禁失败\n{(r.stdout + r.stderr)[-500:]}")
+            else:
+                ok(f"{name}: CI 门禁通过（sanitize + tests + E2E）")
         else:
-            ok(f"{name}: tests 通过")
+            r = subprocess.run(
+                [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+                cwd=skill, capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                fail(f"{name}: 测试失败\n{r.stderr[-400:]}")
+            else:
+                ok(f"{name}: tests 通过")
+            e2e = tests / "e2e_local.py"
+            if e2e.is_file():
+                r = subprocess.run(
+                    [sys.executable, str(e2e)],
+                    cwd=skill, capture_output=True, text=True, timeout=180,
+                )
+                if r.returncode != 0:
+                    fail(f"{name}: E2E 失败\n{r.stderr[-400:]}")
+                else:
+                    ok(f"{name}: E2E 通过")
 
 
 def check_ai_manifest() -> None:
