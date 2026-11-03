@@ -99,6 +99,12 @@ https://github.com/yuexps/FnDepot
 https://github.com/sushazhi/FnDepot
 https://github.com/DinDing1/FnDepot
 https://github.com/ccrabit/workbuddy2api-hub
-https://github.com/iqiuzixuan/fnmonitor
 https://github.com/Maluslock/FnDepot
 https://github.com/12hgl/fnos_music_ext
+
+# 2026-11-04 二次复核追加：包实际托管在自己仓库（含仓库内相对路径/raw 直链）
+https://github.com/RROrg/fn-apps
+https://github.com/710850609/FnDepot
+https://github.com/narrator-z/FnDepot
+https://github.com/frankluise5220/FnDepot
+https://github.com/tingwensuojian/FnDepot
