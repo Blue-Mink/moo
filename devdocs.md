@@ -1,4 +1,6 @@
 - [API 文档](https://github.com/Blue-Mink/moo/blob/main/docs/API.md) — 全部 HTTP 端点与请求示例
+- [FPK 构建技能](https://github.com/Blue-Mink/fn-fpk-builder-skill) — 打包、安装、替换与排障
+- [发布到 Moo 技能](https://github.com/Blue-Mink/moo/tree/main/skills/fpk-build-to-moo) — moo.json 协议与一键维护
 - [索引维护说明](https://github.com/Blue-Mink/moo/blob/main/templates/MOO_JSON_MAINTENANCE.md) — moo.json 字段、发版三步曲与排查
 - [moo.json 维护脚本](https://github.com/Blue-Mink/moo/blob/main/tools/update_moo_json.py) — 零依赖一键跟版
 - [自动跟版工作流模板](https://github.com/Blue-Mink/moo/blob/main/templates/moo-autoupdate.yml) — 贴进仓库即用
