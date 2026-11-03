@@ -93,3 +93,12 @@ https://github.com/shupian35/FnDepot
 https://github.com/smartartian/FnDepot
 https://github.com/tfgzs/FnDepot
 https://github.com/xfengyin/FnDepot
+
+# 2026-11-04 复核追加：技术上是 fork、但有实质自维护的源（人工提交 + 自有发布包/release）
+https://github.com/yuexps/FnDepot
+https://github.com/sushazhi/FnDepot
+https://github.com/DinDing1/FnDepot
+https://github.com/ccrabit/workbuddy2api-hub
+https://github.com/iqiuzixuan/fnmonitor
+https://github.com/Maluslock/FnDepot
+https://github.com/12hgl/fnos_music_ext
