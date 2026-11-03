@@ -3,5 +3,4 @@
 - [索引维护说明](https://github.com/Blue-Mink/moo/blob/main/templates/MOO_JSON_MAINTENANCE.md) — moo.json 字段、发版三步曲与排查
 - [moo.json 维护脚本](https://github.com/Blue-Mink/moo/blob/main/tools/update_moo_json.py) — 零依赖一键跟版
 - [自动跟版工作流模板](https://github.com/Blue-Mink/moo/blob/main/templates/moo-autoupdate.yml) — 贴进仓库即用
-- [源码仓库](https://github.com/Blue-Mink/moo) — 代码、Issue 与 Release
 - [开发者文档下载包](https://github.com/Blue-Mink/moo/raw/main/downloads/moo-devdocs.zip) — 构建 / 发布 / 索引维护材料的离线 zip（约 330 KB）
