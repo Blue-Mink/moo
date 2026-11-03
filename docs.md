@@ -1,5 +1,5 @@
-- [README 使用说明](https://github.com/Blue-Mink/moo/blob/main/README.md) — 安装、源管理、功能总览与常见问题
 - [应用介绍](https://github.com/Blue-Mink/moo/blob/main/%E5%BA%94%E7%94%A8%E4%BB%8B%E7%BB%8D.md) — Moo 的功能与设计介绍
+- [使用说明](https://github.com/Blue-Mink/moo/blob/main/README.md) — 安装、源管理、功能总览与常见问题
 - [API 文档](https://github.com/Blue-Mink/moo/blob/main/docs/API.md) — 全部 HTTP 端点、请求与响应字段、SSE 与错误码
 - [Moo 使用与诊断技能](https://github.com/Blue-Mink/moo/tree/main/skills/moo) — 给 AI 助手的操作手册与 API 参考
 - [应用安全审核技能](https://github.com/Blue-Mink/moo/tree/main/skills/moo-app-security-audit) — 第三方应用安全体检：病毒/木马、数据破坏、权限面与攻击面
