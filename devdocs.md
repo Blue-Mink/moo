@@ -1,0 +1,5 @@
+- [API 文档](https://github.com/Blue-Mink/moo/blob/main/docs/API.md) — 全部 HTTP 端点与请求示例
+- [索引维护说明](https://github.com/Blue-Mink/moo/blob/main/templates/MOO_JSON_MAINTENANCE.md) — moo.json 字段、发版三步曲与排查
+- [moo.json 维护脚本](https://github.com/Blue-Mink/moo/blob/main/tools/update_moo_json.py) — 零依赖一键跟版
+- [自动跟版工作流模板](https://github.com/Blue-Mink/moo/blob/main/templates/moo-autoupdate.yml) — 贴进仓库即用
+- [源码仓库](https://github.com/Blue-Mink/moo) — 代码、Issue 与 Release

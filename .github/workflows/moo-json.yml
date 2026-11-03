@@ -30,7 +30,10 @@ jobs:
   update:
     # 只处理正式发布：预发布（prerelease）不进索引 —— Moo 收录的是稳定版，
     # 否则用户会被提示「有新版本」但装到的是测试包。
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
+    # 平台守卫：Gitea 1.19+ 也会扫描 .github/workflows；本仓在 Gitea 侧另有
+    # .gitea/workflows/moo-json.yml（同一件事，避免双写）。加 server_url 判断后，
+    # 即使将来启用 Gitea Actions 且 runner 标签恰好匹配，本 job 也会跳过。
+    if: ${{ github.server_url == 'https://github.com' && (github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false) }}
     runs-on: ubuntu-latest
     env:
       FPK_GLOB: "*.fpk"

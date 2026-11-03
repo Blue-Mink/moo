@@ -765,6 +765,7 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 		ReleaseURL:     a.DownloadURL,
 		ReleaseNotes:   a.Changelog,
 		Homepage:       a.HomePage,
+		BugReportURL:   a.BugReportURL,
 		IconURL:        a.IconURL,
 		UpdatedAt:      a.UpdatedAt,
 		AppType:        appType,

@@ -27,6 +27,11 @@ import (
 
 var ghReleaseURLRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/releases/download/(.+)/([^/]+)$`)
 
+// 0.6.390：`releases/latest/download/<asset>`（无 tag）。tnnevol 等 203 个
+// 应用用这种链接——旧解析器只认带 tag 的路径，这些应用永远拿不到下载量/
+// 体积。latest 只是"最新 Release"的别名，按资产名查同一份缓存即可。
+var ghLatestURLRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/releases/latest/download/([^/]+)$`)
+
 // ParseGhReleaseURL 从 Release 下载链接解析 owner/repo/资产文件名。
 // 非 GitHub Release 链接（raw/jsDelivr/其它托管）返回 ok=false。
 //
@@ -35,7 +40,15 @@ var ghReleaseURLRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/r
 // `v1.10.34-lts-r8/1panel_..._x86.fpk` → 查 GitHub 资产元数据永远查不到
 // （下载量/大小两处都拿不到值）。
 func ParseGhReleaseURL(raw string) (owner, repo, asset string, ok bool) {
-	m := ghReleaseURLRe.FindStringSubmatch(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	if m := ghLatestURLRe.FindStringSubmatch(raw); m != nil {
+		asset = m[3]
+		if u, err := url.PathUnescape(asset); err == nil && u != "" {
+			asset = u
+		}
+		return m[1], m[2], asset, true
+	}
+	m := ghReleaseURLRe.FindStringSubmatch(raw)
 	if m == nil {
 		return "", "", "", false
 	}
@@ -64,6 +77,24 @@ type GHStats struct {
 	queue   []string                // 待拉仓库（最旧优先轮换）
 	queued  map[string]bool
 	client  *http.Client
+	// 0.6.390：可选 GitHub token。匿名 60 次/小时（30 仓库/轮）；
+	// 配了 token 是 5000 次/小时，99 个源仓库可更快覆盖一轮。
+	tokenMu sync.RWMutex
+	token   string
+}
+
+// SetToken 设置 GitHub API token（空串 = 回到匿名）。
+// 与 GHForks.SetToken 同语义：设置页更新后立即生效，无需重启。
+func (g *GHStats) SetToken(tok string) {
+	g.tokenMu.Lock()
+	g.token = strings.TrimSpace(tok)
+	g.tokenMu.Unlock()
+}
+
+func (g *GHStats) authToken() string {
+	g.tokenMu.RLock()
+	defer g.tokenMu.RUnlock()
+	return g.token
 }
 
 var ghStatsClient = &http.Client{Timeout: 15 * time.Second}
@@ -231,6 +262,13 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 	}
 	g.mu.Unlock()
 
+	// 0.6.390：本轮已处理的资产名。跨 Release 同名资产以「最新 Release」
+	// 为准（API 按发布时间倒序，本轮先写者保留）；但跨轮必须用新值覆盖
+	// 旧缓存——旧逻辑 `if !exists` 让同一资产首次抓到后永不更新，两台机器
+	// 的下载量各自冻结在首见时刻（用户实报：同一应用主 1432 / 备 1108）。
+	seen := map[string]bool{}
+	seenSizes := map[string]bool{}
+
 	// 0.6.336：页上限 3→8。conversun/fnos-apps 有 466 个 Release（5 页），
 	// 只拉 3 页时 175 个应用里 37 个的资产不在窗口内 → 拿不到 size。
 	// 循环本身按「本页不足 100 条」提前结束，多数仓库仍只 1 次请求。
@@ -245,6 +283,9 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 			return err
 		}
 		req.Header.Set("Accept", "application/vnd.github+json")
+		if tok := g.authToken(); tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
 		if etag != "" {
 			req.Header.Set("If-None-Match", etag)
 		}
@@ -296,11 +337,15 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 				if a.Name == "" {
 					continue
 				}
-				if _, exists := rs.Assets[a.Name]; !exists {
+				// 每轮覆盖旧值（修「下载量冻结」）；同一轮内先到先得，
+				// 保证同名资产取最新 Release 的计数。
+				if !seen[a.Name] {
 					rs.Assets[a.Name] = a.DownloadCount
+					seen[a.Name] = true
 				}
-				if _, exists := rs.Sizes[a.Name]; !exists && a.Size > 0 {
+				if a.Size > 0 && !seenSizes[a.Name] {
 					rs.Sizes[a.Name] = a.Size
+					seenSizes[a.Name] = true
 				}
 			}
 		}

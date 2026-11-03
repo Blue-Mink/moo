@@ -121,7 +121,10 @@ const BackgroundTasksIndicator: React.FC<{ onView?: (appname: string) => void }>
   const ok = t.status === 'done';
 
   return (
-    <div className="fixed top-14 left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm">
+    // 0.6.500：z-80 提到对话框遮罩（z-50）之上，并显式 pointer-events-auto——
+    // 设置页/详情页打开时通知栏仍可见可点；点击它不再被当成「外点」关闭对话框
+    //（见 lib/noticeOutside.ts 与两个 Dialog 的 onInteractOutside 守卫）。
+    <div data-moo-top-notice className="fixed top-14 left-1/2 z-[80] -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm pointer-events-auto">
       {/* 同一时刻最多 1 条（队列其余的排队等待，不竖排堆叠） */}
       <div className="rounded-2xl border border-border/20 bg-card/95 backdrop-blur px-3.5 py-2.5 shadow-appstore">
         <div className="flex items-center gap-2">

@@ -291,13 +291,139 @@ func readFpkManifestEntry(path string) ([]byte, error) {
 	return nil, fmt.Errorf("manifest not found in %s", filepath.Base(path))
 }
 
+// readFpkEntry 读取 FPK 内指定名称的文本条目（tar.gz 优先，zip 回退）。
+// names 按优先级排列（如 i18n/zh → i18n/en）：归档顺序不可靠，先把命中项
+// 收集起来，再按调用方给的顺序取第一个。
+func readFpkEntry(path string, names ...string) ([]byte, error) {
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[n] = true
+	}
+	found := map[string][]byte{}
+
+	fh, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer fh.Close()
+
+	fh.Seek(0, io.SeekStart)
+	if gr, gerr := gzip.NewReader(fh); gerr == nil {
+		tr := tar.NewReader(gr)
+		for {
+			hdr, terr := tr.Next()
+			if terr != nil {
+				break
+			}
+			if hdr.Typeflag != tar.TypeReg {
+				continue
+			}
+			name := strings.TrimPrefix(hdr.Name, "./")
+			if !want[name] {
+				continue
+			}
+			data, rerr := io.ReadAll(io.LimitReader(tr, 1<<20))
+			if rerr != nil {
+				gr.Close()
+				return nil, rerr
+			}
+			found[name] = data
+		}
+		gr.Close()
+	}
+	for _, n := range names {
+		if d, ok := found[n]; ok {
+			return d, nil
+		}
+	}
+
+	// 回退 zip 格式
+	fh.Seek(0, io.SeekStart)
+	st, serr := fh.Stat()
+	if serr != nil {
+		return nil, serr
+	}
+	zr, zerr := zip.NewReader(fh, st.Size())
+	if zerr != nil {
+		return nil, zerr
+	}
+	zfound := map[string][]byte{}
+	for _, zf := range zr.File {
+		name := strings.TrimPrefix(zf.Name, "./")
+		if !want[name] {
+			continue
+		}
+		rc, err := zf.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(io.LimitReader(rc, 1<<20))
+		rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		zfound[name] = data
+	}
+	for _, n := range names {
+		if d, ok := zfound[n]; ok {
+			return d, nil
+		}
+	}
+	return nil, fmt.Errorf("%s not found in %s", strings.Join(names, "/"), filepath.Base(path))
+}
+
+// parseI18nCommon 解析 i18n/<lang> 的 [common] 段（display_name / desc）。
+// 第三方包常用 ${common.display_name} 占位，manifest 里没有真名，真名在
+// i18n/zh（或 en）里——不解析就会在「已下载的 FPK」列表里只剩包名。
+func parseI18nCommon(data []byte) (displayName, desc string) {
+	section := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.ToLower(strings.TrimSpace(line[1 : len(line)-1]))
+			continue
+		}
+		if section != "common" {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "display_name":
+			displayName = cleanManifestValue(v)
+		case "desc", "description":
+			desc = cleanManifestValue(v)
+		}
+	}
+	return displayName, desc
+}
+
 // parseFpkManifest 解析一个 FPK 包的 manifest。
 func parseFpkManifest(path string) (localFpkInfo, error) {
 	data, err := readFpkManifestEntry(path)
 	if err != nil {
 		return localFpkInfo{}, err
 	}
-	return parseManifestText(data), nil
+	info := parseManifestText(data)
+	// manifest 用 ${common.display_name}/${common.desc} 占位时，从 i18n 取真名。
+	// 只对缺字段的包多读一次归档（线上 167 个包里约 10 个命中），不影响常规包。
+	if info.DisplayName == "" || info.Desc == "" {
+		if raw, ierr := readFpkEntry(path, "i18n/zh", "i18n/zh-CN", "i18n/en"); ierr == nil {
+			dn, d := parseI18nCommon(raw)
+			if info.DisplayName == "" {
+				info.DisplayName = dn
+			}
+			if info.Desc == "" {
+				info.Desc = d
+			}
+		}
+	}
+	return info, nil
 }
 
 // EnsureIndex 确保全量索引在后台进行（目录快照变化时重新扫描）。

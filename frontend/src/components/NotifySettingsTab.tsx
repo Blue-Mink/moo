@@ -185,7 +185,7 @@ const ChannelFormDialog: React.FC<{
               {format === 'card' && (
                 <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
                   {type === 'wecom'
-                    ? '卡片点击跳转通知详情页；需在本页「应用访问入口」配置（默认端口 38100），未配置时自动按默认 markdown 发送。'
+                    ? '卡片点击跳转通知详情页；需在本页「通知详情地址」配置（飞牛面板网关地址，默认端口 5666），未配置时自动按默认 markdown 发送。'
                     : type === 'dingtalk'
                     ? '卡片 = 钉钉 actionCard 卡片版式（不再带跳转入口）。'
                     : type === 'feishu'
@@ -194,7 +194,7 @@ const ChannelFormDialog: React.FC<{
                     ? '卡片与默认 markdown 同款（不再追加链接）。'
                     : type === 'pushplus'
                     ? '与默认形式同款（不再追加详情链接）。'
-                    : 'iOS 通知点击直接打开详情页；需配置「应用访问入口」。'}
+                    : 'iOS 通知点击直接打开详情页；需配置「通知详情地址」。'}
                 </p>
               )}
             </div>
@@ -312,10 +312,43 @@ const NotifySettingsTab: React.FC = () => {
   const [form, setForm] = useState<ChannelFormState | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
-  // 详情页地址（0.6.144，卡片形式跳转用的全局配置；走 notify-settings view_base）
-  const [viewBaseDraft, setViewBaseDraft] = useState('');
+  // 通知详情地址（0.6.500：单个完整地址输入框，自动跟随当前访问地址与端口）。
+  // 走 notify-settings view_base，仍是完整 URL。Moo 的 38100 只监听本机，
+  // 手机能打开的是飞牛面板网关地址（默认 5666），所以默认值取「当前访问地址」。
+  const [vbUrl, setVbUrl] = useState('');
+  const [vbSaved, setVbSaved] = useState('');
   const [savingViewBase, setSavingViewBase] = useState(false);
-  // 应用访问入口折叠（0.6.144 补丁：「详情页地址」改名+折叠卡，沿用 0.6.130 全默认折叠约定）
+
+  const currentAccessUrl = useCallback(() => {
+    const loc = window.location;
+    const proto = (loc.protocol || 'http:').replace(':', '') || 'http';
+    const host = loc.hostname || '127.0.0.1';
+    const port = loc.port ? `:${loc.port}` : '';
+    const path = ((loc.pathname || '/app/moo').replace(/\/+$/, '') || '/app/moo');
+    return `${proto}://${host}${port}${path}`;
+  }, []);
+
+  const viewBaseValue = vbUrl.trim();
+  const parseUrlPart = (u: string, part: 'port' | 'hostname') => {
+    try { return new URL(u)[part]; } catch { return null; }
+  };
+  const viewPortLooksLocalOnly = parseUrlPart(viewBaseValue, 'port') === '38100';
+  // 已保存地址与当前访问地址「同主机不同端口」→ 可能换过端口，提示一键更新（不静默改写）。
+  const viewPortMismatch = (() => {
+    if (!vbSaved) return false;
+    const savedPort = parseUrlPart(vbSaved, 'port');
+    const savedHost = parseUrlPart(vbSaved, 'hostname');
+    if (!savedPort || !savedHost || savedHost !== window.location.hostname) return false;
+    return savedPort !== window.location.port;
+  })();
+  const viewUrlInvalid = !!viewBaseValue && (() => {
+    try {
+      const u = new URL(viewBaseValue);
+      return !/^https?:$/.test(u.protocol) || !u.hostname;
+    } catch { return true; }
+  })();
+  // 通知详情地址折叠（0.6.398 语义调整：「应用访问入口」→「通知详情地址」+ IP/端口自动预填；
+  // 沿用 0.6.130 全默认折叠约定）
   const [viewOpen, setViewOpen] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem('new-store.notify-viewbase.collapsed');
@@ -381,11 +414,15 @@ const NotifySettingsTab: React.FC = () => {
     fetchNotifySettings()
       .then((d) => {
         setSettings(d);
-        setViewBaseDraft(d.view_base || '');
+        const raw = (d.view_base || '').trim();
+        setVbSaved(raw);
+        // 已保存值原样保留（不静默改写）；未配置时按「当前访问地址」预填，
+        // 因此用户安装/更换端口后，预填值会随打开的地址自动变。
+        setVbUrl(raw || currentAccessUrl());
       })
       .catch(() => toast.error('通知设置加载失败'));
     void loadChannels();
-  }, [loadChannels]);
+  }, [loadChannels, currentAccessUrl]);
 
   useEffect(() => {
     if (sub === 'record') void loadLog();
@@ -422,12 +459,17 @@ const NotifySettingsTab: React.FC = () => {
     }
   };
 
-  // 详情页地址保存（0.6.144）：空串 = 清除。
+  // 通知详情地址保存（0.6.500）：单个完整地址；空值 = 清除；非法 URL 先拦。
   const saveViewBase = async () => {
+    if (viewUrlInvalid) {
+      toast.error('请输入完整地址，如 http://192.0.2.10:5666/app/moo');
+      return;
+    }
     setSavingViewBase(true);
     try {
-      await updateNotifySettings({ view_base: viewBaseDraft.trim() });
-      toast.success(viewBaseDraft.trim() ? '应用访问入口已保存' : '应用访问入口已清除');
+      await updateNotifySettings({ view_base: viewBaseValue });
+      setVbSaved(viewBaseValue);
+      toast.success(viewBaseValue ? '通知详情地址已保存' : '通知详情地址已清除');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败');
     } finally {
@@ -534,11 +576,9 @@ const NotifySettingsTab: React.FC = () => {
             </p>
           </div>
 
-          {/* 应用访问入口（0.6.144：卡片形式跳转用的全局配置；0.6.144 补丁：
-              「详情页地址」→「应用访问入口（默认端口 38100）」，标题字体对齐「外部渠道通知」，
-              填写区折叠展开（默认折叠，状态持久化），头部带已配置/未配置状态点；
-              0.6.144 补丁2：仅当存在卡片形式渠道时才显示——view_base 只被卡片跳转消费，
-              其余形式渠道对它无意义（未配置时卡片渠道也自动降级 markdown）） */}
+          {/* 通知详情地址（0.6.398：语义由「应用访问入口」改为「通知详情地址」；
+              IP/端口拆开、自动预填当前访问地址——Moo 的 38100 只监听本机，
+              手机能打开的是飞牛面板网关地址（默认 5666）。仅卡片形式渠道消费。 */}
           {channels.some((c) => c.format === 'card') && (
           <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
             <button
@@ -548,33 +588,59 @@ const NotifySettingsTab: React.FC = () => {
               className="w-full flex items-center justify-between gap-2 text-left focus:outline-none"
             >
               <span className="text-sm font-medium">
-                应用访问入口
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">（默认端口 38100）</span>
+                通知详情地址
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">（卡片点按跳转）</span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className={cn("text-[11px]", viewBaseDraft.trim() ? "text-emerald-600" : "text-amber-600")}>
-                  {viewBaseDraft.trim() ? '已配置' : '未配置'}
+                <span className={cn("text-[11px]", vbSaved ? "text-emerald-600" : "text-amber-600")}>
+                  {vbSaved ? '已配置' : '未配置'}
                 </span>
                 <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", viewOpen && "rotate-180")} />
               </span>
             </button>
             {viewOpen && (
-              <div className="mt-2.5">
+              <div className="mt-2.5 space-y-1.5">
                 <div className="flex gap-1.5">
                   <Input
-                    className="h-9 text-sm flex-1"
-                    value={viewBaseDraft}
-                    onChange={(e) => setViewBaseDraft(e.target.value)}
-                    placeholder="如 http://<NAS_IP>:38100（手机可访问的 Moo 入口）"
+                    className="h-9 text-sm flex-1 font-mono"
+                    value={vbUrl}
+                    onChange={(e) => setVbUrl(e.target.value)}
+                    placeholder="http://192.0.2.10:5666/app/moo"
                     spellCheck={false}
+                    inputMode="url"
                   />
                   <Button size="sm" variant="outline" onClick={saveViewBase} disabled={savingViewBase} className="h-9 shrink-0">
                     {savingViewBase && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
                     保存
                   </Button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">
-                  企业微信卡片点按后，在该地址下打开通知详情页看完整内容；未配置时，企微卡片形式自动按默认 markdown 发送。
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" className="h-6 shrink-0 px-1.5 text-[11px]"
+                    onClick={() => setVbUrl(currentAccessUrl())}>
+                    使用当前访问地址
+                  </Button>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    {vbUrl.trim() || '未填写'}
+                  </span>
+                </div>
+                {viewUrlInvalid && (
+                  <p className="text-[11px] leading-relaxed text-red-500">
+                    地址格式不对，请带协议与主机，如 http://192.0.2.10:5666/app/moo
+                  </p>
+                )}
+                {!viewUrlInvalid && viewPortLooksLocalOnly && (
+                  <p className="text-[11px] leading-relaxed text-amber-600">
+                    38100 是 Moo 的本机端口，手机打不开；请改用飞牛面板端口（默认 5666），或点「使用当前访问地址」。
+                  </p>
+                )}
+                {!viewUrlInvalid && viewPortMismatch && (
+                  <p className="text-[11px] leading-relaxed text-amber-600">
+                    当前访问端口与已保存地址不一致（保存的是 {parseUrlPart(vbSaved, 'port') || '默认端口'}）；
+                    如已更换端口，点「使用当前访问地址」更新。
+                  </p>
+                )}
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  手机点开通知卡片时，打开这个地址下的通知详情页看完整内容；留空则清除（卡片形式改按默认 markdown 发送）。
                 </p>
               </div>
             )}

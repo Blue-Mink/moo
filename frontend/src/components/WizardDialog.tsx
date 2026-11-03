@@ -89,6 +89,10 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
   const isMulti = steps.length > 1;
   const isLast = page >= steps.length - 1;
   const curTitle = steps[page]?.stepTitle?.trim() || '';
+  // 0.6.397（用户复测第 2 项）：限高滚动只作用于「含勾选项」的步骤——勾选框和按钮
+  // 必须同屏；纯说明页（如 Moo 向导第 3 页「关于 Moo」）没有勾选框，应完整显示，
+  // 不该被截成 224px 小框。
+  const stepHasCheckbox = (steps[page]?.items ?? []).some((it) => it.type === 'checkbox');
 
   const markTouched = (idx: number) => {
     setTouched((prev) => {
@@ -147,10 +151,17 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
           <div className="space-y-4 py-2 px-1.5 overflow-y-auto flex-1 min-h-0">
             {(steps[page]?.items ?? []).map((item, idx) => {
               if (item.type === 'tips') {
+                // 0.6.396：长文案（如 LICENSE 全文）改用限高可滚动框——否则在手机上
+                // 会把勾选框和按钮挤出屏幕，用户得先滚完整篇才能勾选。
+                // 0.6.397：仅本步骤确实含勾选项时才限高；纯说明页完整显示。
+                const longTips = stepHasCheckbox && (item.helpText ?? '').length > 500;
                 return (
                   <p
                     key={idx}
-                    className="text-xs text-muted-foreground leading-relaxed [&_a]:text-primary [&_a]:underline"
+                    className={cn(
+                      'text-xs text-muted-foreground leading-relaxed [&_a]:text-primary [&_a]:underline',
+                      longTips && 'max-h-56 overflow-y-auto rounded-lg border border-border/40 bg-muted/20 px-3 py-2',
+                    )}
                     // 0.6.328 安全审计 W1：helpText 由打包者编写、可能含 <b>/<a>，
                     // 与全站（desc_html / README）统一过 DOMPurify 消毒后再渲染，
                     // 剥离 script/iframe/on* 等危险节点（默认白名单保留 strong/a/br/span）。
@@ -163,9 +174,26 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
               // 0.6.321：带 options 的字段（fnOS radio/select，如 fnMusic「初始音源（三选一）」）
               // 渲染为可选项组+默认预选（initValue 已预填进 values，选中态即默认项）；
               // 此前一律掉级为文本框，用户被迫手输 "musicdl" 这类值。
-              // checkbox（多选）暂不猜测取值契约，保持文本回落。
+              // 0.6.394（用户报「勾选我已阅读并同意」只显示成文字/输入框）：checkbox 不再
+              // 掉级为文本框——带 options 的渲染成方形勾选框（值=勾选项 value 逗号拼接，
+              // 单项即 "agree"，与 fnmedia-ext 的 install 脚本 *agree* 匹配口径一致）；
+              // 无 options 时渲染单个勾选框，值 "true"/""。
               const opts = item.options;
               const isChoice = !!opts && opts.length > 0 && item.type !== 'checkbox';
+              const isCheckbox = item.type === 'checkbox';
+              const cbOpts = opts && opts.length > 0 ? opts : [{ label: '同意', value: 'true' }];
+              const cbRaw = (values[item.field as string] ?? '').trim();
+              const cbSet = new Set(cbRaw.split(',').map((x) => x.trim()).filter(Boolean));
+              // 兼容 initValue 直接写 "true"/"1" 的单项勾选（视作已勾）
+              const cbTruthy = /^(true|1|yes|on)$/i.test(cbRaw) && cbOpts.length === 1;
+              const cbChecked = (ov: string) => cbSet.has(ov) || cbTruthy;
+              const toggleCb = (ov: string) => setValues((v) => {
+                const cur = new Set(
+                  (v[item.field as string] ?? '').split(',').map((x) => x.trim()).filter(Boolean),
+                );
+                if (cur.has(ov)) cur.delete(ov); else cur.add(ov);
+                return { ...v, [item.field as string]: [...cur].join(',') };
+              });
               // 0.6.321：switch 字段（如 fnMusic「安装完成后立即启用扩展」，initValue "true"）
               // 渲染为真开关（此前掉级为文本框，用户要手输 true/false）；取值契约 "true"/"false"
               const isSwitch = item.type === 'switch';
@@ -204,6 +232,31 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
                                 setValues((v) => ({ ...v, [item.field as string]: ov }))
                               }
                               className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                            />
+                            <span className="leading-relaxed">{o.label ?? ov}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : isCheckbox ? (
+                    <div className="space-y-1" role="group" aria-label={item.label ?? item.field}>
+                      {cbOpts.map((o) => {
+                        const ov = String(o.value);
+                        const checked = cbChecked(ov);
+                        return (
+                          <label
+                            key={ov}
+                            className={cn(
+                              'flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors',
+                              checked ? 'bg-primary/10' : 'hover:bg-muted/50'
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              value={ov}
+                              checked={checked}
+                              onChange={() => toggleCb(ov)}
+                              className="mt-0.5 h-4 w-4 shrink-0 rounded accent-primary"
                             />
                             <span className="leading-relaxed">{o.label ?? ov}</span>
                           </label>

@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（Moo 自索引 + Moo Mate 条目）",
   "description": "Moo 生态自索引（含 Moo 应用商店与 Moo Mate 伴侣工具两个条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-10-28T09:29:16+08:00"
+  "updated_at": "2026-11-03T21:48:52+08:00"
  },
  "apps": {
   "moo": {
@@ -20,8 +20,27 @@
    "author": "Blue-Mink",
    "distributor": "Blue-Mink",
    "homepage": "https://github.com/Blue-Mink/moo",
+   "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.6.500": {
+     "updated_at": "2026-11-03T23:30:00+08:00",
+     "changelog": "安装向导：勾选类字段恢复为勾选框，未勾选许可不能下一步；长说明改为区内滚动，说明页不再被截断；已下载 FPK 的向导标题显示应用名\n安装与更新：重复点击或排队时不再误报「错误代码 10500」；平台报错但应用实际已装好时按成功处理\n通知与日志：设置页点顶部通知栏不再关闭设置页；日志页新增「清理日志」，可按保留 1 / 7 / 30 天或全部清空\n通知设置：「通知详情地址」改为单个完整地址，自动跟随当前访问地址与端口预填；换端口后点「使用当前访问地址」即可更新\n界面与详情：已停止的应用在详情页直接显示「启动」；应用图标升级为 512 高清\n数据与性能：下载量统计不再冻结；已下载 FPK 列表显示应用名与版本、支持批量删除；日志展开大文件明显更快\n关于页：更新日志、文档与开发者文档改读远程清单，不发版也能更新内容",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.500/moo_0.6.500_x86.fpk",
+       "sha256": "6fc7dbe50a7d2a9d19ed685be92a8a9a12a9ab14113c109e930c04cb894a290b",
+       "size": 5269739,
+       "size_mb": 5.03
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.500/moo_0.6.500_arm.fpk",
+       "sha256": "a1e870d342bf68c139da2873229452694f14d796e292fdd4eebf2f2ca2476a87",
+       "size": 4772495,
+       "size_mb": 4.55
+      }
+     }
+    },
     "0.6.383": {
      "updated_at": "2026-11-01T07:40:00+08:00",
      "changelog": "新增 GH TBAP GitHub 加速源，实测下载最快（偶有抖动会自动换源）\n发现页推荐位改读远程清单（一行一条 appname@源名）：顺序、条数随清单调整，改清单免重建 FPK，缺的应用整条跳过不留空位；推荐位扩到四张，横幅按条数自适应\n发现页不再被推荐清单的网络抓取阻塞：改为缓存直出 + 后台刷新，首屏从最坏十几秒降到毫秒级\n应用内更新改为镜像优先，并加首字节/停滞看护：GitHub 直连不通时也能完成升级\nMoo 的加速镜像表开放给 Moo Mate 复用（新增 /api/mate/mirrors），Mate 拉包同样走镜像\n修复 README 图片与预览图偶发「404」误判：同一文件需两个独立来源都 404 才判死，并放宽单图抓取预算\n误判负缓存由 30 分钟缩短到 5 分钟，失败后更快自动重试\n移动端：底部 Dock 与应用列表同宽，搜索展开不再把展示模式按钮挤到第二行",
@@ -39,27 +58,9 @@
        "size_mb": 4.51
       }
      }
-    },
-    "0.6.377": {
-     "updated_at": "2026-10-30T06:33:29+08:00",
-     "changelog": "修复图标缓存后台落盘协程的并发竞态（-race 下 3 个用例报数据竞争，优雅退出时可能重复落盘）\n抓图日志不再把「请求取消」误记为截断（TRUNC），超时单独记 TIMEOUT，真截断才记 TRUNC\n图片完整性加固：取消「小于 1KB 一律视为完整」的豁免（900 B 的截断 JPEG 曾因此被缓存 7 天），合法极小图照常通过，Content-Length 校验口径统一",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_x86.fpk",
-       "sha256": "2e8d1f098eaf0e6296811ae52d6b4f0225985824791e800e9974a3d67c820ff0",
-       "size": 5176019,
-       "size_mb": 4.9
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.377/moo_0.6.377_arm.fpk",
-       "sha256": "0d3c4fac0f4bf62ee7833875ead06ec7e91b743fa70082891923fd4bc2ba1695",
-       "size": 4716160,
-       "size_mb": 4.5
-      }
-     }
     }
    },
-   "sha256": "9a7b90b31ec0e3e1669308f077cb78569a711453cc1a95940ea117f9cd19ca92",
+   "sha256": "6fc7dbe50a7d2a9d19ed685be92a8a9a12a9ab14113c109e930c04cb894a290b",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -71,12 +72,12 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-11-01T07:40:00+08:00",
-   "version": "0.6.383",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.383/moo_0.6.383_x86.fpk",
-   "size": 5195238,
+   "updated_at": "2026-11-03T23:30:00+08:00",
+   "version": "0.6.500",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.500/moo_0.6.500_x86.fpk",
+   "size": 5269739,
    "service_port": "38100",
-   "size_mb": 4.95,
+   "size_mb": 5.03,
    "changelog": ""
   },
   "moo-mate": {
@@ -90,6 +91,7 @@
    "author": "Blue-Mink",
    "distributor": "Blue-Mink",
    "homepage": "https://github.com/Blue-Mink/moo",
+   "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
     "0.2.36": {

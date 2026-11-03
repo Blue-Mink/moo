@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +103,18 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 	}
 	defer release()
 
+	// 1.6) 0.6.398：重复安装保护——同一应用连点两次/排队时，后一个任务
+	// 开始前前一个可能已经装好；此时再提交 install/task 会被平台以
+	// 10500「当前状态不支持该操作」拒绝，用户看到「错误代码10500」，
+	// 但其实应用已经安装成功。先回查已装版本，达标就直接按完成处理。
+	if app.Version != "" {
+		if inst, ierr := platform.FindInstalled(ctx, app.Name); ierr == nil && inst != nil &&
+			(source.VersionEqual(inst.Version, app.Version) || source.IsNewer(inst.Version, app.Version)) {
+			progress(fmt.Sprintf("已安装 %s，无需重复安装", inst.Version), 100)
+			return nil
+		}
+	}
+
 	// 2) 暂存
 	// 0.6.325 H4(D2)：daemon 进度可能是千分比（2110=21.1%），先归一到
 	// 0~1 再映射进度窗口，避免 SSE 透出 >100 的进度。
@@ -124,10 +137,18 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 	// 2.5) 包版本交叉校验（防「源声明版本 ≠ 实际包」的假升级）：
 	// 升级时包版本必须严格高于已装版本，否则平台任务会「成功」地把
 	// 旧版本再装一遍，版本纹丝不动却从「有更新」里消失不了。
+	// 0.6.398：同版本重复安装（重复点击/排队）直接按完成处理，
+	// 不再提交 update/task 去撞平台 10500。
 	if staged.Installed {
-		if inst, err := platform.FindInstalled(ctx, staged.AppName); err == nil && inst != nil &&
-			!source.IsNewer(staged.Version, inst.Version) {
-			return fmt.Errorf("源提供的包版本为 %s，并不比已安装的 %s 更新——源的版本数据可能有误，本次未执行更新", staged.Version, inst.Version)
+		if inst, err := platform.FindInstalled(ctx, staged.AppName); err == nil && inst != nil {
+			if source.VersionEqual(inst.Version, staged.Version) || source.IsNewer(inst.Version, staged.Version) {
+				platform.RemoveStagedPackage(staged.Path)
+				progress(fmt.Sprintf("已安装 %s，无需重复安装", inst.Version), 100)
+				return nil
+			}
+			if !source.IsNewer(staged.Version, inst.Version) {
+				return fmt.Errorf("源提供的包版本为 %s，并不比已安装的 %s 更新——源的版本数据可能有误，本次未执行更新", staged.Version, inst.Version)
+			}
 		}
 	}
 	if !source.VersionEqual(staged.Version, app.Version) && source.VersionLess(staged.Version, app.Version) {
@@ -165,6 +186,16 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 		})
 	}
 	if err != nil {
+		// 0.6.398：平台状态机偶发误报（典型 10500「当前状态不支持该操作」），
+		// 实际安装可能已经完成——回查已装版本，达标就按成功处理，
+		// 不再把假失败弹给用户。
+		if p.installedAtLeast(ctx, staged.AppName, staged.Version, 20*time.Second) {
+			log.Printf("[install] %s %s 平台返回错误但已装版本已达标，按成功处理: %v",
+				staged.AppName, staged.Version, err)
+			platform.RemoveStagedPackage(staged.Path)
+			progress(fmt.Sprintf("%s完成（平台返回错误，已按实际安装结果确认）", what), 100)
+			return nil
+		}
 		return err
 	}
 
@@ -331,6 +362,30 @@ func sourceMismatchErr(app *source.App, path, head string) error {
 	}
 	msg += "——源的包文件可能未及时更新，请等源维护者修复后再试，或从其他源安装"
 	return errors.New(msg)
+}
+
+// installedAtLeast 回查已装版本是否已达到 target（0.6.398：错误补偿用，
+// 必须比版本，不能只看「出现在已装列表」——旧版本已在列表里时那会误判）。
+func (p *Pipeline) installedAtLeast(ctx context.Context, appName, target string, budget time.Duration) bool {
+	if target == "" {
+		return false
+	}
+	deadline := time.Now().Add(budget)
+	for {
+		if inst, err := platform.FindInstalled(ctx, appName); err == nil && inst != nil {
+			if source.VersionEqual(inst.Version, target) || source.IsNewer(inst.Version, target) {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // verifyResult 验证安装/升级的最终状态（60s 上限，2s 轮询）：

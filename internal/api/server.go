@@ -65,6 +65,15 @@ type Server struct {
 	// 0.6.380：后台单飞刷新标志（TTL 过期不再阻塞请求路径，见 recommend_list.go）。
 	recoRefreshing bool
 
+	// 0.6.384：关于页远程清单缓存（changelog.md / docs.md / devdocs.md，
+	// 10min TTL + last-known-good + 失败退避，见 about_lists.go）。
+	aboutMu         sync.Mutex
+	aboutSnap       aboutSnapshot
+	aboutAt         time.Time
+	aboutLoaded     bool
+	aboutURL        string
+	aboutRefreshing bool
+
 	iconStoreOnce sync.Once
 	iconStoreV    *iconStore // 图标两级缓存（内存 1h，容量 env MOO_ICON_MEM_MAX 默认 256/0=禁用 + 磁盘 7 天 + 负缓存 30min）
 
@@ -239,6 +248,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 		writeJSON(w, map[string]any{"version": s.Version, "platform": "fnos"})
 	})
 	mux.HandleFunc("GET /api/about", s.aboutGet)
+	// 0.6.384：关于页远程清单（更新日志 / 文档和技能 / 开发者文档）立即刷新。
+	mux.HandleFunc("POST /api/about/lists/refresh", s.requireAdmin(s.aboutListsRefresh))
 
 	// ---- 通知设置（0.6.120，形式对齐 fn-knock 事件中心）----
 	mux.HandleFunc("GET /api/notify-settings", s.requireAdmin(s.notifySettingsGet))
@@ -330,7 +341,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/mate/mirrors", s.requireAdmin(s.mateMirrors))
 	mux.HandleFunc("POST /api/settings/proxy-test", s.requireAdmin(s.proxyTestHandler))
 	mux.HandleFunc("GET /api/backups", s.requireAdmin(s.getBackups))
-	mux.HandleFunc("GET /api/logs", s.requireAdmin(s.getLogs)) // 0.6.249 设置页「日志」在线查看
+	mux.HandleFunc("GET /api/logs", s.requireAdmin(s.getLogs))              // 0.6.249 设置页「日志」在线查看
+	mux.HandleFunc("POST /api/logs/cleanup", s.requireAdmin(s.cleanupLogs)) // 0.6.500 按天保留/全部清空
 	mux.HandleFunc("POST /api/backups", s.requireAdmin(s.createBackup))
 	mux.HandleFunc("DELETE /api/backups/{name}", s.requireAdmin(s.deleteBackup))
 	mux.HandleFunc("POST /api/backups/clean", s.requireAdmin(s.cleanCacheHandler))
@@ -360,6 +372,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/fpk-downloads", s.requireAdmin(s.listDownloads))
 	mux.HandleFunc("DELETE /api/fpk-downloads/{name}", s.requireAdmin(s.removeDownload))
 	mux.HandleFunc("POST /api/fpk-downloads/upload", s.requireAdmin(s.uploadFpkDownload))
+	mux.HandleFunc("POST /api/fpk-downloads/batch-delete", s.requireAdmin(s.batchRemoveDownloads))
 	mux.HandleFunc("POST /api/fpk-downloads/{name}/install", s.requireAdmin(s.installDownloadSSE))
 	mux.HandleFunc("GET /api/fpk-downloads/{name}/wizard", s.requireAdmin(s.fpkDownloadWizard))
 

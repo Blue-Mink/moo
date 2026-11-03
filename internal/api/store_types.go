@@ -58,9 +58,13 @@ type AppInfo struct {
 	// InstallVolume / InstallPath（0.6.337）：已安装应用的真实落盘位置。
 	// InstallVolume>0 = /volN/@appcenter/<app>；=0 且 InstallPath 非空 =
 	// 系统空间 /var/apps/<app>（root 应用）。未安装为空。
-	InstallVolume   int    `json:"install_volume,omitempty"`
-	InstallPath     string `json:"install_path,omitempty"`
-	Homepage        string `json:"homepage,omitempty"`
+	InstallVolume int    `json:"install_volume,omitempty"`
+	InstallPath   string `json:"install_path,omitempty"`
+	Homepage      string `json:"homepage,omitempty"`
+	// BugReportURL 源声明的问题反馈地址（moo.json / fnpack.json 的
+	// bug_report_url，如 .../issues）。仅详情下发（列表瘦身剥离），
+	// 详情页「问题反馈」链接用；源未提供时为空，不占行。
+	BugReportURL    string `json:"bug_report_url,omitempty"`
 	IconURL         string `json:"icon_url,omitempty"`
 	UpdatedAt       string `json:"updated_at,omitempty"`
 	DownloadCount   *int   `json:"download_count,omitempty"`
@@ -267,7 +271,10 @@ type Settings struct {
 	SourceListURL     string `json:"source_list_url,omitempty"`
 	// 0.6.379：发现页推荐位清单地址（空=内置公网默认）。
 	RecommendListURL string `json:"recommend_list_url,omitempty"`
-	SourceListOff    bool   `json:"source_list_disabled"`
+	// 0.6.384：关于页远程清单目录（changelog.md / docs.md / devdocs.md；
+	// 空=内置公网默认）。
+	AboutListsURL string `json:"about_lists_url,omitempty"`
+	SourceListOff bool   `json:"source_list_disabled"`
 	// 0.6.325 安全加固 R1：允许「源列表同步」添加非公共地址的源（默认 false）。
 	SourceListAllowPrivate bool `json:"source_list_allow_private"`
 	// GitHubTokenSet 0.6.334：是否已配置 GitHub API token（**只透出是否设置，
@@ -307,6 +314,8 @@ type FpkDownloadFile struct {
 	AppName string `json:"appname,omitempty"`
 	// DisplayName 包 manifest 的 display_name（中文名/正式名；索引未就绪时为空）。
 	DisplayName string `json:"display_name,omitempty"`
+	// Version 0.6.392：包 manifest 的 version（列表第三行显示在安装包大小前）。
+	Version string `json:"version,omitempty"`
 	// Parsing 0.6.332 F4：manifest 正在后台解析（首次打开下载列表的那几秒）。
 	// 前端据此显示「解析中…」而不是留空；解析完成（成功或损坏）后即 false。
 	Parsing   bool `json:"parsing,omitempty"`

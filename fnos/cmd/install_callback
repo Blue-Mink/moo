@@ -37,7 +37,7 @@ case "${wdir}" in
 esac
 wagree="${wizard_license_agree:-}"
 if [ "${wizard_ran}" -eq 1 ] && [ -z "${wagree}" ]; then
-    echo "未接受许可协议：请在许可协议步骤输入「同意」" > "${TRIM_TEMP_LOGFILE}"
+    echo "未接受许可协议：请在许可协议步骤勾选同意" > "${TRIM_TEMP_LOGFILE}"
     exit 1
 fi
 [ "${wizard_ran}" -eq 0 ] && echo "install: 非交互安装（无向导），许可留痕跳过" >> "${LOG_FILE}" 2>/dev/null

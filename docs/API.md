@@ -266,6 +266,23 @@ data: {"step":"install","progress":42,"message":"下载中…"}
 ### 5.3 `GET /api/about`（公开）
 关于信息（版本、构建时间、许可等）。
 
+0.6.384：更新日志与文档卡改为读远程清单（目录见设置项 `about_lists_url`，
+空=内置公网默认；目录下 `changelog.md` / `docs.md` / `devdocs.md`）：
+- `changelog`：远程更新日志全文；远程不可达时回落构建内嵌文本
+- `changelog_source`：`remote` / `embedded`
+- `changelog_version`：远程文件里第一个版本文（无=运行版本）
+- `docs` / `devdocs`：`[{title, desc?, url}]`，前端只展示标题与说明，
+  链接以「打开」「复制」按钮提供
+
+拉取策略与推荐清单一致：10 分钟 TTL + SWR + 2 分钟失败退避；冷启动最多
+同步等 1.5s。内网清单地址需显式开启 `source_list_allow_private`。
+
+### 5.3.1 `POST /api/about/lists/refresh`（admin）
+丢弃缓存立即重拉三个清单文件（改完远程清单即时生效）。
+```json
+{"ok": true, "changelog_source": "remote", "changelog_version": "0.6.384", "docs": 6, "devdocs": 5}
+```
+
 ### 5.4 `GET /api/daemon/status`（公开）
 ```json
 {"available": true}
@@ -526,7 +543,8 @@ token 只出现在响应体，不写日志；Moo Mate 侧缓存 2 分钟，不�
 | `GET /api/backups/{name}/download` | admin | 下载备份文件（二进制） |
 | `POST /api/backups/{name}/restore` | admin | 从备份恢复（先自动兜底再覆盖，失败保留现场） |
 | `POST /api/backups/clean` | admin | 清理应用缓存（图标/README 等）中过期文件 |
-| `GET /api/logs` | admin | 在线查看应用日志（moo.log 末尾 N 行，`?lines=` 默认 200、上限 2000；含文件大小与轮转归档清单） |
+| `GET /api/logs` | admin | 在线查看应用日志（moo.log 末尾 N 行，`?lines=` 默认 200、上限 2000；含文件大小、轮转归档清单与 `archive_bytes` 归档总字节） |
+| `POST /api/logs/cleanup` | admin | 清理应用日志（0.6.500）：body `{"keep_days":N}`，N=0 全部清空、N>0 删除 N 天前的日志行（保留最近 N 天）；返回 `removed_files` / `freed_bytes` / `kept_bytes`。当前日志原地截断重写（保留 inode），过滤后为空的归档直接删除 |
 
 `POST /api/backups/clean` 请求体：
 ```json
@@ -546,6 +564,7 @@ token 只出现在响应体，不写日志；Moo Mate 侧缓存 2 分钟，不�
 | `GET /api/fpk-downloads` | admin | 已下载 FPK 列表 `[FpkDownloadFile]` |
 | `DELETE /api/fpk-downloads/{name}` | admin | 删除缓存包 |
 | `POST /api/fpk-downloads/upload` | admin | 上传本地 FPK（multipart 字段 `file`，仅 `.fpk`，≤512MB，同名覆盖；返回 `{name,size,replaced}`，上传后即可列表内安装） |
+| `POST /api/fpk-downloads/batch-delete` | admin | 批量删除缓存包（body `{names:[...]}`，≤500 项；非法名/失败逐项回 `failed`，文件已不存在计入 `deleted`；返回 `{deleted,failed}`） |
 | `POST /api/fpk-downloads/{name}/install` | admin + SSE | 用缓存包安装/升级（跳过下载阶段） |
 | `GET /api/fpk-downloads/{name}/wizard` | admin | 探测缓存包安装向导定义（直读 FPK 内 wizard/install，无需 staging） |
 

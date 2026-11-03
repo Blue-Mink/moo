@@ -59,8 +59,28 @@ const (
 	daemonCodeValidation       = 10030
 	daemonCodeTransientTimeout = 10050
 	daemonCodePackageMissing   = 10100
-	daemonCodeWizardRequired   = 19000
+	// daemonCodeStatusUnsupported 平台「当前状态不支持该操作」：
+	// 常见于重复安装/任务进行中（用户看到的「错误代码 10500」就是它）。
+	daemonCodeStatusUnsupported = 10500
+	daemonCodeWizardRequired    = 19000
 )
+
+// daemonCodeHint 把平台错误码翻成用户能看懂的一句话（0.6.398）。
+// 此前 10500 会以「app center 返回错误 10500 (…)」原样弹出，
+// 用户看到「错误代码10500」但不知道发生了什么。
+func daemonCodeHint(code int) string {
+	switch code {
+	case daemonCodeStatusUnsupported:
+		return "应用中心当前状态不支持该操作（应用可能已安装或正在安装）"
+	case daemonCodePackageMissing:
+		return "安装包不存在（可能已被清理）"
+	case daemonCodeWizardRequired:
+		return "缺少安装向导必填参数"
+	case daemonCodeValidation:
+		return "参数校验失败"
+	}
+	return ""
+}
 
 // 错误三态：
 //   - ErrDaemonUnreachable：字节根本没发出，调用方可安全重试/换路
@@ -80,8 +100,12 @@ type DaemonError struct {
 }
 
 func (e *DaemonError) Error() string {
-	if e.Msg != "" {
-		return fmt.Sprintf("app center 返回错误 %d: %s", e.Code, e.Msg)
+	msg := e.Msg
+	if msg == "" {
+		msg = daemonCodeHint(e.Code)
+	}
+	if msg != "" {
+		return fmt.Sprintf("app center 返回错误 %d: %s", e.Code, msg)
 	}
 	return fmt.Sprintf("app center 返回错误 %d (%s)", e.Code, e.Path)
 }

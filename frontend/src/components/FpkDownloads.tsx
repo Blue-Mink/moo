@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, Check, ChevronDown } from 'lucide-react';
+import { Loader2, RefreshCw, Trash2, Check, ChevronDown, ListChecks } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
 import WizardDialog from './WizardDialog';
@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 import {
   fetchFpkDownloads,
   deleteFpkDownload,
+  batchDeleteFpkDownloads,
   installFpkDownload,
   fetchFpkDownloadWizard,
   type FpkDownloadFile,
@@ -14,13 +15,15 @@ import {
   type WizardParam,
 } from '../api/client';
 
-/** 0.6.332 F4：列表副行取值——display_name → appname → 「解析中…」。 */
-function fpkSubLine(f: FpkDownloadFile): { text: string; pending?: boolean } | null {
-  const stem = f.name.replace(/\.fpk$/i, '').toLowerCase();
-  // 与文件名（去 .fpk）相同、空串、未展开的 ${...} 占位串都视为「无可用名字」
+/** 0.6.391：列表主行=应用名（display_name → appname → 文件名），
+    副行=安装包文件名。此前主行固定文件名、副行才显示 display_name，且
+    display_name 与文件名主干相同（如 Moo / moo.fpk）时被当成「重复」隐藏，
+    用户看到的就是「只剩安装包名」。 */
+function fpkTitleLine(f: FpkDownloadFile): { text: string; pending?: boolean } | null {
   const usable = (v?: string): string => {
     const t = (v || '').trim();
-    if (!t || t.startsWith('${') || t.toLowerCase() === stem) return '';
+    // 空串、未展开的 ${...} 占位、与完整文件名相同 → 视为无可用名字
+    if (!t || t.startsWith('${') || t.toLowerCase() === f.name.toLowerCase()) return '';
     return t;
   };
   const dn = usable(f.display_name);
@@ -30,6 +33,15 @@ function fpkSubLine(f: FpkDownloadFile): { text: string; pending?: boolean } | n
   // manifest 后台解析中：先给占位，解析完自动换成真实名字（避免首开整列空白）
   if (f.parsing) return { text: '解析中…', pending: true };
   return null;
+}
+
+/** 0.6.397（用户复测第 3 项）：安装向导标题也用应用名（display_name → appname），
+    与列表主行同口径；此前取 fpkWizardDef.appname，缺失时回退成安装包文件名
+    （如「安装 moo_0.6.396_x86」），而列表主行显示的是「Moo」。 */
+function fpkAppLabel(f: FpkDownloadFile): string {
+  const t = fpkTitleLine(f);
+  if (t && !t.pending) return t.text;
+  return f.name;
 }
 
 /** 与 SettingsPage 原本地实现逐字节同款（设置页行为零变化；0 返回空串）。 */
@@ -68,7 +80,7 @@ export interface FpkDownloadsProps {
 /**
  * 已下载 FPK 列表段（0.6.325 C4 从 SettingsPage 整段抽出）。
  *
- * 行=文件名（+display_name 双行）/size·mtime/已安装徽章/安装钮
+ * 行=应用名（display_name/appname；缺失时回退文件名）+包文件名/size·mtime/已安装徽章/安装钮
  * （SSE 进度 + 必填字段无默认值时弹 WizardDialog）/删除钮（busy 态）。
  * 头部=「已下载的 FPK（n）」+（上传槽）+ 刷新 + 折叠（有条目才显示）。
  *
@@ -97,12 +109,23 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
   // 同一时刻只允许一行处于确认态；交互对齐设置页「强制清空」按钮。
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const confirmDelTimer = useRef<number | null>(null);
+  // 0.6.393（用户令）：批量删除模式（对齐 moo-mate：行前圆圈选中 + 全选/取消全选 +
+  // 已选计数 + 取消 + 删除）。入口钮在折叠钮之后；设置页与首页「下载」弹窗
+  // 共用本组件，两处自动同时具备。
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchSel, setBatchSel] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  // 批量删除两段确认（与本组件行内删除同口径：第一下只进确认态，3s 内再点才真删）
+  const [batchConfirm, setBatchConfirm] = useState(false);
+  const batchConfirmTimer = useRef<number | null>(null);
   // 直接安装某个已下载 FPK（SSE 进度）
   const [fpkInstalling, setFpkInstalling] = useState<string | null>(null);
   const [fpkInstallMsg, setFpkInstallMsg] = useState<string>('');
   // 已下载 FPK 的安装向导（必填字段无默认值时弹 WizardDialog 收集参数）
   const [fpkWizardName, setFpkWizardName] = useState<string | null>(null);
   const [fpkWizardDef, setFpkWizardDef] = useState<AppWizard | null>(null);
+  // 0.6.397：向导标题用的应用名（打开时从列表条目取，避免回退成包文件名）
+  const [fpkWizardTitle, setFpkWizardTitle] = useState<string | null>(null);
   // 已下载列表折叠（本地持久化）
   const [fpkListCollapsed, setFpkListCollapsed] = useState<boolean>(() => {
     try {
@@ -118,6 +141,49 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
       return !v;
     });
   };
+  // ── 0.6.393 批量删除 ───────────────────────────────────────────────────
+  const clearBatchConfirm = useCallback(() => {
+    if (batchConfirmTimer.current !== null) {
+      window.clearTimeout(batchConfirmTimer.current);
+      batchConfirmTimer.current = null;
+    }
+    setBatchConfirm(false);
+  }, []);
+  const exitBatchMode = useCallback(() => {
+    setBatchMode(false);
+    setBatchSel(new Set());
+    clearBatchConfirm();
+  }, [clearBatchConfirm]);
+  const toggleBatchMode = () => {
+    if (batchMode) { exitBatchMode(); return; }
+    setBatchMode(true);
+    setBatchSel(new Set());
+    clearBatchConfirm();
+    // 折叠态看不到任何行 → 自动展开并持久化（下次打开保持展开）
+    setFpkListCollapsed((v) => {
+      if (!v) return v;
+      try { localStorage.setItem('fpk-list-collapsed', '0'); } catch { /* ignore */ }
+      return false;
+    });
+  };
+  const toggleBatchSelect = (name: string) => {
+    if (batchBusy) return;
+    setBatchSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+  const batchAllSelected = fpkFiles.length > 0 && fpkFiles.every((f) => batchSel.has(f.name));
+  const toggleBatchSelectAll = () => {
+    if (batchBusy) return;
+    clearBatchConfirm();
+    setBatchSel(batchAllSelected ? new Set() : new Set(fpkFiles.map((f) => f.name)));
+  };
+  // 列表为空（全删完 / 目录被清空）→ 自动退出批量模式，避免留下空操作条
+  useEffect(() => {
+    if (batchMode && fpkLoadedOnce && fpkFiles.length === 0) exitBatchMode();
+  }, [batchMode, fpkFiles.length, fpkLoadedOnce, exitBatchMode]);
   // 宿主回调经 ref 透传（宿主内联箭头每次渲染都是新身份——直接进
   // useCallback deps 会让 loadFpkFiles 重建 → 挂载 effect 反复拉取）。
   const onCountChangeRef = useRef(onCountChange);
@@ -134,6 +200,7 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
   // 组件卸载清定时器（避免卸载后 setState 残留）
   useEffect(() => () => {
     if (confirmDelTimer.current !== null) window.clearTimeout(confirmDelTimer.current);
+    if (batchConfirmTimer.current !== null) window.clearTimeout(batchConfirmTimer.current);
   }, []);
   const loadFpkFiles = useCallback(async () => {
     setFpkLoading(true);
@@ -143,6 +210,13 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
       setFpkFiles(files);
       // 列表重载（刷新/安装后重载/宿主信号）→ 清行内删除确认态，避免残留红钮
       clearConfirmDel();
+      // 0.6.393：批量选中项按最新列表裁剪（文件被别处删掉/改名后不留下幽灵选中）
+      setBatchSel((prev) => {
+        if (prev.size === 0) return prev;
+        const alive = new Set(files.map((f) => f.name));
+        const next = new Set([...prev].filter((n) => alive.has(n)));
+        return next.size === prev.size ? prev : next;
+      });
       onCountChangeRef.current?.(files.length);
     } catch { /* 目录不存在等场景：显示空列表 */ }
     finally { setFpkLoading(false); setFpkLoadedOnce(true); }
@@ -196,6 +270,45 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
     clearConfirmDel();
     void handleFpkRemove(name);
   };
+  /**
+   * 0.6.393（用户令）：批量删除选中的已下载 FPK。
+   * 一次请求（POST /api/fpk-downloads/batch-delete）逐项处理；两段确认与行内删除
+   * 同口径（第一下只进确认态，3s 内再点才真删）。部分失败时保留失败项选中态，
+   * 停在批量模式里方便直接重试；全部成功则退出批量模式。
+   */
+  const handleBatchDelete = async () => {
+    const names = [...batchSel];
+    if (names.length === 0 || batchBusy) return;
+    if (!batchConfirm) {
+      if (batchConfirmTimer.current !== null) window.clearTimeout(batchConfirmTimer.current);
+      setBatchConfirm(true);
+      batchConfirmTimer.current = window.setTimeout(() => {
+        batchConfirmTimer.current = null;
+        setBatchConfirm(false);
+      }, 3000);
+      return;
+    }
+    clearBatchConfirm();
+    setBatchBusy(true);
+    try {
+      const res = await batchDeleteFpkDownloads(names);
+      const failed = res.failed || [];
+      const failedNames = new Set(failed.map((f) => f.name));
+      if (failed.length === 0) {
+        toast.success(`已删除 ${res.deleted} 个 FPK`);
+      } else {
+        toast.error(`已删除 ${res.deleted} 个，${failed.length} 个失败：${failed.map((f) => f.name).join('、')}`);
+      }
+      // 以服务端列表为准刷新（同时裁剪选中态：失败项保留、已删项移除）
+      await loadFpkFiles();
+      setBatchSel((prev) => new Set([...prev].filter((n) => failedNames.has(n))));
+      if (failed.length === 0) exitBatchMode();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '批量删除失败');
+    } finally {
+      setBatchBusy(false);
+    }
+  };
   // 手动刷新已下载列表（带 toast 反馈，避免"点了没反应"的观感）
   const handleFpkRefresh = async () => {
     if (fpkLoading) return;
@@ -236,9 +349,10 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
       });
   };
 
-  const handleFpkInstall = (name: string) => {
+  const handleFpkInstall = (file: FpkDownloadFile) => {
     // 先探测安装向导（与商店同一模式）：必填无默认值的字段必须弹向导
     // 收集用户输入，否则 daemon 侧会拒装。
+    const name = file.name;
     if (fpkInstalling) return;
     setFpkInstalling(name);
     setFpkInstallMsg('加载安装向导...');
@@ -247,6 +361,7 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
         if (wz.has_wizard && (wz.content?.length ?? 0) > 0) {
           setFpkWizardDef(wz);
           setFpkWizardName(name);
+          setFpkWizardTitle(fpkAppLabel(file));
           setFpkInstalling(null);
           setFpkInstallMsg('');
           return;
@@ -295,9 +410,68 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", fpkListCollapsed && "-rotate-90")} />
             </Button>
           )}
+          {/* 0.6.393（用户令）：批量删除入口——放在展开/折叠钮之后。
+              进入后行前出现选择圆圈，操作条提供全选/取消全选/取消/删除。 */}
+          {fpkFiles.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'h-6 w-6',
+                batchMode && 'bg-red-500/10 text-red-600 hover:bg-red-500/15 hover:text-red-600',
+              )}
+              onClick={toggleBatchMode}
+              disabled={batchBusy}
+              aria-pressed={batchMode}
+              title={batchMode ? '退出批量删除' : '批量删除已下载的 FPK'}
+              aria-label={batchMode ? '退出批量删除' : '批量删除已下载的 FPK'}
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
       {tasksBlock}
+      {/* 0.6.393（用户令）：批量操作条（对齐 moo-mate：全选 / 已选 N 个 / 取消 / 删除） */}
+      {batchMode && fpkFiles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 px-3 py-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={toggleBatchSelectAll}
+            disabled={batchBusy}
+          >
+            {batchAllSelected ? '取消全选' : '全选'}
+          </Button>
+          <span className="text-[11px] text-muted-foreground">已选 {batchSel.size} 个</span>
+          <span className="flex-1" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={exitBatchMode}
+            disabled={batchBusy}
+          >
+            取消
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'h-6 px-2 text-xs text-red-600 hover:bg-red-500/10 hover:text-red-600',
+              batchConfirm && 'bg-red-500/10',
+            )}
+            onClick={handleBatchDelete}
+            disabled={batchSel.size === 0 || batchBusy}
+            title={batchConfirm ? '再点一次确认删除' : `删除选中的 ${batchSel.size} 个 FPK 缓存`}
+          >
+            {batchBusy
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : batchConfirm ? `确认删除（${batchSel.size}）` : '删除'}
+          </Button>
+        </div>
+      )}
       {/* 0.6.325 C13：定高占位区（仅宿主弹窗 stableHeight）——列表尚未就绪时
           先占用与满列表完全相同的高度（h-60），使弹窗尺寸在数据到达前后恒定。
           折叠态持久化为折叠时按折叠条同高占位（防折叠用户开弹窗时反向跳变）。 */}
@@ -335,33 +509,66 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
           stableHeight ? 'h-60' : 'max-h-60',
         )}>
           {fpkFiles.map((f) => {
-            // 0.6.332 F4：副行=display_name → appname → 「解析中…」（都不适用则不渲染）；
-            // 解析完成（含「包损坏/无 manifest」的负结果）后后端 parsing 转 false。
-            const sub = fpkSubLine(f);
+            // 0.6.391：主行=应用名，副行=包文件名（详见 fpkTitleLine 注释）。
+            const title = fpkTitleLine(f);
+            const primary = title && !title.pending ? title.text : f.name;
+            const showFile = primary.toLowerCase() !== f.name.toLowerCase();
+            // 0.6.393：版本号移到应用名后；第三行 = 安装包大小 · 时间。
+            const ver = (f.version || '').trim();
+            const verLabel = ver ? (/^v/i.test(ver) ? ver : 'v' + ver) : '';
             return (
-            <div key={f.name} className="flex items-center gap-2.5 px-3 py-2.5">
+            <div
+              key={f.name}
+              // 0.6.393：批量模式下整行=选择开关（行前圆圈为可视指示）
+              role={batchMode ? 'checkbox' : undefined}
+              aria-checked={batchMode ? batchSel.has(f.name) : undefined}
+              tabIndex={batchMode ? 0 : undefined}
+              onClick={batchMode ? () => toggleBatchSelect(f.name) : undefined}
+              onKeyDown={batchMode ? (e) => {
+                if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleBatchSelect(f.name); }
+              } : undefined}
+              className={cn(
+                'flex items-center gap-2.5 px-3 py-2.5',
+                batchMode && 'cursor-pointer select-none hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none',
+                batchMode && batchSel.has(f.name) && 'bg-primary/5',
+              )}
+            >
+              {batchMode && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors',
+                    batchSel.has(f.name) ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                  )}
+                >
+                  {batchSel.has(f.name) && <Check className="h-3 w-3" />}
+                </span>
+              )}
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium" title={f.name}>
-                  {f.name}
+                {/* 0.6.393（用户令）：版本号跟到应用名后面（原来在第三行大小前，长名字会折行） */}
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="truncate text-xs font-medium" title={primary}>
+                    {primary}
+                  </span>
+                  {verLabel && (
+                    <span className="shrink-0 text-[11px] text-muted-foreground/80">{verLabel}</span>
+                  )}
                 </div>
-                {sub && (
-                  <div
-                    className={cn(
-                      'truncate text-xs',
-                      sub.pending ? 'text-muted-foreground italic' : 'text-foreground/80',
-                    )}
-                    title={sub.text}
-                  >
-                    {sub.text}
+                {title?.pending ? (
+                  <div className="truncate text-xs text-muted-foreground italic">解析中…</div>
+                ) : showFile ? (
+                  <div className="truncate text-[11px] text-muted-foreground" title={f.name}>
+                    {f.name}
                   </div>
-                )}
+                ) : null}
                 <div className="text-[11px] text-muted-foreground">
                   {fpkInstalling === f.name && fpkInstallMsg
                     ? <span className="text-primary">{fpkInstallMsg}</span>
-                    : `${formatBytes(f.size)} · ${f.mod_at ? new Date(f.mod_at).toLocaleString() : ''}`
+                    : [formatBytes(f.size), f.mod_at ? new Date(f.mod_at).toLocaleString() : ''].filter(Boolean).join(' · ')
                   }
                 </div>
               </div>
+              {!batchMode && (<>
               {fpkInstalling === f.name ? (
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
               ) : f.installed ? (
@@ -376,7 +583,7 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
                   variant="ghost"
                   size="sm"
                   className="h-6 shrink-0 px-2 text-xs text-primary hover:bg-primary/10"
-                  onClick={() => handleFpkInstall(f.name)}
+                  onClick={() => handleFpkInstall(f)}
                   disabled={!!fpkInstalling}
                   title="直接安装该 FPK（不重新下载）"
                 >
@@ -405,6 +612,7 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
                     ? <Check className="h-3 w-3" />
                     : <Trash2 className="h-3 w-3" />}
               </Button>
+              </>)}
             </div>
             );
           })}
@@ -414,17 +622,19 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
           确认后带参数安装（与应用源 WizardDialog 同一组件） */}
       {fpkWizardName && fpkWizardDef && (
         <WizardDialog
-          appDisplayName={fpkWizardDef.appname || fpkWizardName}
+          appDisplayName={fpkWizardTitle || fpkWizardDef.appname || fpkWizardName}
           wizard={fpkWizardDef}
           loading={false}
           onCancel={() => {
             setFpkWizardName(null);
             setFpkWizardDef(null);
+            setFpkWizardTitle(null);
           }}
           onConfirm={(params) => {
             const name = fpkWizardName;
             setFpkWizardName(null);
             setFpkWizardDef(null);
+            setFpkWizardTitle(null);
             runFpkInstall(name, params);
           }}
         />

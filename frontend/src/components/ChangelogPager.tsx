@@ -4,6 +4,9 @@
 //  - ≤5 行 = 单页，直接渲染原文（与旧行为逐字节一致，短日志零视觉变化，无分页条）
 //  - >5 行 = 每页 5 行，底部「‹ 1/3 ›」分页条；换文本回第 1 页
 // 每页仍走 ReadmeRender（README 同款渲染；maxH 兜底防单行超长）
+// 0.6.386（用户令）：关于页恢复原来的样式——不分页、不左右翻页，
+// 全部条目一次渲染进 ReadmeRender 滚动盒，上下滑动（与详情页 README 一致）。
+// 传 scroll 即启用该模式；更新药丸弹窗仍走分页。
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ReadmeRender } from './AppDetailDialog';
@@ -16,10 +19,17 @@ const splitEntries = (text: string): string[] =>
     .map((l) => l.trim())
     .filter(Boolean);
 
-export const ChangelogPager: React.FC<{ text: string; appKey?: string; maxH?: string }> = ({
+export const ChangelogPager: React.FC<{
+  text: string;
+  appKey?: string;
+  maxH?: string;
+  /** 0.6.386（用户令）：不分页，全部条目放进滚动盒上下滑动（关于页用） */
+  scroll?: boolean;
+}> = ({
   text,
   appKey = 'moo',
   maxH = 'max-h-[110px]',
+  scroll = false,
 }) => {
   const entries = useMemo(() => splitEntries(text), [text]);
   const pages = Math.max(1, Math.ceil(entries.length / PER_PAGE));
@@ -47,8 +57,9 @@ export const ChangelogPager: React.FC<{ text: string; appKey?: string; maxH?: st
   );
   const perLine = (lines: string[]) => lines.join('\n\n');
 
-  // 单页=原文直渲（保留原始空行/换行的 markdown 排版）
-  if (pages === 1) {
+  // 单页 / 滚动模式=原文直渲（保留原始空行/换行的 markdown 排版）
+  // 0.6.386：scroll 模式不分页，全部条目交给 ReadmeRender 的滚动盒上下滑动
+  if (scroll || pages === 1) {
     return body(perLine(entries));
   }
 

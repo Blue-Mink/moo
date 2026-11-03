@@ -115,6 +115,37 @@ info "Go 构建完成"
 
 # ── Step 3: 打包 FPK（pack_fpk <x86|arm>；arm 包 manifest platform=arm）────
 TARGET="${1:-x86}"
+# 0.6.389：fnpack 1.2.4 用 Go 默认 gzip（≈-6）压缩 app.tgz，比 gzip -9 大约 3%。
+# 这里解包后按 gzip -9 -n 重压，并把 manifest 的 checksum 改成新 app.tgz 的
+# md5——fnpack 的 checksum 就是 app.tgz 的 md5，不更新会被 AppCenter 判校验失败。
+# 只改变压缩率，文件内容、权限、成员数全部保持原样。
+repack_fpk() {
+    local fpk="$1"
+    local tmp="$BUILD_DIR/tmp/repack"
+    local before after md5 inner_count
+    rm -rf "$tmp"; mkdir -p "$tmp/outer" "$tmp/inner"
+    before=$(stat -c%s "$fpk")
+    local inner_entries=() outer_entries=()
+    mapfile -t outer_entries < <(tar -tzf "$fpk" | sed 's#/.*##' | awk '!seen[$0]++')
+    tar -xzf "$fpk" -C "$tmp/outer" -p
+    mapfile -t inner_entries < <(tar -tzf "$tmp/outer/app.tgz" | sed 's#/.*##' | awk '!seen[$0]++')
+    inner_count=$(tar -tzf "$tmp/outer/app.tgz" | wc -l)
+    tar -xzf "$tmp/outer/app.tgz" -C "$tmp/inner" -p
+    ( cd "$tmp/inner" && tar -cf - -- "${inner_entries[@]}" | gzip -9 -n > "$tmp/outer/app.tgz.new" )
+    mv "$tmp/outer/app.tgz.new" "$tmp/outer/app.tgz"
+    md5=$(md5sum "$tmp/outer/app.tgz" | cut -d' ' -f1)
+    sed -i -E "s/^(checksum[[:space:]]*=).*/\1 $md5/" "$tmp/outer/manifest"
+    ( cd "$tmp/outer" && tar -cf - -- "${outer_entries[@]}" | gzip -9 -n > "$tmp/fpk.new" )
+    [ "$(tar -tzf "$tmp/fpk.new" | wc -l)" = "$(tar -tzf "$fpk" | wc -l)" ] || error "FPK 重压缩后成员数不一致"
+    [ "$(tar -tzf "$tmp/outer/app.tgz" | wc -l)" = "$inner_count" ] || error "app.tgz 重压缩后成员数不一致"
+    gzip -t "$tmp/fpk.new" || error "FPK 重压缩后 gzip 校验失败"
+    grep -q "checksum[[:space:]]*=[[:space:]]*$md5" "$tmp/outer/manifest" || error "manifest checksum 未更新"
+    mv "$tmp/fpk.new" "$fpk"
+    after=$(stat -c%s "$fpk")
+    info "FPK 重压缩: $before → $after 字节（节省 $((before-after))）"
+    rm -rf "$tmp"
+}
+
 pack_fpk() {
     local suffix="$1" server archline
     if [ "$suffix" = "arm" ]; then
@@ -140,6 +171,7 @@ pack_fpk() {
     local OUT_FPK="$SCRIPT_DIR/moo_${APP_VERSION}_${suffix}.fpk"
     mv "$SCRIPT_DIR/moo.fpk" "$OUT_FPK" 2>/dev/null || true
     [ -f "$OUT_FPK" ] || error "FPK 未生成: $OUT_FPK"
+    repack_fpk "$OUT_FPK"
     info "✅ 产物: $OUT_FPK ($(du -h "$OUT_FPK" | cut -f1))"
     sha256sum "$OUT_FPK"
 }

@@ -117,6 +117,9 @@ export interface AppInfo {
   install_volume?: number;
   install_path?: string;
   homepage?: string;
+  /** 源声明的问题反馈地址（moo.json / fnpack.json 的 bug_report_url）。
+   *  仅详情接口下发（列表瘦身剥离），详情页渲染「问题反馈」链接。 */
+  bug_report_url?: string;
   icon_url?: string;
   updated_at?: string;
   download_count?: number;
@@ -880,6 +883,9 @@ export interface SourceEntry {
   url: string;
   author?: string;
   homepage?: string;
+  /** 源声明的问题反馈地址（moo.json / fnpack.json 的 bug_report_url）。
+   *  仅详情接口下发（列表瘦身剥离），详情页渲染「问题反馈」链接。 */
+  bug_report_url?: string;
   app_count: number;
   error?: string;
   last_fetched?: string;
@@ -1110,6 +1116,8 @@ export interface FpkDownloadFile {
   appname?: string;
   /** 包 manifest 的 display_name（中文名/正式名；后台索引未就绪时为空）。 */
   display_name?: string;
+  /** 0.6.392：包 manifest 的 version（列表第三行，显示在安装包大小前）。 */
+  version?: string;
   /** 0.6.332 F4：manifest 正在后台解析（首开列表的前几秒）。true 时副行显示「解析中…」。 */
   parsing?: boolean;
   /** 该应用当前是否已安装（含官方中心/其他方式安装）。 */
@@ -1178,6 +1186,25 @@ export const deleteFpkDownload = async (name: string): Promise<void> => {
   if (!response.ok) {
     throw new Error(await extractError(response, `删除 FPK 缓存失败: ${response.statusText}`));
   }
+};
+
+/** 0.6.393：批量删除已下载 FPK 缓存（对齐 moo-mate 批量删除）。
+ *  一次请求逐项处理：非法名/删除失败进 `failed`；文件本就不存在计入 `deleted`。 */
+export interface FpkBatchDeleteResult {
+  ok: boolean;
+  deleted: number;
+  failed?: { name: string; error: string }[];
+}
+export const batchDeleteFpkDownloads = async (names: string[]): Promise<FpkBatchDeleteResult> => {
+  const response = await apiFetch(apiUrl('/api/fpk-downloads/batch-delete'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ names }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractError(response, `批量删除 FPK 缓存失败: ${response.statusText}`));
+  }
+  return response.json();
 };
 
 /** 321R7 E：上传本地 FPK 安装包（手机/电脑文件）到 FPK 下载目录。
@@ -1628,10 +1655,26 @@ export const clearNotifyLog = async (): Promise<void> => {
 
 // ── 关于页 ──
 
+export interface AboutDocItem {
+  title: string;
+  desc?: string;
+  url: string;
+}
+
 export interface AboutInfo {
   version: string;
   /** 0.6.311r：当前构建内嵌的发布说明（构建时由 build.sh 从 moo.json 生成；空=回落源条目） */
   changelog?: string;
+  /** 0.6.384：更新日志来源（remote=远程清单 changelog.md，embedded=构建内嵌） */
+  changelog_source?: 'remote' | 'embedded';
+  /** 0.6.387：远程更新日志里的最新版本段（药丸弹窗只显示这段） */
+  changelog_latest?: string;
+  /** 0.6.384：远程更新日志里解析出的版本号（内嵌时=运行版本） */
+  changelog_version?: string;
+  /** 0.6.384：「文档和技能」卡条目（远程 docs.md；不可达时为空） */
+  docs?: AboutDocItem[];
+  /** 0.6.384：「开发者文档」卡条目（远程 devdocs.md；不可达时为空） */
+  devdocs?: AboutDocItem[];
   platform: string;
   arch: string;
   go_version?: string;

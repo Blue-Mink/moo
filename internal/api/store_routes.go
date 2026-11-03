@@ -167,6 +167,7 @@ func (s *Server) appsResponse(r *http.Request) AppsResponse {
 		a.Changelog = ""
 		a.ReleaseNotes = ""
 		a.Homepage = ""
+		a.BugReportURL = "" // 问题反馈链接仅详情页消费（3000 卡 × ~50B 不进列表）
 		a.Sha256 = ""
 		a.ReleaseURL = ""
 		a.SameName = nil // 候选表仅详情下发（列表留 SameNameCount 角标）
@@ -843,7 +844,13 @@ func (s *Server) ghStatsRound(ctx context.Context) {
 		}
 	}
 	s.GHStats.Enqueue(urls)
-	n, err := s.GHStats.RefreshRound(ctx, 30)
+	// 0.6.390：匿名 60 次/小时只够 30 仓库/轮；配了 token（5000 次/小时）
+	// 提到 60 仓库/轮，99 个源仓库约 50 分钟覆盖一遍，下载量更接近实时。
+	limit := 30
+	if s.Cfg.GithubToken != "" {
+		limit = 60
+	}
+	n, err := s.GHStats.RefreshRound(ctx, limit)
 	if n > 0 {
 		log.Printf("[gh-stats] GitHub Release 下载量同步: 本轮更新 %d 个仓库", n)
 	}
@@ -1867,6 +1874,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListURL: s.Cfg.SourceListURL,
 		// 0.6.379：发现页推荐位清单地址（空串=内置公网默认）。
 		RecommendListURL: s.Cfg.RecommendListURL,
+		// 0.6.384：关于页远程清单目录（空串=内置公网默认）。
+		AboutListsURL: s.Cfg.AboutListsURL,
 		// 0.6.325 安全加固 R1：随设置页下发（默认 false）。
 		SourceListAllowPrivate: s.Cfg.SourceListAllowPrivate,
 		// 0.6.334：只下发「是否已配置」，token 本身绝不回传。
@@ -1966,6 +1975,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		SourceListURL      *string `json:"source_list_url"`
 		// 0.6.379：推荐位清单地址。nil=不改动；空串=回内置默认。
 		RecommendListURL *string `json:"recommend_list_url"`
+		// 0.6.384：关于页远程清单目录。nil=不改动；空串=回内置默认。
+		AboutListsURL *string `json:"about_lists_url"`
 		// 指针区分「未提交」与「显式开/关」：此前 `url != "" || disabled` 条件
 		// 在列表地址为空时无法把自动同步切回开启（false 被忽略）。
 		SourceListDisabled *bool `json:"source_list_disabled"`
@@ -2080,6 +2091,17 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.SourceListAllowPrivate != nil {
 		s.Cfg.SourceListAllowPrivate = *in.SourceListAllowPrivate
+		// 0.6.384：这道闸同时决定关于页清单能否指向内网，切换后立即重试。
+		s.invalidateAboutLists()
+	}
+	if in.AboutListsURL != nil {
+		u := strings.TrimSpace(*in.AboutListsURL)
+		if u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			writeErr(w, http.StatusBadRequest, errors.New("关于页清单地址须以 http:// 或 https:// 开头"))
+			return
+		}
+		s.Cfg.AboutListsURL = u
+		s.invalidateAboutLists()
 	}
 	// 0.6.334：GitHub token（可选）。设置后立即生效（改内存里的查询器），
 	// 落盘走 config 的 enc:v1 密文；空串=清除回匿名。格式校验防止把
@@ -2093,6 +2115,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		s.Cfg.GithubToken = tok
 		if s.Forks != nil {
 			s.Forks.SetToken(tok)
+		}
+		// 0.6.390：下载量同步器同样复用 token（立即生效，无需重启）。
+		if s.GHStats != nil {
+			s.GHStats.SetToken(tok)
 		}
 	}
 	if in.SourceAutoCareOff != nil {
@@ -2628,6 +2654,9 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 			if info.DisplayName != "" {
 				f.DisplayName = info.DisplayName
 			}
+			if info.Version != "" {
+				f.Version = info.Version
+			}
 			if info.AppName != "" {
 				// 包内 appname 与文件名不一致时（如 istoreos.fpk →
 				// com.istoreos.vm），以包内为准做安装态判断
@@ -2661,6 +2690,59 @@ func (s *Server) removeDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// batchRemoveDownloads POST /api/fpk-downloads/batch-delete {"names":[...]}：
+// 0.6.393 已下载 FPK 批量删除（对齐 moo-mate 侧批量删除的交互：一次请求、
+// 逐项报告结果）。
+//
+// 口径：
+//   - requireAdmin（与其余 fpk-downloads 端点同级；非 GET 另需 X-Moo-Admin 头）
+//   - 文件名逐个取 filepath.Base 防路径穿越，仅 .fpk；非法名计入 failed 不整批拒绝
+//   - 去重（同一文件重复提交只处理一次）；单次上限 500（前端全选最多也就是
+//     下载目录里的包数，正常远小于此值）
+//   - 文件已不存在 = 目标状态已达成，计入 deleted（幂等；避免「刷新前重复点」
+//     报一堆失败）
+//   - 响应 {ok, deleted, failed:[{name,error}]}；部分失败也回 200，由前端提示
+func (s *Server) batchRemoveDownloads(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Names []string `json:"names"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, errors.New("请求体解析失败: "+err.Error()))
+		return
+	}
+	if len(body.Names) == 0 {
+		writeErr(w, http.StatusBadRequest, errors.New("names 不能为空"))
+		return
+	}
+	if len(body.Names) > 500 {
+		writeErr(w, http.StatusBadRequest, errors.New("单次最多批量删除 500 个文件"))
+		return
+	}
+	deleted := 0
+	failed := make([]map[string]string, 0)
+	seen := make(map[string]struct{}, len(body.Names))
+	for _, raw := range body.Names {
+		name := filepath.Base(strings.TrimSpace(raw))
+		if !isFpk(name) {
+			failed = append(failed, map[string]string{"name": raw, "error": "非法文件名"})
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		if err := os.Remove(filepath.Join(s.Pipe.Downloads, name)); err != nil {
+			if !os.IsNotExist(err) {
+				failed = append(failed, map[string]string{"name": name, "error": err.Error()})
+				continue
+			}
+		}
+		deleted++
+	}
+	writeJSON(w, map[string]any{"ok": true, "deleted": deleted, "failed": failed})
 }
 
 // uploadFpkDownload POST /api/fpk-downloads/upload：321R7 E——上传本地

@@ -60,6 +60,9 @@ func (s *Server) StartLogRotator(ctx context.Context) {
 // 最旧 .N 丢弃）并截断原文件。
 // 任何一步失败都静默放弃本次轮转（10 分钟后重试），绝不影响主流程。
 func rotateMooLog(dataDir string) {
+	// 0.6.500：与日志清理串行（清理会原地重写当前文件，轮转不能同时顺移归档）
+	logFileMu.Lock()
+	defer logFileMu.Unlock()
 	p := resolveMooLogPath(dataDir)
 	fi, err := os.Stat(p)
 	if err != nil || fi.Size() <= logRotateMaxSize {

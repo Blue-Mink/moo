@@ -294,6 +294,9 @@ func main() {
 
 	// GitHub Release 资产下载量同步（第三方源目录不统计下载量的补数通道）
 	srv.GHStats = source.NewGHStats(dataDir + "/cache/ghstats.json")
+	// 0.6.390：复用已配置的 GitHub token（5000 次/小时；匿名只有 60 次/小时，
+	// 99 个源仓库一轮要跑很久，计数新鲜度差）。
+	srv.GHStats.SetToken(cfg.GithubToken)
 	go srv.StartGHStatsRefresh(ctx)
 
 	// GitHub 仓库 fork 关系查询（0.6.326c 溯源补强：识别「整仓 fork 式搬运」）

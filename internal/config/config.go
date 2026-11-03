@@ -105,6 +105,11 @@ type Config struct {
 	// `#` 注释；空串=用 DefaultRecommendListURL）。运行时改设置即时生效，
 	// 改清单不需要重建 FPK。留空不写内网地址——测试用设置项覆盖。
 	RecommendListURL string `json:"recommend_list_url,omitempty"`
+	// AboutListsURL 0.6.384：关于页远程清单目录。目录下三个文件：
+	// changelog.md（更新日志）/ docs.md（文档和技能）/ devdocs.md（开发者文档）。
+	// 空串=DefaultAboutListsURL。改清单不需要重建 FPK；远程不可用时
+	// 更新日志回落构建内嵌文本，文档卡隐藏。
+	AboutListsURL string `json:"about_lists_url,omitempty"`
 	// 0.6.325 安全加固 R1：允许「源列表同步」添加非公共地址（内网/环回）的源。
 	// 默认 false = 远端清单里的非公共地址一律跳过（防清单驱动 SSRF）；
 	// 管理员显式手工添加源（应用源页输入框）不受此开关影响。
@@ -328,6 +333,10 @@ const DefaultSourceListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/ma
 // 格式 `appname@源名`，`#` 注释）。与 repo_list.txt 同一套拉取/镜像链逻辑；
 // 顺序即展示顺序，目录里找不到的条目直接跳过（不留空位、不随机补位）。
 const DefaultRecommendListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/recommend_list.txt"
+
+// DefaultAboutListsURL 0.6.384：关于页远程清单目录（changelog.md / docs.md /
+// devdocs.md）。与 repo_list.txt 同一套拉取/镜像链逻辑；改清单免重建 FPK。
+const DefaultAboutListsURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main"
 
 // Default 返回默认配置（含默认社区源：首装即有可浏览目录）。
 func Default() *Config {

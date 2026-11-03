@@ -1,0 +1,140 @@
+# 存档 workflow —— 当前（2026-11-02）Gitea 实例 runners=0，本文件不会被执行。
+# 启用前置：Gitea 配 [actions] ENABLED=true 并注册 act_runner（label: gitea），
+# 再在仓库 Secrets 配 GITEA_TOKEN（写权限）。启用前 Gitea 侧 moo.json 的维护入口
+# 仍是手工跑 tools/update_moo_json.py。
+#
+# 与 GitHub 版 .github/workflows/moo-json.yml 的差异（有意为之）：
+#   1) 不用 gh CLI（Gitea API 与 GitHub API v3 不兼容），全走 curl + python3；
+#   2) 资产校验用 release 里的 .sha256 侧车（Gitea 资产没有 digest 字段）；
+#   3) 显式 --repo https://github.com/Blue-Mink/moo —— 索引里的下载直链一律指向
+#      GitHub 主线（Gitea 仓是镜像/归档，不对外提供索引服务），**但提交仍只落本仓
+#      origin main**：两边 moo.json 内容保持一致，同时避免 origin（内网 Gitea 地址）
+#      被当成直链基址写进索引。改这一行前先想清楚「内容来自哪、提交落哪」是两件事。
+#   4) 只用 runner 通用环境变量（GITHUB_EVENT_PATH / GITHUB_SERVER_URL /
+#      GITHUB_REPOSITORY），不依赖 gitea.* / github.* 表达式，便于本地仿真。
+#   5) 平台隔离（0.6.500 加固）：Gitea 1.19+ 会同时扫描 .github/workflows，为避免
+#      将来启用 Actions 后两套 workflow 双写索引，GitHub 版已加
+#      github.server_url == 'https://github.com' 的 job 守卫；本文件 runs-on: gitea，
+#      只在 Gitea runner 上跑。当前实例 runners=0，两份都不会自动执行。
+name: Update moo.json (Gitea)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要同步的 release tag（留空=用触发本次运行的 tag）"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: moo-json-gitea
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: gitea
+    env:
+      KEEP: "2"
+      MOO_JSON: "moo.json"
+      BRANCH: "main"
+      INDEX_REPO: "https://github.com/Blue-Mink/moo"
+    steps:
+      - name: checkout
+        uses: gitea/checkout@v2
+
+      - name: Resolve tag
+        run: |
+          TAG="$(python3 -c 'import json,os;d=json.load(open(os.environ["GITHUB_EVENT_PATH"]));print((d.get("release") or {}).get("tag_name",""))' 2>/dev/null || true)"
+          [ -n "$TAG" ] || TAG="${{ inputs.tag }}"
+          [ -n "$TAG" ] || { echo "::error::拿不到 tag"; exit 1; }
+          echo "$TAG" > /tmp/tag.txt
+          echo "将同步 release：$TAG（版本号以包内 manifest 为准）"
+
+      - name: Fetch release assets
+        env:
+          TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          # Gitea 的 GITHUB_SERVER_URL 形如 http://host:3033；本地仿真可覆盖这两个变量
+          API="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
+          TAG="$(cat /tmp/tag.txt)"; mkdir -p /tmp/fpk
+          n=0
+          for i in $(seq 1 18); do
+            if curl -fsS -H "Authorization: token $TOKEN" "$API/releases/tags/$TAG" -o /tmp/rel.json 2>/dev/null; then
+              n=$(python3 -c 'import json;print(sum(1 for a in json.load(open("/tmp/rel.json"))["assets"] if a["name"].endswith(".fpk")))')
+              if [ "$n" -gt 0 ]; then break; fi
+            fi
+            echo "等待 FPK 资产…（$i/18）"; sleep 5
+          done
+          [ "$n" -gt 0 ] || { echo "::error::release $TAG 在 90 秒内没有 .fpk 资产"; exit 1; }
+          python3 -c 'import json;print((json.load(open("/tmp/rel.json")).get("body") or "").strip())' > /tmp/changelog.txt
+          python3 -c 'import json;[print(a["browser_download_url"]) for a in json.load(open("/tmp/rel.json"))["assets"] if a["name"].endswith((".fpk",".fpk.sha256"))]' > /tmp/urls.txt
+          AUTH=()
+          if [ -n "${TOKEN:-}" ]; then AUTH=(-H "Authorization: token $TOKEN"); fi
+          while read -r u; do
+            out="/tmp/fpk/$(basename "$u")"
+            # 先带凭据（私有仓需要），失败再匿名（公开仓；本实例匿名也能取）
+            curl -fsSL --connect-timeout 10 --max-time 300 ${AUTH[@]+"${AUTH[@]}"} "$u" -o "$out" \
+              || curl -fsSL --connect-timeout 10 --max-time 300 "$u" -o "$out" \
+              || { echo "::error::下载失败 $u"; exit 1; }
+          done < /tmp/urls.txt
+          ls -l /tmp/fpk
+
+      - name: Verify FPK against .sha256 sidecar
+        run: |
+          fail=0
+          for f in /tmp/fpk/*.fpk; do
+            [ -f "$f" ] || continue
+            s="$f.sha256"
+            if [ -f "$s" ]; then
+              ( cd /tmp/fpk && sha256sum -c "$(basename "$s")" ) || fail=1
+            else
+              echo "::error::$(basename "$f") 没有 .sha256 侧车（发布契约要求成对），拒绝写入索引"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Check tag matches package version
+        run: |
+          # 防「tag 与包内版本不一致」：此时脚本会用 tag 拼直链，索引里会写出 404 地址，
+          # 且降级门禁不触发（该检查与 GitHub 版一致）。
+          TAG="$(cat /tmp/tag.txt)"; TAG_VER="${TAG#mate-v}"; TAG_VER="${TAG_VER#v}"
+          for f in /tmp/fpk/*.fpk; do
+            [ -f "$f" ] || continue
+            n=$(basename "$f")
+            fv=$(printf '%s' "$n" | sed -E 's/^.*_([0-9][^_]*)_[a-z0-9]+\.fpk$/\1/')
+            [ "$fv" = "$TAG_VER" ] || { echo "::error::$n 的版本 $fv 与 tag $TAG 不一致，写进索引会是 404 直链"; exit 1; }
+          done
+          echo "tag 与包版本一致：$TAG_VER"
+
+      - name: Update moo.json
+        run: |
+          # 预发布不进索引（Moo 只收稳定版，否则用户会被提示更新却装到测试包）
+          PRE="$(python3 -c 'import json,os;d=json.load(open(os.environ["GITHUB_EVENT_PATH"]));print(str((d.get("release") or {}).get("prerelease", False)).lower())' 2>/dev/null || echo false)"
+          if [ "$PRE" = "true" ]; then echo "预发布，跳过索引更新"; exit 0; fi
+          CHANGELOG_ARG=""
+          if [ -s /tmp/changelog.txt ]; then CHANGELOG_ARG="--changelog-file /tmp/changelog.txt"; fi
+          python3 tools/update_moo_json.py \
+            --file "$MOO_JSON" \
+            --repo "$INDEX_REPO" \
+            --tag "$(cat /tmp/tag.txt)" \
+            --fpk /tmp/fpk/*.fpk \
+            --keep "$KEEP" $CHANGELOG_ARG
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- "$MOO_JSON"; then
+            echo "moo.json 无变化，跳过提交"; exit 0
+          fi
+          git config user.name  "gitea-actions[bot]"
+          git config user.email "gitea-actions@noreply.local"
+          git add "$MOO_JSON"
+          git commit -m "chore(moo.json): 同步 $(cat /tmp/tag.txt) 版本节点"
+          git push origin "HEAD:${BRANCH}" || {
+            git pull --rebase --autostash origin "${BRANCH}" && git push origin "HEAD:${BRANCH}" \
+              || { echo "::error::推送失败：请检查 GITEA_TOKEN 写权限与分支保护"; exit 1; }
+          }

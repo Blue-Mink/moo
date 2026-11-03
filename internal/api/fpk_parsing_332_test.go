@@ -62,6 +62,76 @@ func waitParsed(t *testing.T, f *fpkLocal, path string) {
 	t.Fatalf("后台解析未在 5s 内结束: %s", path)
 }
 
+// writeTestFpkEntries 写一个含任意条目的 FPK（tar.gz），用于 i18n 等场景。
+func writeTestFpkEntries(t *testing.T, path string, entries map[string]string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("创建测试包失败: %v", err)
+	}
+	defer f.Close()
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for name, body := range entries {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatalf("写 tar 头失败: %v", err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatalf("写 %s 失败: %v", name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("关闭 tar 失败: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("关闭 gzip 失败: %v", err)
+	}
+}
+
+// 0.6.391：manifest 用 ${common.display_name}/${common.desc} 占位时，
+// 从 i18n/zh（优先）取真名；否则「已下载的 FPK」列表只剩包名。
+func TestParseFpkManifestResolvesI18nPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "fn-execute.fpk")
+	writeTestFpkEntries(t, p, map[string]string{
+		"manifest": "appname = fn-execute\nversion = 1.0.2\ndisplay_name = ${common.display_name}\ndesc = ${common.desc}\n",
+		"i18n/zh":  "[common]\ndisplay_name=\"执行器\"\ndesc=\"执行器说明\"\n",
+		"i18n/en":  "[common]\ndisplay_name=\"Execute\"\ndesc=\"Executor\"\n",
+	})
+	info, err := parseFpkManifest(p)
+	if err != nil {
+		t.Fatalf("parseFpkManifest: %v", err)
+	}
+	if info.DisplayName != "执行器" {
+		t.Fatalf("display_name = %q, want 执行器（zh 优先）", info.DisplayName)
+	}
+	if info.Desc != "执行器说明" {
+		t.Fatalf("desc = %q, want 执行器说明", info.Desc)
+	}
+	if info.AppName != "fn-execute" || info.Version != "1.0.2" {
+		t.Fatalf("manifest 其它字段被破坏: %+v", info)
+	}
+}
+
+// 已有真实 display_name 的包不受 i18n 影响（不覆盖）。
+func TestParseFpkManifestKeepsExplicitDisplayName(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "demo.fpk")
+	writeTestFpkEntries(t, p, map[string]string{
+		"manifest": "appname = demo\ndisplay_name = 显式名字\n",
+		"i18n/zh":  "[common]\ndisplay_name=\"i18n 名字\"\n",
+	})
+	info, err := parseFpkManifest(p)
+	if err != nil {
+		t.Fatalf("parseFpkManifest: %v", err)
+	}
+	if info.DisplayName != "显式名字" {
+		t.Fatalf("display_name = %q, want 显式名字", info.DisplayName)
+	}
+}
+
 // 0.6.332 F4：Pending 反映路径级后台解析标记。
 func TestFpkLocalPending(t *testing.T) {
 	f := newTestFpkLocal()

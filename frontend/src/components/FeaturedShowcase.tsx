@@ -46,7 +46,13 @@ const HeroBanner: React.FC<{ app: AppInfo; className?: string; onDetail: (a: App
   </button>
 );
 
-const RowCard: React.FC<{ app: AppInfo; onDetail: (a: AppInfo) => void }> = ({ app, onDetail }) => (
+/** 0.6.385（用户令）：副标题按行区分——热门应用显示下载量，最近更新显示版本号。
+    版本号缺失（源未给版本）时回退下载量，避免出现「vundefined」。 */
+const RowCard: React.FC<{ app: AppInfo; onDetail: (a: AppInfo) => void; showVersion?: boolean }> = ({ app, onDetail, showVersion }) => {
+  const ver = availableVersionLabel(app);
+  const dl = appDownloadLabel(app);
+  const subtitle = showVersion ? (ver ? `v${ver}` : (dl ?? '')) : (dl ?? (ver ? `v${ver}` : ''));
+  return (
   <button
     onClick={() => onDetail(app)}
     /* 0.6.373（用户令）：图标与下方名称居中排布。此前按钮是 text-left、图标贴左，
@@ -61,10 +67,11 @@ const RowCard: React.FC<{ app: AppInfo; onDetail: (a: AppInfo) => void }> = ({ a
     />
     <p className="mt-2 w-full text-[13px] font-medium leading-tight truncate">{app.display_name}</p>
     <p className="mt-0.5 w-full text-[11px] text-muted-foreground truncate">
-      {appDownloadLabel(app) ?? `v${availableVersionLabel(app)}`}
+      {subtitle}
     </p>
   </button>
-);
+  );
+};
 
 /**
  * 「发现」页顶部的 App Store Today 风格展示区：
@@ -146,7 +153,7 @@ const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, fea
             <h2 className="text-lg font-bold tracking-tight">最近更新</h2>
           </div>
           <div className="flex gap-4 overflow-x-auto no-scrollbar pb-1 -mx-1 px-1">
-            {recent.map(app => <RowCard key={app.appname} app={app} onDetail={onDetail} />)}
+            {recent.map(app => <RowCard key={app.appname} app={app} onDetail={onDetail} showVersion />)}
           </div>
         </section>
       )}

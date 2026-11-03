@@ -6,6 +6,7 @@ import type { AppInfo, AppOperation, PanelDetailResponse, SSEHandle } from '../a
 import { apiFetch, availableVersionLabel, installedVersionLabel, hasActiveUpdate, assetUrl, appWebUrl, fetchPanelDetail, fetchPanelDetailCached, fetchInstalledDetail, fetchAppDetail, downloadFpk, fetchTasks, pauseDownload, resumeDownload, sourceLabel, effectiveMaintainer, descriptionPlainText, rewriteReadmeImgSrc, fetchFpkDownloads, installFpkDownload, fetchFpkDownloadWizard, addSource, toggleSource, type AppWizard, type WizardParam } from '../api/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { isNoticeLayerInteract } from '@/lib/noticeOutside';
 import { useIsDesktop, useMobileDesktopSim } from '@/lib/hooks';
 import {
   Dialog,
@@ -26,6 +27,7 @@ import { auroraFor } from "./ViewModeGrids";
 import {
   Package,
   Globe,
+  Bug,
   Clock,
   Tag,
   Network,
@@ -1075,6 +1077,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
         onInteractOutside={(e) => {
           // 0.6.301：打开后 400ms 免疫窗——忽略外点/遮罩点击（双击第二下防秒关）
           if (Date.now() - openedAtRef.current < 400) e.preventDefault();
+          // 0.6.500：顶部通知层（toast / 任务通知栏）点击不算外点，不关闭详情
+          else if (isNoticeLayerInteract(e)) e.preventDefault();
         }}
         className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[min(90vh,920px)] sm:max-w-2xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden", // 0.6.306（用户定稿）：标准主题玻璃化——bg-background/70 + blur-2xl，
 // 背后 45% 黑遮罩下的列表隐约可见并被真实模糊（iOS 景深）；
@@ -1193,6 +1197,26 @@ mdsSim && "mds-sim")}>
               <Button onClick={() => onOpenApp(app)} className={cn(headerPillCls, "px-5 bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none")}>
                 打开
               </Button>
+            ) : isInstalled && canControl && app.status !== 'running' ? (
+              /* 0.6.399（用户令）：已停止的应用在详情页也要有「启动」主按钮——
+                 此前只有列表卡面有，详情页得翻 ⋯ 菜单才能启动，口径不一致。 */
+              controlBusy ? (
+                <div className={cn(headerPillCls, "px-5 bg-muted/50 text-muted-foreground border border-border/50 cursor-default")}>
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                  {app.status === 'starting' ? '启动中' : '停用中'}
+                </div>
+              ) : (
+                <Button
+                  onClick={() => onControl?.(app, 'start')}
+                  disabled={controlling !== null}
+                  aria-label={`启动 ${app.display_name}`}
+                  title={`「${app.display_name}」已停止，点击启动`}
+                  className={cn(headerPillCls, "px-5 bg-muted/60 text-foreground border border-border/50 hover:bg-muted shadow-none disabled:opacity-60")}
+                >
+                  {controlling !== null ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Play className="h-3.5 w-3.5 shrink-0 fill-current" />}
+                  启动
+                </Button>
+              )
             ) : null}
               {moreMenu}
             </div>
@@ -1720,6 +1744,30 @@ mdsSim && "mds-sim")}>
               本机 {app.local_installs} 次
             </DetailRow>
           ) : null}
+
+          {/* 0.6.388：问题反馈——源声明 bug_report_url 时展示（短链口径同「官网」，
+              hover 看完整地址）；源未提供则不占行。放在「官网/下载次数」之后，
+              避免打乱 0.6.337 定稿的两列配对。该字段仅详情接口下发。 */}
+          {app.bug_report_url && (
+            <DetailRow icon={Bug} label="问题反馈">
+              <a
+                href={app.bug_report_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={app.bug_report_url}
+                className="text-primary hover:underline inline-flex items-center gap-1 break-all"
+              >
+                {(() => {
+                  try {
+                    return new URL(app.bug_report_url).hostname.replace(/^www\./, '');
+                  } catch {
+                    return app.bug_report_url.replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '');
+                  }
+                })()}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            </DetailRow>
+          )}
 
           {/* 0.6.337（用户定稿）：更新源（跨源更新时目标版本来自哪个源；
               无跨源更新时为空，不占行）。 */}

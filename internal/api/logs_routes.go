@@ -59,12 +59,16 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	// 归档清单 = 日志文件同目录下的 <文件名>.N（轮转产物）
 	archives := []string{}
+	var archiveBytes int64
 	base := filepath.Base(logPath)
 	if ents, err := os.ReadDir(filepath.Dir(logPath)); err == nil {
 		for _, e := range ents {
 			name := e.Name()
 			if strings.HasPrefix(name, base) && len(name) > len(base) && name[len(base)] == '.' {
 				archives = append(archives, name)
+				if fi, err := e.Info(); err == nil {
+					archiveBytes += fi.Size() // 0.6.500：清理对话框展示占用
+				}
 			}
 		}
 	}
@@ -75,5 +79,7 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request) {
 		"returned": len(lines),
 		"lines":    lines,
 		"archives": archives,
+		// 0.6.500：归档总字节（设置页清理对话框用；archives 保持原字符串数组不变）
+		"archive_bytes": archiveBytes,
 	})
 }

@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -31,6 +32,16 @@ func TestParseGhReleaseURL(t *testing.T) {
 			// GitHub 资产元数据永远查不到（下载量/大小都拿不到）。
 			"https://github.com/conversun/fnos-apps/releases/download/1panel/v1.10.34-lts-r8/1panel_1.10.34-lts-r8_x86.fpk",
 			"conversun", "fnos-apps", "1panel_1.10.34-lts-r8_x86.fpk", true,
+		},
+		{
+			// 0.6.390：`releases/latest/download/<asset>`（无 tag）——tnnevol
+			// 等 203 个应用用这种链接，旧解析器直接判 false。
+			"https://github.com/710850609/fpk-OpenList/releases/latest/download/OpenList-4.1.10-10-amd64.fpk",
+			"710850609", "fpk-OpenList", "OpenList-4.1.10-10-amd64.fpk", true,
+		},
+		{
+			"https://github.com/o/r/releases/latest/download/a%20b.fpk",
+			"o", "r", "a b.fpk", true,
 		},
 		{"https://raw.githubusercontent.com/o/r/main/x.fpk", "", "", "", false},
 		{"https://cdn.jsdelivr.net/gh/o/r/x.fpk", "", "", "", false},
@@ -221,6 +232,59 @@ func TestGHStatsSizesMigrationIgnoresETag(t *testing.T) {
 	}
 	if sz, ok := g.LookupSize("o", "r", "a0.fpk"); !ok || sz != 4242 {
 		t.Fatalf("迁移后应补到 size：(%d,%v)", sz, ok)
+	}
+}
+
+// 0.6.390：同一资产名的下载量必须每轮用 200 响应覆盖（旧逻辑只写首次值，
+// 导致两台机器各自冻结在首见时刻）。反向验证：还原成 `if !exists` 时本用例失败。
+func TestGHStatsRefreshUpdatesExistingAssetCounts(t *testing.T) {
+	count := 10
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "50")
+		w.Header().Set("ETag", fmt.Sprintf(`"e-%d"`, count))
+		_, _ = fmt.Fprintf(w, `[{"assets":[{"name":"a.fpk","download_count":%d,"size":100}]}]`, count)
+	}))
+	defer srv.Close()
+
+	g := NewGHStats(filepath.Join(t.TempDir(), "ghstats.json"))
+	g.apiBase = srv.URL
+	g.Enqueue([]string{"https://github.com/o/r/releases/latest/download/a.fpk"})
+	if _, err := g.RefreshRound(context.Background(), 5); err != nil {
+		t.Fatalf("第一轮: %v", err)
+	}
+	if got, ok := g.Lookup("o", "r", "a.fpk"); !ok || got != 10 {
+		t.Fatalf("第一轮 Lookup = (%d,%v), want (10,true)", got, ok)
+	}
+
+	count = 20
+	g.Enqueue([]string{"https://github.com/o/r/releases/download/v2/a.fpk"})
+	if _, err := g.RefreshRound(context.Background(), 5); err != nil {
+		t.Fatalf("第二轮: %v", err)
+	}
+	if got, ok := g.Lookup("o", "r", "a.fpk"); !ok || got != 20 {
+		t.Fatalf("第二轮 Lookup = (%d,%v), want (20,true)（计数未刷新）", got, ok)
+	}
+}
+
+// 0.6.390：配置 token 后请求必须带 Authorization: Bearer。
+func TestGHStatsSendsToken(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		w.Header().Set("X-RateLimit-Remaining", "4999")
+		_, _ = w.Write([]byte(`[{"assets":[{"name":"a.fpk","download_count":1}]}]`))
+	}))
+	defer srv.Close()
+
+	g := NewGHStats(filepath.Join(t.TempDir(), "ghstats.json"))
+	g.apiBase = srv.URL
+	g.SetToken("ghp_test_390")
+	g.Enqueue([]string{"https://github.com/o/r/releases/download/v1/a.fpk"})
+	if _, err := g.RefreshRound(context.Background(), 5); err != nil {
+		t.Fatalf("RefreshRound: %v", err)
+	}
+	if got != "Bearer ghp_test_390" {
+		t.Fatalf("Authorization = %q, want %q", got, "Bearer ghp_test_390")
 	}
 }
 

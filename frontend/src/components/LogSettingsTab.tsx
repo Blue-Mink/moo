@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { apiUrl } from '../api/base';
 import { apiFetch, fetchSettings, updateSettings } from '../api/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FileText, Loader2, RefreshCw, AlertTriangle, Copy, Check, Search, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, Loader2, RefreshCw, AlertTriangle, Copy, Check, Search, X, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { parseLine, collapseDetail, LEVEL_ORDER, type Level, type Parsed } from '../lib/logParse';
 
 interface LogData {
@@ -15,6 +16,8 @@ interface LogData {
   returned: number;
   lines: string[];
   archives: string[];
+  // 0.6.500：归档文件总字节（清理对话框展示占用）
+  archive_bytes?: number;
   note?: string;
 }
 
@@ -38,6 +41,68 @@ const LEVELS: Record<Level, { label: string; dot: string; text: string; row?: st
 const TIME_W = 'w-[62px] sm:w-[104px]';
 const LEVEL_W = 'w-[44px]';
 
+// 0.6.390（用户实报「点展开要等很久」）：把单行抽成 memo 组件。
+// 旧实现每次 setExpanded 都会重渲染 shown.map 的全部行（1000 行≈1 万 DOM
+// 节点），并把每行的 collapseDetail 重算一遍；现在只有 open 变化的那一行
+// 重渲染，其余行直接跳过。
+interface LogRowProps {
+  p: Parsed;
+  idx: number;
+  open: boolean;
+  overflowed: boolean;
+  onToggle: (i: number) => void;
+}
+
+const LogRow = memo(function LogRow({ p, idx, open, overflowed, onToggle }: LogRowProps) {
+  const col = useMemo(() => collapseDetail(p.detail), [p.detail]);
+  const body = open || !col.truncated ? p.detail : col.text;
+  // 折叠摘要可能本身就短（iconfail 计数摘要），这种行仍要能展开看原文。
+  // open 必须算进来：展开后该行不再参与溢出测量，否则按钮会消失、无法收起。
+  const canExpand = col.truncated || open || overflowed;
+  return (
+    <div
+      data-logrow={idx}
+      className={'flex items-start gap-2 rounded-md px-1.5 py-[2px] font-mono flex-wrap sm:flex-nowrap text-[11px] leading-[1.7] sm:text-xs sm:leading-[1.75] hover:bg-black/[0.035] dark:hover:bg-white/[0.05] ' + (LEVELS[p.level].row || '')}>
+      <span
+        data-logtime={idx}
+        className={TIME_W + ' shrink-0 whitespace-nowrap tabular-nums ' + (p.timeShort ? 'text-muted-foreground/75' : 'text-muted-foreground/40')}
+        title={p.time || '该行无时间戳（生命周期脚本输出）'}>
+        <span className="sm:hidden">{p.timeClock || '--:--:--'}</span>
+        <span className="hidden sm:inline">{p.timeShort || p.time || '--:--:--'}</span>
+      </span>
+      <span data-loglevel={idx} className={LEVEL_W + ' shrink-0 font-semibold uppercase ' + LEVELS[p.level].text}>{LEVELS[p.level].label}</span>
+      <span
+        data-logmsg={idx}
+        className={(open
+          ? 'order-4 mt-0.5 w-full min-w-0 sm:order-none sm:mt-0 sm:w-auto sm:flex-1 '
+          : 'min-w-0 flex-1 ') + (LEVELS[p.level].msg || '')}>
+        {open ? (
+          <span className="whitespace-pre-wrap break-all">
+            {p.mod ? <span className="text-muted-foreground">[{p.mod}] </span> : null}
+            {p.detail || '（无内容）'}
+          </span>
+        ) : (
+          <span data-logtext={idx} className="block truncate">
+            {p.mod ? <span className="text-muted-foreground">[{p.mod}] </span> : null}
+            {body || '（无内容）'}
+          </span>
+        )}
+      </span>
+      {canExpand && (
+        <button
+          type="button"
+          data-logtoggle={idx}
+          onClick={() => onToggle(idx)}
+          title={open ? '收起' : `展开（${p.detail.length} 字）`}
+          aria-label={open ? '收起日志' : '展开日志'}
+          className={'mt-[1px] -mr-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary' + (open ? ' order-3 ml-auto sm:order-none sm:ml-0' : '')}>
+          {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+      )}
+    </div>
+  );
+});
+
 export default function LogSettingsTab() {
   const [data, setData] = useState<LogData | null>(null);
   const [count, setCount] = useState(200);
@@ -45,9 +110,16 @@ export default function LogSettingsTab() {
   const [err, setErr] = useState('');
   const [filter, setFilter] = useState<Level | 'all' | 'problem'>('all');
   const [copied, setCopied] = useState(false);
+  // 0.6.500：日志清理（用户报「日志没有删除功能」）。按天保留 / 全部清空。
+  const [cleanOpen, setCleanOpen] = useState(false);
+  const [cleanDays, setCleanDays] = useState(7); // 默认保留最近 7 天
+  const [cleaning, setCleaning] = useState(false);
   // 0.6.343：关键词搜索 + 长行展开集合
   const [q, setQ] = useState('');
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // 0.6.390：分片渲染——先渲染前 200 行，点「显示更多」再追加 500。
+  // 1000 行一次性挂载在弱设备上要数秒（打开日志页也慢），分片后首屏恒定。
+  const [limit, setLimit] = useState(200);
   // 0.6.344：单行排版下，只有「被容器裁掉」的行才需要展开按钮。
   // 折叠摘要长度是估算的，真实是否溢出只能量 DOM（scrollWidth > clientWidth）。
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +172,30 @@ export default function LogSettingsTab() {
     }
   };
 
+  // 0.6.500：清理日志——keep_days=0 全部清空；>0 删除 N 天前的行（保留最近 N 天）
+  const handleClean = async () => {
+    setCleaning(true);
+    try {
+      const r = await apiFetch(apiUrl('/api/logs/cleanup'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keep_days: cleanDays }),
+      });
+      const text = await r.text();
+      let body: { error?: string; freed_bytes?: number; removed_files?: number } | null = null;
+      try { body = JSON.parse(text); } catch { /* 网关会话过期时返回纯文本 */ }
+      if (!r.ok) throw new Error(body?.error || ('清理失败（HTTP ' + r.status + '）'));
+      const freed = body?.freed_bytes || 0;
+      toast.success(freed > 0 ? `已清理 ${fmtSize(freed)} 日志` : '没有需要清理的日志');
+      setCleanOpen(false);
+      void load(count);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   const load = useCallback(async (n: number) => {
     setLoading(true);
     setErr('');
@@ -122,6 +218,7 @@ export default function LogSettingsTab() {
       if (!Array.isArray(body?.lines)) throw new Error('日志响应缺少数据，请刷新页面重试');
       setData(body);
       setExpanded(new Set());
+      setLimit(200);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -162,7 +259,14 @@ export default function LogSettingsTab() {
   useEffect(() => {
     const box = listRef.current;
     if (!box) return;
+    // 0.6.390：只在宽度变化时重新量。展开一行会改变列表高度，ResizeObserver
+    // 也会触发；但宽度没变时「哪行被裁掉」不会变，没必要把全部行再量一遍
+    //（1000 行时这是一次全表 layout，正是展开卡顿的一部分）。
+    let lastW = -1;
     const measure = () => {
+      const w = box.clientWidth;
+      if (w === lastW) return;
+      lastW = w;
       const next = new Set<number>();
       box.querySelectorAll<HTMLElement>('[data-logtext]').forEach((node) => {
         const idx = Number(node.dataset.logtext);
@@ -174,15 +278,22 @@ export default function LogSettingsTab() {
     const ro = new ResizeObserver(measure);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [shown]);
+  }, [shown, limit]);
 
-  const toggleExpand = (i: number) =>
+  const toggleExpand = useCallback((i: number) =>
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(i)) next.delete(i);
       else next.add(i);
       return next;
-    });
+    }), []);
+
+  // 0.6.390：筛选/搜索变化时分片复位（否则会沿用「显示更多」后的 limit）。
+  const pickFilter = (v: Level | 'all' | 'problem') => {
+    setFilter(v);
+    setLimit(200);
+    setExpanded(new Set());
+  };
 
   const fmtSize = (n: number) =>
     n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
@@ -211,6 +322,10 @@ export default function LogSettingsTab() {
                 <SelectItem value="1000">1000 行</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" size="sm" onClick={() => setCleanOpen(true)} disabled={cleaning || loading}
+              title="清理日志" aria-label="清理日志">
+              {cleaning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => void handleCopy()} disabled={!data || shown.length === 0}
               title={filter === 'all' ? '复制当前显示的日志' : '复制当前筛选出的日志'}>
               {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
@@ -230,7 +345,7 @@ export default function LogSettingsTab() {
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setLimit(200); setExpanded(new Set()); }}
             placeholder="搜索关键词 / 应用名 / URL"
             spellCheck={false}
             aria-label="搜索日志"
@@ -239,7 +354,7 @@ export default function LogSettingsTab() {
           {q && (
             <button
               type="button"
-              onClick={() => setQ('')}
+              onClick={() => { setQ(''); setLimit(200); setExpanded(new Set()); }}
               aria-label="清除搜索"
               className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:text-foreground">
               <X className="h-3.5 w-3.5" />
@@ -249,20 +364,20 @@ export default function LogSettingsTab() {
         {/* 级别图例 + 点击过滤（再点一次取消） */}
         <div className="flex flex-wrap items-center gap-1.5">
           <button
-            onClick={() => setFilter('all')}
+            onClick={() => pickFilter('all')}
             className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${filter === 'all' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
             全部 {q ? `${shown.length}/${parsed.length}` : parsed.length}
           </button>
           {/* 0.6.343：一键只看异常（FATAL/ERROR/WARN）——排障时最常用的一屏 */}
           <button
-            onClick={() => setFilter(filter === 'problem' ? 'all' : 'problem')}
+            onClick={() => pickFilter(filter === 'problem' ? 'all' : 'problem')}
             className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${filter === 'problem' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`}>
             异常 {counts.fatal + counts.error + counts.warn}
           </button>
           {LEVEL_ORDER.map((lv) => (
             <button
               key={lv}
-              onClick={() => setFilter(filter === lv ? 'all' : lv)}
+              onClick={() => pickFilter(filter === lv ? 'all' : lv)}
               className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${filter === lv ? 'border-primary bg-primary/10' : 'border-border hover:text-foreground'}`}>
               <span className={`h-2 w-2 rounded-full ${LEVELS[lv].dot}`} />
               <span className={LEVELS[lv].text}>{LEVELS[lv].label}</span>
@@ -293,65 +408,78 @@ export default function LogSettingsTab() {
             ) : shown.length === 0 ? (
               <div className="p-4 text-muted-foreground">（暂无日志）</div>
             ) : (
-              shown.map((p, i) => {
-                const col = collapseDetail(p.detail);
-                const open = expanded.has(i);
-                const body = open || !col.truncated ? p.detail : col.text;
-                // 折叠摘要可能本身就短（iconfail 计数摘要），这种行仍要能展开看原文。
-                // open 必须算进来：展开后该行不再参与溢出测量，否则按钮会消失、无法收起。
-                const canExpand = col.truncated || open || overflow.has(i);
-                return (
-                  <div
+              <>
+                {shown.slice(0, limit).map((p, i) => (
+                  <LogRow
                     key={i}
-                    data-logrow={i}
-                    className={'flex items-start gap-2 rounded-md px-1.5 py-[2px] font-mono flex-wrap sm:flex-nowrap text-[11px] leading-[1.7] sm:text-xs sm:leading-[1.75] hover:bg-black/[0.035] dark:hover:bg-white/[0.05] ' + (LEVELS[p.level].row || '')}>
-                    <span
-                      data-logtime={i}
-                      className={TIME_W + ' shrink-0 whitespace-nowrap tabular-nums ' + (p.timeShort ? 'text-muted-foreground/75' : 'text-muted-foreground/40')}
-                      title={p.time || '该行无时间戳（生命周期脚本输出）'}>
-                      <span className="sm:hidden">{p.timeClock || '--:--:--'}</span>
-                      <span className="hidden sm:inline">{p.timeShort || p.time || '--:--:--'}</span>
-                    </span>
-                    <span data-loglevel={i} className={LEVEL_W + ' shrink-0 font-semibold uppercase ' + LEVELS[p.level].text}>{LEVELS[p.level].label}</span>
-                    <span
-                      data-logmsg={i}
-                      className={(open
-                        ? 'order-4 mt-0.5 w-full min-w-0 sm:order-none sm:mt-0 sm:w-auto sm:flex-1 '
-                        : 'min-w-0 flex-1 ') + (LEVELS[p.level].msg || '')}>
-                      {open ? (
-                        <span className="whitespace-pre-wrap break-all">
-                          {p.mod ? <span className="text-muted-foreground">[{p.mod}] </span> : null}
-                          {p.detail || '（无内容）'}
-                        </span>
-                      ) : (
-                        <span data-logtext={i} className="block truncate">
-                          {p.mod ? <span className="text-muted-foreground">[{p.mod}] </span> : null}
-                          {body || '（无内容）'}
-                        </span>
-                      )}
-                    </span>
-                    {canExpand && (
-                      <button
-                        type="button"
-                        data-logtoggle={i}
-                        onClick={() => toggleExpand(i)}
-                        title={open ? '收起' : `展开（${p.detail.length} 字）`}
-                        aria-label={open ? '收起日志' : '展开日志'}
-                        // 0.6.369（用户令）：展开后按钮位置会从行尾跳到「级别」正后方——
-                        // 展开态详情块是 order-4 + w-full（独占下一行），按钮 order-3 紧跟
-                        // 级别列，左侧没有弹性留白。补 ml-auto 把它顶回行尾右侧，与折叠态
-                        // 同一水平位置（桌面端 ml-0，flex-1 详情块自然把按钮推到右缘）。
-                        className={'mt-[1px] -mr-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary' + (open ? ' order-3 ml-auto sm:order-none sm:ml-0' : '')}>
-                        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                      </button>
-                    )}
-                  </div>
-                );
-              })
+                    p={p}
+                    idx={i}
+                    open={expanded.has(i)}
+                    overflowed={overflow.has(i)}
+                    onToggle={toggleExpand}
+                  />
+                ))}
+                {shown.length > limit && (
+                  <button
+                    type="button"
+                    onClick={() => setLimit((n) => Math.min(n + 500, shown.length))}
+                    className="w-full rounded-md px-2 py-2 text-center text-[11px] text-muted-foreground transition-colors hover:bg-black/[0.035] hover:text-foreground dark:hover:bg-white/[0.05]">
+                    显示更多（还有 {shown.length - limit} 行）
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
+
+      {/* 0.6.500：清理日志对话框——按时间保留（默认 7 天）或全部清空。
+          只动本机日志文件，不影响应用数据与设置。 */}
+      <Dialog open={cleanOpen} onOpenChange={(o) => { if (!cleaning) setCleanOpen(o); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>清理日志</DialogTitle>
+            <DialogDescription>
+              日志按 5 MB 自动轮转、最多保留 5 份归档。清理只影响本机日志文件，不影响应用数据；无时间戳的启动脚本输出会保留。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            {[
+              { days: 1, label: '保留最近 1 天', hint: '只留今天的排障信息' },
+              { days: 7, label: '保留最近 7 天', hint: '推荐：一周内的排障记录够用' },
+              { days: 30, label: '保留最近 30 天', hint: '保留更长的取证窗口' },
+              { days: 0, label: '全部清空', hint: '当前日志与全部归档一起清掉' },
+            ].map((opt) => (
+              <button
+                key={opt.days}
+                type="button"
+                onClick={() => setCleanDays(opt.days)}
+                aria-pressed={cleanDays === opt.days}
+                className={'w-full rounded-lg border px-3 py-2 text-left transition-colors ' + (cleanDays === opt.days
+                  ? 'border-primary/50 bg-primary/10'
+                  : 'border-border hover:bg-muted/50')}>
+                <span className="flex items-center gap-2">
+                  <span className={'h-3.5 w-3.5 shrink-0 rounded-full border ' + (cleanDays === opt.days ? 'border-primary bg-primary' : 'border-muted-foreground/50')} />
+                  <span className="text-sm font-medium">{opt.label}</span>
+                </span>
+                <span className="mt-0.5 block pl-5 text-[11px] text-muted-foreground">{opt.hint}</span>
+              </button>
+            ))}
+          </div>
+          {data && (
+            <p className="text-[11px] text-muted-foreground">
+              当前日志 {fmtSize(data.size)} ｜ 归档 {data.archives.length} 份 {data.archive_bytes ? '· ' + fmtSize(data.archive_bytes) : ''}
+            </p>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCleanOpen(false)} disabled={cleaning}>取消</Button>
+            <Button variant="destructive" onClick={() => void handleClean()} disabled={cleaning}>
+              {cleaning && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+              {cleanDays === 0 ? '全部清空' : `清理 ${cleanDays} 天前`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -905,22 +905,53 @@ func (s *Server) notifyLogClear(w http.ResponseWriter, _ *http.Request) {
 
 // aboutGet GET /api/about：关于页数据（版本号 + 应用信息 + 运行环境）。
 // 应用静态信息以 fnos/manifest 为准（构建时写死，单一事实源）。
-func (s *Server) aboutGet(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) aboutGet(w http.ResponseWriter, r *http.Request) {
 	var startedAt time.Time
 	if s.StartedAt != (time.Time{}) {
 		startedAt = s.StartedAt
 	} else {
 		startedAt = time.Now()
 	}
+	// 0.6.384（用户令）：更新日志改读远程清单 changelog.md（远程不可达回落
+	// 构建内嵌文本）；docs/devdocs 两个文档卡同样来自远程清单。
+	snap := s.aboutSnapshotFor(r.Context())
+	changelog, changelogSource := snap.Changelog, "embedded"
+	if snap.Remote && strings.TrimSpace(changelog) != "" {
+		changelogSource = "remote"
+	}
+	if strings.TrimSpace(changelog) == "" {
+		changelog = changelogCurrentFor(s.Version)
+	}
+	changelogVersion := snap.ChangelogVersion
+	if changelogVersion == "" {
+		changelogVersion = s.Version
+	}
+	// 0.6.387（用户令）：药丸弹窗只显示最新版日志——远程清单的第一个版本段。
+	changelogLatest := snap.ChangelogLatest
+	if strings.TrimSpace(changelogLatest) == "" {
+		changelogLatest = latestChangelogSection(changelog)
+	}
+	docs, devdocs := snap.Docs, snap.DevDocs
+	if docs == nil {
+		docs = []aboutDocItem{}
+	}
+	if devdocs == nil {
+		devdocs = []aboutDocItem{}
+	}
 	writeJSON(w, map[string]any{
-		"version":    s.Version,
-		"changelog":  changelogCurrentFor(s.Version), // 0.6.311r：当前构建内嵌发布说明（空=回落源条目）
-		"platform":   "fnos",
-		"arch":       runtime.GOARCH,
-		"go_version": runtime.Version(),
-		"port":       s.Cfg.WebPort,
-		"started_at": startedAt.Unix(),
-		"uptime_s":   int(time.Since(startedAt).Seconds()),
+		"version":           s.Version,
+		"changelog":         changelog,
+		"changelog_latest":  changelogLatest,
+		"changelog_version": changelogVersion,
+		"changelog_source":  changelogSource,
+		"docs":              docs,
+		"devdocs":           devdocs,
+		"platform":          "fnos",
+		"arch":              runtime.GOARCH,
+		"go_version":        runtime.Version(),
+		"port":              s.Cfg.WebPort,
+		"started_at":        startedAt.Unix(),
+		"uptime_s":          int(time.Since(startedAt).Seconds()),
 		"app": map[string]any{
 			"name":         "moo",
 			"display_name": "Moo",

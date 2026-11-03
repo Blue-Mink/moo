@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus, type AboutDocItem } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
+import { copyTextToClipboard } from '../lib/clipboard';
+import { isNoticeLayerInteract } from '../lib/noticeOutside';
 import { useKeyboardDock, useMobileDesktopSim } from '../lib/hooks';
 import {
   Dialog,
@@ -26,7 +28,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { AlertTriangle, ArrowLeft, Archive, Bell, ChevronDown, ChevronRight, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, Upload, XCircle, Zap } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Archive, Bell, BookOpen, ChevronDown, ChevronRight, Code2, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, Upload, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -419,6 +421,64 @@ const verCmp = (a: string, b: string): number => {
   return 0;
 };
 
+// 0.6.384（用户令）：关于页文档清单条目——只显示标题与说明，
+// 链接不落文本，统一给「打开」「复制」两个按钮。
+const AboutDocRow: React.FC<{ item: AboutDocItem }> = ({ item }) => {
+  const onCopy = async () => {
+    const ok = await copyTextToClipboard(item.url);
+    if (ok) toast.success('链接已复制');
+    else toast.error('复制失败，请手动复制');
+  };
+  return (
+    <div className="flex items-center gap-2 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px]">{item.title}</div>
+        {item.desc && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{item.desc}</div>}
+      </div>
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noreferrer"
+        title="打开链接"
+        className="shrink-0 rounded-full border border-white/10 bg-card/60 px-2.5 py-1 text-[11px] text-primary transition-colors hover:bg-card/90"
+      >
+        打开
+      </a>
+      <button
+        type="button"
+        onClick={onCopy}
+        title="复制链接"
+        className="shrink-0 rounded-full border border-white/10 bg-card/60 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-card/90"
+      >
+        复制
+      </button>
+    </div>
+  );
+};
+
+// 折叠卡：标题行即开关；无条目时整卡隐藏（远程清单不可达）。
+const AboutDocsCard: React.FC<{ title: string; items?: AboutDocItem[]; icon: React.ReactNode }> = ({ title, items, icon }) => {
+  const [open, setOpen] = React.useState(false);
+  const list = items || [];
+  if (!list.length) return null;
+  return (
+    <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2 text-left">
+        <span className="shrink-0 text-muted-foreground">{icon}</span>
+        <span className="text-sm font-medium">{title}</span>
+        <Badge variant="outline" className="text-xs tabular-nums">{list.length} 条</Badge>
+        {/* 0.6.385（用户令）：不放「展开/收起」文字，只用箭头指示（rotate 表达状态） */}
+        <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="mt-1 divide-y divide-white/5">
+          {list.map((it) => <AboutDocRow key={it.url} item={it} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AboutTab: React.FC = () => {
   const [info, setInfo] = React.useState<AboutInfo | null>(null);
   const [entries, setEntries] = React.useState<{ version?: string; text: string }[]>([]);
@@ -439,6 +499,11 @@ const AboutTab: React.FC = () => {
   }, []);
 
   const logEntry = React.useMemo(() => {
+    // 0.6.384：远程清单优先——内容由远端维护，不再与源条目比版本
+    //（远程文件可同时包含多个版本；版本徽章取文件里第一个版本文）。
+    if (info?.changelog_source === 'remote' && info.changelog) {
+      return { version: info.changelog_version || info.version, text: info.changelog };
+    }
     const cands: { version: string; text: string }[] = [];
     if (info?.version && info.changelog) cands.push({ version: info.version, text: info.changelog });
     for (const e of entries) if (e.version && e.text) cands.push({ version: e.version, text: e.text });
@@ -479,19 +544,21 @@ const AboutTab: React.FC = () => {
         </div>
       </div>
 
-      {/* 最新更新日志：与详情页 README 同款渲染（markdown + 滚动盒），
-          卡高限 ~3-4 行文字（max-h-[110px]），超出卡内滚动。
-          0.6.310：内容=当前版本真实 changelog（自源 changelog_entries）。 */}
+      {/* 最近更新日志：与详情页 README 同款渲染（markdown + 滚动盒），
+          全部日志一次渲染、盒内上下滑动（0.6.386 用户令：取消左右翻页）。 */}
       {logEntry && (
         <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium">最新更新日志</span>
-            <Badge variant="outline" className="text-xs tabular-nums">v{logEntry.version}</Badge>
-          </div>
-          {/* 0.6.314r2（用户定稿）：日志内容分页显示（短日志=单页零变化） */}
-          <ChangelogPager text={logEntry.text} appKey="moo" maxH="max-h-[110px]" />
+          {/* 0.6.385（用户令）：标题后不再显示版本号（右上角应用信息已有）。 */}
+          <div className="text-sm font-medium">最近更新日志</div>
+          {/* 桌面 ~172px、移动端窄屏折行多放宽到 320px；超出的内容上下滚动查看 */}
+          <ChangelogPager text={logEntry.text} appKey="moo" maxH="max-h-[320px] sm:max-h-[172px]" scroll />
         </div>
       )}
+
+      {/* 0.6.385（用户令）：「文档和技能」「开发者文档」两张折叠卡回到更新日志下面
+          （远程 docs.md / devdocs.md；无条目自动隐藏） */}
+      <AboutDocsCard title="文档和技能" items={info?.docs} icon={<BookOpen className="h-4 w-4" />} />
+      <AboutDocsCard title="开发者文档" items={info?.devdocs} icon={<Code2 className="h-4 w-4" />} />
 
       {/* 版本信息 */}
       <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
@@ -741,6 +808,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 列表段（FpkDownloads）刷新信号：自增即静默重拉（上传完成/保存设置/切换目录）
   const [fpkRefreshSignal, setFpkRefreshSignal] = useState(0);
   const [storeInfo, setStoreInfo] = useState<StoreUpdateInfo | null>(null);
+  // 0.6.387（用户令）：更新提醒弹窗的日志改读远程清单，只显示最新版（第一段）；
+  // 远程不可达时回落探测得到的 release 正文（storeInfo.latest_changelog）。
+  const [remoteChangelogLatest, setRemoteChangelogLatest] = useState('');
+  useEffect(() => {
+    fetchAbout()
+      .then((i) => setRemoteChangelogLatest((i.changelog_latest || '').trim()))
+      .catch(() => setRemoteChangelogLatest(''));
+  }, []);
   // 0.6.299：探测失败（last_error）≠ 无更新——chip 显示琥珀告警态，点击强制重探
   const [probeRetrying, setProbeRetrying] = useState(false);
   const retryStoreProbe = async () => {
@@ -1649,6 +1724,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             底边自然停在键盘上方、按钮就位于键盘之上（0.6.209 位移方案已废）；
           - pan（壳平移）：聚焦期间整体隐藏兜底。 */}
       <DialogContent
+        onInteractOutside={(e) => {
+          // 0.6.500（用户实报「设置页点通知栏会跳回首页」）：顶部通知层
+          // （sonner toast / 后台任务通知栏）在对话框 DOM 之外，默认会被当成
+          // 外点关闭设置页。点在通知层上时不关闭，让点击只作用于通知本身。
+          if (isNoticeLayerInteract(e)) e.preventDefault();
+        }}
         style={dialogKeyboardStyle}
         className={cn("inset-0 w-full h-full max-w-none rounded-none sm:rounded-[18px] translate-x-0 translate-y-0 flex flex-col !p-0 gap-0 overflow-visible sm:overflow-hidden sm:inset-auto sm:left-[50%] sm:top-[50%] sm:h-[88vh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] [&>button.absolute]:hidden sm:[&>button.absolute]:inline-flex sm:[&>button.absolute]:z-20", // 0.6.325-C15（用户报「网页端极光模式下设置页右上角 × 关不掉」）：
 // 极光分支顶栏是 `relative z-10`（为压在 aurora 玻璃遮罩之上，桌面也生效），
@@ -2888,10 +2969,11 @@ mdsSim && "mds-sim")}>
                     当前版本 v{storeInfo?.current_version}。点击「立即更新」将下载并安装新版本，完成后 Moo 会自动重启。
                   </DialogDescription>
                 </DialogHeader>
-                {/* 0.6.311：最新版本更新日志（release 正文，后端探测已带出；兜底通道无值时不渲染）
-                    0.6.314r2（用户定稿）：日志内容分页显示（短日志=单页零变化） */}
-                {storeInfo?.latest_changelog && (
-                  <ChangelogPager text={storeInfo.latest_changelog} appKey="moo" maxH="max-h-44" />
+                {/* 0.6.387（用户令）：日志改读远程清单，只显示最新版（第一段）；
+                    远程不可达时回落探测到的 release 正文；两者都无则不渲染。
+                    0.6.314r2：日志内容分页显示（短日志=单页零变化） */}
+                {(remoteChangelogLatest || storeInfo?.latest_changelog) && (
+                  <ChangelogPager text={remoteChangelogLatest || storeInfo?.latest_changelog || ''} appKey="moo" maxH="max-h-44" />
                 )}
                 <DialogFooter>
                   <Button variant="ghost" onClick={() => setStoreUpdateConfirm(false)}>

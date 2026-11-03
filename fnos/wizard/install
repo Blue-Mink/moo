@@ -4,20 +4,25 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "Moo 以 <strong>MIT License</strong> 开源（© 2026 Blue-Mink）：可免费使用、复制、修改、合并、发布、分发、再授权与用于商业用途，不附带任何明示或暗示的担保。<br>本包为飞牛 fnOS 平台的部署封装；Moo 由开源项目 conversun/fnos-apps 发展而来，所引用的第三方组件版权归原作者所有。<br>完整许可文本：<a href=\"https://github.com/Blue-Mink/moo/blob/main/LICENSE\">LICENSE</a>"
+        "helpText": "<center>MIT License<br><br>Copyright (c) 2026 Blue-Mink</center><br><br>Permission is hereby granted, free of charge, to any person obtaining a copy<br>of this software and associated documentation files (the \"Software\"), to deal<br>in the Software without restriction, including without limitation the rights<br>to use, copy, modify, merge, publish, distribute, sublicense, and/or sell<br>copies of the Software, and to permit persons to whom the Software is<br>furnished to do so, subject to the following conditions:<br><br>The above copyright notice and this permission notice shall be included in all<br>copies or substantial portions of the Software.<br><br>THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR<br>IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,<br>FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE<br>AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER<br>LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,<br>OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE<br>SOFTWARE.<br><br><a href=\"https://github.com/Blue-Mink/moo/blob/main/LICENSE\">LICENSE</a>"
       },
       {
-        "type": "text",
+        "type": "checkbox",
         "field": "wizard_license_agree",
-        "label": "输入「同意」以接受 MIT 许可协议",
-        "initValue": "",
+        "label": "我已阅读并同意上述 MIT 许可协议",
+        "options": [
+          {
+            "label": "I have read and agree to the MIT License",
+            "value": "agree"
+          }
+        ],
         "rules": [
           {
             "required": true,
-            "message": "须接受许可协议后才能继续安装"
+            "message": "请勾选同意 MIT 许可协议后再安装"
           }
         ],
-        "helpText": "安装即视为已阅读并接受 MIT 许可条款；输入内容随安装时间一并记录于应用数据目录。"
+        "helpText": "勾选即表示你已阅读并接受 MIT 许可条款；安装时间与版本会记录在应用数据目录。"
       }
     ]
   },
@@ -78,7 +83,7 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "<strong>Moo is more</strong><br><br>Moo 由开源项目 <a href=\"https://github.com/conversun/fnos-apps\">conversun/fnos-apps</a> 发展而来：初版 Blue-Mink/New-Store 在其上重构了前端 UI，Moo 在此基础上持续演进。<br><br>感谢 <a href=\"https://github.com/EWEDLCM/FnDepot\">EWEDLCM/FnDepot</a> 应用仓库，部分内容优化参考了 FnDepot 应用的实现；同时感谢 FnDepot V1 / V2 源的开发者们。<br><br>感谢 kci-lnk 的 <a href=\"https://github.com/kci-lnk/fn-knock-turborepo\">fn-knock</a> 项目，通知事件中心与设置备份的形式参考了它。<br><br>感谢 <a href=\"https://github.com/kspeeder/docker_kspeeder\">KSpeeder</a> 项目，Moo「Docker 镜像加速」中的本地镜像缓存加速由它的独立应用提供。<br><br>感谢飞牛团队构建的 fnOS 系统与开放的应用生态，以及 GitHub 加速源与 Docker 镜像加速源的维护者们（Moo 的分发、源同步与镜像拉取都离不开它们）。<br><br>Moo 由人类与 AI 协作开发。<br><br>感谢所有投身飞牛应用生态的开发者、爱好者与项目测试者——Moo 的每个版本迭代都来自你们的反馈，感谢你们为爱发电。<br><br><span style=\"opacity:.7\">开源许可：MIT · © 2026 Blue-Mink</span>"
+        "helpText": "<center><strong>Moo is more</strong></center><br><br>Moo 由开源项目 <a href=\"https://github.com/conversun/fnos-apps\">conversun/fnos-apps</a> 发展而来：初版 Blue-Mink/New-Store 在其上重构了前端 UI，Moo 在此基础上持续演进。<br><br>感谢 <a href=\"https://github.com/EWEDLCM/FnDepot\">EWEDLCM/FnDepot</a> 应用仓库，部分内容优化参考了 FnDepot 应用的实现；同时感谢 FnDepot V1 / V2 源的开发者们。<br><br>感谢 kci-lnk 的 <a href=\"https://github.com/kci-lnk/fn-knock-turborepo\">fn-knock</a> 项目，通知事件中心与设置备份的形式参考了它。<br><br>感谢 <a href=\"https://github.com/kspeeder/docker_kspeeder\">KSpeeder</a> 项目，Moo「Docker 镜像加速」中的本地镜像缓存加速由它的独立应用提供。<br><br>感谢飞牛团队构建的 fnOS 系统与开放的应用生态，以及 GitHub 加速源与 Docker 镜像加速源的维护者们（Moo 的分发、源同步与镜像拉取都离不开它们）。<br><br>Moo 由人类与 AI 协作开发。<br><br>感谢所有投身飞牛应用生态的开发者、爱好者与项目测试者——Moo 的每个版本迭代都来自你们的反馈，感谢你们为爱发电。<br><br><center>开源许可：MIT · © 2026 Blue-Mink</center>"
       }
     ]
   }
