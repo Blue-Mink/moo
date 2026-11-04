@@ -26,13 +26,96 @@ if [ "${wport}" != "$(read_web_port)" ] && port_in_use "${wport}"; then
 fi
 apply_port "${wport}"
 
+# 0.2.37：向导强制接受许可（对齐 Moo 0.6.500）。UI 不是安全边界，脚本再校验一次；
+# 只在「向导确实运行」时强制（平台把 wizard 字段作为同名环境变量传入，
+# appcenter-cli / 非交互安装不传），避免误伤 CLI 安装与升级。
+wizard_ran=0
+[ -n "${wizard_license_agree+x}" ] && wizard_ran=1
+[ -n "${wizard_access_port+x}" ] && wizard_ran=1
+[ -n "${wizard_data_dir+x}" ] && wizard_ran=1
+[ -n "${wizard_log_path+x}" ] && wizard_ran=1
+if [ "${wizard_ran}" -eq 1 ] && [ -z "${wizard_license_agree:-}" ]; then
+    echo "未接受许可协议：请在许可协议步骤勾选同意" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+fi
+
+# 0.2.37：应用数据路径（可选，对齐 Moo 的「应用路径」）。仅首次安装生效：
+# 已有 index.json 或 datadir 指针 = 升级/重装，一律不移动数据。
+wdata="${wizard_data_dir:-}"
+if [ -n "${wdata}" ]; then
+    case "${wdata}" in
+        ..|../*|*/..|*/../*)
+            echo "应用数据路径不合法：${wdata}（不允许包含 ..）" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+            exit 1
+            ;;
+    esac
+    wdata_abs="${wdata}"
+    case "${wdata_abs}" in
+        /*) : ;;
+        *) wdata_abs="${TRIM_PKGVAR}/${wdata_abs}" ;;
+    esac
+    case "${wdata_abs}" in
+        /vol[1-9]*) : ;;
+        *)
+            echo "应用数据路径不合法：${wdata}（绝对路径必须在 /volN 存储卷下）" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+            exit 1
+            ;;
+    esac
+    if [ -f "${TRIM_PKGVAR}/index.json" ] || [ -s "${TRIM_PKGVAR}/datadir" ]; then
+        echo "install wizard: data_dir=${wdata}（已有数据，保持原数据目录不变）" >> "${LOG_FILE}" 2>/dev/null
+    elif mkdir -p "${wdata_abs}" 2>/dev/null; then
+        chmod 700 "${wdata_abs}" 2>/dev/null
+        printf '%s\n' "${wdata_abs}" > "${TRIM_PKGVAR}/datadir"
+        chmod 600 "${TRIM_PKGVAR}/datadir" 2>/dev/null
+        echo "install wizard: data_dir=${wdata_abs}（首次安装，已写入 datadir 指针）" >> "${LOG_FILE}" 2>/dev/null
+    else
+        echo "应用数据路径不可用：无法创建 ${wdata_abs}" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+        exit 1
+    fi
+fi
+
+# 0.2.37：日志路径（对齐 Moo 0.6.267/0.6.500）——单一事实源 ${PKGVAR}/.logpath，
+# common 在 source 时全局解析，daemon 输出与生命周期日志走同一文件。
+wlog="${wizard_log_path:-moo-mate.log}"
+case "${wlog}" in
+    ..|../*|*/..|*/../*)
+        echo "日志路径不合法：${wlog}（不允许包含 ..）" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+if [ -z "${wlog##*/}" ]; then
+    echo "日志路径不合法：${wlog}（必须以文件名结尾，不能是目录）" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+fi
+wlog_abs="${wlog}"
+case "${wlog_abs}" in
+    /*) : ;;
+    *) wlog_abs="${TRIM_PKGVAR}/${wlog_abs}" ;;
+esac
+if [ -d "${wlog_abs}" ]; then
+    echo "日志路径必须是文件：${wlog} 是目录" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+fi
+wlog_dirn=$(dirname "${wlog_abs}")
+if [ -z "${wlog_dirn}" ] || ! mkdir -p "${wlog_dirn}" 2>/dev/null || [ ! -w "${wlog_dirn}" ]; then
+    echo "日志路径不可用：无法创建或写入目录 ${wlog_dirn}" > "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>/dev/null || true
+    exit 1
+fi
+chmod 700 "${wlog_dirn}" 2>/dev/null
+printf '%s\n' "${wlog}" > "${TRIM_PKGVAR}/.logpath"
+chmod 600 "${TRIM_PKGVAR}/.logpath" 2>/dev/null
+
 # 留痕：安装向导走过的字段（CLI/非交互安装时这些变量不存在）。
-if [ -n "${wizard_license_agree+x}${wizard_access_port+x}" ]; then
+if [ "${wizard_ran}" -eq 1 ]; then
+    wdata_esc=$(printf '%s' "${wdata}" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    wlog_esc=$(printf '%s' "${wlog}" | sed 's/\\/\\\\/g; s/"/\\"/g')
     cat > "${TRIM_PKGVAR}/wizard-install.json" <<EOF
 {
   "installed_at": "$(date '+%Y-%m-%dT%H:%M:%S%z')",
   "version": "${TRIM_PKGVERSION:-unknown}",
   "access_port": "${wport}",
+  "data_dir": "${wdata_esc}",
+  "log_path": "${wlog_esc}",
   "license": "MIT",
   "license_agree_filled": $([ -n "${wizard_license_agree:-}" ] && echo true || echo false)
 }

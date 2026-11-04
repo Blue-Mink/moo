@@ -219,7 +219,7 @@ go test ./...     # 单元测试
 
 - **Moo 商店**：Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜「Moo Mate」安装
 - **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate
-- **手动**：下载 `moo-mate_0.2.36_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
+- **手动**：下载 `moo-mate_0.2.50_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
 
 用法三步：粘贴仓库链接 → 确认发现的应用并生成索引 → 一键加源到本机 Moo。
 
@@ -227,7 +227,7 @@ go test ./...     # 单元测试
 | --- | --- |
 | 端口 | `38108`（仅本机回环，经面板网关访问） |
 | 平台 | x86 / arm |
-| 自更新 | 应用内自更新：从 GitHub 拉取新包，sha256 校验通过后交系统应用中心就地升级，校验不过即拒绝；升级不丢数据 |
+| 自更新 | 应用内自更新：从 GitHub 拉取新包，sha256 与 minisign 双校验通过后交系统应用中心就地升级，缺侧车或验签不过即拒绝；升级不丢数据 |
 | GitHub Token | 自动复用本机 Moo 的设置，伴侣侧无需填写 |
 
 功能与使用细节见 [cmd/moo-mate/README.md](cmd/moo-mate/README.md)。

@@ -4,29 +4,34 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "Moo Mate 以 <strong>MIT License</strong> 开源（© 2026 Blue-Mink）：可免费使用、复制、修改、合并、发布、分发、再授权与用于商业用途，不附带任何明示或暗示的担保。<br>完整许可文本：<a href=\"https://github.com/Blue-Mink/moo/blob/main/LICENSE\">LICENSE</a>"
+        "helpText": "<center>MIT License<br><br>Copyright (c) 2026 Blue-Mink</center><br><br>Permission is hereby granted, free of charge, to any person obtaining a copy<br>of this software and associated documentation files (the \"Software\"), to deal<br>in the Software without restriction, including without limitation the rights<br>to use, copy, modify, merge, publish, distribute, sublicense, and/or sell<br>copies of the Software, and to permit persons to whom the Software is<br>furnished to do so, subject to the following conditions:<br><br>The above copyright notice and this permission notice shall be included in all<br>copies or substantial portions of the Software.<br><br>THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR<br>IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,<br>FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE<br>AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER<br>LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,<br>OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE<br>SOFTWARE.<br><br><a href=\"https://github.com/Blue-Mink/moo/blob/main/LICENSE\">LICENSE</a>"
       },
       {
-        "type": "text",
+        "type": "checkbox",
         "field": "wizard_license_agree",
-        "label": "输入「同意」以接受 MIT 许可协议",
-        "initValue": "",
+        "label": "我已阅读并同意上述 MIT 许可协议",
+        "options": [
+          {
+            "label": "I have read and agree to the MIT License",
+            "value": "agree"
+          }
+        ],
         "rules": [
           {
             "required": true,
-            "message": "须接受许可协议后才能继续安装"
+            "message": "请勾选同意 MIT 许可协议后再安装"
           }
         ],
-        "helpText": "安装即视为已阅读并接受 MIT 许可条款。"
+        "helpText": "勾选即表示你已阅读并接受 MIT 许可条款；安装时间与版本会记录在应用数据目录。"
       }
     ]
   },
   {
-    "stepTitle": "端口设置",
+    "stepTitle": "端口与路径",
     "items": [
       {
         "type": "tips",
-        "helpText": "Moo Mate 只在本机回环地址 <code>127.0.0.1</code> 上监听一个调试端口，用于本机 Moo 拉取生成的 <code>moo.json</code>。<br>主入口走面板网关 <code>/app/moo-mate/</code>，<strong>不受这里填写的端口影响</strong>。"
+        "helpText": "应用数据（索引、配置、备份、日志）写入所选存储空间的 <strong>@appdata/moo-mate</strong> 目录。<br>飞牛卸载应用时该目录默认<strong>保留</strong>（重装沿用原有数据）；如需彻底清除，请在文件管理中删除该目录。"
       },
       {
         "type": "text",
@@ -43,16 +48,28 @@
             "message": "端口必须为数字（1024-65535）"
           }
         ],
-        "helpText": "本机回环调试端口（1024-65535，默认 38108）。保存后服务自动重启并把新端口写回应用中心服务登记；若曾在 Moo 里添加过 Moo Mate 的源，重启后会自动把源地址换成新端口。"
-      }
-    ]
-  },
-  {
-    "stepTitle": "关于 Moo Mate",
-    "items": [
+        "helpText": "Moo Mate 只在本机回环 127.0.0.1 上监听该端口（本机 Moo 拉取 moo.json 用），默认 38108；面板入口 /app/moo-mate/ 不受影响。"
+      },
       {
-        "type": "tips",
-        "helpText": "<strong>Moo Mate</strong> 是 Moo 应用源的辅助工具：<br><br>粘贴任意 GitHub 飞牛应用仓库链接，自动探测索引、扫描 release 里的 .fpk 资产、解析 manifest 与 sha256，生成协议合规的 moo.json 应用源索引，并<strong>一键同步到本机 Moo 应用源列表</strong>。<br><br>无需把 moo.json 上传到自己的 GitHub 仓库——索引由 Moo Mate 在本地托管（回环地址 127.0.0.1:38108），Moo 直接从本机拉取。<br><br>Moo Mate 由人类与 AI 协作开发，随 Moo 一同开源。"
+        "type": "text",
+        "field": "wizard_data_dir",
+        "label": "应用数据路径",
+        "initValue": "",
+        "rules": [],
+        "helpText": "留空 = 默认 @appdata/moo-mate（升级/重装保持现状）；可填相对路径（相对 @appdata/moo-mate）或 /volN 下的绝对路径。仅首次安装生效，已有数据不会被移动。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_log_path",
+        "label": "日志路径",
+        "initValue": "moo-mate.log",
+        "rules": [
+          {
+            "required": true,
+            "message": "请填写日志路径"
+          }
+        ],
+        "helpText": "运行日志文件位置：填相对路径（相对 @appdata/moo-mate）或绝对路径，默认 moo-mate.log；超过 5MB 自动轮转归档。"
       }
     ]
   }

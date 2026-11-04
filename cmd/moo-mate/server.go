@@ -264,6 +264,10 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 			skipped = append(skipped, d.Name+": manifest 缺少 appname")
 			continue
 		}
+		// 0.2.38：构建索引时顺手把包内图标落盘（零额外下载；供 /api/icon 出图）。
+		if len(meta.Icon) > 0 {
+			c.saveIconFile(appname, meta.Icon, meta.IconExt)
+		}
 		e := metaToEntry(meta, d.DownloadURL, "")
 		if e.Version == "" {
 			e.Version = d.Version
@@ -806,9 +810,12 @@ func (c *companion) handleListIndex(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleIcon GET /api/icon/{appname}：经本机代理返回应用图标。
-// 软仓图标有的指向 Gitee raw（带 Referer 会 403 防盗链），浏览器 <img> 直连会失败；
-// 由本机 http client（不带 Referer）下载并缓存，前端 img 指向本端点。
+// handleIcon GET /api/icon/{appname}：返回应用图标（本机代理 + 磁盘缓存）。
+// 0.2.38 起不再要求索引里有 icon_url：候选顺序 =
+// 磁盘缓存 → 内存缓存 → icon_url（软仓 personal 源）→ 仓库根常见路径
+// （ICON.PNG / <appname>/ICON.PNG 等）→ FPK 包内抽图兜底。
+// 命中即落盘（<PKGVAR>/icons/，进程重启不丢）；全部失败回 404，前端回退首字母占位。
+// 软仓图标有的指向 Gitee raw（带 Referer 会 403 防盗链），本机 client 不带 Referer。
 func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 	appname := strings.TrimSpace(r.PathValue("appname"))
 	if appname == "" {
@@ -816,45 +823,80 @@ func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ia := c.idx.get(appname)
-	if ia == nil || strings.TrimSpace(ia.IconURL) == "" {
-		writeErr(w, http.StatusNotFound, "该应用无图标")
+	if ia == nil {
+		writeErr(w, http.StatusNotFound, "应用不存在")
 		return
 	}
+	iconCT := map[string]string{"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+	writeIcon := func(b []byte, ext string) {
+		ct := iconCT[ext]
+		if ct == "" {
+			ct = http.DetectContentType(b)
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(b)
+	}
+	// ① 磁盘缓存（跨重启）
+	if b, ext, ok := c.loadIconFile(appname); ok {
+		writeIcon(b, ext)
+		return
+	}
+	// ② 内存缓存
 	c.iconMu.RLock()
 	b, ok := c.icons[appname]
 	c.iconMu.RUnlock()
-	if !ok {
-		ctx, cancel := timeoutCtx(r.Context(), 20*time.Second)
-		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, ia.IconURL, nil)
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, err.Error())
+	if ok && len(b) > 0 {
+		if ext, okExt := detectImageExt(b); okExt {
+			writeIcon(b, ext)
 			return
 		}
-		req.Header.Set("User-Agent", "Moo-Mate/1.0")
-		resp, err := c.httpc.Do(req)
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, "图标下载失败："+err.Error())
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			writeErr(w, http.StatusBadGateway, fmt.Sprintf("图标下载 HTTP %d", resp.StatusCode))
-			return
-		}
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-		if err != nil || len(data) == 0 {
-			writeErr(w, http.StatusBadGateway, "图标内容为空")
-			return
-		}
-		c.iconMu.Lock()
-		c.icons[appname] = data
-		c.iconMu.Unlock()
-		b = data
 	}
-	w.Header().Set("Content-Type", http.DetectContentType(b))
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	_, _ = w.Write(b)
+	// ③ 失败负缓存（30 分钟）：避免前端反复刷新时每轮都重探远端/重下包
+	if mateIconRecentlyFailed(appname) {
+		writeErr(w, http.StatusNotFound, "未找到应用图标")
+		return
+	}
+	// ③ icon_url（软仓 personal 源自带）
+	if u := strings.TrimSpace(ia.IconURL); u != "" {
+		ctx, cancel := timeoutCtx(r.Context(), 8*time.Second)
+		data, ext, okIcon := c.fetchMateIcon(ctx, u)
+		cancel()
+		if okIcon {
+			c.saveIconFile(appname, data, ext)
+			writeIcon(data, ext)
+			return
+		}
+	}
+	// ④ 仓库根常见路径（GitHub/Gitee raw；命中率高的固定布局）
+	{
+		ctx, cancel := timeoutCtx(r.Context(), 6*time.Second)
+		for _, u := range mateIconCandidates(appname, ia.Source) {
+			if ctx.Err() != nil {
+				break
+			}
+			if data, ext, okIcon := c.fetchMateIcon(ctx, u); okIcon {
+				c.saveIconFile(appname, data, ext)
+				cancel()
+				writeIcon(data, ext)
+				return
+			}
+		}
+		cancel()
+	}
+	// ⑤ 包内抽图兜底（体积已知且 ≤20MB；并发 2）
+	{
+		ctx, cancel := timeoutCtx(r.Context(), 90*time.Second)
+		data, ext, okIcon := c.fallbackIconFromFPK(ctx, ia)
+		cancel()
+		if okIcon {
+			c.saveIconFile(appname, data, ext)
+			writeIcon(data, ext)
+			return
+		}
+	}
+	markMateIconFailed(appname)
+	writeErr(w, http.StatusNotFound, "未找到应用图标")
 }
 
 // handleConfigGet GET /api/config：透出 GitHub token 状态（是否可用 + 来源，
@@ -866,6 +908,8 @@ func (c *companion) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	backupDir := c.cfg.BackupDir
 	backupAuto := c.cfg.BackupAuto
 	backupDays := c.cfg.backupIntervalDays()
+	indexURL := c.cfg.defaultIndexURL()
+	changelogURL := c.cfg.changelogURL()
 	c.mu.RUnlock()
 	tok, src, _ := c.githubTokenWithSource()
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -877,6 +921,9 @@ func (c *companion) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		"backup_auto":          backupAuto,
 		"backup_interval_days": backupDays,
 		"last_backup_at":       c.lastBackupAt(),
+		"default_index_url":    indexURL,
+		"changelog_url":        changelogURL,
+		"log_lines":            c.cfg.logLines(),
 	})
 }
 
@@ -891,6 +938,9 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		BackupDir       *string `json:"backup_dir"`
 		BackupAuto      *bool   `json:"backup_auto"`
 		BackupDays      *int    `json:"backup_interval_days"`
+		DefaultIndexURL *string `json:"default_index_url"`
+		ChangelogURL    *string `json:"changelog_url"`
+		LogLines        *int    `json:"log_lines"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -941,6 +991,30 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.cfg.BackupIntervalDays = *body.BackupDays
+	}
+	// 0.2.37：远程清单地址（空 = 恢复内置默认公网地址）。
+	for _, f := range []struct {
+		name string
+		dst  *string
+		val  *string
+	}{{"default_index_url", &c.cfg.DefaultIndexURL, body.DefaultIndexURL}, {"changelog_url", &c.cfg.ChangelogURL, body.ChangelogURL}} {
+		if f.val == nil {
+			continue
+		}
+		v := strings.TrimSpace(*f.val)
+		if v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+			writeErr(w, http.StatusBadRequest, f.name+" 必须是 http(s):// 开头")
+			return
+		}
+		*f.dst = v
+	}
+	// 0.2.38：日志查看行数（50/100/200/500/1000，与 Moo 同档位）。
+	if body.LogLines != nil {
+		if !validLogLines(*body.LogLines) {
+			writeErr(w, http.StatusBadRequest, "log_lines 只支持 50 / 100 / 200 / 500 / 1000")
+			return
+		}
+		c.cfg.LogLines = *body.LogLines
 	}
 	if err := c.cfg.save(c.cfgPath); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

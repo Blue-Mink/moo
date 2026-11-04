@@ -167,6 +167,108 @@ func giteeReleases(ctx context.Context, owner, repo string, httpc *http.Client) 
 	return all, nil
 }
 
+// giteeContent Gitee contents API 的单个条目（目录列表用，只取需要的字段）。
+type giteeContent struct {
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	DownloadURL string `json:"download_url"`
+}
+
+// giteeFPKDirs 仓库内 FPK 目录（软仓 2026-11-01 起的新分发形态：release 停更，
+// 包直接放 git 目录）。目录不存在时静默跳过，不影响 release 扫描。
+var giteeFPKDirs = []string{"server-data/apps"}
+
+// giteeRepoDir 列出 Gitee 仓库目录内容；path 不存在（404）返回空 + nil。
+func giteeRepoDir(ctx context.Context, owner, repo, path string, httpc *http.Client) ([]giteeContent, error) {
+	u := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=master", giteeAPIBase, owner, repo, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "moo-mate")
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	data, rerr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	resp.Body.Close()
+	if rerr != nil {
+		return nil, rerr
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Gitee API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	var list []giteeContent
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+// versionFromFilename 从 .fpk 文件名提取版本（9router-0.5.55.fpk → 0.5.55，
+// FnEnhance-1.0.3-x86.fpk → 1.0.3）。取最后一段「数字.数字[.数字…]」，失败返回空串。
+func versionFromFilename(name string) string {
+	base := strings.TrimSpace(name)
+	if strings.HasSuffix(strings.ToLower(base), ".fpk") {
+		base = base[:len(base)-4]
+	}
+	best := ""
+	for i := 0; i < len(base); i++ {
+		if base[i] < '0' || base[i] > '9' {
+			continue
+		}
+		j := i
+		dots := 0
+		for j < len(base) {
+			c := base[j]
+			if c >= '0' && c <= '9' {
+				j++
+				continue
+			}
+			if c == '.' && j+1 < len(base) && base[j+1] >= '0' && base[j+1] <= '9' {
+				dots++
+				j++
+				continue
+			}
+			break
+		}
+		if dots >= 1 {
+			best = base[i:j]
+		}
+		i = j - 1
+	}
+	return best
+}
+
+// discoverGiteeAppsDir 扫描仓库内 FPK 目录，返回候选（目录不存在/接口失败返回空）。
+func discoverGiteeAppsDir(ctx context.Context, owner, repo string, httpc *http.Client) []releaseFPK {
+	var out []releaseFPK
+	for _, dir := range giteeFPKDirs {
+		list, err := giteeRepoDir(ctx, owner, repo, dir, httpc)
+		if err != nil || len(list) == 0 {
+			continue
+		}
+		for _, f := range list {
+			if f.Type != "" && f.Type != "file" {
+				continue
+			}
+			if !strings.HasSuffix(strings.ToLower(f.Name), ".fpk") {
+				continue
+			}
+			u := strings.TrimSpace(f.DownloadURL)
+			if u == "" {
+				u = fmt.Sprintf("https://gitee.com/%s/%s/raw/master/%s", owner, repo, f.Path)
+			}
+			out = append(out, releaseFPK{name: f.Name, url: u, size: 0, ver: versionFromFilename(f.Name)})
+		}
+	}
+	return out
+}
+
 // versionFromTag 从 tag 名（如 v1.2.3、1.2.3、app/v1.2.3）提取版本号。
 // 失败返回空串（该 release 不能直接用作版本）。
 func versionFromTag(tag string) string {
@@ -242,20 +344,35 @@ func discoverFromRepo(ctx context.Context, rawURL, token string, httpc *http.Cli
 		}
 		return dedupFPKs(items), nil
 	}
-	// Gitee
+	// Gitee：release 资产 + 仓库内 FPK 目录（软仓 2026-11-01 起的新形态）合并，目录优先
 	if owner, repo, ok := parseGiteeRepo(rawURL); ok {
+		var relErr error
 		rels, err := giteeReleases(ctx, owner, repo, httpc)
 		if err != nil {
-			return nil, err
+			relErr = err
+			rels = nil
 		}
-		items := make([]releaseFPK, 0, len(rels))
+		dirItems := discoverGiteeAppsDir(ctx, owner, repo, httpc)
+		seen := make(map[string]bool, len(dirItems))
+		items := make([]releaseFPK, 0, len(dirItems)+len(rels))
+		for _, it := range dirItems {
+			seen[strings.ToLower(it.name)] = true
+			items = append(items, it)
+		}
 		for _, rel := range rels {
 			ver := versionFromTag(rel.TagName)
 			for _, a := range rel.Assets {
+				if seen[strings.ToLower(a.Name)] {
+					continue // 同名以目录版为准（release 多为停更前的旧包）
+				}
 				items = append(items, releaseFPK{name: a.Name, url: a.URL, size: 0, ver: ver})
 			}
 		}
-		return dedupFPKs(items), nil
+		out := dedupFPKs(items)
+		if len(out) == 0 && relErr != nil {
+			return nil, relErr
+		}
+		return out, nil
 	}
 	return nil, fmt.Errorf("仅支持 GitHub / Gitee 仓库地址: %s", rawURL)
 }

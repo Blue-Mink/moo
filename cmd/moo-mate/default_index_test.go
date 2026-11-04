@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +30,7 @@ func TestDefaultIndexSnapshotParses(t *testing.T) {
 func TestBootstrapWritesOnMissing(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "index.json")
-	n, err := bootstrapDefaultIndex(p)
+	n, _, err := bootstrapDefaultIndex(p, "", nil)
 	if err != nil {
 		t.Fatalf("bootstrap 失败: %v", err)
 	}
@@ -53,7 +55,7 @@ func TestBootstrapKeepsExistingFile(t *testing.T) {
 	if err := os.WriteFile(p, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, err := bootstrapDefaultIndex(p)
+	n, _, err := bootstrapDefaultIndex(p, "", nil)
 	if err != nil {
 		t.Fatalf("bootstrap 报错: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestBootstrapKeepsEmptyFile(t *testing.T) {
 	if err := os.WriteFile(p, []byte{}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	n, err := bootstrapDefaultIndex(p)
+	n, _, err := bootstrapDefaultIndex(p, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,5 +91,44 @@ func TestBootstrapKeepsEmptyFile(t *testing.T) {
 	}
 	if st, _ := os.Stat(p); st.Size() != 0 {
 		t.Fatalf("空文件被写入内容（%d B）", st.Size())
+	}
+}
+
+// 0.2.37：远程默认清单可用时优先使用（清单内容取自远程，不是内置快照）。
+func TestBootstrapUsesRemoteIndex(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":1,"apps":{"remote-only":{"appname":"remote-only","display_name":"Remote","version":"1.0.0"}}}`))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "index.json")
+	n, src, err := bootstrapDefaultIndex(p, srv.URL+"/mate-default-index.json", srv.Client())
+	if err != nil {
+		t.Fatalf("bootstrap 失败: %v", err)
+	}
+	if n != 1 || src != "remote" {
+		t.Fatalf("n=%d src=%s，期望 1/remote", n, src)
+	}
+	ix := newIndex(p)
+	if ix.get("remote-only") == nil || ix.get("1panel") != nil {
+		t.Fatalf("读回内容不是远程清单：%d 条", len(ix.list()))
+	}
+}
+
+// 0.2.37：远程不可达 → 回落内置快照（离线新装仍有内容）。
+func TestBootstrapFallsBackToEmbedded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "index.json")
+	n, src, err := bootstrapDefaultIndex(p, srv.URL+"/mate-default-index.json", srv.Client())
+	if err != nil {
+		t.Fatalf("bootstrap 失败: %v", err)
+	}
+	if src != "embedded" || n != defaultSeedApps() || n == 0 {
+		t.Fatalf("回落异常：n=%d src=%s want=%d", n, src, defaultSeedApps())
 	}
 }

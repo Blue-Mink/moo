@@ -12,6 +12,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"io/fs"
@@ -75,20 +76,22 @@ func main() {
 	web := http.FileServer(http.FS(sub))
 
 	// 0.2.35：首次启动（索引文件不存在）写入出厂默认索引；已有数据一律不覆盖。
+	// 0.2.37：默认列表优先读远程清单（配置可覆盖），失败回落内置快照。
 	// 放在启动路径而不是 newIndex 内，避免污染单测里「空索引」的语义。
-	if n, err := bootstrapDefaultIndex(dataVal); err != nil {
-		logf("内置默认索引写入失败（继续空索引启动）：%v", err)
+	dataDir := filepath.Dir(dataVal)
+	cfgPath := filepath.Join(dataDir, "config.json")
+	cfg, _ := loadMateConfig(cfgPath)
+	bootClient := &http.Client{Timeout: 25 * time.Second}
+	if n, src, err := bootstrapDefaultIndex(dataVal, cfg.defaultIndexURL(), bootClient); err != nil {
+		logf("默认应用列表写入失败（继续空索引启动）：%v", err)
 	} else if n > 0 {
-		logf("已写入内置默认索引 %d 条（首次启动）", n)
+		logf("已写入默认应用列表 %d 条（首次启动，来源=%s）", n, src)
 	}
 	c := newCompanion(mooBaseVal, selfBaseVal, tokenVal, web, newIndex(dataVal))
 	c.bootDir = bootDir
 	// 0.2.35：自更新下载复用 Moo 的 GitHub 加速镜像表（GET /api/mate/mirrors）。
 	mateMirrorProvider = c.mateMirrorPrefixes
 	// 配置 + 加解密器：GitHub token 落盘 enc:v1（密钥文件 .moo-secret.key 在数据目录）。
-	dataDir := filepath.Dir(dataVal)
-	cfgPath := filepath.Join(dataDir, "config.json")
-	cfg, _ := loadMateConfig(cfgPath)
 	sealer, serr := secret.LoadOrCreate(dataDir)
 	if serr != nil {
 		log.Printf("凭据加解密器不可用（token 将拒绝存储）: %v", serr)
@@ -104,10 +107,14 @@ func main() {
 	mux.HandleFunc("GET /api/icon/{appname}", c.handleIcon)
 	mux.HandleFunc("GET /api/status", c.handleStatus)
 	mux.HandleFunc("GET /api/update-check", c.handleUpdateCheck)
+	mux.HandleFunc("GET /api/changelog", c.handleChangelog)
 	// 应用内自更新（下载 + sha256 校验 + appcenter daemon 就地升级）
 	mux.HandleFunc("POST /api/self-update", c.handleSelfUpdate)
 	mux.HandleFunc("GET /api/self-update/status", c.handleSelfUpdateStatus)
 	mux.HandleFunc("GET /api/index", c.handleListIndex)
+	// 0.2.38：设置页「日志」卡片（查看 / 按天清理；轮转在 StartLogRotator 后台跑）
+	mux.HandleFunc("GET /api/logs", c.handleLogs)
+	mux.HandleFunc("POST /api/logs/cleanup", c.handleLogsCleanup)
 	mux.HandleFunc("GET /api/config", c.handleConfigGet)
 	mux.HandleFunc("PUT /api/config", c.handleConfigPut)
 	mux.HandleFunc("POST /api/probe", c.handleProbe)
@@ -140,6 +147,9 @@ func main() {
 
 	// 软仓定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
 	go c.syncLoop()
+
+	// 0.2.38：日志轮转（5MB 阈值 × 5 份归档，10 分钟检查一次；与清理串行）。
+	go c.StartLogRotator(context.Background())
 
 	// 0.2.34：端口变更后修复 Moo 里已添加的 Moo Mate 源地址（旧的回环端口会 404）。
 	// 后台延迟重试（Moo 可能与本应用同时启动），失败不阻塞。

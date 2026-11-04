@@ -245,7 +245,7 @@ func (c *companion) syncGiteeSoftstore(ctx context.Context) (added, updated int,
 		return 0, 0, err
 	}
 	if len(discovered) == 0 {
-		return 0, 0, fmt.Errorf("Gitee 源 release 无 .fpk 资产")
+		return 0, 0, fmt.Errorf("Gitee 源未发现 .fpk 资产（release 与 %s 均为空）", strings.Join(giteeFPKDirs, " / "))
 	}
 	accs, _ := c.discoverAccs(ctx, discovered, raw, "softstore")
 	for appname, acc := range accs {

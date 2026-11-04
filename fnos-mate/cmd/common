@@ -12,6 +12,15 @@ PKG_ETC="${TRIM_PKGETC:-/var/apps/${TRIM_APPNAME}/etc}"
 PORTS_CONF="${PKG_ETC}/ports.conf"
 PKGVAR="${TRIM_PKGVAR:-/var/apps/${TRIM_APPNAME}/var}"
 LOG_FILE="${PKGVAR}/${TRIM_APPNAME:-moo-mate}.log"
+# 0.2.37：安装向导日志路径——单一事实源 .logpath（install_callback 落盘）。
+# 所有生命周期脚本的日志行与 daemon 进程输出走同一文件；缺失/空 = 默认。
+_mlp="$(cat "${PKGVAR}/.logpath" 2>/dev/null | tr -d '[:space:]')"
+if [ -n "${_mlp}" ]; then
+    case "${_mlp}" in
+        /*) LOG_FILE="${_mlp}" ;;
+        *)  LOG_FILE="${PKGVAR}/${_mlp}" ;;
+    esac
+fi
 PID_FILE="${PKGVAR}/${TRIM_APPNAME:-moo-mate}.pid"
 APP_DEST="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME}}"
 # 0.2.34：微应用（micro_app=true）的真实二进制/网关 socket 在 /volN/@appcenter/<app>，
@@ -139,9 +148,12 @@ start_daemon() {
         /vol[1-9]*) ;;
         *) datadir="${PKGVAR}" ;;
     esac
+    # 0.2.37：日志可能指到自定义目录（安装向导 .logpath），启动前确保目录存在
+    if [ ! -d "$(dirname "${LOG_FILE}")" ]; then
+        mkdir -p "$(dirname "${LOG_FILE}")" 2>/dev/null && chmod 700 "$(dirname "${LOG_FILE}")" 2>/dev/null
+    fi
     touch "${LOG_FILE}" 2>/dev/null
-    chmod 600 "${LOG_FILE}" 2>/dev/null
-    # 访问模型（与 Moo 同）：统一网关 unix socket 为主入口；TCP 仅 127.0.0.1 回环调试
+    chmod 600 "${LOG_FILE}" 2>/dev/null    # 访问模型（与 Moo 同）：统一网关 unix socket 为主入口；TCP 仅 127.0.0.1 回环调试
     # （本机 Moo 经它拉 moo.json）。加源地址写回环 127.0.0.1；moo-base 直连 Moo unix socket。
     # 0.2.34：MOO_MATE_BOOTSTRAP 仍是固定引导目录（datadir 指针本身住这里），
     # MOO_MATE_SELF_BASE 随端口变化（Go 侧启动时据此修复 Moo 里的旧源地址）。

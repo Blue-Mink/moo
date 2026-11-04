@@ -1,4 +1,4 @@
 source=production-moo-mate-index
-apps=486
-json_bytes=720252
-gzip_bytes=125810
+apps=491
+json_bytes=763304
+gzip_bytes=135707

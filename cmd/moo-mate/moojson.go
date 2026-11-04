@@ -41,6 +41,10 @@ type fpkMeta struct {
 	Manifest map[string]string
 	Sha256   string
 	Size     int64
+	// 0.2.38：包内图标（构建索引/同步时落盘到 <PKGVAR>/icons/，供 /api/icon 出图）。
+	// 不写进 moo.json：图标是本机缓存，应用源协议保持原样。
+	Icon    []byte
+	IconExt string
 }
 
 // inspectFPK 解析 FPK（tar.gz）内的 manifest，并计算 sha256 与体积。
@@ -80,11 +84,16 @@ func inspectFPK(r io.Reader) (*fpkMeta, error) {
 	if strings.TrimSpace(manifest) == "" {
 		return nil, fmt.Errorf("FPK 内没有 manifest")
 	}
-	return &fpkMeta{
+	meta := &fpkMeta{
 		Manifest: parseManifest(manifest),
 		Sha256:   hex.EncodeToString(h.Sum(nil)),
 		Size:     int64(len(data)),
-	}, nil
+	}
+	// 0.2.38：顺手抽包内图标（同一份字节，零额外下载）。
+	if icon, ext, ok := extractFPKIcon(data); ok {
+		meta.Icon, meta.IconExt = icon, ext
+	}
+	return meta, nil
 }
 
 // parseManifest 解析 fnOS 应用清单（key = value 行，# 注释）。

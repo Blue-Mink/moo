@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,54 @@ type mateConfig struct {
 	// 同目录保留最近 backupRetention 份，更早自动淘汰。
 	BackupAuto         bool `json:"backup_auto,omitempty"`
 	BackupIntervalDays int  `json:"backup_interval_days,omitempty"`
+
+	// 0.2.38：设置页「日志」卡片——查看行数（50/100/200/500/1000），对齐 Moo 的 log_lines。
+	LogLines int `json:"log_lines,omitempty"`
+
+	// 0.2.37：远程清单（空 = 内置默认公网地址；测试期可指向本地 Gitea）。
+	// DefaultIndexURL 是「出厂默认应用列表」，仅在首次安装/索引缺失时读取；
+	// ChangelogURL 是 mate-changelog.md，版本药丸弹窗读最新一段。
+	DefaultIndexURL string `json:"default_index_url,omitempty"`
+	ChangelogURL    string `json:"changelog_url,omitempty"`
+}
+
+// validLogLines 允许的日志行数档位（与 Moo 的 50/100/200/500/1000 一致）。
+func validLogLines(n int) bool {
+	switch n {
+	case 50, 100, 200, 500, 1000:
+		return true
+	}
+	return false
+}
+
+// logLines 生效的日志查看行数（非法/缺省 = 200）。
+func (c *mateConfig) logLines() int {
+	if validLogLines(c.LogLines) {
+		return c.LogLines
+	}
+	return 200
+}
+
+// 0.2.37：远程清单默认地址（公网）。代码里不写内网地址；本地测试用配置覆盖。
+const (
+	defaultMateChangelogURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/mate-changelog.md"
+	defaultMateIndexURL     = "https://raw.githubusercontent.com/Blue-Mink/moo/main/mate-default-index.json"
+)
+
+// changelogURL 生效的更新日志清单地址。
+func (c *mateConfig) changelogURL() string {
+	if v := strings.TrimSpace(c.ChangelogURL); v != "" {
+		return v
+	}
+	return defaultMateChangelogURL
+}
+
+// defaultIndexURL 生效的出厂默认应用列表地址。
+func (c *mateConfig) defaultIndexURL() string {
+	if v := strings.TrimSpace(c.DefaultIndexURL); v != "" {
+		return v
+	}
+	return defaultMateIndexURL
 }
 
 // backupRetention 同目录保留的备份份数（与 Moo 一致）。
