@@ -182,18 +182,26 @@ func TestHandleIconDiskCache_0238(t *testing.T) {
 	}
 }
 
-func TestExtractFpkIconStream_StopsAtRootIcon_0238(t *testing.T) {
+func TestExtractFpkIconStream_Order_0238(t *testing.T) {
 	big := makeTestPNG(t, 256, 256)
 	smallInner := makeTestPNG(t, 64, 64)
 	appTgz := makeTestTarGz(t, map[string][]byte{"ui/images/ICON.PNG": smallInner})
-	fpk := makeTestTarGz(t, map[string][]byte{
+	files := map[string][]byte{
 		"manifest": []byte("appname = demo\n"),
 		"ICON.PNG": big,
 		"app.tgz":  appTgz,
-	})
+	}
+	// 包根图标在前 → 优先用包根高清图
+	fpk := makeTestTarGzOrdered(t, []string{"manifest", "ICON.PNG", "app.tgz"}, files)
 	got, ext, ok := extractFpkIconStream(bytes.NewReader(fpk))
 	if !ok || ext != "png" || len(got) != len(big) {
-		t.Fatalf("应流式命中包根图标: ok=%v ext=%s len=%d want=%d", ok, ext, len(got), len(big))
+		t.Fatalf("包根在前应命中包根图标: ok=%v ext=%s len=%d want=%d", ok, ext, len(got), len(big))
+	}
+	// app.tgz 在前 → 设计为「命中即停」，用包内图标（不再回读后面的包根图）
+	fpk2 := makeTestTarGzOrdered(t, []string{"manifest", "app.tgz", "ICON.PNG"}, files)
+	got2, ext2, ok2 := extractFpkIconStream(bytes.NewReader(fpk2))
+	if !ok2 || ext2 != "png" || len(got2) != len(smallInner) {
+		t.Fatalf("app.tgz 在前应命中包内图标: ok=%v ext=%s len=%d want=%d", ok2, ext2, len(got2), len(smallInner))
 	}
 }
 
