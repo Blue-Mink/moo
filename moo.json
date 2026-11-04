@@ -112,26 +112,26 @@
       }
      }
     },
-    "0.2.35": {
-     "updated_at": "2026-10-31T00:45:00+08:00",
-     "changelog": "应用内可直接更新：下载后校验安装包，再交给应用中心安装，数据保留\n内置默认索引：新装或离线首次打开即有完整应用列表，联网后自动同步\n应用内更新下载优先走 GitHub 加速通道（复用 Moo 的镜像表），卡住自动切换\n应用内更新改为签名校验：只接受本发布者签名的安装包，签名不符或缺签名一律拒绝升级",
+    "0.2.50": {
      "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.35/moo-mate_0.2.35_x86.fpk",
-       "size": 3854532,
-       "size_mb": 3.68,
-       "sha256": "c294c111d998a460e4dadb5e13d84a5f7fc55ef58a381238fd61a61a6323d8b1"
-      },
       "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.35/moo-mate_0.2.35_arm.fpk",
-       "size": 3485634,
-       "size_mb": 3.32,
-       "sha256": "0c1266d45ffe3902c4a7e757c7828542777d26fd49710e4dcfb23b200b392176"
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.50/moo-mate_0.2.50_arm.fpk",
+       "sha256": "b21b40199642ea749df56992efaf402418648dcd614bbbb9140b2e950e9e4bed",
+       "size": 3749381,
+       "size_mb": 3.58
+      },
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.50/moo-mate_0.2.50_x86.fpk",
+       "sha256": "23265c6803bd62431a95d298554f6aa08570a121afbe9f8e9c27ae62aa08a3ec",
+       "size": 4125576,
+       "size_mb": 3.93
       }
-     }
+     },
+     "changelog": "## Moo Mate 0.2.50\n\n本版把 0.2.37 以来的改进收敛到一版：软仓 Gitee 源支持仓库目录形态，设置页新增应用日志卡片，图标自动补齐并升级 512 高清，数据与备份合并为一张卡片，安装向导与远程清单对齐 Moo。\n\n### 更新内容\n\n- **应用源**：软仓 Gitee 源支持仓库目录形态——release 停更后仍能发现仓库内 `server-data/apps/` 下的 FPK，与 release 资产合并去重（目录优先）\n- **设置与日志**：新增应用日志卡片（查看 / 复制 / 刷新 / 清理 1、7、30 天或全部，按级别筛选，行数 50~1000）；数据与备份合并为一张卡片，日志卡移到设置页最后\n- **界面与图标**：应用源图标自动补齐（优先取包内图标，其次仓库常见路径），图标统一 512 高清\n- **安装向导**：对齐 Moo——许可全文与勾选同意、调试端口、应用数据路径、日志路径\n- **索引与更新日志**：默认应用索引改为远程清单优先（离线回落内置快照）；版本药丸弹窗的更新日志改读远程 `mate-changelog.md`\n\n### 资产\n\n| 架构 | 文件 | 大小 | sha256 |\n| --- | --- | --- | --- |\n| x86_64 | `moo-mate_0.2.50_x86.fpk` | 4,125,576 B | `23265c6803bd62431a95d298554f6aa08570a121afbe9f8e9c27ae62aa08a3ec` |\n| arm64 | `moo-mate_0.2.50_arm.fpk` | 3,749,381 B | `b21b40199642ea749df56992efaf402418648dcd614bbbb9140b2e950e9e4bed` |\n\n每个架构另附同名 `.sha256` 与 `.minisig` 侧车。**0.2.35 起应用内自更新强制校验 sha256 + minisign 验签**，缺任一侧车会被 fail-closed 拒绝升级。\n\n```bash\nsha256sum -c moo-mate_0.2.50_x86.fpk.sha256\n```",
+     "updated_at": "2026-11-04T13:58:40+08:00"
     }
    },
-   "sha256": "141722f177b67993d2c6154af5654f1ebf54a2c1794eaf2e0db746f8a86858fb",
+   "sha256": "23265c6803bd62431a95d298554f6aa08570a121afbe9f8e9c27ae62aa08a3ec",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos-mate/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/cmd/moo-mate/README.md",
    "labels": "系统工具",
@@ -139,11 +139,11 @@
    "download_count": 0,
    "first_release_at": "2026-10-28T09:29:16+08:00",
    "updated_at": "2026-11-01T07:40:00+08:00",
-   "version": "0.2.36",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.36/moo-mate_0.2.36_x86.fpk",
-   "size": 3857939,
+   "version": "0.2.50",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.50/moo-mate_0.2.50_x86.fpk",
+   "size": 4125576,
    "service_port": "38108",
-   "size_mb": 3.68,
+   "size_mb": 3.93,
    "preview_urls": [
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-list.png",
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps.png"
