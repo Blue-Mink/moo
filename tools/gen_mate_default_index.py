@@ -31,7 +31,49 @@ FORBID = {
     "内网 10.0.0": r"10\.0\.0\.",
     "本机路径 /vol1/@app": r"/vol1/@app",
     "GitHub PAT": r"ghp_[A-Za-z0-9]{20,}",
+    # 打码后不应再出现完整公共邮箱（下面 mask_public_emails 的自检）
+    # {1,} 覆盖短本地部分；星号不在字符类，故打码后的 ab***@qq.com 不会误报
+    "未打码的个人邮箱": r"[A-Za-z0-9._%+-]{1,}@(?:qq|vip\.qq|foxmail|163|126|yeah|188|sina|sohu|tom|139|189|21cn|aliyun|gmail|outlook|hotmail|live|icloud|yahoo|protonmail)\.(?:com|cn|net)(?:\.cn)?\b",
 }
+
+# 只打码公共邮箱服务商：应用描述里常见「默认登录账号 admin@xxx.local /
+# admin@koel.dev」，那是使用说明，打码会让用户无法登录；而 QQ/163/Gmail
+# 这类几乎一定是真人邮箱，属要收敛的个人信息。
+PUBLIC_MAIL_DOMAINS = {
+    "qq.com", "vip.qq.com", "foxmail.com",
+    "163.com", "126.com", "yeah.net", "188.com",
+    "sina.com", "sina.cn", "sohu.com", "tom.com",
+    "139.com", "189.cn", "189.com", "21cn.com", "aliyun.com",
+    "gmail.com", "outlook.com", "hotmail.com", "live.com",
+    "icloud.com", "me.com", "yahoo.com", "protonmail.com",
+}
+EMAIL_RE = re.compile(r"([A-Za-z0-9._%+-]{1,2})[A-Za-z0-9._%+-]*(@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+MASK_FIELDS = ("desc", "description")
+
+
+def mask_public_emails(text):
+    """把公共邮箱域打码成 ab***@domain；示例账号/企业域名原样保留。"""
+    def repl(m):
+        if m.group(2)[1:].lower() in PUBLIC_MAIL_DOMAINS:
+            return m.group(1) + "***" + m.group(2)
+        return m.group(0)
+    return EMAIL_RE.sub(repl, text)
+
+
+def mask_apps(apps):
+    """只动描述类字段，返回打码条数。"""
+    n = 0
+    for a in apps.values():
+        if not isinstance(a, dict):
+            continue
+        for f in MASK_FIELDS:
+            v = a.get(f)
+            if isinstance(v, str) and v:
+                nv = mask_public_emails(v)
+                if nv != v:
+                    a[f] = nv
+                    n += 1
+    return n
 
 
 def die(msg):
@@ -99,11 +141,12 @@ def main():
     # /api/index 的 apps 是 Go map 序列化，多次请求顺序不同；按 appname 排序保证
     # --check 稳定、远端文件可复现。
     doc["apps"] = {k: doc["apps"][k] for k in sorted(doc["apps"])}
+    masked = mask_apps(doc["apps"])
     body = dump_default_index(doc)
     for name, pat in FORBID.items():
         if re.search(pat, body):
             die("脱敏断言失败（%s），拒绝生成" % name)
-    print("apps=%d bytes=%d" % (len(doc["apps"]), len(body.encode())))
+    print("apps=%d bytes=%d masked=%d" % (len(doc["apps"]), len(body.encode()), masked))
 
     if a.check:
         try:
