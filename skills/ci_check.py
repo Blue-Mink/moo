@@ -26,6 +26,11 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
 LINK_RE = re.compile(r"\]\((\.{0,2}/?[^)\s]+\.md)(#[^)]+)?\)")
+# 反引号里点名的仓库内脚本路径必须真实存在（2026-11-05 事故：
+# release-gates.md 让人执行 `tools/wait_ci_green.py`，但该文件当时未入库，
+# 干净 clone 里没有它 → 文档指向空，照做的人必失败）。
+# 只校验 tools/ 与 .github/scripts/ 两类真实脚本目录，避免把示例/产物路径误判。
+REF_PATH_RE = re.compile(r"`[^`\n]*?((?:tools|\.github/scripts)/[\w./-]+\.[A-Za-z0-9]+)")
 # 敏感模式与发布门同源：.github/sanitize-patterns.txt（单一事实来源）。
 # 本文件是公开仓库，绝不写入真实凭据的字面或前缀——此前这里硬编码过
 # 一条真实口令的前缀模式，等于把凭据结构写进公开仓，已移除。找不到主清单时才用 fallback。
@@ -181,6 +186,26 @@ def check_secrets() -> None:
                 fail(f"{p.relative_to(ROOT)}: 命中{label} → {m.group(0)[:40]}")
 
 
+def check_referenced_paths() -> None:
+    """skills/**/*.md 里反引号点名的 tools/、.github/scripts/ 路径必须存在。
+
+    在干净 clone（CI）里，未入库的文件不存在 → 直接判红，堵住「文档指向空」。
+    """
+    total, missing = 0, []
+    for md in sorted(SKILLS.rglob("*.md")):
+        for m in REF_PATH_RE.finditer(md.read_text(encoding="utf-8", errors="replace")):
+            rel = m.group(1)
+            if "*" in rel or "<" in rel or ">" in rel:  # 通配/占位符跳过
+                continue
+            total += 1
+            if not (ROOT / rel).is_file():
+                missing.append(f"{md.relative_to(ROOT)} -> {rel}")
+    if missing:
+        fail("引用了仓库里不存在的脚本路径：" + "; ".join(missing))
+    else:
+        ok(f"文档引用的脚本路径都存在（{total} 条）")
+
+
 def main() -> int:
     if not SKILLS.is_dir():
         print("!! 找不到 skills/ 目录", file=sys.stderr)
@@ -193,6 +218,7 @@ def main() -> int:
         check_skill(s)
     check_ai_manifest()
     check_secrets()
+    check_referenced_paths()
     print()
     if failures:
         print(f"结果：FAIL（{len(failures)} 项）")

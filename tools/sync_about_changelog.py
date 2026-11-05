@@ -12,6 +12,7 @@
 """
 import argparse
 import base64
+import datetime
 import json
 import os
 import re
@@ -140,4 +141,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # 心跳行：无论有无变化都写一行（含时间戳），用于 cron 健康检查。
+    _rc = main()
+    print("[%s] DONE rc=%d" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), _rc), flush=True)
+    sys.exit(_rc)
