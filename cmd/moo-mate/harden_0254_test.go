@@ -62,8 +62,13 @@ func TestHandleDirsRejectsLookalikeVolumePath(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/dirs?path=/vol1", nil)
 	rec := httptest.NewRecorder()
 	c.handleDirs(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("/vol1 应 200，得 %d", rec.Code)
+	// /vol1 的 200 依赖宿主机真实存在该目录（发布机有、CI runner 没有）：
+	// 白名单只负责「不把合法卷根误判成非法」，存在性交给 404 分支。
+	if rec.Code == http.StatusBadRequest {
+		t.Fatalf("/vol1 不应被卷根白名单拒绝（400 说明 isVolumePath 误判）")
+	}
+	if rec.Code != http.StatusOK && rec.Code != http.StatusNotFound {
+		t.Fatalf("/vol1 期望 200/404（存在/不存在），得 %d", rec.Code)
 	}
 }
 
