@@ -41,26 +41,26 @@
       }
      }
     },
-    "0.6.383": {
-     "updated_at": "2026-11-01T07:40:00+08:00",
-     "changelog": "新增 GH TBAP GitHub 加速源，实测下载最快（偶有抖动会自动换源）\n发现页推荐位改读远程清单（一行一条 appname@源名）：顺序、条数随清单调整，改清单免重建 FPK，缺的应用整条跳过不留空位；推荐位扩到四张，横幅按条数自适应\n发现页不再被推荐清单的网络抓取阻塞：改为缓存直出 + 后台刷新，首屏从最坏十几秒降到毫秒级\n应用内更新改为镜像优先，并加首字节/停滞看护：GitHub 直连不通时也能完成升级\nMoo 的加速镜像表开放给 Moo Mate 复用（新增 /api/mate/mirrors），Mate 拉包同样走镜像\n修复 README 图片与预览图偶发「404」误判：同一文件需两个独立来源都 404 才判死，并放宽单图抓取预算\n误判负缓存由 30 分钟缩短到 5 分钟，失败后更快自动重试\n移动端：底部 Dock 与应用列表同宽，搜索展开不再把展示模式按钮挤到第二行",
+    "0.6.506": {
      "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.383/moo_0.6.383_x86.fpk",
-       "sha256": "9a7b90b31ec0e3e1669308f077cb78569a711453cc1a95940ea117f9cd19ca92",
-       "size": 5195238,
-       "size_mb": 4.95
-      },
       "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.383/moo_0.6.383_arm.fpk",
-       "sha256": "0e8b6c1ac9c6dfbb32341523cfc6ce9c029f1093e14052f12e76098a00733aaf",
-       "size": 4731246,
-       "size_mb": 4.51
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_arm.fpk",
+       "sha256": "204dc13c40e063b58f0a0f2298ee3eb58d3ce7a665b6f9c64bf4eb1334e8bbd3",
+       "size": 4830073,
+       "size_mb": 4.61
+      },
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
+       "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
+       "size": 5328516,
+       "size_mb": 5.08
       }
-     }
+     },
+     "changelog": "Moo v0.6.506\n\n本次更新（0.6.500 → 0.6.506）\n界面与交互：发现页分类胶囊再次点击可取消选择；分类筛选跨页签保留，Dock 双击当前页签可一键清空分类\n顶栏与布局：桌面顶栏标题与 Dock 文案统一为「全部 / 有更新」；窄窗口下选中分类后标题不再被搜索框遮挡，空间不足时自动省略分类名\n下载与通知：下载失败提示区分网络异常 / HTTP 状态 / 校验失败等原因并给出排查建议；新增飞牛系统更新通知（稳定分支新版本，同版本只提示一次，不自动安装）\n加速源：测速门槛 512KB→1.5MB（≈150KB/s），全部未达标时按实测吞吐兜底；新增续传深测，面板显示「续传✓/✕」，同速优选支持续传的源\n加速源：自定义地址保存时校验（完整 http(s)、不允许账号密码、≤2048）；弱网/中继下下载低速判定阈值 50KB/s→20KB/s，减少中断重下\n\n资产（x86 / arm 各三件套）\n- moo_0.6.506_x86.fpk · 5,328,516 B · sha256 4de1c412…\n- moo_0.6.506_arm.fpk · 4,830,073 B · sha256 204dc13c…\n- 各附 .sha256 与 .minisig（minisign 验签，0.6.329+ 客户端强制）",
+     "updated_at": "2026-11-05T09:21:25+08:00"
     }
    },
-   "sha256": "6fc7dbe50a7d2a9d19ed685be92a8a9a12a9ab14113c109e930c04cb894a290b",
+   "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -73,11 +73,11 @@
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
    "updated_at": "2026-11-03T23:30:00+08:00",
-   "version": "0.6.500",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.500/moo_0.6.500_x86.fpk",
-   "size": 5269739,
+   "version": "0.6.506",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
+   "size": 5328516,
    "service_port": "38100",
-   "size_mb": 5.03,
+   "size_mb": 5.08,
    "changelog": ""
   },
   "moo-mate": {
