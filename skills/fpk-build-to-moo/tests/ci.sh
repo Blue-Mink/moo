@@ -8,6 +8,9 @@ python3 -m compileall -q tests
 
 python3 -m unittest discover -s tests -v
 
+# PyYAML 只服务 workflow 模板检查（W1-W5）；runner 默认不装。装不上时用例自动 SKIP。
+python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet --disable-pip-version-check pyyaml 2>/dev/null || true
+
 # update_moo_json.py 维护工具测试套件（harness / extra / 变异回归）
 python3 tests/moojson_harness.py
 python3 tests/moojson_extra.py

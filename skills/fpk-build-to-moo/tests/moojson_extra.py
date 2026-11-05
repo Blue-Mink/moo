@@ -386,12 +386,19 @@ def e40():
 
 
 def _wf():
-    import yaml
+    """读 workflow 模板。CI runner 默认不装 PyYAML → 返回 None，各 w* 用例降级 SKIP。"""
+    try:
+        import yaml
+    except ImportError:
+        return None
     return yaml.safe_load(open(os.path.join(ROOT, "..", "..", "..", "templates", "moo-autoupdate.yml"), encoding="utf-8"))
 
 
 def w1():
     d = _wf()
+    if d is None:
+        print("SKIP W1（缺 PyYAML，CI runner 默认不装）")
+        return
     env = d["jobs"]["update"]["env"]
     check("W1 workflow 可解析且默认值齐全",
           env["FPK_GLOB"] == "*.fpk" and env["MOO_JSON"] == "moo.json" and env["SCRIPT_REF"] == "main"
@@ -399,6 +406,9 @@ def w1():
 
 
 def w2():
+    if _wf() is None:
+        print("SKIP W2（缺 PyYAML）")
+        return
     d = fresh("w2")
     step = [s for s in _wf()["jobs"]["update"]["steps"] if s.get("name") == "Resolve tag"][0]["run"]
     results = []
@@ -424,6 +434,9 @@ def w2():
 
 def w3():
     d = _wf()
+    if d is None:
+        print("SKIP W3（缺 PyYAML）")
+        return
     txt = json.dumps(d, ensure_ascii=False)
     check("W3 有「资产为空」护栏", "release 里没有匹配" in txt and "exit 1" in txt, "缺少空资产护栏")
     check("W3b 脚本获取有 vendor/raw/jsdelivr/gh-proxy 四层",
@@ -458,6 +471,9 @@ def _commit_block(version):
 
 
 def w4():
+    if _wf() is None:
+        print("SKIP W4（缺 PyYAML）")
+        return
     w = _repo(os.path.join(CASES, "w4"))
     r = _git("MOO_JSON=moo.json BRANCH=main bash -e -c %s" % shlex.quote(_commit_block("1.3.11")), w)
     log = _git("git log --oneline", w).stdout.strip().splitlines()
@@ -465,6 +481,9 @@ def w4():
 
 
 def w5():
+    if _wf() is None:
+        print("SKIP W5（缺 PyYAML）")
+        return
     w = _repo(os.path.join(CASES, "w5"))
     hook = os.path.join(CASES, "w5", "origin.git", "hooks", "pre-receive")
     os.makedirs(os.path.dirname(hook), exist_ok=True)
