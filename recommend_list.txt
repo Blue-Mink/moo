@@ -7,5 +7,6 @@ fn-knock@kci-lnk
 opencode@CrRinko
 fnmedia-ext@yujian0815
 fnmusic-ext@javycoder
+wb2api@shuangji66
 moo-mate@Blue-Mink
 dog-dev@Blue-Mink
