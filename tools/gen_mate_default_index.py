@@ -55,6 +55,29 @@ def load_doc(a):
     return {"version": int(d.get("version") or 1), "apps": apps}
 
 
+def dump_default_index(doc):
+    """顶层两行 + 每个应用占一行。
+
+    紧凑单行（680KB / 1 行）在 GitHub 上无法 review；indent=2 会把每个字段、
+    连 platform 数组都拆行（16,940 行 / +21%）。折中：一个应用一行，
+    体积只多 ~4%，字段与顺序完全不变。
+    """
+    p = "  "
+    items = [
+        p * 2 + json.dumps(k, ensure_ascii=False) + ": "
+        + json.dumps(doc["apps"][k], ensure_ascii=False, separators=(", ", ": "))
+        for k in doc["apps"]
+    ]
+    return (
+        "{\n"
+        + p + '"version": ' + json.dumps(doc["version"]) + ",\n"
+        + p + '"apps": {\n'
+        + ",\n".join(items) + "\n"
+        + p + "}\n"
+        + "}\n"
+    )
+
+
 def main():
     ap = argparse.ArgumentParser(description="生成/校验/推送 mate 远程默认应用列表")
     ap.add_argument("--src", default="/vol1/@appdata/moo-mate/index.json")
@@ -76,7 +99,7 @@ def main():
     # /api/index 的 apps 是 Go map 序列化，多次请求顺序不同；按 appname 排序保证
     # --check 稳定、远端文件可复现。
     doc["apps"] = {k: doc["apps"][k] for k in sorted(doc["apps"])}
-    body = json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
+    body = dump_default_index(doc)
     for name, pat in FORBID.items():
         if re.search(pat, body):
             die("脱敏断言失败（%s），拒绝生成" % name)
