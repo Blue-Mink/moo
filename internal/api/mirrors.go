@@ -45,6 +45,9 @@ type MirrorStat struct {
 	Error       string `json:"error,omitempty"`
 	LastCheck   string `json:"last_check"`
 	ConsecFails int    `json:"consec_fails"`
+	// ResumeOK 深测（续传能力）结论（2026-11-04，PR #14 纯收益部分）：
+	// true=通过 / false=深测失败 / 未下发=尚未深测。同速优选时优先 true。
+	ResumeOK *bool `json:"resume_ok,omitempty"`
 }
 
 // MirrorCheckResult 手动全量测速结果（POST /api/mirrors/check）。
@@ -128,8 +131,12 @@ var ghProbeAssetsConversun = []string{
 const ghProbeConversunMinBytes = 8 * 1024 // 小文件资产：读到 8KB 即可证明代理链路可用
 
 const (
-	ghProbeMaxBytes    = 2 * 1024 * 1024 // 读够即止
-	ghProbeMinBytes    = 512 * 1024      // 低于此量判失败（慢到不可用/超时）
+	ghProbeMaxBytes = 2 * 1024 * 1024 // 读够即止
+	// 门槛 = 10s 内读满 1.5MB（≈150KB/s）。旧值 512KB（≈51KB/s）只够证明
+	// 「链路通」，挡不住「能连但下不完」：实测某 CDN 节点 61KB/s 被判 ok 并
+	// 进入下载候选，5MB 的 FPK 要 85s 才下完，用户看到的是进度条爬行或超时
+	// 失败。FPK 普遍 5–50MB，低于 150KB/s 在现代宽带上属于不可用档。
+	ghProbeMinBytes    = 1536 * 1024
 	ghProbeReadTimeout = 10 * time.Second
 )
 
@@ -248,7 +255,21 @@ func (m *mirrorMonitor) probeGhOne(ctx context.Context, opt config.MirrorOption)
 			st.LatencyMS = ttfb.Sub(start).Milliseconds() // 首字节延迟
 			st.SpeedBPS = read * int64(time.Second) / int64(elapsed)
 		} else {
-			st.Error = fmt.Sprintf("慢（%ds 读 %dKB < %dKB 门槛）", int(ghProbeReadTimeout/time.Second), read>>10, minBytes>>10)
+			// 失败原因带上实测吞吐：面板只看「慢」无从判断是 5KB/s 还是
+			// 140KB/s，带速率后用户能自己决定要不要手选它兜底。
+			bps := int64(0)
+			if elapsed > 0 {
+				bps = read * int64(time.Second) / int64(elapsed)
+				st.SpeedBPS = bps // 供无达标源时的兜底排序（见 fallbackSpeedKeys）
+			}
+			floor := minBytes >> 10 / int64(ghProbeReadTimeout/time.Second)
+			if elapsed >= time.Second {
+				st.Error = fmt.Sprintf("慢（%d 秒读 %dKB ≈ %dKB/s < %dKB/s 门槛）",
+					int(ghProbeReadTimeout/time.Second), read>>10, bps>>10, floor)
+			} else {
+				// 短时间内就断流：报「读到多少就没了」比报瞬时速率有用
+				st.Error = fmt.Sprintf("慢（中途断流，仅读 %dKB < %dKB 门槛）", read>>10, minBytes>>10)
+			}
 		}
 		return st
 	}
@@ -328,11 +349,25 @@ func (m *mirrorMonitor) probeGh() {
 	for i := range ghOut {
 		// 0.6.333 F2：三态连败计数见 bumpGhFail（ok 清零 / limited 冻结 / fail 累加）
 		m.bumpGhFail(&ghOut[i])
+		// 2026-11-04：深测结论回填（有则下发，无则不下发该字段）
+		if r, ok := ResumeResultOf(ghOut[i].Key); ok {
+			v := r.OK
+			ghOut[i].ResumeOK = &v
+		}
 	}
 	m.ghStats = ghOut
 	m.lastProbeGh = now
 	m.lastProbe = now
 	m.mu.Unlock()
+}
+
+// ghStatsSnapshot ghStats 的并发安全快照（深测选对象用）。
+func (m *mirrorMonitor) ghStatsSnapshot() []MirrorStat {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]MirrorStat, 0, len(m.ghStats))
+	out = append(out, m.ghStats...)
+	return out
 }
 
 // probeDk Docker 镜像组探测（0.6.148 从 ensureFresh 拆出）：registry 可达性
@@ -722,6 +757,9 @@ func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 		// 0.6.187：每齿轮周期评估优选切换（生效源变化 → 通知，30min 冷却防抖）
 		s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
 		s.mirrorsAllFailedCheck() // D3：全部镜像+直连失败 = 网络层异常（30min 冷却）
+		// 2026-11-04：续传深测——对吞吐 Top3 低频执行（每源 24h 一次），
+		// 独立 goroutine，不阻塞本轮测速与优选。
+		s.startResumeProbeRound(s.Mirrors.ghStatsSnapshot())
 	}
 }
 
@@ -835,15 +873,44 @@ func topSpeedKeys(stats []MirrorStat) []string {
 		}
 		ok = append(ok, e{s.Key, s.SpeedBPS, s.LatencyMS})
 	}
-	// 速度降序；同速（或都无速度数据）时延迟升序
+	// 速度降序；同速时深测通过（支持 Range 续传）优先；再同则延迟升序。
+	// 2026-11-04：把 #14 的 orderByResume 直接并进主排序——原 PR 里它只在
+	// 测试中被调用，生产优选完全没用到，深测就只剩「徽标」没有决策价值。
 	sort.SliceStable(ok, func(i, j int) bool {
 		if ok[i].speed != ok[j].speed {
 			return ok[i].speed > ok[j].speed
+		}
+		if ri, rj := resumeOKOf(ok[i].key), resumeOKOf(ok[j].key); ri != rj {
+			return ri
 		}
 		return ok[i].lat < ok[j].lat
 	})
 	keys := make([]string, 0, len(ok))
 	for _, x := range ok {
+		keys = append(keys, x.key)
+	}
+	return keys
+}
+
+// fallbackSpeedKeys 兜底序：没有任何源达到吞吐门槛时，用「有实测吞吐但未
+// 达标」的源按吞吐降序顶上。没有它，门槛提高会带来一个更糟的后果——面板上
+// 全是红点、下载候选为空、连直连也不通时任务直接失败；而实际上那些慢源
+// 仍然能下完，只是久。慢 ≠ 不可用，达标与否只影响「优先」，不该影响「能否」。
+func fallbackSpeedKeys(stats []MirrorStat) []string {
+	type e struct {
+		key   string
+		speed int64
+	}
+	var cand []e
+	for _, s := range stats {
+		if s.Status == "ok" || s.SpeedBPS <= 0 {
+			continue // ok 已在上层处理；无吞吐数据（429/403/超时）不兜底
+		}
+		cand = append(cand, e{s.Key, s.SpeedBPS})
+	}
+	sort.SliceStable(cand, func(i, j int) bool { return cand[i].speed > cand[j].speed })
+	keys := make([]string, 0, len(cand))
+	for _, x := range cand {
 		keys = append(keys, x.key)
 	}
 	return keys
@@ -973,6 +1040,9 @@ func (s *Server) healthOf(selected, group string, stats []MirrorStat) MirrorHeal
 // 测速恢复 ok 后自动回到首位（无需改设置）。
 func (s *Server) ghOrderedKeys() []string {
 	tops := topSpeedKeys(s.Mirrors.gh())
+	if len(tops) == 0 {
+		tops = fallbackSpeedKeys(s.Mirrors.gh())
+	}
 	mirror, custom := "auto", ""
 	if s.Cfg != nil {
 		mirror, custom = s.Cfg.Mirror, s.Cfg.CustomGitHubMirror

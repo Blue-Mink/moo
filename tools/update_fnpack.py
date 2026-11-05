@@ -242,7 +242,7 @@ def plan_update(index, paths, args):
 
 
 
-def sanity_check(index, keep):
+def sanity_check(index, keep, only_app=""):
     errs = []
     if str(index.get("schema_version")) != "2":
         errs.append('schema_version 不是 "2"（实际 %r）' % index.get("schema_version"))
@@ -250,7 +250,11 @@ def sanity_check(index, keep):
     if not isinstance(apps, dict) or not apps:
         errs.append("apps 为空或不是对象")
         return errs
-    for name, entry in apps.items():
+    if only_app and only_app not in apps:
+        errs.append("apps 里没有 %r（--app 指定）" % only_app)
+        return errs
+    items = [(only_app, apps[only_app])] if only_app else apps.items()
+    for name, entry in items:
         if not isinstance(entry, dict):
             errs.append("apps.%s 不是对象" % name)
             continue
@@ -295,7 +299,7 @@ def main(argv=None):
     ap.add_argument("--tag", default="", help="真实 release tag（跟版必填），如 v0.8.9 / dog-dev-v1.3.12")
     ap.add_argument("--fpk", nargs="+", action="extend", default=[], metavar="FPK",
                     help="一个或多个 FPK（x86+arm 一次给；支持通配）")
-    ap.add_argument("--app", default="", help="应用键覆盖（默认取 FPK manifest 的 appname）")
+    ap.add_argument("--app", default="", help="应用键覆盖（默认取 FPK manifest 的 appname）；同时把自检范围限定到该应用")
     ap.add_argument("--repo", default="", help="owner/repo（仅在既有直链无法推断基址时用）")
     ap.add_argument("--base-url", default="", help="直接给仓库基址（…/releases/download 之前）")
     ap.add_argument("--keep", type=int, default=None, help="每个应用保留的版本数（跟版默认 2；--check 默认只查结构）")
@@ -324,7 +328,7 @@ def main(argv=None):
 
     index, raw = load(a.index)
     if a.check:
-        errs = sanity_check(index, a.keep)
+        errs = sanity_check(index, a.keep, a.app.strip())
         for e in errs:
             sys.stderr.write("FAIL %s\n" % e)
         if errs:
@@ -345,7 +349,7 @@ def main(argv=None):
             die("缺少 --fpk（可给多个路径 / 通配）；只裁剪请用 --prune-only")
         changes = plan_update(index, a.fpk, a)
 
-    errs = sanity_check(index, 0)
+    errs = sanity_check(index, 0, a.app.strip())
     if errs:
         for e in errs:
             sys.stderr.write("FAIL %s\n" % e)

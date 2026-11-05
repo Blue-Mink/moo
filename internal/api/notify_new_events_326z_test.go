@@ -526,10 +526,11 @@ func TestOfficialSessionWiring_326Z(t *testing.T) {
 	}
 }
 
-// ────────────────── 事件目录（33 → 36） ──────────────────
+// ────────────────── 事件目录（33 → 36 → 37） ──────────────────
 func TestNewEventsCatalog_326Z(t *testing.T) {
-	if len(notifyEventCatalog) != 36 {
-		t.Fatalf("事件目录应为 36 条（33 + 3）, got %d", len(notifyEventCatalog))
+	// 0.6.504 新增 system_update_available（fnOS 系统更新提示）→ 37 条。
+	if len(notifyEventCatalog) != 37 {
+		t.Fatalf("事件目录应为 37 条（33 + 3 + 1）, got %d", len(notifyEventCatalog))
 	}
 	want := map[string]struct{ label, group string }{
 		"upstream_corrected":       {"溯源纠正到上游", "应用更新"},

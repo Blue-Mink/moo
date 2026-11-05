@@ -1177,6 +1177,7 @@ func (s *Server) StartSelfMonitor(ctx context.Context) {
 			s.selfMonitorResources()
 			s.selfMonitorHealth()
 			s.diskSpaceCheck() // 0.6.133：磁盘空间 >90% 告警 / 回落恢复
+			s.sysUpdateTick()  // fnOS 系统更新（12h TTL，只读缓存；只提示不安装）
 		}
 	}
 }

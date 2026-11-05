@@ -3,9 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 )
 
 // indexedApp 索引里的一条应用：moo.json 条目 + 来源 + 同步状态。
@@ -34,6 +38,10 @@ type index struct {
 	mu   sync.RWMutex
 	path string
 	doc  *indexDoc
+	// 0.2.55（F4）：启动加载诊断。/api/status 暴露 last_index_error，
+	// 让「索引损坏后被自动重建」不再静默。
+	loadErr string // 最近一次启动加载失败原因（空 = 正常）
+	badFile string // 损坏索引被隔离出来的文件名（同目录 index.json.bad-<ts>）
 }
 
 func newIndex(path string) *index {
@@ -45,20 +53,79 @@ func newIndex(path string) *index {
 }
 
 // load 读盘；文件不存在视为空索引，不报错。
+//
+// 0.2.55（F4）：解析失败不再静默留空——先把原文件改名隔离为
+// index.json.bad-<YYYYMMDD-HHMMSS>，再返回错误，由 /api/status 暴露
+// last_index_error。旧实现忽略错误直接留空索引，随后自动同步用远程默认
+// 清单重建并 save()，把损坏文件连同用户原数据一起覆盖掉（无法取证）。
+// 隔离是 rename 不是删除，原件始终保留。
 func (ix *index) load() error {
 	b, err := os.ReadFile(ix.path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // 首次启动：空索引
+		}
+		ix.setLoadDiag("读取索引失败: "+err.Error(), "")
 		return err
 	}
 	var d indexDoc
-	if err := json.Unmarshal(b, &d); err != nil {
-		return err
+	if uerr := json.Unmarshal(b, &d); uerr != nil {
+		bad := quarantineIndex(ix.path)
+		msg := "索引解析失败: " + uerr.Error()
+		if bad != "" {
+			msg += "（原文件已隔离为 " + filepath.Base(bad) + "）"
+		} else {
+			msg += "（隔离原文件失败，已保留在原路径）"
+		}
+		log.Printf("%s", msg)
+		ix.setLoadDiag(msg, bad)
+		return uerr
 	}
 	if d.Apps == nil {
 		d.Apps = map[string]*indexedApp{}
 	}
 	ix.doc = &d
 	return nil
+}
+
+// setLoadDiag 记录启动加载诊断（损坏索引隔离 / 读取失败）。
+func (ix *index) setLoadDiag(msg, badFile string) {
+	ix.mu.Lock()
+	ix.loadErr = msg
+	ix.badFile = badFile
+	ix.mu.Unlock()
+}
+
+// diag 返回加载诊断（错误描述、隔离文件名基名）。空串表示无异常。
+func (ix *index) diag() (string, string) {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	bad := ""
+	if ix.badFile != "" {
+		bad = filepath.Base(ix.badFile)
+	}
+	return ix.loadErr, bad
+}
+
+// quarantineIndex 把损坏的索引文件改名保留（index.json.bad-<ts>[-n]），
+// 返回新路径；失败返回空串。只用 rename，绝不删除原文件。
+func quarantineIndex(path string) string {
+	ts := time.Now().Format("20060102-150405")
+	for i := 0; i < 20; i++ {
+		suffix := ""
+		if i > 0 {
+			suffix = fmt.Sprintf("-%d", i)
+		}
+		dst := path + ".bad-" + ts + suffix
+		if _, err := os.Stat(dst); err == nil {
+			continue // 同名已存在（同秒多次损坏），换序号
+		}
+		if err := os.Rename(path, dst); err != nil {
+			return ""
+		}
+		return dst
+	}
+	return ""
 }
 
 // reload 从当前 path 重新读盘并替换内存文档（恢复备份 / 切换数据目录后热加载）。
@@ -77,7 +144,9 @@ func (ix *index) reload() error {
 	ix.mu.Lock()
 	ix.doc = &d
 	ix.mu.Unlock()
-	return nil
+	// 恢复备份/切换数据目录后也修正旧索引里的相对下载地址。
+	_, err = ix.normalizeDownloads()
+	return err
 }
 
 // filePath 当前索引文件路径。
@@ -134,7 +203,11 @@ func (ix *index) save() error {
 	return nil
 }
 
-// list 返回全部应用副本（注入 appname）。
+// list 返回全部应用副本（注入 appname），按 appname 升序排序。
+//
+// 0.2.55（F2）：map 迭代顺序随机 → /api/index 每次响应字节不同
+// （同长度不同 md5），客户端缓存/ETag/diff/字节级比对全部失效。
+// 输出前排序，保证同一索引内容永远产出同一份 JSON。
 func (ix *index) list() []*indexedApp {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()
@@ -144,6 +217,7 @@ func (ix *index) list() []*indexedApp {
 		cp.Appname = name
 		out = append(out, &cp)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Appname < out[j].Appname })
 	return out
 }
 
@@ -169,6 +243,59 @@ func (ix *index) upsert(a *indexedApp) error {
 	}
 	ix.doc.Apps[a.Appname] = a
 	return ix.save()
+}
+
+// normalizeDownloads 修正旧索引里软仓条目的相对下载地址（B1）。
+//
+// 只处理 Publisher=softstore 的条目：它们的 Source 是软仓基址，可安全拼接；
+// GitHub/Gitee 仓库来源保持原样，避免把仓库内相对路径错误拼成网页地址。
+// 返回修正条数；有变更才落盘。
+func (ix *index) normalizeDownloads() (int, error) {
+	ix.mu.Lock()
+	n := 0
+	for _, a := range ix.doc.Apps {
+		if a == nil || a.Publisher != "softstore" {
+			continue
+		}
+		if normalizeAppDownloads(a) {
+			n++
+		}
+	}
+	var err error
+	if n > 0 {
+		err = ix.save()
+	}
+	ix.mu.Unlock()
+	return n, err
+}
+
+// normalizeAppDownloads 把单条软仓应用的顶层/架构/候选下载链补成绝对地址。
+// 已是绝对地址的保持不变（幂等）。
+func normalizeAppDownloads(a *indexedApp) bool {
+	if a == nil || strings.TrimSpace(a.Source) == "" {
+		return false
+	}
+	changed := false
+	fix := func(p *string) {
+		if p == nil || strings.TrimSpace(*p) == "" {
+			return
+		}
+		v := resolveSoftstoreURL(a.Source, *p)
+		if v != *p {
+			*p = v
+			changed = true
+		}
+	}
+	fix(&a.DownloadURL)
+	for _, p := range a.Packages {
+		if p != nil {
+			fix(&p.DownloadURL)
+		}
+	}
+	for i := range a.DownloadURLs {
+		fix(&a.DownloadURLs[i])
+	}
+	return changed
 }
 
 // delete 从索引移除一条。

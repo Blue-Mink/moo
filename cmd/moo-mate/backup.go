@@ -6,14 +6,32 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// volumePathRe 0.2.54（B2）：只认 /volN 卷根或其子路径。
+var volumePathRe = regexp.MustCompile(`^/vol[1-9][0-9]*(/|$)`)
+
+// isVolumePath 判断是否为 /volN 卷下路径。此前用 HasPrefix(path, "/vol")，
+// 会把 /volume、/volx 之类也放进来（随后 Stat 才 404，错误语义不对）。
+func isVolumePath(p string) bool { return volumePathRe.MatchString(p) }
+
+// contentDisposition 0.2.54（B3）：按 RFC 6266 生成下载头。文件名含引号/非 ASCII
+// 时不再拼出坏头（mime.FormatMediaType 会改用 filename*）。
+func contentDisposition(name string) string {
+	if v := mime.FormatMediaType("attachment", map[string]string{"filename": name}); v != "" {
+		return v
+	}
+	return "attachment"
+}
 
 // dataDirOf 数据目录 = config.json 所在目录；未初始化时回落 index 路径目录。
 func (c *companion) dataDirOf() string {
@@ -96,7 +114,7 @@ func (c *companion) handleDirs(w http.ResponseWriter, r *http.Request) {
 		path = "/"
 	}
 	path = filepath.Clean(path)
-	if path != "/" && !strings.HasPrefix(path, "/vol") {
+	if path != "/" && !isVolumePath(path) {
 		writeErr(w, http.StatusBadRequest, "只能浏览 /volN 存储卷下的目录")
 		return
 	}
@@ -200,12 +218,39 @@ func backupFileName() string {
 	return fmt.Sprintf("moo-mate-backup-%s.tar.gz", time.Now().Format("20060102-150405"))
 }
 
+// createBackupExclusive 在 outDir 里以唯一文件名创建备份文件并返回句柄。
+//
+// 0.2.55（F3）：旧实现用 os.Create(O_TRUNC) 写固定秒级文件名，并发/快速
+// 双击时多个请求同名互相截断——5 并发只落 1 个文件，5 个响应却都报成功。
+// 这里改 O_EXCL 独占创建；冲突说明同一秒已有备份，等到下一整秒再试
+// （文件名格式不能变：backupNameRE 严格匹配 YYYYMMDD-HHMMSS，加序号会
+// 让列表/保留策略/恢复解析全部失效）。
+func createBackupExclusive(outDir string) (*os.File, string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 30; attempt++ {
+		name := backupFileName()
+		dst := filepath.Join(outDir, name)
+		f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return f, name, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+		lastErr = err
+		// 等到下一整秒 + 递增抖动，避免多个并发同一时刻再次齐步撞名。
+		next := time.Now().Truncate(time.Second).Add(time.Second)
+		time.Sleep(time.Until(next) + time.Duration(attempt)*17*time.Millisecond)
+	}
+	return nil, "", fmt.Errorf("备份文件名冲突（已重试 30 次）: %w", lastErr)
+}
+
 // handleBackup GET /api/backup：打包数据目录为 tar.gz 下载到浏览器。
 func (c *companion) handleBackup(w http.ResponseWriter, r *http.Request) {
 	dir := c.dataDirOf()
 	name := backupFileName()
 	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	w.Header().Set("Content-Disposition", contentDisposition(name))
 	_ = c.writeBackupTar(dir, w)
 }
 
@@ -217,12 +262,11 @@ func (c *companion) createBackupToDir() (string, int64, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", 0, fmt.Errorf("备份目录不可写: %w", err)
 	}
-	name := backupFileName()
-	dst := filepath.Join(outDir, name)
-	f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	f, name, err := createBackupExclusive(outDir)
 	if err != nil {
 		return "", 0, fmt.Errorf("创建备份文件失败: %w", err)
 	}
+	dst := filepath.Join(outDir, name)
 	if err := c.writeBackupTar(dir, f); err != nil {
 		f.Close()
 		os.Remove(dst)
@@ -264,7 +308,7 @@ func (c *companion) handleClearData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := c.rebuildAggregate(); err != nil {
-		log.Printf("清除数据后重建聚合失败: %v", err)
+		log.Printf("清除同步索引后重建聚合失败: %v", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

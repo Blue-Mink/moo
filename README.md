@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.500` · x86 `6fc7dbe50a7d2a9d19ed685be92a8a9a12a9ab14113c109e930c04cb894a290b`（5.03MB） / arm `a1e870d342bf68c139da2873229452694f14d796e292fdd4eebf2f2ca2476a87`（4.55MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.506` · x86 `4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c`（5.08MB） / arm `204dc13c40e063b58f0a0f2298ee3eb58d3ce7a665b6f9c64bf4eb1334e8bbd3`（4.61MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -219,7 +219,7 @@ go test ./...     # 单元测试
 
 - **Moo 商店**：Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜「Moo Mate」安装
 - **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate
-- **手动**：下载 `moo-mate_0.2.50_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
+- **手动**：下载 `moo-mate_0.2.55_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
 
 用法三步：粘贴仓库链接 → 确认发现的应用并生成索引 → 一键加源到本机 Moo。
 

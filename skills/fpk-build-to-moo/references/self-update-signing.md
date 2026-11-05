@@ -40,6 +40,9 @@ minisign -V -p <pubkey.txt> -m <app>_<ver>_x86.fpk -x <app>_<ver>_x86.fpk.minisi
 → 推索引 → 等 CDN/客户端缓存 → 真机自更新验收
 ```
 - **索引永远晚于 release**：索引先出现 → 三件套 404 → 用户报“release 未附签名资产”。
+- **但 tag 必须落在含索引的提交上**：两条同时成立的做法是——先上传资产 → 再提交索引跟版 → **同一次推送里推索引提交 + tag**（索引提交只改 JSON，代码与构建产物不变）。tag 先推、索引后补，`mate-release` / `release` 的 `Verify release assets` 会直接判红 `FAIL: moo.json 缺 apps.<key>.releases.<ver>.packages`（2026-11-04 mate 0.2.50 实测）。
+- **tag 移动后以最后一次 run 为准**：补索引/修测试后把 tag 移到新提交会重跑 CI，只有移动后那次绿才算绿，别拿前一次的结论顶替。
+- **推 tag 前先跑发布机同款门禁**（`bash cmd/moo-mate/gate.sh` / `bash .github/scripts/moo-gate.sh`），CI 跑的是同一脚本。本地绿、CI 红的常见原因是**测试依赖 tar/文件顺序**——同一份代码，两次打包的条目顺序不同就会翻脸。
 - 同版本不替换包；已发布“版本号+架构”文件不可变。改内容发新版本或新地址。
 - `releases` 只留最近 2 版；顶层 `version/download_url/size/sha256/updated_at/changelog` 跟版。
 - changelog 三处同源：仓库自索引、构建内嵌“关于页”、release 正文。
@@ -64,3 +67,14 @@ minisign -V -p <pubkey.txt> -m <app>_<ver>_x86.fpk -x <app>_<ver>_x86.fpk.minisi
 - [ ] 兜底通道三个 URL 都非空
 - [ ] 真机在 API 限流/镜像通道下自更新成功
 - [ ] 索引更新晚于 release；同版本未替换
+- [ ] **索引跟版提交与 tag 同一次推送**（tag 打在含索引的提交上）；补推索引后确认移动 tag 产生的新 run 为绿
+- [ ] 干净树跑过发布机同款门禁（`cmd/moo-mate/gate.sh` / `.github/scripts/moo-gate.sh`），tar/打包类断言与条目顺序无关
+
+## 7.1 CI 红叉对照（发布链路）
+
+| 报错 | 根因 | 处置 |
+|---|---|---|
+| `Verify release assets`：`FAIL: moo.json 缺 apps.<key>.releases.<ver>.packages` | tag 指向索引跟版**之前**的提交（典型：先推 tag 再补索引） | 提交索引 → 把 tag 移到含索引的提交（或索引+tag 同推）→ 确认新 run 绿 |
+| `Gate`：`TestExtractFpkIconStream_*` 期望包根图标（如 860B）实际命中包内图标（如 213B） | 测试依赖 tar 条目顺序（`app.tgz` 与包根图标谁先谁后取决于打包顺序） | 断言改顺序无关：两种命中都允许并分别断言，或按构造顺序显式指定 |
+| `Gate` 本地绿 / CI 红且只有打包类用例 | 同一代码不同打包顺序 → 用例不确定 | 同上去顺序化；修完重跑 gate 两次确认稳定 |
+| 手动 `workflow_dispatch` 绿、tag push 红 | 两者 checkout 的提交不同（手动跑的是默认分支 HEAD） | 以 tag 对应提交为准；先把 tag 移到含索引/修复的提交 |

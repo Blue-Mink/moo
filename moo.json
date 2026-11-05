@@ -23,6 +23,24 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.6.506": {
+     "updated_at": "2026-11-05T01:46:00+08:00",
+     "changelog": "界面与交互：发现页分类胶囊再次点击可取消选择；分类筛选跨页签保留，Dock 双击当前页签可一键清空分类\n顶栏与布局：桌面顶栏标题与 Dock 文案统一为「全部 / 有更新」；窄窗口下选中分类后标题不再被搜索框遮挡，空间不足时自动省略分类名\n下载与通知：下载失败提示区分网络异常 / HTTP 状态 / 校验失败等原因并给出排查建议；新增飞牛系统更新通知（稳定分支新版本，同版本只提示一次，不自动安装）\n加速源：测速门槛 512KB→1.5MB（≈150KB/s），全部未达标时按实测吞吐兜底；新增续传深测，面板显示「续传✓/✕」，同速优选支持续传的源\n加速源：自定义地址保存时校验（完整 http(s)、不允许账号密码、≤2048）；弱网/中继下下载低速判定阈值 50KB/s→20KB/s，减少中断重下",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
+       "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
+       "size": 5328516,
+       "size_mb": 5.08
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_arm.fpk",
+       "sha256": "204dc13c40e063b58f0a0f2298ee3eb58d3ce7a665b6f9c64bf4eb1334e8bbd3",
+       "size": 4830073,
+       "size_mb": 4.61
+      }
+     }
+    },
     "0.6.500": {
      "updated_at": "2026-11-03T23:30:00+08:00",
      "changelog": "安装向导：勾选类字段恢复为勾选框，未勾选许可不能下一步；长说明改为区内滚动，说明页不再被截断；已下载 FPK 的向导标题显示应用名\n安装与更新：重复点击或排队时不再误报「错误代码 10500」；平台报错但应用实际已装好时按成功处理\n通知与日志：设置页点顶部通知栏不再关闭设置页；日志页新增「清理日志」，可按保留 1 / 7 / 30 天或全部清空\n通知设置：「通知详情地址」改为单个完整地址，自动跟随当前访问地址与端口预填；换端口后点「使用当前访问地址」即可更新\n界面与详情：已停止的应用在详情页直接显示「启动」；应用图标升级为 512 高清\n数据与性能：下载量统计不再冻结；已下载 FPK 列表显示应用名与版本、支持批量删除；日志展开大文件明显更快\n关于页：更新日志、文档与开发者文档改读远程清单，不发版也能更新内容",
@@ -40,24 +58,6 @@
        "size_mb": 4.55
       }
      }
-    },
-    "0.6.506": {
-     "packages": {
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_arm.fpk",
-       "sha256": "204dc13c40e063b58f0a0f2298ee3eb58d3ce7a665b6f9c64bf4eb1334e8bbd3",
-       "size": 4830073,
-       "size_mb": 4.61
-      },
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
-       "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
-       "size": 5328516,
-       "size_mb": 5.08
-      }
-     },
-     "changelog": "Moo v0.6.506\n\n本次更新（0.6.500 → 0.6.506）\n界面与交互：发现页分类胶囊再次点击可取消选择；分类筛选跨页签保留，Dock 双击当前页签可一键清空分类\n顶栏与布局：桌面顶栏标题与 Dock 文案统一为「全部 / 有更新」；窄窗口下选中分类后标题不再被搜索框遮挡，空间不足时自动省略分类名\n下载与通知：下载失败提示区分网络异常 / HTTP 状态 / 校验失败等原因并给出排查建议；新增飞牛系统更新通知（稳定分支新版本，同版本只提示一次，不自动安装）\n加速源：测速门槛 512KB→1.5MB（≈150KB/s），全部未达标时按实测吞吐兜底；新增续传深测，面板显示「续传✓/✕」，同速优选支持续传的源\n加速源：自定义地址保存时校验（完整 http(s)、不允许账号密码、≤2048）；弱网/中继下下载低速判定阈值 50KB/s→20KB/s，减少中断重下\n\n资产（x86 / arm 各三件套）\n- moo_0.6.506_x86.fpk · 5,328,516 B · sha256 4de1c412…\n- moo_0.6.506_arm.fpk · 4,830,073 B · sha256 204dc13c…\n- 各附 .sha256 与 .minisig（minisign 验签，0.6.329+ 客户端强制）",
-     "updated_at": "2026-11-05T09:21:25+08:00"
     }
    },
    "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
@@ -72,7 +72,7 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-11-03T23:30:00+08:00",
+   "updated_at": "2026-11-05T01:46:00+08:00",
    "version": "0.6.506",
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
    "size": 5328516,
@@ -94,41 +94,41 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
-    "0.2.50": {
-     "updated_at": "2026-11-04T12:55:46+08:00",
-     "changelog": "应用源：软仓 Gitee 源支持仓库目录形态——release 停更后仍能发现仓库内 server-data/apps/ 下的 FPK，与 release 资产合并去重（目录优先）\n设置与日志：新增应用日志卡片（查看 / 复制 / 刷新 / 清理 1、7、30 天或全部，按级别筛选，行数 50~1000）；数据与备份合并为一张卡片，日志卡移到设置页最后\n界面与图标：应用源图标自动补齐（优先取包内图标，其次仓库常见路径），图标统一 512 高清\n安装向导：对齐 Moo——许可全文与勾选同意、调试端口、应用数据路径、日志路径\n索引与更新日志：默认应用索引改为远程清单优先（离线回落内置快照）；版本药丸弹窗的更新日志改读远程 mate-changelog.md",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.50/moo-mate_0.2.50_x86.fpk",
-       "sha256": "23265c6803bd62431a95d298554f6aa08570a121afbe9f8e9c27ae62aa08a3ec",
-       "size": 4125576,
-       "size_mb": 3.93
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.50/moo-mate_0.2.50_arm.fpk",
-       "sha256": "b21b40199642ea749df56992efaf402418648dcd614bbbb9140b2e950e9e4bed",
-       "size": 3749381,
-       "size_mb": 3.58
-      }
-     }
-    },
     "0.2.55": {
+     "updated_at": "2026-11-05T09:04:03+08:00",
+     "changelog": "修复：/api/index 应用列表固定按名称排序，响应字节可复现（客户端缓存与内容比对恢复有效）\n修复：并发备份改为独占创建，同名冲突自动顺延到下一秒，不再互相覆盖\n修复：索引文件损坏时先隔离为 index.json.bad-时间戳 再回落空索引，状态接口暴露 last_index_error 便于排查",
      "packages": {
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_arm.fpk",
-       "sha256": "e6490663b8ca118eca000bd6eaf24f630abaa060369e6a4cefe0cb8188ee241c",
-       "size": 3763390,
-       "size_mb": 3.59
-      },
       "x86": {
        "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_x86.fpk",
        "sha256": "fe1efb8b2e0f9ef42b9b2f5b6c901f11bc99dba03fe17e9b3edbe3fcf76a58e6",
        "size": 4141091,
        "size_mb": 3.95
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_arm.fpk",
+       "sha256": "e6490663b8ca118eca000bd6eaf24f630abaa060369e6a4cefe0cb8188ee241c",
+       "size": 3763390,
+       "size_mb": 3.59
       }
-     },
-     "changelog": "Moo Mate v0.2.55\n\n本次更新（0.2.54 → 0.2.55）\n修复：/api/index 应用列表固定按名称排序，响应字节可复现（客户端缓存与内容比对恢复有效）\n修复：并发备份改为独占创建，同名冲突自动顺延到下一秒，不再互相覆盖\n修复：索引文件损坏时先隔离为 index.json.bad-时间戳 再回落空索引，状态接口暴露 last_index_error 便于排查\n\n资产（x86 / arm 各三件套）\n- moo-mate_0.2.55_x86.fpk · 4,141,091 B · sha256 fe1efb8b…\n- moo-mate_0.2.55_arm.fpk · 3,763,390 B · sha256 e6490663…\n- 各附 .sha256 与 .minisig（应用内自更新强制验签）",
-     "updated_at": "2026-11-05T09:21:39+08:00"
+     }
+    },
+    "0.2.54": {
+     "updated_at": "2026-11-05T05:01:23+08:00",
+     "changelog": "安全：写接口统一 CSRF 防线（跨站/跨源、Content-Type、防 DNS rebinding）\n安全：所有接口补 Host 白名单并限制请求体（默认 1MB，恢复备份上传 256MB）\n安全：HTTP 读头与空闲超时、头大小限制；非回环监听默认拒绝启动；数据目录拒绝存储卷根\n应用源：软仓相对下载地址自动转绝对，软仓已下架（404/410）条目自动移出索引\n界面：清除数据改名「清除同步索引」；响应统一 nosniff；备份下载文件名按 RFC 6266 编码",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.54/moo-mate_0.2.54_x86.fpk",
+       "sha256": "e4cf4785764bd6d7a85af1687f958bbbfc3c92949e8eca8faaccc3327d243b4d",
+       "size": 4139427,
+       "size_mb": 3.95
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.54/moo-mate_0.2.54_arm.fpk",
+       "sha256": "270c55f1305d3730935bc52ee941b55b0e6600e25be1452cc78120cf642e6016",
+       "size": 3760182,
+       "size_mb": 3.59
+      }
+     }
     }
    },
    "sha256": "fe1efb8b2e0f9ef42b9b2f5b6c901f11bc99dba03fe17e9b3edbe3fcf76a58e6",
@@ -138,7 +138,7 @@
    "install_type": "系统空间",
    "download_count": 0,
    "first_release_at": "2026-10-28T09:29:16+08:00",
-   "updated_at": "2026-11-04T12:55:46+08:00",
+   "updated_at": "2026-11-05T09:04:03+08:00",
    "version": "0.2.55",
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_x86.fpk",
    "size": 4141091,

@@ -47,8 +47,8 @@ func TestNotifySettingsRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("解析响应: %v", err)
 	}
-	if !got.Enabled || len(got.Catalog) != 36 {
-		t.Fatalf("缺省应总开关开且 36 类事件: enabled=%v catalog=%d", got.Enabled, len(got.Catalog))
+	if !got.Enabled || len(got.Catalog) != 37 {
+		t.Fatalf("缺省应总开关开且 37 类事件: enabled=%v catalog=%d", got.Enabled, len(got.Catalog))
 	}
 	defMap := make(map[string]bool, len(got.Catalog))
 	groups := make(map[string]bool, len(got.Catalog))

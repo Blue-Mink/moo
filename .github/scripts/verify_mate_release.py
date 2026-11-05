@@ -14,8 +14,10 @@ Go 侧 `internal/release`（`VerifyAssets` 远端 / `VerifyLocal` 本地），�
 `moo-release` 二进制执行；mate 的验签实现是客户端 `cmd/moo-mate/selfupdate.go`
 （内嵌公钥），此处刻意不复制那份逻辑，避免两处规则漂移。
 """
+import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -46,16 +48,88 @@ for i in range(30):  # 发布机是「建 release → 推 tag」，这里最多�
 if not rel:
     sys.exit(f"FAIL: release {TAG} 不存在")
 
+def pkgs_of(idx, ver):
+    return ((idx.get("apps", {}).get("moo-mate", {}).get("releases", {}).get(ver) or {})
+            .get("packages") or {})
+
+
+def main_branch_pkgs():
+    """tag 树索引未跟版时回落到 main 分支索引（索引后置属发布设计）。"""
+    try:
+        req = urllib.request.Request(API + "/contents/moo.json?ref=main", headers=HDR)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            blob = json.load(r)
+        return pkgs_of(json.loads(base64.b64decode(blob["content"])), VER)
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] 读 main 分支 moo.json 失败：{e}")
+        return {}
+
+
+def summary(line):
+    p = os.environ.get("GITHUB_STEP_SUMMARY")
+    if p:
+        try:
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            pass
+
+
 idx = json.load(open("moo.json", encoding="utf-8"))
-pkgs = ((idx.get("apps", {}).get("moo-mate", {}).get("releases", {}).get(VER) or {})
-        .get("packages") or {})
+pkgs = pkgs_of(idx, VER)
+src = "tag 树 moo.json"
 if not pkgs:
-    sys.exit(f"FAIL: moo.json 缺 apps.moo-mate.releases.{VER}.packages")
+    pkgs = main_branch_pkgs()
+    if pkgs:
+        src = "main 分支 moo.json（tag 树索引尚未跟版）"
 
 assets = {a["name"]: a for a in rel["assets"]}
 print("release 资产：")
 for n in sorted(assets):
     print(f"  {n:42s} {assets[n]['size']:>10d}")
+
+if not pkgs:
+    # 索引后置（RELEASE_GATE F）：tag 推送时 tag 树里的 moo.json 按设计仍是上一版，
+    # 若 main 也还没跟版则「无索引可比」——此时不做索引比对，退化为资产自洽检查：
+    # 三件套齐全 + `.sha256` 侧车与服务端 digest 一致。索引一致性由索引提交后的
+    # `prepush_check.py --mate` 与夜间 `mate-watch.yml`（客户端同款，含验签）覆盖。
+    msg = (f"moo.json（tag 树与 main）均无 apps.moo-mate.releases.{VER}.packages"
+           " → 索引后置属设计，跳过索引比对，仅校验资产自洽")
+    print("::notice::" + msg)
+    summary(f"**索引未跟版（属设计）**：{msg}。")
+    fpks = [n for n in assets if n.endswith(".fpk")]
+    bad = []
+    if not fpks:
+        bad.append("release 没有任何 .fpk 资产")
+    for n in sorted(fpks):
+        m = re.match(r"^moo-mate_%s_(x86|arm)\.fpk$" % re.escape(VER), n)
+        if not m:
+            bad.append(f"资产名不符合 moo-mate_{VER}_<x86|arm>.fpk 约定：{n}")
+        if n + ".sha256" not in assets:
+            bad.append(f"缺侧车 {n}.sha256")
+        if n + ".minisig" not in assets:
+            bad.append(f"缺签名 {n}.minisig（0.2.35+ 客户端会拒绝自更新）")
+        dg = assets[n].get("digest") or ""
+        if dg and n + ".sha256" in assets:
+            try:
+                u = assets[n + ".sha256"]["browser_download_url"]
+                with urllib.request.urlopen(
+                        urllib.request.Request(u, headers={"User-Agent": "moo-ci"}), timeout=60) as r:
+                    side = r.read().decode("utf-8", "replace").split()[0].strip().lower()
+                if side != dg.split(":", 1)[-1].lower():
+                    bad.append(f"{n}: .sha256 侧车 {side[:12]}… != 服务端 digest {dg[:16]}…")
+            except Exception as e:  # noqa: BLE001
+                print(f"[warn] 读侧车 {n}.sha256 失败：{e}")
+    if bad:
+        print("\n".join("FAIL: " + b for b in bad))
+        summary("**资产自洽检查失败**：" + "；".join(bad))
+        sys.exit(1)
+    print(f"OK: {TAG} 资产自洽（{len(fpks)} 个 FPK，侧车/签名齐全；索引尚未跟版，"
+          "一致性待索引提交后由 prepush_check / mate-watch 覆盖）")
+    summary(f"**OK（资产自洽）**：{TAG} 的 {len(fpks)} 个 FPK + 侧车/签名齐全。")
+    sys.exit(0)
+
+print(f"索引来源：{src}")
 print("索引登记架构：" + ", ".join(sorted(pkgs)))
 
 bad = []

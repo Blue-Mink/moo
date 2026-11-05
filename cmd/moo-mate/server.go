@@ -800,6 +800,13 @@ func (c *companion) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if syncErr != "" {
 		status["sync_error"] = syncErr
 	}
+	// 0.2.55（F4）：索引损坏被隔离/读取失败时不再静默，状态接口明确暴露。
+	if lerr, badFile := c.idx.diag(); lerr != "" {
+		status["last_index_error"] = lerr
+		if badFile != "" {
+			status["last_index_bad_file"] = badFile
+		}
+	}
 	writeJSON(w, http.StatusOK, status)
 }
 

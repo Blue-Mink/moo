@@ -639,9 +639,9 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
       <section class="card">
         <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清理</div>
         <div class="field">
-          <label class="field-label">清除数据</label>
+          <label class="field-label">清除同步索引</label>
           <div class="field-hint">清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）</div>
-          <button id="clearDataBtn" class="ghost danger">清除数据</button>
+          <button id="clearDataBtn" class="ghost danger">清除同步索引</button>
         </div>
       </section>
       <section class="card">
@@ -1902,9 +1902,9 @@ $('logCleanOk').onclick = async () => {
   finally { done(); }
 };
 
-// —— 清除数据（二次确认，防误触）——
+// —— 清除同步索引（二次确认，防误触）——
 $('clearDataBtn').onclick = async () => {
-  const yes = await ask('清除数据', '将清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）。此操作不可撤销，确认清除？', '清除');
+  const yes = await ask('清除同步索引', '将清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）。此操作不可撤销，确认清除？', '清除');
   if (!yes) return;
   const done = busy($('clearDataBtn'), '清除中…');
   try {

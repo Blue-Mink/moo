@@ -222,7 +222,7 @@ func (c *companion) handleBackupDownload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Header().Set("Content-Disposition", contentDisposition(name))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fi.Size()))
 	_, _ = io.Copy(w, f)
 }

@@ -188,6 +188,8 @@ const MirrorHealthPanel: React.FC<{
         consec_fails: st?.consec_fails || 0,
         // 0.6.321 F6：失败原因短语透传（下方第二行展示）
         error: st?.error || '',
+        // 2026-11-04：续传深测结论（undefined = 未深测，不显示徽标）
+        resume_ok: st?.resume_ok,
       };
     });
     // 0.6.321r4：按测速自动排序（用户指令，GitHub/Docker 两组共用本面板）——
@@ -341,6 +343,25 @@ const MirrorHealthPanel: React.FC<{
                   {row.key === health?.active && (
                     <span className="shrink-0 rounded-full bg-primary/10 px-1.5 h-4 flex items-center text-[10px] font-medium text-primary">
                       {referenceOnly ? '最快' : '当前'}
+                    </span>
+                  )}
+                  {/* 2026-11-04（PR #14 纯收益部分）：续传深测徽标。
+                      深测对吞吐 Top3 每源 24h 跑一次，只证明「认 Range、能续传」，
+                      不改变快慢判断——同速优选时才作为 tie-break。 */}
+                  {row.resume_ok === true && (
+                    <span
+                      className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 h-4 flex items-center text-[10px] font-medium text-emerald-600"
+                      title="续传深测通过：支持 Range 分段续传，断流后可从中断处继续"
+                    >
+                      续传✓
+                    </span>
+                  )}
+                  {row.resume_ok === false && (
+                    <span
+                      className="shrink-0 rounded-full bg-muted px-1.5 h-4 flex items-center text-[10px] font-medium text-muted-foreground"
+                      title="续传深测未通过：镜像可能不支持 Range 分段续传（断流后需从头下载）"
+                    >
+                      续传✕
                     </span>
                   )}
                 </span>

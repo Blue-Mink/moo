@@ -131,7 +131,63 @@ func (e *Engine) Download(ctx context.Context, o DownloadOpts) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("全部候选失败: %s", strings.Join(errs, " | "))
+	detail := strings.Join(errs, " | ")
+	return fmt.Errorf("全部候选失败: %s%s", detail, aggregateHint(errs))
+}
+
+// HTTPHint 把 HTTP 状态码翻译成可执行的排查提示（0.6.504 B2：
+// 此前失败只剩 network error，用户无法区分「源已下架」「索引与包不同步」「真网络故障」）。
+func HTTPHint(code int) string {
+	switch {
+	case code == 404 || code == 410:
+		return "下载地址不存在，源可能已下架或索引地址失效"
+	case code == 401 || code == 403:
+		return "源拒绝访问（可能需要鉴权或已撤权）"
+	case code == 429:
+		return "源限流，稍后重试"
+	case code >= 500:
+		return "源站故障，稍后重试"
+	}
+	return "下载请求被拒绝"
+}
+
+// aria2Hint 从 aria2 客户端输出里识别常见原因（它只给英文短句）。
+func aria2Hint(tail string) string {
+	l := strings.ToLower(tail)
+	switch {
+	case strings.Contains(l, "resource not found"), strings.Contains(l, "errorcode=3"):
+		return "（404 下载地址不存在，源可能已下架或索引地址失效）"
+	case strings.Contains(l, "timeout"), strings.Contains(l, "timed out"):
+		return "（连接超时）"
+	case strings.Contains(l, "name resolution"), strings.Contains(l, "could not resolve"):
+		return "（域名解析失败）"
+	}
+	return ""
+}
+
+// aggregateHint 所有候选都失败时给一句结论，避免用户只看到一长串 URL。
+func aggregateHint(errs []string) string {
+	if len(errs) == 0 {
+		return ""
+	}
+	missing, shaBad := 0, 0
+	for _, e := range errs {
+		switch {
+		case strings.Contains(e, "HTTP 404"), strings.Contains(e, "HTTP 410"),
+			strings.Contains(e, "Resource not found"), strings.Contains(e, "errorCode=3"),
+			strings.Contains(e, "errorcode=3"):
+			missing++
+		case strings.Contains(e, "sha256 不匹配"), strings.Contains(e, "校验和"):
+			shaBad++
+		}
+	}
+	switch {
+	case missing == len(errs):
+		return "\n结论：所有候选地址都不存在（404）——源索引里的下载地址已失效，请等源维护者修复或换一个源安装。"
+	case shaBad == len(errs):
+		return "\n结论：下载到的包与索引 sha256 全部不一致——源索引与包文件不同步，请联系源维护者。"
+	}
+	return ""
 }
 
 // checkSHA256 校验下载成品与源声明哈希（大小写不敏感；空声明=跳过）。
@@ -192,6 +248,14 @@ func (e *Engine) runAria2(ctx context.Context, o DownloadOpts, u string) error {
 		"--max-tries=2",
 		"--timeout=20",
 		"--connect-timeout=15",
+		// 慢源快速淘汰：公益镜像常见「首包很快、整份文件掉到几十 KB/s」，
+		// 旧参数下 aria2 会挂满 timeout×tries 才放弃，用户看到的是进度条
+		// 长时间不动（实测某 CDN 节点 52KB/s 下 5MB 包要 100s，两次重试
+		// 后仍失败）。低于阈值直接判该候选不可用，交给下一个候选。
+		// 阈值取 20K（不是 50K）：FN Connect 中继与弱网常在 20–50KB/s，
+		// 50K 会先被 aria2 判死、再由 runHTTP 从头重下 = 白下一段；
+		// 20K 只挡「基本停滞」的候选，真·慢源仍由测速门槛(150KB/s)在候选层淘汰。
+		"--lowest-speed-limit=20K",
 		"--summary-interval=2",
 		"--allow-overwrite=true",
 		"-o", o.DestPath,
@@ -256,7 +320,7 @@ func (e *Engine) runAria2(ctx context.Context, o DownloadOpts, u string) error {
 		if len(tail) > 300 {
 			tail = "…" + tail[len(tail)-300:]
 		}
-		return fmt.Errorf("aria2 退出码 %v: %s", err, tail)
+		return fmt.Errorf("aria2 退出码 %v: %s%s", err, tail, aria2Hint(tail))
 	}
 	// aria2 成功后已删除 .aria2 控制文件；校验成品
 	if err := checkDest(o.DestPath, o.SizeBytes); err != nil {
@@ -361,7 +425,7 @@ func (e *Engine) runHTTP(ctx context.Context, o DownloadOpts, u string) error {
 		}
 		e.notify(o, 0, actualTotal)
 	default:
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+		return fmt.Errorf("HTTP %d（%s）", resp.StatusCode, HTTPHint(resp.StatusCode))
 	}
 
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)

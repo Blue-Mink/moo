@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -2043,7 +2044,32 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		s.Cfg.DockerMirror = in.DockerMirror
 	}
 	if in.CustomGitHubMirror != nil {
-		s.Cfg.CustomGitHubMirror = *in.CustomGitHubMirror
+		// 2026-11-04（PR #14 纯收益部分）：自定义加速地址保存前做形状校验。
+		// 原先这里把用户输入原样写进配置：填个错字（少 https://、贴成
+		// "hk.gh-proxy.org/"）也会保存成功，直到下载时才以「network error」
+		// 暴露；带 user:pass@ 的地址还会把凭据写进 config.json 与日志。
+		// 注意：这里**不做公网校验** —— 单值自定义源的典型用法正是用户
+		// 自建的局域网 gh 代理（192.168.x.x:port），拦掉等于废掉该功能；
+		// SSRF 防线由「管理员显式配置 = 信任线」这一定位承担（见 netguard
+		// 包注释），与自动同步的源列表（远端数据驱动）不同。
+		v := strings.TrimSpace(*in.CustomGitHubMirror)
+		if v != "" {
+			u, uerr := url.Parse(v)
+			if uerr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				writeErr(w, http.StatusBadRequest, errors.New("自定义加速地址必须是完整的 http(s) 地址，例如 https://gh.example.com/"))
+				return
+			}
+			if u.User != nil {
+				writeErr(w, http.StatusBadRequest, errors.New("加速地址不允许携带用户信息（user:pass@）"))
+				return
+			}
+			if len(v) > 2048 {
+				writeErr(w, http.StatusBadRequest, errors.New("加速地址最长 2048 字符"))
+				return
+			}
+			v = u.String()
+		}
+		s.Cfg.CustomGitHubMirror = v
 	}
 	if in.CustomDockerMirror != nil {
 		s.Cfg.CustomDockerMirror = *in.CustomDockerMirror

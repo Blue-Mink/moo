@@ -14,8 +14,21 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
+
+// isVolumeRoot 0.2.54（MM-05）：/volN 卷根本身。数据文件直接落卷根会与卷管理/
+// 清理工具混在一起，数据目录只允许卷下子目录（备份目录不在此限）。
+func isVolumeRoot(p string) bool {
+	p = filepath.Clean(strings.TrimSpace(p))
+	for i := 1; i <= 8; i++ {
+		if p == "/vol"+strconv.Itoa(i) {
+			return true
+		}
+	}
+	return false
+}
 
 // handleDataDirSet POST /api/datadir {"path":"/volN/…"}：
 // 空字符串 = 恢复默认数据目录（引导目录）。
@@ -38,6 +51,11 @@ func (c *companion) handleDataDirSet(w http.ResponseWriter, r *http.Request) {
 	target = filepath.Clean(target)
 	if !filepath.IsAbs(target) {
 		writeErr(w, http.StatusBadRequest, "数据路径必须是绝对路径")
+		return
+	}
+	// 0.2.54（MM-05）：数据目录不能是存储卷根（备份目录仍允许，见 isValidBackupDir）。
+	if isVolumeRoot(target) {
+		writeErr(w, http.StatusBadRequest, "数据目录不能是存储卷根目录，请选择卷下的子目录")
 		return
 	}
 	// 允许：引导目录（@appdata 下，默认位置）或 /volN 可见目录。

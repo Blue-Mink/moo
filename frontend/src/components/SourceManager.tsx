@@ -689,8 +689,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   };
 
   // 0.6.318：「删除默认源」——先 dry_run 预检（拿将删清单），确认弹窗展示
-  // 数量后真删。范围=命中旧 157 条默认清单的现有源（含与 21 条官源重叠的
-  // 19 条，删后「恢复官源」可找回）；清单外源（官方源/自加源）不受影响。
+  // 数量后真删。范围=命中旧默认清单的现有源（含与默认精选源重叠的条目，
+  // 删后「恢复源」可找回）；清单外源（官方源/自加源）不受影响。
   const handleDeleteDefaultsClick = async () => {
     if (deletingDefaults) return;
     setDeletingDefaults(true);
@@ -846,13 +846,13 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${syncingList ? 'animate-spin text-primary' : ''}`} />
             {syncingList ? '同步中…' : '同步源'}
           </Button>
-          {/* 0.6.318：一键删除命中旧 157 条默认清单的源（预检→确认→删除） */}
+          {/* 0.6.318：一键删除命中旧默认清单的源（预检→确认→删除） */}
           <Button
             variant="outline"
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleDeleteDefaultsClick}
             disabled={deletingDefaults || syncingList || savingList || restoring}
-            title="一键删除默认清单（前 157 条）的历史源；「恢复源」仅可恢复默认 21 条"
+            title="一键删除默认清单中的历史源；「恢复源」仅可恢复 moo 默认精选源"
           >
             <Trash2 className={`h-3.5 w-3.5 shrink-0 ${deletingDefaults ? 'animate-pulse text-primary' : ''}`} />
             {deletingDefaults ? '处理中…' : '删除源'}
@@ -863,14 +863,14 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleRestoreDefaults}
             disabled={restoring || syncingList || savingList || deletingDefaults}
-            title="仅恢复 moo 默认 21 条精选源；相同源地址只保留一个"
+            title="仅恢复 moo 默认精选源；相同源地址只保留一个"
           >
             <RotateCcw className={`h-3.5 w-3.5 shrink-0 ${restoring ? 'animate-spin text-primary' : ''}`} />
             {restoring ? '恢复中…' : '恢复源'}
           </Button>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单（前 157 条）的历史源，「恢复源」仅恢复moo默认21条精选源；并把相同地址的重复源去重为 1 个。
+          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单中的历史源；「恢复源」仅恢复 moo 默认精选源，并把相同地址的重复源去重为 1 个。
         </p>
         {/* 0.6.325 安全加固 R1：清单里的内网/环回地址默认被跳过（防远端清单被
             篡改后驱动内网抓取）。需要同步内网源时在此显式放开；
@@ -1289,8 +1289,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
           <AlertDialogHeader>
             <AlertDialogTitle>删除源</AlertDialogTitle>
             <AlertDialogDescription>
-              预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中旧清单157条源）。
-              删除后通过「恢复源」仅可恢复默认21条；清单外的源（官方源、自加源）不受影响。
+              预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中旧默认清单）。
+              删除后通过「恢复源」仅可恢复 moo 默认精选源；清单外的源（官方源、自加源）不受影响。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

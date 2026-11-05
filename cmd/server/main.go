@@ -34,6 +34,7 @@ import (
 	"moo/internal/pipeline"
 	"moo/internal/secret"
 	"moo/internal/source"
+	"moo/internal/sysupdate"
 	"moo/internal/task"
 	webdist "moo/web"
 )
@@ -243,6 +244,7 @@ func main() {
 		WebFS:     webdist.Dist,
 		Mirrors:   api.NewMirrorMonitor(),
 		Panel:     api.NewPanel(cfg),
+		SysUpdate: sysupdate.New(),
 		Official:  official.NewManager(dataDir),
 	}
 	pipe.FPKCandidates = srv.FpkCandidates

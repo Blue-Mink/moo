@@ -419,7 +419,16 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
   const controller = new AbortController();
 
   const promise = (async () => {
-    const response = await apiFetch(url, { method: 'POST', signal: controller.signal });
+    // 0.6.504（B2）：网络层异常（断网 / 网关断流 / WebView 的 TypeError）此前会原样
+    // 上抛成 "network error" 之类无诊断价值的文本，这里统一成可执行的中文提示。
+    let response: Response;
+    try {
+      response = await apiFetch(url, { method: 'POST', signal: controller.signal });
+    } catch (e) {
+      if ((e as { name?: string } | null)?.name === 'AbortError') throw e;
+      const raw = e instanceof Error ? e.message : String(e);
+      throw new Error(`无法连接 Moo 服务：${raw}（请检查面板网关/网络后重试）`);
+    }
     if (!response.ok) {
       // 后端错误体是 JSON {error: "..."}（如"应用已安装"），优先展示具体原因。
       let detail = `Request failed: ${response.statusText}`;
@@ -834,6 +843,8 @@ export interface MirrorStat {
   error?: string;
   last_check: string;
   consec_fails: number;
+  /** 2026-11-04：续传深测结论（true=支持 Range 续传 / false=深测失败 / undefined=未深测） */
+  resume_ok?: boolean;
 }
 
 export interface MirrorSwitchInfo {
@@ -1036,8 +1047,8 @@ export const restoreDefaultSources = async (): Promise<{
 };
 
 /** 0.6.318：一键删除历史默认源（dryRun=true 只预检不落变更）。
- *  范围=命中旧 157 条默认清单的现有源（含与 20 条官源重叠的 19 条，
- *  删后可用「恢复官源」找回）；官方源与清单外自加源不受影响。 */
+ *  范围=命中旧默认清单的现有源（含与默认精选源重叠的条目，
+ *  删后可用「恢复源」找回）；官方源与清单外自加源不受影响。 */
 export const deleteDefaultSources = async (dryRun: boolean): Promise<{
   dry_run: boolean;
   scanned: number;

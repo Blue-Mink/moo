@@ -589,8 +589,30 @@ const App: React.FC = () => {
     scrollPosRef.current[prev] = window.scrollY;
     activeFilterRef.current = next;
     setActiveFilter(next);
-    setActiveCategory(null);
+    // 分类选择跨 tab 保留（all/installed/update_available
+    // 三个 tab 都有分类条，切换后分类过滤仍可用且有 UI 可取消）。
+    // 仅切到「发现」（recommended，无分类条）时清掉——无处取消会困住选择。
+    // 原实现无条件清空 = 选分类后每切一个 tab 都要重选，重复操作。
+    if (next === 'recommended') {
+      setActiveCategory(null);
+    }
   }, []);
+
+  // 用户令：Dock 的 tab（全部/已安装/有更新）**双击**
+  // = 切到该 tab 并把分类筛选清回「全部」。
+  // 设计取舍：单击必须保持即时切 tab（0.6.232 定下的"点下就有反应"），
+  // 所以不做「等 300ms 判断是否双击」的延迟；双击在第二次点击时补一个
+  // 清分类动作即可。350ms 窗口，命中后时间戳清零防三连击重复触发。
+  const lastDockTapRef = useRef<{ key: string; t: number } | null>(null);
+  const handleDockTap = useCallback((key: string) => {
+    if (key === 'settings') { setSettingsVisible(true); return; }
+    const now = Date.now();
+    const last = lastDockTapRef.current;
+    const isDouble = !!last && last.key === key && now - last.t < 350;
+    lastDockTapRef.current = { key, t: isDouble ? 0 : now };
+    switchFilter(key as 'all' | 'installed' | 'update_available' | 'recommended');
+    if (isDouble) setActiveCategory(null);
+  }, [switchFilter]);
   // 切回某 tab 时恢复其滚动位置：等新列表提交布局；目标超出当前文档高度时
   // 逐帧重试（列表还在渲染），最多 10 帧后钳制到当前最大值兜底。
   const skipScrollRestoreRef = useRef(false);
@@ -2012,7 +2034,7 @@ const App: React.FC = () => {
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
+                    onClick={() => setActiveCategory(prev => prev === cat.key ? null : cat.key)}
                     className={cn(
                       // 0.6.284：移动端胶囊与桌面同材质（Dock 毛玻璃）；布局不变
                       "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap",
@@ -2034,11 +2056,18 @@ const App: React.FC = () => {
             mainScrolled ? "bg-card/70 backdrop-blur-xl border-b border-border/50 py-2" : "bg-transparent border-b border-transparent pt-3 pb-3"
           )}>
            {/* row1：品牌+大标题 | 搜索+计数 | 三视图+主题+刷新（原顶栏内容，布局不变） */}
-           <div className="flex w-full items-center justify-between">
-           <div className="flex items-center gap-2 shrink-0">
+           {/* 0.6.502（用户实报）：选中分类后标题变「应用 · 分类」，窄窗口（~1080px 及以下）
+               标题被右侧搜索框盖住——根因是左组、h2、搜索框全是 shrink-0，总宽超限时谁都
+               不让位，搜索框按 flex 溢出压到标题上。修法：
+               · row1 加 gap-4；左组允许收缩、品牌「Moo is more」保持不截断；
+               · h2 拆成「页面名 + 分类名」两个 flex 子项，空间不足时先省略分类名；
+               · 分类名 <lg（1024）直接不显示（分类胶囊已有高亮，不丢信息）；
+               · 搜索框 320/420 可收缩（min 180），窄窗口优先保标题与搜索可用宽度。 */}
+           <div className="flex w-full items-center justify-between gap-4">
+           <div className="flex items-center gap-2 min-w-0">
            {/* 0.6.230：侧栏隐去后，品牌「Moo is more」+ 实时时钟移到顶栏左侧
                （用户要求内容与格式保持不变：日期+时间、秒级刷新；上次检查在悬停提示里） */}
-           <div className="mr-4 min-w-0">
+           <div className="mr-4 min-w-0 shrink-0">
              <div className="text-lg font-semibold tracking-tight whitespace-nowrap leading-tight">Moo is more</div>
              <div
                className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap"
@@ -2047,21 +2076,26 @@ const App: React.FC = () => {
                {nowText}
              </div>
            </div>
-           <h2 className={cn("font-bold tracking-tight shrink-0 transition-all duration-300", mainScrolled ? "text-lg" : "text-[32px] leading-[1.2]")}>
-              {activeFilter === 'recommended' && '发现'}
-              {activeFilter === 'all' && '应用'}
-              {activeFilter === 'installed' && '已安装'}
-              {activeFilter === 'update_available' && '可用更新'}
+           <h2 className={cn("flex items-baseline font-bold tracking-tight min-w-0 truncate transition-all duration-300", mainScrolled ? "text-lg" : "text-[32px] leading-[1.2]")}>
+              {/* 0.6.502：页面名与分类名分开收缩——空间不足时先省略分类名，页面名（应用/已安装/…）始终保住 */}
+              <span className="shrink-0">
+                {/* 0.6.503（用户实报）：标题文案与 Dock / 侧栏 / 设置里的 Dock 排序清单逐字一致——
+                    全部（不是「应用」）、有更新（不是「可用更新」），避免同一视图两个叫法。 */}
+                {activeFilter === 'recommended' && '发现'}
+                {activeFilter === 'all' && '全部'}
+                {activeFilter === 'installed' && '已安装'}
+                {activeFilter === 'update_available' && '有更新'}
+              </span>
               {activeFilter !== 'recommended' && activeCategory && (
-                <span className={cn("text-muted-foreground font-normal transition-all duration-300", mainScrolled ? "text-sm" : "text-xl")}>{' · '}{CATEGORIES.find(c => c.key === activeCategory)?.label}</span>
+                <span className={cn("hidden lg:block min-w-0 truncate text-muted-foreground font-normal transition-all duration-300", mainScrolled ? "text-sm" : "text-xl")}>{' · '}{CATEGORIES.find(c => c.key === activeCategory)?.label}</span>
               )}
            </h2>
            </div>
            {/* 0.6.284（用户定稿）：搜索框从右侧组独立出来，居中占顶栏中段并加长
                （224/256px → 320/420px），计数跟随其后；主题/刷新保持在最右。 */}
-           <div className="flex flex-1 min-w-0 items-center justify-center gap-2">
+           <div className="flex flex-1 basis-64 xl:basis-[420px] min-w-[208px] items-center justify-center gap-2">
                <>
-                 <div className="relative shrink-0">
+                 <div className="relative basis-80 xl:basis-[420px] shrink min-w-[180px] max-w-full">
                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                      <Input
                        type="text"
@@ -2073,7 +2107,7 @@ const App: React.FC = () => {
                          // 与移动端一致：发现 tab 里输入即跳「全部」搜索目录
                          if (activeFilter === 'recommended' && v) switchFilter('all');
                        }}
-                       className="w-80 xl:w-[420px] pl-9 pr-8 h-9 shadow-none rounded-full border-0 bg-muted/60 focus-visible:ring-primary/40"
+                       className="w-full pl-9 pr-8 h-9 shadow-none rounded-full border-0 bg-muted/60 focus-visible:ring-primary/40"
                      />
                      {searchInput && (
                        <button
@@ -2185,7 +2219,7 @@ const App: React.FC = () => {
                  {CATEGORIES.map(cat => (
                    <button
                      key={cat.key}
-                     onClick={() => setActiveCategory(cat.key)}
+                     onClick={() => setActiveCategory(prev => prev === cat.key ? null : cat.key)}
                      className={cn(
                        // 0.6.284：胶囊统一 Dock 毛玻璃材质（bg-card/55 + backdrop-blur + white/10 描边）
                        "shrink-0 h-8 px-3.5 rounded-full border border-white/10 backdrop-blur-xl text-[13px] font-medium whitespace-nowrap transition-colors",
@@ -2600,7 +2634,7 @@ const App: React.FC = () => {
       {!dockHidden && (
         <MobileDock
           active={activeFilter}
-          onSelect={(key) => { if (key === 'settings') setSettingsVisible(true); else switchFilter(key); }}
+          onSelect={handleDockTap}
           updateCount={counts.update_available}
           storeHasUpdate={storeHasUpdate}
           order={dockOrder ?? undefined}
@@ -2645,7 +2679,7 @@ const App: React.FC = () => {
             <button
               key={key}
               type="button"
-              onClick={() => switchFilter(key)}
+              onClick={() => handleDockTap(key)}
               title={`${label}（${count}）`}
               className={cn(
                 'relative flex w-[100px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',

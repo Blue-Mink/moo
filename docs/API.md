@@ -872,3 +872,21 @@ curl -s http://127.0.0.1:38100/api/version    # 验证版本
 - **0.6.254 版本门控**：/signin 的 PKCE 授权页仅 fnOS 1.2.0800+ 面板前端有（懒加载 oauth chunk；旧版前端零 OAuth 逻辑，浏览器打开授权链接只见普通登录页）。启动时探测本机面板前端（`internal/official/support_probe.go`，进程内缓存），前端按 `ui_supported` 分流：支持 → iframe 授权页流程；不支持 → 无头授权（`authorize-headless`，面板账号一次性登录取码，授权后目录仍免面板登录）。
 - 该域原为**主线（moo-w）独有**；2026-10-01 两条线合并后（面板线为基线 + 摘入官方模块），
   发布线同样具备这 7 个端点。
+
+## 23. fnOS 系统更新（`/api/sysupdate`）
+
+只提示、不安装：采集 fnOS 本体是否有系统更新（与面板「设置 → 更新和还原 → 系统更新」同源判断），
+命中时走通知事件 `system_update_available`（六变体、同版本只推一次）。
+
+| 端点 | 权限 | 说明 |
+|---|---|---|
+| `GET /api/sysupdate` | admin | 读 12h 缓存，不触发网络。返回 `{current, latest, available, kernel_current, kernel_latest, notes[], branch, checked_at, ok, err?}` |
+| `POST /api/sysupdate/check` | admin | 强制刷新（忽略缓存）；命中且该版本未推送过时同时推送渠道通知 |
+
+数据源与边界：
+
+- 当前版本：`/usr/trim/etc/version`；当前内核：`/proc/sys/kernel/osrelease`。
+- 可用版本：`GET https://apiv2-liveupdate.fygonas.com/`（公网、无鉴权，返回 `branchId` / `kernel` / `packages[]`，取 `packageName=="trim"` 的 `version`）。
+- 该接口给的是**稳定分支**最新包；面板偶尔出现的更高版本属灰度通道（WS `liveupdate.check` + 会话密钥签名），
+  公开接口未发布时这里不会误报，也不会触发通知。
+- 失败静默降级（`ok=false` + `err`），不影响其它接口；`MOO_SYSUPDATE_API` / `MOO_SYSUPDATE_VERSION_FILE` / `MOO_SYSUPDATE_KERNEL_FILE` 可覆盖默认值（独立实例验收用）。

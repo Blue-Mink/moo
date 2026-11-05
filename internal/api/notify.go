@@ -68,6 +68,9 @@ var notifyEventCatalog = []notifyEvent{
 	{Key: "disk_space_alert", Label: "磁盘空间告警", Desc: "数据目录使用率 >90% 推送告警（30 分钟冷却）；回落 85% 以下推送恢复", Group: "Moo 自身", Default: true},
 	{Key: "notify_channel_error", Label: "渠道推送失败", Desc: "同一推送渠道连续 3 次发送失败时推送（1 小时冷却），用于发现通知渠道本身已失效", Group: "Moo 自身", Default: true},
 	// D. 源与网络
+	// F. 系统（fnOS 本体，不是 Moo 自身）
+	{Key: "system_update_available", Label: "系统有可用更新", Desc: "fnOS 系统更新（稳定分支）可用时推送：当前版本 → 可用版本 + 更新说明摘要；同版本只推一次（只提示，不安装）", Group: "系统", Default: true},
+
 	{Key: "source_sync_failed", Label: "源同步失败", Desc: "每轮源刷新后聚合推送：失败源列表（前 5）+ 总数，一轮一条", Group: "源与网络", Default: true},
 	{Key: "source_recovered", Label: "源同步恢复", Desc: "此前失败的源本轮恢复（同源 24 小时内不重复推）", Group: "源与网络", Default: false},
 	{Key: "source_sync_summary", Label: "源同步摘要", Desc: "每轮源同步后各源应用数 / 应用总数（含多源重复）/ 关注与收藏数目；仅数字变化时推送（无变化不重复推）。外部渠道发紧凑版，应用内记录可展开看全部源明细", Group: "源与网络", Default: true},

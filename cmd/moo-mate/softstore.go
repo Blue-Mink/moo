@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -36,6 +38,46 @@ func softstoreType(t string) string {
 		return "docker"
 	}
 	return "fpk"
+}
+
+// resolveSoftstoreURL 把软仓返回的相对下载地址按软仓基址补成绝对地址。
+//
+// 软仓部分条目（如 cloud-printer / p2pee）的 download_url 是 "./x/x.fpk" 或
+// "x/x.fpk" 这类相对路径。Moo 解析索引时只按「索引所在目录」补全，会变成
+// http://127.0.0.1:38108/moo/x/x.fpk（Mate 只发 JSON，不托管包）→ 必然 404。
+// 因此 Mate 在写入索引前就按条目来源基址补全，索引与 mate.json 只落绝对地址。
+func resolveSoftstoreURL(base, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	if u.IsAbs() {
+		return raw
+	}
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return raw
+	}
+	bu, err := url.Parse(base + "/")
+	if err != nil {
+		return raw
+	}
+	return bu.ResolveReference(u).String()
+}
+
+// resolveSoftstoreURLs 对一组候选链逐个补绝对地址（去重由调用方处理）。
+func resolveSoftstoreURLs(base string, urls []string) []string {
+	out := make([]string, 0, len(urls))
+	for _, u := range urls {
+		if v := resolveSoftstoreURL(base, u); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // pickSoftstoreURL 选主下载链：原始链（GitHub/gitee release 直链，稳定，
@@ -151,7 +193,7 @@ func discoverFromSoftstore(ctx context.Context, baseURL string, httpc *http.Clie
 				Version:     strings.TrimSpace(first.Version),
 				AppType:     softstoreType(first.Type),
 				Sha256:      strings.TrimSpace(first.Sha256),
-				DownloadURL: pickSoftstoreURL(first),
+				DownloadURL: resolveSoftstoreURL(base, pickSoftstoreURL(first)),
 				IconURL:     strings.TrimSpace(first.Icon),
 				Desc:        first.Desc,
 				Author:      first.Author,
@@ -170,11 +212,11 @@ func discoverFromSoftstore(ctx context.Context, baseURL string, httpc *http.Clie
 				arch = "x86" // 平台缺省按 x86
 			}
 			pkgs[arch] = &appPackage{
-				DownloadURL: pickSoftstoreURL(a),
+				DownloadURL: resolveSoftstoreURL(base, pickSoftstoreURL(a)),
 				Sha256:      strings.TrimSpace(a.Sha256),
 				SizeBytes:   a.Size,
 			}
-			entry.DownloadURLs = mergeUniqueStrings(entry.DownloadURLs, softstoreCandidateURLs(a)...)
+			entry.DownloadURLs = mergeUniqueStrings(entry.DownloadURLs, resolveSoftstoreURLs(base, softstoreCandidateURLs(a))...)
 		}
 		if len(pkgs) > 0 {
 			entry.Packages = pkgs
@@ -232,7 +274,132 @@ func (c *companion) syncPersonalSoftstore(ctx context.Context) (added, updated i
 			return added, updated, err
 		}
 	}
+	// B1：源 API 已不返回、且软仓同源下载链 404/410 的条目，移出 Moo 聚合源。
+	if n, perr := c.pruneDeadSoftstoreApps(ctx, baseURL, apps); perr != nil {
+		log.Printf("软仓下架清理失败（不影响同步）: %v", perr)
+	} else if n > 0 {
+		log.Printf("软仓下架清理：%d 个条目已移出 Moo 源", n)
+	}
 	return added, updated, nil
+}
+
+// pruneDeadSoftstoreApps 清理上游已下架、但仍留在索引里的软仓应用。
+//
+// 只探测「Source 就是当前软仓基址」且「下载链仍在软仓同源主机」的条目：
+// 这些包由软仓自己托管，源 API 不再返回 + URL 404/410 即可判定下架。
+// GitHub/Gitee 等外链应用一律不探测（源 API 未列出不代表 release 失效）。
+// 命中时只 setSynced(false)，保留索引便于上游恢复后重新同步；随后
+// rebuildAggregate 会把这些条目从 Moo 聚合源移除，避免留下必 404 的卡片。
+func (c *companion) pruneDeadSoftstoreApps(ctx context.Context, base string, current map[string]*indexedApp) (int, error) {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" || len(current) == 0 {
+		return 0, nil
+	}
+	baseURL, err := url.Parse(base)
+	if err != nil || baseURL.Host == "" {
+		return 0, nil
+	}
+	var dead []string
+	for _, a := range c.idx.list() {
+		if a == nil || !a.Synced || a.Publisher != "softstore" {
+			continue
+		}
+		if current[a.Appname] != nil {
+			continue
+		}
+		if strings.TrimRight(strings.TrimSpace(a.Source), "/") != base {
+			continue
+		}
+		raw := firstDownloadURL(a)
+		if raw == "" || !sameURLHost(raw, baseURL) {
+			continue
+		}
+		missing, perr := probeURLMissing(ctx, c.httpc, raw)
+		if perr != nil {
+			continue // 网络抖动不判死，下一轮再试
+		}
+		if missing {
+			dead = append(dead, a.Appname)
+		}
+	}
+	if len(dead) == 0 {
+		return 0, nil
+	}
+	if _, err := c.idx.setSyncedMany(dead, false, ""); err != nil {
+		return 0, err
+	}
+	return len(dead), nil
+}
+
+// firstDownloadURL 取一条应用的主下载链（顶层优先，其次任一架构包）。
+func firstDownloadURL(a *indexedApp) string {
+	if a == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(a.DownloadURL); v != "" {
+		return v
+	}
+	for _, p := range a.Packages {
+		if p != nil {
+			if v := strings.TrimSpace(p.DownloadURL); v != "" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+// sameURLHost 判断下载链是否仍托管在软仓同源主机（忽略 scheme）。
+func sameURLHost(raw string, base *url.URL) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || base == nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, base.Host)
+}
+
+// probeURLMissing 轻量探测下载链是否已失效：404/410 判死；
+// HEAD 不被支持时回落 Range GET。网络错误一律返回 false（不判死）。
+func probeURLMissing(ctx context.Context, client *http.Client, raw string) (bool, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		reqCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, method, raw, nil)
+		if err != nil {
+			cancel()
+			return false, err
+		}
+		if method == http.MethodGet {
+			req.Header.Set("Range", "bytes=0-0")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			return false, err
+		}
+		status := resp.StatusCode
+		_ = resp.Body.Close()
+		cancel()
+		switch status {
+		case http.StatusNotFound, http.StatusGone:
+			if method == http.MethodHead {
+				continue // HEAD 可能被个别反代误报，再用 GET 确认一次
+			}
+			return true, nil
+		case http.StatusOK, http.StatusNoContent, http.StatusPartialContent:
+			return false, nil
+		case http.StatusMethodNotAllowed, http.StatusNotImplemented:
+			continue // HEAD 不支持，换 GET
+		default:
+			if method == http.MethodHead {
+				continue // 部分 nginx 对 HEAD 返回 403，换 GET 再确认
+			}
+			return false, nil
+		}
+	}
+	return false, nil
 }
 
 // syncGiteeSoftstore 从 Gitee 源（软仓官方仓库）扫描 release 里的 .fpk 并合并进索引。

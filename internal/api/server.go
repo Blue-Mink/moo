@@ -23,6 +23,7 @@ import (
 	"moo/internal/pipeline"
 	"moo/internal/platform"
 	"moo/internal/source"
+	"moo/internal/sysupdate"
 	"moo/internal/task"
 )
 
@@ -41,6 +42,8 @@ type Server struct {
 	WebFS     fs.FS
 	Mirrors   *mirrorMonitor
 	Panel     *Panel
+	// SysUpdate fnOS 系统更新采集（只提示不安装，12h 缓存）
+	SysUpdate *sysupdate.Collector
 	// GHStats GitHub Release 资产下载量同步（第三方源目录不统计下载量的补数通道）
 	GHStats *source.GHStats
 	// Forks GitHub 仓库 fork 关系查询（0.6.326c 溯源补强：识别「整仓 fork 式
@@ -311,6 +314,9 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/apps/{key}/wizard", s.appWizard)
 	mux.HandleFunc("POST /api/apps/{key}/install", s.requireAdmin(s.appInstallSSE))
 	mux.HandleFunc("POST /api/apps/{key}/stage", s.requireAdmin(s.appStageSSE))
+	// fnOS 系统更新（只提示不安装）：读缓存 / 强制刷新
+	mux.HandleFunc("GET /api/sysupdate", s.requireAdmin(s.sysUpdateStatus))
+	mux.HandleFunc("POST /api/sysupdate/check", s.requireAdmin(s.sysUpdateCheck))
 	mux.HandleFunc("POST /api/apps/{key}/update", s.requireAdmin(s.appUpdateSSE))
 	mux.HandleFunc("POST /api/apps/{key}/uninstall", s.requireAdmin(s.appUninstallSSE))
 	mux.HandleFunc("POST /api/apps/{key}/download-task", s.requireAdmin(s.appDownloadTaskSSE))

@@ -38,6 +38,19 @@ func envOr(key, def string) string {
 	return def
 }
 
+// listenGuard 0.2.54（MM-01a/B4）：Mate 没有登录鉴权，监听地址默认必须是回环。
+// 返回 (fatalMsg, warnMsg)：fatal 非空 → 拒绝启动；warn 非空 → 仅告警（已显式放行）。
+func listenGuard(listen string, allowRemote bool) (fatalMsg, warnMsg string) {
+	listen = strings.TrimSpace(listen)
+	if isLoopbackListen(listen) {
+		return "", ""
+	}
+	if allowRemote {
+		return "", "监听地址 " + listen + " 不是回环地址（已按 MOO_MATE_ALLOW_REMOTE=1 放行）；Moo Mate 无内置登录，请勿直接暴露到公网/不可信局域网"
+	}
+	return "监听地址 " + listen + " 不是回环地址（Moo Mate 无内置登录，只应本机访问）。如确需开放，请设置 MOO_MATE_ALLOW_REMOTE=1", ""
+}
+
 func main() {
 	// FNOS 生命周期脚本注入的环境变量优先；flag 供本地调试兜底。
 	listen := flag.String("listen", "127.0.0.1:38108", "Moo Mate 监听地址")
@@ -56,6 +69,14 @@ func main() {
 	}
 
 	listenVal := envOr("MOO_MATE_LISTEN", *listen)
+	// 0.2.54（MM-01a）：Mate 无内置登录，默认只允许回环监听；误绑 0.0.0.0 直接拒绝，
+	// 确需开放必须显式 MOO_MATE_ALLOW_REMOTE=1（B4：此时打 WARN，不静默）。
+	if fatalMsg, warnMsg := listenGuard(listenVal, envOr("MOO_MATE_ALLOW_REMOTE", "") != ""); fatalMsg != "" || warnMsg != "" {
+		if fatalMsg != "" {
+			log.Fatalf("拒绝启动：%s", fatalMsg)
+		}
+		log.Printf("警告：%s", warnMsg)
+	}
 	mooBaseVal := envOr("MOO_MATE_MOO_BASE", *mooBase)
 	selfBaseVal := envOr("MOO_MATE_SELF_BASE", *selfBase)
 	tokenVal := envOr("MOO_MATE_TOKEN", *token)
@@ -89,6 +110,12 @@ func main() {
 	}
 	c := newCompanion(mooBaseVal, selfBaseVal, tokenVal, web, newIndex(dataVal))
 	c.bootDir = bootDir
+	// B1：旧索引里软仓相对下载地址按 Source 补绝对（一次性迁移，幂等）。
+	if n, nerr := c.idx.normalizeDownloads(); nerr != nil {
+		log.Printf("修正软仓相对下载地址失败: %v", nerr)
+	} else if n > 0 {
+		log.Printf("已修正 %d 个软仓相对下载地址", n)
+	}
 	// 0.2.35：自更新下载复用 Moo 的 GitHub 加速镜像表（GET /api/mate/mirrors）。
 	mateMirrorProvider = c.mateMirrorPrefixes
 	// 配置 + 加解密器：GitHub token 落盘 enc:v1（密钥文件 .moo-secret.key 在数据目录）。
@@ -142,6 +169,11 @@ func main() {
 	mux.HandleFunc("POST /api/clear-data", c.handleClearData)
 	// 非 API 路径回退到 embed 的静态文件（FileServer 自动提供 index.html）。
 	mux.HandleFunc("/", web.ServeHTTP)
+
+	// MM-02（0.2.52）：非安全方法统一过 CSRF 防线（Origin/Sec-Fetch-Site/
+	// Content-Type + TCP 通道 Host 白名单）。TCP 与面板网关各用一套策略。
+	tcpPolicy, gwPolicy := newCSRFPolicies(listenVal, c.base)
+	log.Printf("CSRF 防护：host 白名单=%v（TCP loopbackOnly=%v）", tcpPolicy.allowedHosts, tcpPolicy.loopbackOnly)
 
 	log.Printf("Moo Mate 启动：%s（Moo base=%s，索引=%s）", listenVal, mooBaseVal, dataVal)
 
@@ -198,16 +230,20 @@ func main() {
 		} else {
 			_ = os.Chmod(sock, 0o700)
 			log.Printf("unix socket 监听: %s（网关前缀 %s）", sock, gwPrefix)
-			gw := http.StripPrefix(gwPrefix, mux)
+			gw := http.StripPrefix(gwPrefix, csrfGuard(mux, gwPolicy))
+			gwSrv := newHTTPServer(gw)
 			go func() {
-				if err := http.Serve(uln, gw); err != nil {
+				if err := gwSrv.Serve(uln); err != nil {
 					log.Printf("unix socket 服务异常: %v", err)
 				}
 			}()
 		}
 	}
 
-	if err := http.ListenAndServe(listenVal, mux); err != nil {
+	// 0.2.53（A3）：统一 HTTP 基础防护（读头/空闲超时、头大小）。
+	tcpSrv := newHTTPServer(csrfGuard(mux, tcpPolicy))
+	tcpSrv.Addr = listenVal
+	if err := tcpSrv.ListenAndServe(); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
 }

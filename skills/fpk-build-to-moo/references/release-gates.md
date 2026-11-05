@@ -50,6 +50,7 @@
 ## 5. 发布门
 - 用户验收 + 明确推送口令；**推送是独立动作**，前置门禁通过 ≠ 授权推送。
 - 自更新应用：每架构 `FPK + .sha256 + .minisig`；资产矩阵、tag、索引顺序、兜底三 URL、asset digest 全过。
+- **索引跟版提交与 tag 同一次推送**（tag 打在含索引的提交上）；只推 tag 后补索引会让 `Verify release assets` 判红，补完须把 tag 移到含索引提交并确认新 run 绿。清单见 [self-update-signing.md](self-update-signing.md) §7。
 - 发布后回读：`/api/about` 版本、bundle 指纹、数据零回归、icon 尺寸、release 资产 sha。
 
 ## 6. 证据记录

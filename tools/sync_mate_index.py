@@ -21,6 +21,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -179,6 +180,159 @@ def sync_changelog_md(repo_root, ws, do_write):
     return notes
 
 
+def _read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _replace_filenames(text, ver):
+    return re.sub(r"moo-mate_\d+\.\d+\.\d+_(x86|arm)\.fpk", r"moo-mate_%s_\1.fpk" % ver, text)
+
+
+def _replace_release_refs(text, ver):
+    """0.2.54：下载链接里的 release tag 也要跟版。
+
+    此前只换文件名不换 tag 段 → FnDepot 侧 README 变成
+    `…/mate-v0.2.50/moo-mate_0.2.54_x86.fpk`，发布后 404（审计 B-1）。
+    """
+    text = re.sub(r"(/releases/download/mate-v)\d+\.\d+\.\d+(/)", r"\g<1>%s\g<2>" % ver, text)
+    text = re.sub(r"(/releases/tag/mate-v)\d+\.\d+\.\d+", r"\g<1>%s" % ver, text)
+    text = re.sub(r"(Moo%20Mate-v)\d+\.\d+\.\d+", r"\g<1>%s" % ver, text)
+    return text
+
+
+
+def sync_fndepot_root(ver, do_write):
+    """同步 FnDepot 店面 README 里的 Moo Mate 卡片（badge / tag / 安装链接 / 版本行）。
+
+    0.2.54（审计 B-2）：该文件不在原 targets 里，发版后卡片仍指旧版。
+    只按「旧 Mate 版本号」精确替换，绝不动其它应用（曾误用通用版本正则）。
+    """
+    path = os.path.join(WS, "FnDepot_repo", "README.md")
+    if not os.path.isfile(path):
+        return ["跳过缺失 README：%s" % path]
+    old = _read_text(path)
+    m = re.search(r"Moo%20Mate-v(\d+\.\d+\.\d+)", old)
+    oldver = m.group(1) if m else ""
+    new = old
+    if oldver and oldver != ver:
+        new = new.replace("Moo%%20Mate-v%s" % oldver, "Moo%%20Mate-v%s" % ver)
+        new = new.replace("/releases/tag/mate-v%s" % oldver, "/releases/tag/mate-v%s" % ver)
+        new = new.replace("/releases/download/mate-v%s/" % oldver, "/releases/download/mate-v%s/" % ver)
+        new = new.replace("moo-mate_%s_" % oldver, "moo-mate_%s_" % ver)
+        new = new.replace("| 🏷️ **版本** | v%s（x86 / arm）" % oldver,
+                          "| 🏷️ **版本** | v%s（x86 / arm）" % ver)
+    if new == old:
+        return []
+    if do_write:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(new)
+        return ["写入 %s" % path]
+    return ["预览 %s（Moo Mate 卡片待跟版）" % path]
+
+
+def sync_mate_readmes(ver, pkgs, do_write, summary=""):
+    """同步三份 Mate README 的版本/文件名，并复制 FnDepot 侧车。"""
+    notes = []
+    targets = [
+        (os.path.join(REPO_ROOT, "README.md"), "moo"),
+        (os.path.join(REPO_ROOT, "cmd", "moo-mate", "README.md"), "cmd"),
+        (os.path.join(WS, "FnDepot_repo", "moo-mate", "README.md"), "fndepot"),
+    ]
+    for path, kind in targets:
+        if not os.path.isfile(path):
+            notes.append("跳过缺失 README：%s" % path)
+            continue
+        old = _read_text(path)
+        new = _replace_release_refs(_replace_filenames(old, ver), ver)
+        if kind == "cmd":
+            new = re.sub(r"(- 版本：\*\*)\d+\.\d+\.\d+(\*\*)", r"\g<1>%s\g<2>" % ver, new)
+        if kind == "fndepot":
+            new = re.sub(r"(\| 版本 \| )\d+\.\d+\.\d+( \|)", r"\g<1>%s\g<2>" % ver, new)
+            new = re.sub(r"(GitHub Release `mate-v)\d+\.\d+\.\d+(`)", r"\g<1>%s\g<2>" % ver, new)
+            if summary:
+                new = re.sub(r"(\| 更新说明 \| ).*?( \|)", r"\g<1>%s\g<2>" % summary, new)
+        if new != old:
+            if do_write:
+                with open(path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(new)
+                notes.append("写入 %s" % path)
+            else:
+                notes.append("预览 %s（%d 处版本引用待更新）" % (path, old.count("moo-mate_")))
+    dst_dir = os.path.join(WS, "FnDepot_repo", "moo-mate")
+    for arch in ARCHS:
+        src = os.path.join(REPO_ROOT, "moo-mate_%s_%s.fpk.sha256" % (ver, arch))
+        dst = os.path.join(dst_dir, "moo-mate_%s_%s.fpk.sha256" % (ver, arch))
+        if not os.path.isfile(src):
+            notes.append("缺侧车：%s" % src)
+            continue
+        body = _read_text(src)
+        if os.path.isfile(dst) and _read_text(dst) == body:
+            continue
+        if do_write:
+            os.makedirs(dst_dir, exist_ok=True)
+            with open(dst, "w", encoding="utf-8", newline="\n") as f:
+                f.write(body)
+            notes.append("写入 %s" % dst)
+        else:
+            notes.append("预览 %s" % dst)
+    return notes
+
+
+def check_mate_readmes(ver):
+    fails = []
+    for path in (os.path.join(REPO_ROOT, "README.md"),
+                 os.path.join(REPO_ROOT, "cmd", "moo-mate", "README.md"),
+                 os.path.join(WS, "FnDepot_repo", "moo-mate", "README.md")):
+        if not os.path.isfile(path):
+            fails.append("缺 README：%s" % path)
+            continue
+        text = _read_text(path)
+        if "moo-mate_%s_x86.fpk" % ver not in text:
+            fails.append("%s 未跟版到 %s（x86 文件名）" % (path, ver))
+        if "FnDepot_repo" in path and "moo-mate_%s_arm.fpk" % ver not in text:
+            fails.append("%s 未跟版到 %s（arm 文件名）" % (path, ver))
+    cmd = os.path.join(REPO_ROOT, "cmd", "moo-mate", "README.md")
+    if os.path.isfile(cmd) and ("版本：**%s**" % ver) not in _read_text(cmd):
+        fails.append("%s 版本行不是 %s" % (cmd, ver))
+    fen = os.path.join(WS, "FnDepot_repo", "moo-mate", "README.md")
+    if os.path.isfile(fen):
+        text = _read_text(fen)
+        if ("| 版本 | %s |" % ver) not in text:
+            fails.append("%s 版本表不是 %s" % (fen, ver))
+        if ("mate-v%s" % ver) not in text:
+            fails.append("%s 包来源不是 mate-v%s" % (fen, ver))
+    # 0.2.54（B-3）：FnDepot 侧 moo/README.md 由 gen_fndepot_readme.py 派生，
+    # 源件跟版后必须重跑生成器，否则用户可见页面仍指向旧包。
+    derived = os.path.join(WS, "FnDepot_repo", "moo", "README.md")
+    if os.path.isfile(derived):
+        t = _read_text(derived)
+        if "moo-mate_%s_x86.fpk" % ver not in t:
+            fails.append("%s 未跟版到 %s（派生 README，需重跑 gen_fndepot_readme.py）" % (derived, ver))
+        for m in re.finditer(r"moo-mate_(\d+\.\d+\.\d+)_", t):
+            if m.group(1) != ver:
+                fails.append("%s 残留旧包名：moo-mate_%s" % (derived, m.group(1)))
+    root = os.path.join(WS, "FnDepot_repo", "README.md")
+    if os.path.isfile(root):
+        t = _read_text(root)
+        if ("Moo%%20Mate-v%s" % ver) not in t:
+            fails.append("%s Moo Mate badge 未跟版到 %s" % (root, ver))
+        if ("/releases/tag/mate-v%s" % ver) not in t:
+            fails.append("%s Moo Mate tag 未跟版到 %s" % (root, ver))
+        for m in re.finditer(r"mate-v(\d+\.\d+\.\d+)", t):
+            if m.group(1) != ver:
+                fails.append("%s 残留旧 release tag：mate-v%s" % (root, m.group(1)))
+        for m in re.finditer(r"moo-mate_(\d+\.\d+\.\d+)_(?:x86|arm)\.fpk", t):
+            if m.group(1) != ver:
+                fails.append("%s 残留旧包名：moo-mate_%s" % (root, m.group(1)))
+    for arch in ARCHS:
+        dst = os.path.join(WS, "FnDepot_repo", "moo-mate",
+                           "moo-mate_%s_%s.fpk.sha256" % (ver, arch))
+        if not os.path.isfile(dst):
+            fails.append("FnDepot 缺侧车：%s" % dst)
+    return fails
+
+
 def check_all(moo_doc, fen_doc, ver, pkgs, keep):
     """校验索引与磁盘 FPK 是否一致；返回失败项列表。"""
     fails = []
@@ -211,7 +365,7 @@ def check_all(moo_doc, fen_doc, ver, pkgs, keep):
             fails.append("%s releases 有 %d 个版本，超过 keep=%d" % (label, len(rel), keep))
         if not node.get("changelog"):
             fails.append("%s releases.%s 缺 changelog" % (label, ver))
-    return fails
+    return fails + check_mate_readmes(ver)
 
 
 def main():
@@ -226,6 +380,7 @@ def main():
     ap.add_argument("--changelog-file", default="", help="从文件读更新日志（一行一条）")
     ap.add_argument("--updated-at", default="", help="ISO 时间；缺省=当前本地时间")
     ap.add_argument("--keep", type=int, default=2, help="releases 保留版本数（默认 2）")
+    ap.add_argument("--summary", default="", help="FnDepot moo-mate README 的更新说明（可选；留空不改）")
     ap.add_argument("--check", action="store_true", help="只校验索引与磁盘 FPK 是否一致")
     ap.add_argument("--write", action="store_true", help="真正写入（缺省 dry-run）")
     args = ap.parse_args()
@@ -291,6 +446,10 @@ def main():
         print("dry-run：未写入（加 --write 生效）")
         for n in sync_changelog_md(REPO_ROOT, WS, False):
             print("  " + n)
+        for n in sync_mate_readmes(ver, pkgs, False, args.summary):
+            print("  " + n)
+        for n in sync_fndepot_root(ver, False):
+            print("  " + n)
         return
 
     n1 = write_json(args.moo_json, moo_doc, 1)
@@ -298,6 +457,10 @@ def main():
     print("已写入 %s（%d B）" % (args.moo_json, n1))
     print("已写入 %s（%d B）" % (args.fnpack_json, n2))
     for n in sync_changelog_md(REPO_ROOT, WS, True):
+        print("  " + n)
+    for n in sync_mate_readmes(ver, pkgs, True, args.summary):
+        print("  " + n)
+    for n in sync_fndepot_root(ver, True):
         print("  " + n)
 
 
