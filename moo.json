@@ -112,26 +112,26 @@
       }
      }
     },
-    "0.2.36": {
-     "updated_at": "2026-11-01T07:40:00+08:00",
-     "changelog": "复用本机 GitHub 加速：自动探测本机 Dog-dev 加速代理\nGitHub 系请求（release 资产 / raw 索引 / api）经它转发，其它域名与回环地址一律直连\n探不到加速时完全保持旧行为；可用 MOO_MATE_NO_ACCEL=1 强制关闭",
+    "0.2.55": {
      "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.36/moo-mate_0.2.36_x86.fpk",
-       "sha256": "141722f177b67993d2c6154af5654f1ebf54a2c1794eaf2e0db746f8a86858fb",
-       "size": 3857939,
-       "size_mb": 3.68
-      },
       "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.36/moo-mate_0.2.36_arm.fpk",
-       "sha256": "7b73f6d05089f1552e4910560154cdddfd676a6e6b96773b13e4ec530cc6ec37",
-       "size": 3490269,
-       "size_mb": 3.33
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_arm.fpk",
+       "sha256": "e6490663b8ca118eca000bd6eaf24f630abaa060369e6a4cefe0cb8188ee241c",
+       "size": 3763390,
+       "size_mb": 3.59
+      },
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_x86.fpk",
+       "sha256": "fe1efb8b2e0f9ef42b9b2f5b6c901f11bc99dba03fe17e9b3edbe3fcf76a58e6",
+       "size": 4141091,
+       "size_mb": 3.95
       }
-     }
+     },
+     "changelog": "Moo Mate v0.2.55\n\n本次更新（0.2.54 → 0.2.55）\n修复：/api/index 应用列表固定按名称排序，响应字节可复现（客户端缓存与内容比对恢复有效）\n修复：并发备份改为独占创建，同名冲突自动顺延到下一秒，不再互相覆盖\n修复：索引文件损坏时先隔离为 index.json.bad-时间戳 再回落空索引，状态接口暴露 last_index_error 便于排查\n\n资产（x86 / arm 各三件套）\n- moo-mate_0.2.55_x86.fpk · 4,141,091 B · sha256 fe1efb8b…\n- moo-mate_0.2.55_arm.fpk · 3,763,390 B · sha256 e6490663…\n- 各附 .sha256 与 .minisig（应用内自更新强制验签）",
+     "updated_at": "2026-11-05T09:21:39+08:00"
     }
    },
-   "sha256": "23265c6803bd62431a95d298554f6aa08570a121afbe9f8e9c27ae62aa08a3ec",
+   "sha256": "fe1efb8b2e0f9ef42b9b2f5b6c901f11bc99dba03fe17e9b3edbe3fcf76a58e6",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos-mate/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/cmd/moo-mate/README.md",
    "labels": "系统工具",
@@ -139,11 +139,11 @@
    "download_count": 0,
    "first_release_at": "2026-10-28T09:29:16+08:00",
    "updated_at": "2026-11-04T12:55:46+08:00",
-   "version": "0.2.50",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.50/moo-mate_0.2.50_x86.fpk",
-   "size": 4125576,
+   "version": "0.2.55",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_x86.fpk",
+   "size": 4141091,
    "service_port": "38108",
-   "size_mb": 3.93,
+   "size_mb": 3.95,
    "preview_urls": [
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-list.png",
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps.png",
