@@ -4,6 +4,7 @@
 fnos-apps-store@fnos-store
 fndepot@Blue-Mink
 fn-knock@kci-lnk
+opencode@CrRinko
 fnmedia-ext@yujian0815
 fnmusic-ext@javycoder
 moo-mate@Blue-Mink
