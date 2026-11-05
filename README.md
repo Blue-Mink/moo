@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" height="20" src="docs/badges/fpk.png"></a>
-  <img alt="Go" height="20" src="docs/badges/go.png">
-  <img alt="Platform" height="20" src="docs/badges/platform.png">
-  <a href="LICENSE"><img alt="License" height="20" src="docs/badges/license.png"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.506-2563eb?style=flat-square"></a>
+  <img alt="Go" src="https://img.shields.io/badge/Go-single_binary-00add8?style=flat-square&logo=go&logoColor=white">
+  <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64_%7C_arm64-7c3aed?style=flat-square">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
 </p>
 
 <p align="center">
