@@ -36,7 +36,6 @@ https://github.com/mac1256/FnDepot
 https://github.com/maxsusu/FnDepot
 https://github.com/ccyo-fang/FnDepot
 # 2026-11-01 再追加：已自带 moo.json 协议的两个作者仓库
-https://github.com/17funnyway8-ux/niudao
 https://github.com/yujian0815/fnmedia-ext
 
 # 2026-11-04 追加：从 Moo 全量 197 个 GitHub 源（combine_list.txt）筛出的原创源
