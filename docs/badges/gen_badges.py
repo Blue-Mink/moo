@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 OUT = os.path.dirname(os.path.abspath(__file__))
 CJK = "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf"
 LAT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-H, PAD, FS, SCALE = 20, 6, 11, 2          # 显示高 20px，按 2 倍出图
+H, PAD, FS, SCALE = 20, 6, 11, 1          # 1 倍图：固有尺寸即 20px（面板忽略 height 属性时也正确）
 LABEL_BG = (85, 85, 85)
 FG = (255, 255, 255)
 
@@ -47,7 +47,11 @@ def badge(label, value, color, path):
 
 
 def main():
-    ver = sys.argv[1] if len(sys.argv) > 1 else "0.0.0"
+    ver = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
+    if not ver:
+        print("错误：必须显式传版本号 —— python3 docs/badges/gen_badges.py 0.6.506\n"
+              "（曾因默认 0.0.0/空值静默生成错误徽章）", file=sys.stderr)
+        raise SystemExit(2)
     badge("FPK", ver, (0x1F, 0x6F, 0xEB), os.path.join(OUT, "fpk.png"))
     badge("Go", "单二进制", (0x0A, 0x84, 0xFF), os.path.join(OUT, "go.png"))
     badge("fnOS", "x86_64 / arm64", (0x6F, 0x42, 0xC1), os.path.join(OUT, "platform.png"))
