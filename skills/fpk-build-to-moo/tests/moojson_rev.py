@@ -2,7 +2,16 @@
 import os, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOOL = os.path.abspath(os.path.join(HERE, "..", "..", "..", "tools", "update_moo_json.py"))
+# 仓库布局（tests/ 向上三级有 moo.json）用 tools/ 源文件；独立安装版退回 bundled/tools/ 副本
+# 必须与 harness 选中同一个文件，否则「改了 A 却跑 B」会得到假的 REV-OK/REV-FAIL。
+_REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+_HAS_REPO = os.path.exists(os.path.join(_REPO_ROOT, "moo.json"))
+_CANDS = [os.environ.get("MOO_SCRIPT") or "",
+          os.path.join(_REPO_ROOT, "tools", "update_moo_json.py") if _HAS_REPO else "",
+          os.path.abspath(os.path.join(HERE, "..", "bundled", "tools", "update_moo_json.py"))]
+TOOL = next((p for p in _CANDS if p and os.path.exists(p)), "")
+if not TOOL:
+    sys.exit("FATAL: 找不到 update_moo_json.py（仓库 tools/ 与 bundled/tools/ 均缺失）")
 SRC = open(TOOL, encoding="utf-8").read()
 MUT_DIR = tempfile.mkdtemp(prefix="moojson-mut-")
 MUT_PATH = os.path.join(MUT_DIR, "update_moo_json.py")
@@ -38,6 +47,10 @@ for name, (a, b, tests) in MUT.items():
     runner = os.path.join(HERE, "moojson_extra.py" if tests[0][0] in "ew" else "moojson_harness.py")
     r = subprocess.run([sys.executable, runner] + tests, capture_output=True,
                        text=True, env=env, cwd=HERE)
+    skipped = [t for t in tests if ("SKIP " + t) in (r.stdout or "")]
+    if skipped:
+        print("SKIP-REV " + name + " → 目标用例在独立安装版被跳过（" + ",".join(skipped) + "）")
+        continue
     ok = r.returncode != 0
     print(("REV-OK  " if ok else "REV-FAIL") + " " + name + " → 去掉修复后 " + ",".join(tests) + (" 变红" if ok else " 仍绿"))
     if not ok:

@@ -662,6 +662,9 @@ func applyUpstreamCorrection(out []AppInfo, byName map[string]platform.Installed
 		c.Archs = s.Archs
 		c.UpdatedAt = s.UpdatedAt
 		c.DownloadCount = s.DownloadCount
+		c.DownloadCurrent = s.DownloadCurrent
+		c.DownloadScope = s.DownloadScope
+		c.DownloadExcluded = s.DownloadExcluded
 		hits = append(hits, upstreamCorrection{
 			AppName:        c.AppName,
 			DisplayName:    label,

@@ -495,3 +495,12 @@ section[aria-label="Notifications alt+T"] [data-sonner-toast] {
     .save-dock-pad { padding-bottom: 0.5rem; }
   }
 }
+
+/* 0.6.507：README 居中段落里的一排徽章图改 inline-block 横排。
+   Tailwind preflight 把所有 img 设为 display:block，导致 <p align="center">
+   里的徽章被逐个换行竖排（实测 Moo README 四枚徽章各占一行、被撑到 40px）。
+   只收敛居中段落，正文里普通图片仍是块级，不动既有版式。 */
+.markdown-body p[align="center"] > img,
+.markdown-body p[align="center"] > a > img {
+  display: inline-block;
+}

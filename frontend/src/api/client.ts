@@ -123,7 +123,15 @@ export interface AppInfo {
   icon_url?: string;
   updated_at?: string;
   download_count?: number;
-  /** 本机安装/更新次数（第三方源应用无全局下载量时回退展示「本机 N 次」）。 */
+  /** 当前版本资产的下载量（GitHub Releases）；download_count 是应用级累计。 */
+  download_current?: number;
+  /** 下载量口径：official / source / github / github_current / local。 */
+  download_scope?: string;
+  /** 应用级累计里已排除的「本机镜像测速探针」下载量（0.6.511）。
+   *  探针资产的计数几乎全是 Moo 自己的测速请求，不计入累计；该值仅用于
+   *  详情页透明展示「已排除测速 N 次」。 */
+  download_excluded?: number;
+  /** 本机安装/更新次数（无全局下载量时回退展示「本机安装 N 次」）。 */
   local_installs?: number;
   app_type?: string;
   category?: string;
@@ -180,15 +188,20 @@ export const installedVersionLabel = (app: AppInfo): string =>
 
 /** The version an update would move the app TO. */
 /**
- * 下载量展示回退链：全局 download_count（fnos-apps 官方/源提供）→
- * 本机安装次数（第三方源应用无全局数据，官方规范不统计外部源下载量）→ 版本。
+ * 下载量展示回退链：全局应用级累计 download_count（官方/源声明/GitHub）→
+ * 当前版本 download_current（累计暂缺时）→ 本机安装次数。
+ * 本机安装只叫「本机安装」，不再冒充下载量。
  */
 export const appDownloadLabel = (app: AppInfo): string | null => {
   if (app.download_count != null && app.download_count > 0) {
-    return formatCount(app.download_count) + ' 次下载';
+    const prefix = app.download_scope === 'github' ? '累计 ' : '';
+    return prefix + formatCount(app.download_count) + ' 次下载';
+  }
+  if (app.download_current != null && app.download_current > 0) {
+    return `当前版本 ${formatCount(app.download_current)} 次`;
   }
   if (app.local_installs != null && app.local_installs > 0) {
-    return `本机 ${app.local_installs} 次`;
+    return `本机安装 ${app.local_installs} 次`;
   }
   return null;
 };

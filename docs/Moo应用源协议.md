@@ -210,7 +210,7 @@ GitHub 系统一成 `github.com/owner/repo` → 得到「源 key」与已配置�
 | `readme_url` | string | 详情页「README」 | Markdown 或 HTML；**默认只露出约 10 行**，点「展开」看全文 |
 | `homepage` | url | 详情页链接 | 项目主页 |
 | `bug_report_url` | url | 详情页链接 | 问题反馈 |
-| `download_count` | number | 详情页「下载次数」 | 下载量 |
+| `download_count` | number | 详情页「下载量/累计」 | 下载量（应用级累计；GitHub 口径只算 `.fpk` 资产，Moo 自身镜像测速产生的请求不计入） |
 | `license` | string | 详情页 | 许可协议，如 `MIT` |
 | `categories` / `labels` / `tags` | string / string[] | 卡片徽章 / 详情页标签 | 三者等价，**推荐 `categories`**，取值见 §4.3 |
 
@@ -601,7 +601,7 @@ http://192.0.2.10:3000/owner/apps/raw/branch/main/moo.json     ← Gitea 仓库�
 |---|---|
 | 图标 / 展示名 / 版本 | `icon_url` / `display_name` / `version`（或从 `releases` 挑出的版本） |
 | 安装包大小 / SHA256 | 条目级 `size`(MB) / `sha256`，或所挑包的 `size`(字节) / `sha256` |
-| 下载次数 | `download_count`（缺失时显示本机安装次数） |
+| 下载量/累计 | `download_count`（缺失时显示本机安装次数）；GitHub 口径为同仓库同应用全部正式版本 `.fpk` 资产的累计，已剔除本机镜像测速请求（详情页标注「已排除测速 N 次」） |
 | 运行方式 / 安装位置 | `install_type`（自适应标签，见 §4.5） |
 | 最近更新 / 最早发布 | `updated_at` / `first_release_at`（或 `releases` 内对应值） |
 | 预览（轮播，可双指缩放） | `preview_urls` |

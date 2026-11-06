@@ -279,6 +279,9 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 							ai.Category = c.Category
 							ai.AppType = c.AppType
 							ai.DownloadCount = c.DownloadCount
+							ai.DownloadCurrent = c.DownloadCurrent
+							ai.DownloadScope = c.DownloadScope
+							ai.DownloadExcluded = c.DownloadExcluded
 							ai.ReleaseURL = c.ReleaseURL
 							ai.ReleaseNotes = c.ReleaseNotes
 							ai.Changelog = c.Changelog
@@ -389,9 +392,27 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 				continue
 			}
 			if o, r, asset, ok := source.ParseGhReleaseURL(ai.ReleaseURL); ok {
-				if n, ok := s.GHStats.Lookup(o, r, asset); ok && n > 0 {
-					dl := n
+				total, current, found := s.GHStats.LookupAppTotal(o, r, asset)
+				if found && total > 0 {
+					dl := total
 					ai.DownloadCount = &dl
+					ai.DownloadScope = "github"
+					// 0.6.511：累计已剔除本机测速探针流量；把剔除量一并下发，
+					// 详情页显示「已排除 N 次」保持透明。
+					if ex := s.GHStats.LookupAppProbeExcluded(o, r, asset); ex > 0 {
+						e := ex
+						ai.DownloadExcluded = &e
+					}
+					if current > 0 {
+						cur := current
+						ai.DownloadCurrent = &cur
+					}
+				} else if current > 0 {
+					// 累计缺失（旧缓存/资产改名）：至少保留当前版本口径，
+					// 不让卡片回退成「本机 1 次」。
+					cur := current
+					ai.DownloadCurrent = &cur
+					ai.DownloadScope = "github_current"
 				}
 			}
 		}
@@ -592,6 +613,9 @@ func mergeOfficialCards(out []AppInfo, official []AppInfo, byName map[string]pla
 			}
 			if e.DownloadCount == nil {
 				e.DownloadCount = oa.DownloadCount
+				if oa.DownloadCount != nil {
+					e.DownloadScope = "official"
+				}
 			}
 			if e.Installed && oa.LatestVersion != "" {
 				// 已装官方应用：更新目标只认官方目录版本（社区同名条目的
@@ -612,6 +636,7 @@ func mergeOfficialCards(out []AppInfo, official []AppInfo, byName map[string]pla
 			e.AppType = oa.AppType
 			if oa.DownloadCount != nil {
 				e.DownloadCount = oa.DownloadCount
+				e.DownloadScope = "official"
 			}
 			if e.Installed && oa.LatestVersion != "" {
 				applyOfficialUpdateForInstalled(e, oa)
@@ -793,6 +818,7 @@ func toAppInfo(a *source.App, sameNameCount int) AppInfo {
 	}
 	if dlCount > 0 {
 		ai.DownloadCount = &dlCount
+		ai.DownloadScope = "source"
 	}
 	// 0.6.312 B3/F7+F8：ChangelogEntries 不再每次目录重建（5s TTL 热路径）
 	// 逐卡正则解析——源同步时预解析一次（detailStoreSink 写入详情磁盘层，
@@ -1420,6 +1446,9 @@ func applyLineageUpdates(out []AppInfo, policy string, byName map[string]platfor
 		c.Sha256 = s.Sha256
 		c.UpdatedAt = s.UpdatedAt
 		c.DownloadCount = s.DownloadCount
+		c.DownloadCurrent = s.DownloadCurrent
+		c.DownloadScope = s.DownloadScope
+		c.DownloadExcluded = s.DownloadExcluded
 	}
 }
 

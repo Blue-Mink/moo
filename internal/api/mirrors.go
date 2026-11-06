@@ -114,8 +114,15 @@ func NewMirrorMonitor() *mirrorMonitor { return newMirrorMonitor() }
 // 200）——第三方 pinned 资产（ollama 等）一旦被上游下线/移动，全部镜像会
 // 同时「探测资产 404」被误判为故障。旧资产保留在后作为后备（404 时自动
 // 顺延试下一个，逻辑未变）。
+// 0.6.511 F1：首位由 FPK 换成本 release 的非安装包资产 moo-server-linux-amd64
+// （11.1MB）。GitHub 会给每一次测速请求记一次 release asset download——原来拿
+// 0.6.325 的 x86 FPK 当探针，实测把它灌到 41 万次（占 moo 应用累计 95%，
+// 且 2026-11-06 仍以 125~275 次/分钟增长）。换成非 .fpk 资产后测速语义完全
+// 不变（同样读前 2MB 即断），但不再进入任何应用的下载量统计。
+//
+// ⚠️ 新增探针资产不得使用 .fpk（internal/api/mirrors_probe_511_test.go 会拦）。
 var ghProbeAssets = []string{
-	"github.com/Blue-Mink/moo/releases/download/v0.6.325/moo_0.6.325_x86.fpk",
+	"github.com/Blue-Mink/moo/releases/download/v0.6.325/moo-server-linux-amd64",
 	"github.com/ollama/ollama/releases/download/v0.34.2/ollama-linux-amd64.tar.zst",
 	"github.com/ollama/ollama/releases/download/v0.12.6/ollama-linux-amd64.tgz",
 }

@@ -200,6 +200,7 @@ func (p *Panel) doApps(ctx context.Context, force bool) ([]AppInfo, string) {
 			if a.Download > 0 {
 				d := int(a.Download)
 				ai.DownloadCount = &d
+				ai.DownloadScope = "official"
 			}
 			if len(a.Tags) > 0 {
 				ai.Category = a.Tags[0]

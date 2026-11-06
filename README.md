@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.506-2563eb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.511-2563eb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-single_binary-00add8?style=flat-square&logo=go&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64_%7C_arm64-7c3aed?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.506` · x86 `4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c`（5.08MB） / arm `204dc13c40e063b58f0a0f2298ee3eb58d3ce7a665b6f9c64bf4eb1334e8bbd3`（4.61MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.511` · x86 `dbb45bbe3d0013aaa685f6d4139060159bbdb27b3ed8ebbffb724e5c06e3a031`（5.08MB） / arm `31c13180961f1589806fa1d98362d5910b73c611f12b658fe4002db525c9e177`（4.61MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |

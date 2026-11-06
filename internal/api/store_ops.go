@@ -1786,6 +1786,13 @@ func (s *Server) proxyReadmeImg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cacheKey := "readme-img|" + u
+	// 0.6.507：徽章图（版本号/架构文字）随发版变化，但 URL 不变，7 天磁盘
+	// 缓存会让用户长期看到旧徽章（实测 Moo 自己的 FPK 徽章停在 0.6.383、
+	// 图还是 2 倍尺寸）。对 /badges/ 路径按天换 key：最迟 24h 换新，旧 key
+	// 由 TTL 自然回收，不影响其它 README 图片的 7 天缓存。
+	if strings.Contains(pu.Path, "/badges/") {
+		cacheKey += "|d=" + time.Now().Format("2006-01-02")
+	}
 	st := s.readmeStore()
 	// 0.6.374：缓存命中同样要校验完整性。0.6.372 只给预览图加了这道关，
 	// readme-img 会把「修复前写入的截断图」一直供到 7 天 TTL 到期——实测

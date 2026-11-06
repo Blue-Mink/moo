@@ -64,20 +64,32 @@ type AppInfo struct {
 	// BugReportURL 源声明的问题反馈地址（moo.json / fnpack.json 的
 	// bug_report_url，如 .../issues）。仅详情下发（列表瘦身剥离），
 	// 详情页「问题反馈」链接用；源未提供时为空，不占行。
-	BugReportURL    string `json:"bug_report_url,omitempty"`
-	IconURL         string `json:"icon_url,omitempty"`
-	UpdatedAt       string `json:"updated_at,omitempty"`
-	DownloadCount   *int   `json:"download_count,omitempty"`
-	LocalInstalls   int    `json:"local_installs,omitempty"`
-	AppType         string `json:"app_type,omitempty"`
-	Category        string `json:"category,omitempty"`
-	PostInstallNote string `json:"post_install_note,omitempty"`
-	Source          string `json:"source,omitempty"`
-	Maintainer      string `json:"maintainer,omitempty"`
-	MaintainerURL   string `json:"maintainer_url,omitempty"`
-	Distributor     string `json:"distributor,omitempty"`
-	DistributorURL  string `json:"distributor_url,omitempty"`
-	Changelog       string `json:"changelog,omitempty"`
+	BugReportURL  string `json:"bug_report_url,omitempty"`
+	IconURL       string `json:"icon_url,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+	DownloadCount *int   `json:"download_count,omitempty"`
+	// DownloadCurrent 当前版本资产的 download_count（GitHub Releases）。
+	// DownloadCount 是应用级累计（同一仓库同一应用所有正式版本），
+	// 发新版不会把累计值打回 0。
+	DownloadCurrent *int `json:"download_current,omitempty"`
+	// DownloadScope 下载量口径：official（官方）/ source（源声明）/
+	// github（GitHub 应用级累计）/ github_current（只有当前版本）/
+	// local（本机安装，仅展示层使用）。
+	DownloadScope string `json:"download_scope,omitempty"`
+	// DownloadExcluded 应用级累计里被排除的「本机镜像测速探针」下载量
+	// （0.6.511）。探针资产（如 v0.6.325 的 x86 FPK）的计数几乎全是 Moo
+	// 自己的测速请求；累计已剔除，这里保留数值供详情页透明展示。
+	DownloadExcluded *int   `json:"download_excluded,omitempty"`
+	LocalInstalls    int    `json:"local_installs,omitempty"`
+	AppType          string `json:"app_type,omitempty"`
+	Category         string `json:"category,omitempty"`
+	PostInstallNote  string `json:"post_install_note,omitempty"`
+	Source           string `json:"source,omitempty"`
+	Maintainer       string `json:"maintainer,omitempty"`
+	MaintainerURL    string `json:"maintainer_url,omitempty"`
+	Distributor      string `json:"distributor,omitempty"`
+	DistributorURL   string `json:"distributor_url,omitempty"`
+	Changelog        string `json:"changelog,omitempty"`
 	// ChangelogEntries：changelog 解析后的版本化条目（最新在前），
 	// 供详情页「更新内容」列表渲染；无 changelog 时为空。
 	ChangelogEntries []ChangelogEntry `json:"changelog_entries,omitempty"`

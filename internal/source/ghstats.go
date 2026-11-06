@@ -59,14 +59,117 @@ func ParseGhReleaseURL(raw string) (owner, repo, asset string, ok bool) {
 	return m[1], m[2], asset, true
 }
 
+// 应用级累计下载量的资产归一化。
+// 目标：fnmusic-ext-2.12.0-8.fpk / fnmusic-ext-2.11.0-4.fpk → fnmusic-ext；
+// moo_0.6.506_x86.fpk → moo；1panel_1.10.34-lts-r8_x86.fpk → 1panel；
+// EasyTier-EUI-fnos-x86_64-0.9.020604.fpk → easytier-eui-fnos。
+var (
+	ghArchTokenRe = regexp.MustCompile(`(?i)(?:^|[-_.])(x86[_-]?64|amd64|x86|arm64|aarch64|armv7l|armhf|arm|all|universal|noarch)(?:$|[-_.])`)
+	ghDateTokenRe = regexp.MustCompile(`(?:^|[-_.])20\d{6}(?:$|[-_.])`)
+	// 只认「带点」的版本 token（1.2 / 1.2.3 / v1.2.3 / 1.2.3+build）。
+	// 取最后一个匹配的位置往前切：php-8.3_8.3.10 → php-8.3（保留应用名里的 8.3），
+	// fnmusic-ext-2.12.0-8 → fnmusic-ext。
+	ghVersionTokenRe = regexp.MustCompile(`(?i)(?:^|[-_.])v?\d+\.\d+(?:\.\d+)*(?:\+[0-9a-z]+)?`)
+)
+
+// trimTrailingVersion 从最后一个版本 token 起截断（含前面的分隔符）。
+func trimTrailingVersion(s string) string {
+	ms := ghVersionTokenRe.FindAllStringIndex(s, -1)
+	if len(ms) == 0 {
+		return s
+	}
+	last := ms[len(ms)-1]
+	return strings.TrimRight(s[:last[0]], "-_.")
+}
+
+func normalizeAppKey(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	dash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if b.Len() > 0 && !dash {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// assetBase 去掉扩展名、架构、日期、版本号，得到应用级归一键。
+// 只用于「同一仓库内同一应用的各版本资产」聚合；当前资产优先，
+// 不拿短应用名做前缀匹配（moo 不能吃掉 moo-mate）。
+func assetBase(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.TrimSuffix(s, ".fpk")
+	s = ghArchTokenRe.ReplaceAllString(s, "-")
+	s = strings.TrimRight(s, "-_.")
+	s = ghDateTokenRe.ReplaceAllString(s, "-")
+	s = strings.TrimRight(s, "-_.")
+	s = trimTrailingVersion(s)
+	s = strings.TrimRight(s, "-_.")
+	return normalizeAppKey(s)
+}
+
+// isCountableFPK 只统计安装包本体：.sha256 / .minisig / 源码包等不计。
+func isCountableFPK(name string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".fpk")
+}
+
+// selfProbeAssets 历史「本机镜像测速探针」资产（仓库 + Release tag + 资产名）。
+//
+// 这些资产被 Moo 自己当成 GitHub 加速镜像的测速目标：每实例每 5 分钟对全部
+// 镜像各下前 2MB 就断，GitHub 每次请求记一次 download_count。于是它们的计数
+// 几乎全是本机自测流量，不是用户下载——实测 moo_0.6.325_x86.fpk 被灌到
+// 41 万（占该应用累计 95%），剔除后 moo 全部版本合计仅 2.1 万。
+//
+// 0.6.511：累加应用级累计（AppTotals）时跳过这些资产，被跳过的量单独记进
+// AppProbeTotals，供详情页透明展示「已排除本机测速请求 N 次」。
+//
+// ⚠️ 只增不删：GitHub 的 download_count 不可回滚，且全网未升级的老实例会
+// 继续探测旧资产。删掉任一历史条目都会让该应用的累计重新虚高。
+var selfProbeAssets = []struct{ Repo, Tag, Asset string }{
+	// 0.6.325 的 x86 FPK 曾被 ghProbeAssets[0] 当作探针（0.6.333~0.6.510）。
+	{Repo: "Blue-Mink/moo", Tag: "v0.6.325", Asset: "moo_0.6.325_x86.fpk"},
+}
+
+// isSelfProbeAsset 判断某 Release 资产是否是本机测速探针（大小写不敏感）。
+func isSelfProbeAsset(owner, repo, tag, asset string) bool {
+	full := strings.ToLower(strings.TrimSpace(owner + "/" + repo))
+	for _, p := range selfProbeAssets {
+		if strings.ToLower(p.Repo) == full && p.Tag == tag && p.Asset == asset {
+			return true
+		}
+	}
+	return false
+}
+
 type ghRepoStats struct {
 	ETag      string         `json:"etag"`
 	FetchedAt string         `json:"fetched_at"`
-	Assets    map[string]int `json:"assets"` // 资产文件名 → download_count
+	Assets    map[string]int `json:"assets"` // 资产文件名 → download_count（当前版本用）
 	// Sizes 资产文件名 → 字节数（GitHub Release asset.size）。
 	// 0.6.336：源索引不写 size 的应用（如 conversun/fnos-apps 的 apps.json）
 	// 用这里补「安装包大小」——同一次 releases 请求里就有，零额外请求。
 	Sizes map[string]int64 `json:"sizes,omitempty"`
+	// AppTotals 规范化资产基名 → 应用级累计 download_count。
+	// 0.6.509: 第三方应用不再只显示「当前版本资产」的计数（发新版归零），
+	// 而是把同一仓库里同一应用所有正式版本的 FPK 资产相加。基名由
+	// assetBase() 去掉架构/版本/扩展名得到（如 fnmusic-ext-2.12.0-8.fpk
+	// → fnmusic-ext），当前资产的基名直接查这张表。
+	AppTotals map[string]int `json:"app_totals,omitempty"`
+	// AppProbeTotals 规范化资产基名 → 被排除的「本机测速探针」下载量。
+	// 0.6.511：累计里不含探针流量，但把被剔除的量留档，详情页可透明展示
+	// 「已排除本机镜像测速请求 N 次」，不隐藏事实。
+	AppProbeTotals map[string]int `json:"app_probe_totals,omitempty"`
+	// TotalsBuilt 标记 AppTotals 已按新口径构建过；旧缓存缺失时忽略 ETag
+	// 强制重拉一次（与 0.6.336 的 sizes 迁移同款）。
+	TotalsBuilt bool `json:"totals_built,omitempty"`
+	// ProbeExcludedBuilt 标记「探针排除」口径已构建过（0.6.511）。
+	// 缺这个标记的旧缓存必须重拉一次，否则升级后仍显示灌水后的累计值。
+	ProbeExcludedBuilt bool `json:"probe_excluded_built,omitempty"`
 }
 
 type GHStats struct {
@@ -142,6 +245,48 @@ func (g *GHStats) Lookup(owner, repo, asset string) (int, bool) {
 	}
 	n, ok := rs.Assets[asset]
 	return n, ok
+}
+
+// LookupAppProbeExcluded 查某应用累计里被排除的「本机测速探针」下载量。
+// 仅用于详情页透明展示（0.6.511）；没有可排除的量时返回 0。
+func (g *GHStats) LookupAppProbeExcluded(owner, repo, currentAsset string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	rs, exists := g.stats[g.repoKey(owner, repo)]
+	if !exists || rs == nil || len(rs.AppProbeTotals) == 0 {
+		return 0
+	}
+	base := assetBase(currentAsset)
+	if base == "" {
+		return 0
+	}
+	return rs.AppProbeTotals[base]
+}
+
+// LookupAppTotal 查某应用的应用级累计下载量。
+// total 来自 AppTotals[assetBase(currentAsset)]（同仓库、同应用、全部正式版本、
+// x86/arm 都算）；current 仍是当前版本资产的 download_count。找不到累计时
+// 返回 (0, current, false)，调用方按「当前版本」降级展示。
+func (g *GHStats) LookupAppTotal(owner, repo, currentAsset string) (total, current int, ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	rs, exists := g.stats[g.repoKey(owner, repo)]
+	if !exists || rs == nil {
+		return 0, 0, false
+	}
+	current = rs.Assets[currentAsset]
+	base := assetBase(currentAsset)
+	if base != "" {
+		total = rs.AppTotals[base]
+	}
+	// 旧缓存/资产改名导致基名缺失时，至少保住当前版本的数。
+	if total > 0 && total < current {
+		total = current
+	}
+	if total > 0 {
+		return total, current, true
+	}
+	return 0, current, false
 }
 
 // LookupSize 查仓库里某资产的字节大小（GitHub Release 资产 size）。
@@ -238,36 +383,72 @@ func (g *GHStats) requeueOne(k string) {
 }
 
 type ghReleaseAsset struct {
+	ID            int64  `json:"id"`
 	Name          string `json:"name"`
 	DownloadCount int    `json:"download_count"`
 	Size          int64  `json:"size"`
 }
 
 type ghRelease struct {
-	Assets []ghReleaseAsset `json:"assets"`
+	TagName    string           `json:"tag_name"`
+	Prerelease bool             `json:"prerelease"`
+	Draft      bool             `json:"draft"`
+	CreatedAt  string           `json:"created_at"`
+	Assets     []ghReleaseAsset `json:"assets"`
 }
 
-// fetchRepo 拉一个仓库的全部 Release 资产下载量（最多 3 页 × 100 条）。
+// fetchRepo 拉一个仓库的全部 Release 资产下载量（最多 8 页 × 100 条）。
 func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 	g.mu.Lock()
 	etag := ""
+	assets := map[string]int{}
+	sizes := map[string]int64{}
 	if s, ok := g.stats[g.repoKey(owner, repo)]; ok && s != nil {
 		etag = s.ETag
 		// 0.6.336 迁移：旧缓存只有 assets、没有 sizes → 忽略 ETag 强制重拉
 		// 一次，把资产字节数补齐（之后照常 304，不再额外消耗限流）。
-		// 只针对「有资产但没 sizes」的历史条目，空仓库不受影响。
-		if len(s.Assets) > 0 && len(s.Sizes) == 0 {
+		// 0.6.509 迁移：同理补齐 AppTotals（应用级累计）。
+		if len(s.Assets) > 0 && (len(s.Sizes) == 0 || !s.TotalsBuilt || !s.ProbeExcludedBuilt) {
 			etag = ""
+		}
+		for k, v := range s.Assets {
+			assets[k] = v
+		}
+		for k, v := range s.Sizes {
+			sizes[k] = v
 		}
 	}
 	g.mu.Unlock()
 
-	// 0.6.390：本轮已处理的资产名。跨 Release 同名资产以「最新 Release」
-	// 为准（API 按发布时间倒序，本轮先写者保留）；但跨轮必须用新值覆盖
-	// 旧缓存——旧逻辑 `if !exists` 让同一资产首次抓到后永不更新，两台机器
-	// 的下载量各自冻结在首见时刻（用户实报：同一应用主 1432 / 备 1108）。
+	// 本轮已处理资产名：跨 Release 同名资产以「最新 Release」为准
+	// （API 按发布时间倒序，本轮先写者保留）；但跨轮必须用新值覆盖旧缓存。
 	seen := map[string]bool{}
 	seenSizes := map[string]bool{}
+	seenAssetIDs := map[string]bool{}
+	appTotals := map[string]int{}
+	probeTotals := map[string]int{}
+	newETag := ""
+
+	commit := func() {
+		g.mu.Lock()
+		k := g.repoKey(owner, repo)
+		rs, ok := g.stats[k]
+		if !ok || rs == nil {
+			rs = &ghRepoStats{}
+			g.stats[k] = rs
+		}
+		rs.Assets = assets
+		rs.Sizes = sizes
+		rs.AppTotals = appTotals
+		rs.AppProbeTotals = probeTotals
+		rs.TotalsBuilt = true
+		rs.ProbeExcludedBuilt = true
+		if newETag != "" {
+			rs.ETag = newETag
+		}
+		rs.FetchedAt = time.Now().Format(time.RFC3339)
+		g.mu.Unlock()
+	}
 
 	// 0.6.336：页上限 3→8。conversun/fnos-apps 有 466 个 Release（5 页），
 	// 只拉 3 页时 175 个应用里 37 个的资产不在窗口内 → 拿不到 size。
@@ -320,47 +501,56 @@ func (g *GHStats) fetchRepo(ctx context.Context, owner, repo string) error {
 			return fmt.Errorf("GitHub releases 解析失败: %w", err)
 		}
 
-		// 合并本页资产（跨 Release 同名资产以最新 Release 为准——
-		// API 已按发布时间倒序，先写者保留）
-		g.mu.Lock()
-		k := g.repoKey(owner, repo)
-		rs, ok := g.stats[k]
-		if !ok {
-			rs = &ghRepoStats{Assets: map[string]int{}}
-			g.stats[k] = rs
-		}
-		if rs.Sizes == nil {
-			rs.Sizes = map[string]int64{}
+		if page == 1 {
+			newETag = resp.Header.Get("Etag")
 		}
 		for _, r := range releases {
 			for _, a := range r.Assets {
 				if a.Name == "" {
 					continue
 				}
-				// 每轮覆盖旧值（修「下载量冻结」）；同一轮内先到先得，
-				// 保证同名资产取最新 Release 的计数。
+				// 当前版本用：每轮覆盖旧值；同一轮内先到先得（最新 Release）。
 				if !seen[a.Name] {
-					rs.Assets[a.Name] = a.DownloadCount
+					assets[a.Name] = a.DownloadCount
 					seen[a.Name] = true
 				}
 				if a.Size > 0 && !seenSizes[a.Name] {
-					rs.Sizes[a.Name] = a.Size
+					sizes[a.Name] = a.Size
 					seenSizes[a.Name] = true
+				}
+				// 应用级累计只算正式版本的 FPK 安装包。
+				if r.Draft || r.Prerelease || !isCountableFPK(a.Name) {
+					continue
+				}
+				key := a.Name
+				if a.ID > 0 {
+					key = fmt.Sprintf("id:%d", a.ID)
+				} else {
+					key = r.TagName + "|" + a.Name
+				}
+				if seenAssetIDs[key] {
+					continue
+				}
+				seenAssetIDs[key] = true
+				if base := assetBase(a.Name); base != "" {
+					// 0.6.511：本机测速探针的 download_count 几乎全是每台 Moo
+					// 每 5 分钟一次的自测请求，不计入用户可见的应用累计；
+					// 单独留档，详情页透明展示「已排除 N 次」。
+					if isSelfProbeAsset(owner, repo, r.TagName, a.Name) {
+						probeTotals[base] += a.DownloadCount
+					} else {
+						appTotals[base] += a.DownloadCount
+					}
 				}
 			}
 		}
-		// ETag 只取第 1 页：分页 URL 的 ETag 与首页请求不匹配，若把第 N 页
-		// 的 ETag 存下来，下次带 If-None-Match 请求首页永远 200（白耗限流）。
-		if page == 1 {
-			rs.ETag = resp.Header.Get("Etag")
-		}
-		rs.FetchedAt = time.Now().Format(time.RFC3339)
-		g.mu.Unlock()
 
 		if len(releases) < 100 {
+			commit()
 			return nil // 没有更多页
 		}
 	}
+	commit()
 	return nil
 }
 

@@ -125,6 +125,43 @@ export const handleReadmeImgError = (e: React.SyntheticEvent) => {
   t.style.display = 'none';
 };
 
+/* ── 0.6.508：简介 / README 图片点开看大图 ───────────────────────────────
+   预览图灯箱（缩放/翻页/点按或滑动关闭）与图源解耦后，简介与 README 复用
+   同一个灯箱。这里只负责「哪些图值得放大」与「区块内可放大图清单」：
+   · 只拦「原图明显比显示大、能看清更多细节」的内容图；
+   · README 顶部徽章（shields 96×20）、logo、与显示同尺寸的图不拦，
+     否则点开会弹一个和刚才一样大的黑框（假放大）；
+   · 源作者可用 data-no-zoom 单独关掉某张图（DOMPurify 保留 data-*）。 */
+export interface LightboxItem { src: string; alt: string }
+
+export const ZOOM_MIN_NATURAL_W = 400;
+export const ZOOM_MIN_NATURAL_H = 60;
+export const ZOOM_MIN_RATIO = 1.15;
+const ZOOM_BADGE_RE = /shields\.io|\/badges?\//i;
+
+export const isZoomableImage = (img: HTMLImageElement): boolean => {
+  if (!img || img.tagName !== 'IMG') return false;
+  if (img.dataset.noZoom !== undefined) return false;
+  // handleReadmeImgError 会把上游 404 的图 display:none + 打标：不能再进灯箱
+  if (img.dataset.imgFailed || img.style.display === 'none') return false;
+  const src = img.currentSrc || img.src || '';
+  if (!src || src.startsWith('data:')) return false;
+  if (ZOOM_BADGE_RE.test(src)) return false;
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  const cw = img.clientWidth;
+  if (nw > 0) {
+    if (nw < ZOOM_MIN_NATURAL_W || nh < ZOOM_MIN_NATURAL_H) return false;
+    if (cw > 0 && nw < cw * ZOOM_MIN_RATIO) return false; // 原图不比显示大 → 无放大收益
+    return true;
+  }
+  // 还在加载（lazy）：按显示宽兜底，避免「点了没反应」
+  return cw >= 240;
+};
+
+export const zoomableImagesIn = (container: HTMLElement): HTMLImageElement[] =>
+  Array.from(container.querySelectorAll('img')).filter(isZoomableImage);
+
 // 移动端悬浮返回钮：磨玻璃圆钮贴左缘半露出（磁吸），细线 ‹ 箭头右移完全可见。
 
 /* ── 0.6.284 共享件（对话框 ⇄ 网页版详情卡片同源）───────────────────
@@ -139,9 +176,14 @@ export const SmallBox: React.FC<{ children: React.ReactNode; maxH?: string }> = 
   </div>
 );
 
-export const ReadmeRender: React.FC<{ readme: string; appKey: string; maxH?: string }> = ({ readme, appKey, maxH }) => (
+export const ReadmeRender: React.FC<{
+  readme: string; appKey: string; maxH?: string;
+  /** 0.6.508：图片点开看大图（详情页传入；更新日志等不传则行为不变） */
+  onImageClick?: React.MouseEventHandler<HTMLElement>;
+  onImageHover?: React.MouseEventHandler<HTMLElement>;
+}> = ({ readme, appKey, maxH, onImageClick, onImageHover }) => (
   <SmallBox maxH={maxH}>
-    <div onErrorCapture={handleReadmeImgError} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
+    <div onErrorCapture={handleReadmeImgError} onClick={onImageClick} onMouseOver={onImageHover} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
       [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
       [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
       [&_table]:w-full [&_table]:text-xs [&_th]:border [&_th]:border-border [&_th]:p-1.5 [&_td]:border [&_td]:border-border [&_td]:p-1.5
@@ -485,6 +527,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   const [readmeMissing, setReadmeMissing] = useState(false);
   const isOfficial = app?.source === 'fnos-official';
   const [lightbox, setLightbox] = useState<number | null>(null);
+  // 0.6.508：灯箱图源与预览位解耦——预览图 / 简介图 / README 图共用同一灯箱。
+  // 打开时把「同一区块内所有可放大图」按 DOM 顺序装进来，lightbox 是点击项索引。
+  const [lightboxList, setLightboxList] = useState<LightboxItem[]>([]);
   const [lightboxLoading, setLightboxLoading] = useState(false);
   const [lightboxError, setLightboxError] = useState(false);
   const [lightboxRetry, setLightboxRetry] = useState(0);
@@ -752,6 +797,75 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     pinchRef.current = null;
     zoomPanRef.current = null;
   }, [lightbox]);
+
+  /* 0.6.508：打开灯箱（预览图 / 简介图 / README 图统一入口）。
+     空 src 先过滤、索引按过滤后的位置重算，保证「从点击的那张开始」。 */
+  const openLightbox = useCallback((items: LightboxItem[], index: number) => {
+    const list = items.filter((it) => !!it.src);
+    if (!list.length) return;
+    const at = items.slice(0, Math.max(0, index)).filter((it) => !!it.src).length;
+    setLightboxList(list);
+    setLightboxAnim('open');
+    setLightbox(Math.min(at, list.length - 1));
+  }, []);
+
+  /* 简介 / README 容器点击委托：命中可放大图 → 开灯箱（同区块内左右翻页）。
+     · <a><img></a>：普通点击开灯箱；Ctrl/Cmd/Shift/Alt 点击保留浏览器「新标签打开」；
+     · 徽章 / 小图不拦，仍走原链接。 */
+  const onRichImageClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null;
+    if (!img || !isZoomableImage(img)) return;
+    const anchor = img.closest('a');
+    if (anchor && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return;
+    const imgs = zoomableImagesIn(e.currentTarget as HTMLElement);
+    const idx = imgs.indexOf(img);
+    if (idx < 0) return;
+    if (anchor) e.preventDefault();
+    e.stopPropagation();
+    openLightbox(
+      imgs.map((el, i) => ({ src: el.currentSrc || el.src, alt: el.alt || `图片 ${i + 1}` })),
+      idx,
+    );
+  }, [openLightbox]);
+
+  // 可发现性提示：悬停时给「可放大」图片打 zoom-in 光标 + title（桌面）。
+  // 用 mouseover 委托而不是 img 的 load 事件——load 不冒泡，React 的
+  // onLoadCapture 在 Radix portal 里实测收不到（0.6.508 首版踩过）。
+  const onRichImageHover = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null;
+    if (!img || img.tagName !== 'IMG') return;
+    const ok = isZoomableImage(img);
+    if (img.dataset.mooZoomOn === (ok ? '1' : '0')) return; // 同一张图不重复写
+    img.dataset.mooZoomOn = ok ? '1' : '0';
+    img.style.cursor = ok ? 'zoom-in' : '';
+    if (ok) {
+      if (!img.title) { img.title = '点按查看大图'; img.dataset.mooZoomTitle = '1'; }
+    } else if (img.dataset.mooZoomTitle) {
+      img.removeAttribute('title');
+      delete img.dataset.mooZoomTitle;
+    }
+  }, []);
+
+  /* 0.6.508：灯箱键盘翻页。Esc 不走这里——Radix Dialog 的 Esc 监听在 document
+     上且先注册，capture 拦不住（首版实测按 Esc 会把整个详情页关掉），改由
+     DialogContent 的 onEscapeKeyDown 分流（见下方 JSX）。 */
+  useEffect(() => {
+    if (lightbox == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (lightboxList.length < 2) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setLightboxAnim('prev');
+        setLightbox((i) => (i == null ? i : (i - 1 + lightboxList.length) % lightboxList.length));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setLightboxAnim('next');
+        setLightbox((i) => (i == null ? i : (i + 1) % lightboxList.length));
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [lightbox, lightboxList.length]);
   // 悬浮返回钮（移动端）：磨玻璃圆钮磁吸贴左缘（半露出）—— x 恒锁定左边缘，
   // 只能沿左缘纵向拖动（y 持久化）；静置 = 比背景浅一档的半透白磨玻璃（不影响阅读），
   // 拖动 = 加深为页面背景色 + 微放大；细线 ‹ 箭头右移、露出区内完全可见；轻点 = 返回。
@@ -795,24 +909,17 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
     sc.scrollTop = Math.max(0, Math.min(maxScroll, st0 - dy));
   };
 
-  // 灯箱切换图片：重置加载/错误态 + 预加载下一张（弱网下少一次白等）
-  // 注意：previewCount/previewSrc 在下方 early-return 之后才声明，这里自包含计算。
+  // 灯箱切换图片：重置加载/错误态 + 预加载下一张（弱网下少一次白等）。
+  // 0.6.508：图源来自 lightboxList（预览 / 简介 / README 共用），不再自算 preview。
   useEffect(() => {
-    if (lightbox == null || !app) return;
+    if (lightbox == null) return;
     setLightboxLoading(true);
     setLightboxError(false);
-    const official = app.source === 'fnos-official';
-    const poster = official ? (panelInfo?.app.appDetail?.poster ?? []) : [];
-    const usePoster = official && poster.length > 0;
-    const pc = usePoster ? poster.length : (app.preview_count || 0);
-    if (pc > 1) {
+    if (lightboxList.length > 1) {
       const next = new Image();
-      next.src = usePoster
-        ? (poster[(lightbox + 1) % pc] ?? '')
-        : assetUrl(app.key || app.appname, 'preview', (lightbox + 1) % pc);
+      next.src = lightboxList[(lightbox + 1) % lightboxList.length]?.src ?? '';
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightbox, app?.key, open, panelInfo]);
+  }, [lightbox, lightboxList]);
 
   // 切换应用时预览轮播回第一张
   useEffect(() => {
@@ -907,6 +1014,13 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   const previewCount = usePoster ? posterUrls.length : (app.preview_count || 0);
   const previewSrc = (i: number): string =>
     usePoster ? posterUrls[i] : assetUrl(app.key || app.appname, 'preview', i);
+  // 0.6.508：预览位只是灯箱的一种图源（与简介 / README 走完全同一条通道）
+  const previewItems: LightboxItem[] = Array.from({ length: previewCount }, (_, i) => ({
+    src: previewSrc(i),
+    alt: `${app.display_name} 预览 ${i + 1}`,
+  }));
+  const lightboxCount = lightboxList.length;
+  const lightboxSrc = (i: number): string => lightboxList[i]?.src ?? '';
   // 打开目标（daemon appServiceInfo）；仅运行中的应用提供"打开"
   const openUrl = isInstalled ? appWebUrl(app) : null;
   const canControl = isInstalled && !!onControl && (app.start_stop ?? true) && app.status !== 'nostart';
@@ -1074,6 +1188,10 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
       {/* 移动端 = 整页展示（左上角返回按钮退回应用列表，App Store 同构）；
           桌面端保持居中对话框 */}
       <DialogContent
+        onEscapeKeyDown={(e) => {
+          // 0.6.508：大图灯箱开着时，Esc 只关灯箱——否则 Radix 会把整个详情页一起关掉
+          if (lightbox != null) { e.preventDefault(); setLightbox(null); }
+        }}
         onInteractOutside={(e) => {
           // 0.6.301：打开后 400ms 免疫窗——忽略外点/遮罩点击（双击第二下防秒关）
           if (Date.now() - openedAtRef.current < 400) e.preventDefault();
@@ -1376,6 +1494,8 @@ mdsSim && "mds-sim")}>
                 <DialogDescription
                   className={DESC_RICH_CLS}
                   onErrorCapture={handleReadmeImgError}
+                  onClick={onRichImageClick}
+                  onMouseOver={onRichImageHover}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(officialDesc) }}
                 />
                 <Separator />
@@ -1390,6 +1510,8 @@ mdsSim && "mds-sim")}>
                 <DialogDescription
                   className={DESC_RICH_CLS}
                   onErrorCapture={handleReadmeImgError}
+                  onClick={onRichImageClick}
+                  onMouseOver={onRichImageHover}
                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(app.desc_html) }}
                 />
                 <Separator />
@@ -1406,6 +1528,8 @@ mdsSim && "mds-sim")}>
                   <DialogDescription
                     className={DESC_RICH_CLS}
                     onErrorCapture={handleReadmeImgError}
+                    onClick={onRichImageClick}
+                    onMouseOver={onRichImageHover}
                     dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(d) }}
                   />
                   <Separator />
@@ -1445,7 +1569,7 @@ mdsSim && "mds-sim")}>
                 {Array.from({ length: previewCount }, (_, i) => (
                   <button
                     key={i}
-                    onClick={() => { setLightboxAnim('open'); setLightbox(i); }}
+                    onClick={() => openLightbox(previewItems, i)}
                     className="snap-center shrink-0 w-[86%] max-w-[340px] sm:w-[76%] sm:max-w-none rounded-2xl overflow-hidden border border-border/40 hover:opacity-90 active:opacity-90 transition-opacity"
                     title="点击放大"
                   >
@@ -1713,7 +1837,7 @@ mdsSim && "mds-sim")}>
           })()}
 
           {/* 0.6.337（用户定稿）：官网——短链接（只显示域名，hover 看完整地址），
-              与「下载次数」同排，不再独占整行。 */}
+              与「下载量」同排，不再独占整行。 */}
           {app.homepage && (
             <DetailRow icon={Globe} label="官网">
               <a
@@ -1736,17 +1860,56 @@ mdsSim && "mds-sim")}>
           )}
 
           {app.download_count ? (
-            <DetailRow icon={Download} label="下载次数">
-              {formatDownloads(app.download_count)}
+            app.download_scope === 'github' && app.download_current ? (
+              /* 0.6.510（用户定稿）：当前版本量与累计合并为一行「当前 / 累计」，
+                 不再拆两行；行标签写明口径。 */
+              <DetailRow icon={Download} label="下载量/累计">
+                <span title={`当前版本 ${app.download_current} 次 · 累计 ${app.download_count} 次${app.download_excluded ? `（另有本机镜像测速请求 ${app.download_excluded} 次已排除）` : ''}`}>
+                  {formatDownloads(app.download_current)} / {formatDownloads(app.download_count)}
+                  {/* 0.6.511：累计已剔除本机测速探针流量；桌面在同行末尾用 11px
+                      灰字透明标注被排除的量。移动端详情行只有约 300px，完整文案
+                      必然换行（用户 0.6.510 明确要求「不要分两行」）→ 移动端只留
+                      数字，说明见 title。 */}
+                  {app.download_excluded ? (
+                    <span className="ml-1.5 hidden text-[11px] font-normal text-muted-foreground sm:inline">
+                      （已排除测速 {formatDownloads(app.download_excluded)}）
+                    </span>
+                  ) : null}
+                </span>
+              </DetailRow>
+            ) : (
+              <DetailRow
+                icon={Download}
+                label={
+                  app.download_scope === 'github'
+                    ? '下载量（累计）'
+                    : app.download_scope === 'official'
+                      ? '下载量（官方）'
+                      : app.download_scope === 'source'
+                        ? '下载量（源统计）'
+                        : '下载量'
+                }
+              >
+                {formatDownloads(app.download_count)}
+                {app.download_excluded ? (
+                  <span className="ml-1.5 hidden text-[11px] font-normal text-muted-foreground sm:inline">
+                    （已排除测速 {formatDownloads(app.download_excluded)}）
+                  </span>
+                ) : null}
+              </DetailRow>
+            )
+          ) : app.download_current ? (
+            <DetailRow icon={Download} label="下载量（当前版本）">
+              {formatDownloads(app.download_current)}
             </DetailRow>
           ) : app.local_installs ? (
-            <DetailRow icon={Download} label="下载次数">
-              本机 {app.local_installs} 次
+            <DetailRow icon={Download} label="本机安装">
+              {app.local_installs} 次
             </DetailRow>
           ) : null}
 
           {/* 0.6.388：问题反馈——源声明 bug_report_url 时展示（短链口径同「官网」，
-              hover 看完整地址）；源未提供则不占行。放在「官网/下载次数」之后，
+              hover 看完整地址）；源未提供则不占行。放在「官网/下载量」之后，
               避免打乱 0.6.337 定稿的两列配对。该字段仅详情接口下发。 */}
           {app.bug_report_url && (
             <DetailRow icon={Bug} label="问题反馈">
@@ -1809,7 +1972,7 @@ mdsSim && "mds-sim")}>
               /* 阅读友好框：上限约 17~20 行（移动端 24rem / 桌面 28rem），
                  圆角+细边框+浅底区分卡片层，四周留白 px-4 py-3 */
               <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
-              <div onErrorCapture={handleReadmeImgError} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
+              <div onErrorCapture={handleReadmeImgError} onClick={onRichImageClick} onMouseOver={onRichImageHover} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
                 [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
                 [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
                 [&_table]:w-full [&_table]:text-xs [&_th]:border [&_th]:border-border [&_th]:p-1.5 [&_td]:border [&_td]:border-border [&_td]:p-1.5
@@ -2081,7 +2244,7 @@ mdsSim && "mds-sim")}>
           <button
             className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-10 hidden sm:inline-flex p-2 text-white/60 hover:text-white disabled:opacity-0 pointer-events-auto"
             disabled={lightbox === 0}
-            onClick={(e) => { e.stopPropagation(); setLightboxAnim('prev'); setLightbox((lightbox - 1 + previewCount) % previewCount); }}
+            onClick={(e) => { e.stopPropagation(); setLightboxAnim('prev'); setLightbox((lightbox - 1 + lightboxCount) % lightboxCount); }}
             aria-label="上一张"
           >
             <ChevronLeft className="h-8 w-8" />
@@ -2176,9 +2339,9 @@ mdsSim && "mds-sim")}>
               // 纵向滑动 = 关闭（手指上滑/下滑）
               if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx)) { setLightbox(null); return; }
               // 横向滑动 = 翻页（带方向滑入动画）
-              if (previewCount > 1 && d.swiping && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+              if (lightboxCount > 1 && d.swiping && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) {
                 setLightboxAnim(dx < 0 ? 'next' : 'prev');
-                setLightbox((dx < 0 ? lightbox + 1 : lightbox - 1 + previewCount) % previewCount);
+                setLightbox((dx < 0 ? lightbox + 1 : lightbox - 1 + lightboxCount) % lightboxCount);
               }
             }}
             onPointerCancel={(e) => {
@@ -2205,20 +2368,20 @@ mdsSim && "mds-sim")}>
               setZoom({ s, x: cl.x, y: cl.y });
             }}
           >
-            {/* 提示行文案保持原样（用户要求：不要在屏上出现「双指缩放」字样；
-                缩放手势本身默默可用即可） */}
+            {/* 提示行：0.6.508 起图源不限于预览位，提示按张数给准确文案；
+                依旧不出现「双指缩放」字样（用户要求），手势默默可用。 */}
             <div className="absolute top-3 left-1/2 -translate-x-1/2 text-[13px] tracking-wide text-white/45 pointer-events-none select-none whitespace-nowrap">
-              上下滑动可退出 · 左右滑动切换
+              {lightboxCount > 1 ? '上下滑动可退出 · 左右滑动切换' : '上下滑动或点按退出'}
             </div>
             {lightboxLoading && !lightboxError && (
               <div className="absolute flex flex-col items-center gap-2 text-white/70">
                 <Loader2 className="h-8 w-8 animate-spin" />
-                <span className="text-xs">预览图加载中…</span>
+                <span className="text-xs">图片加载中…</span>
               </div>
             )}
             {lightboxError ? (
               <div className="flex flex-col items-center gap-3 text-white/80">
-                <p className="text-sm">预览图加载失败</p>
+                <p className="text-sm">图片加载失败</p>
                 <Button variant="outline" size="sm" className="border-white/40 text-white hover:bg-white/10 hover:text-white"
                   onClick={() => { setLightboxAnim('open'); setLightboxError(false); setLightboxLoading(true); setLightboxRetry((n) => n + 1); }}>
                   重试
@@ -2237,8 +2400,8 @@ mdsSim && "mds-sim")}>
               >
                 <img
                   key={`${lightbox}-${lightboxRetry}`}
-                  src={previewSrc(lightbox) + (lightboxRetry ? `&r=${lightboxRetry}` : '')}
-                  alt={`${app.display_name} 预览 ${lightbox + 1}`}
+                  src={lightboxSrc(lightbox) + (lightboxRetry ? `${lightboxSrc(lightbox).includes('?') ? '&' : '?'}r=${lightboxRetry}` : '')}
+                  alt={lightboxList[lightbox]?.alt ?? '图片'}
                   className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-150 pointer-events-auto touch-none select-none ${
                     lightboxLoading ? 'opacity-0' : 'opacity-100'
                   } ${
@@ -2253,15 +2416,15 @@ mdsSim && "mds-sim")}>
           </div>
           <button
             className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-10 hidden sm:inline-flex p-2 text-white/60 hover:text-white disabled:opacity-0 pointer-events-auto"
-            disabled={lightbox === previewCount - 1}
-            onClick={(e) => { e.stopPropagation(); setLightboxAnim('next'); setLightbox((lightbox + 1) % previewCount); }}
+            disabled={lightbox === lightboxCount - 1}
+            onClick={(e) => { e.stopPropagation(); setLightboxAnim('next'); setLightbox((lightbox + 1) % lightboxCount); }}
             aria-label="下一张"
           >
             <ChevronRight className="h-8 w-8" />
           </button>
-          {previewCount > 1 && (
+          {lightboxCount > 1 && (
             <div className="absolute bottom-5 left-1/2 -translate-x-1/2 text-white/70 text-xs tabular-nums pointer-events-none">
-              {lightbox + 1} / {previewCount}
+              {lightbox + 1} / {lightboxCount}
             </div>
           )}
         </div>,

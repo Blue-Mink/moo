@@ -3,10 +3,24 @@
 import atexit, gzip, hashlib, io, json, os, shutil, subprocess, sys, tarfile, tempfile, time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-# tests/ 向上三级 = moo-325/，被测工具在 moo-325/tools/ 下
-SCRIPT = os.environ.get("MOO_SCRIPT") or os.path.abspath(
-    os.path.join(ROOT, "..", "..", "..", "tools", "update_moo_json.py"))
-REPO_INDEX = os.path.abspath(os.path.join(ROOT, "..", "..", "..", "moo.json"))
+
+
+def _repo_root():
+    """仓库布局（tests/ 向上三级有 moo.json）返回该根目录；独立安装版返回 None。"""
+    p = os.path.abspath(os.path.join(ROOT, "..", "..", ".."))
+    return p if os.path.exists(os.path.join(p, "moo.json")) else None
+
+
+_REPO_ROOT = _repo_root()
+# tests/ 向上三级 = moo-325/，被测工具在 moo-325/tools/ 下；
+# 独立安装版没有仓库树，退回技能自带的 bundled/tools/ 副本。
+_SCRIPT_CANDS = [os.environ.get("MOO_SCRIPT") or ""]
+if _REPO_ROOT:
+    _SCRIPT_CANDS.append(os.path.join(_REPO_ROOT, "tools", "update_moo_json.py"))
+_SCRIPT_CANDS.append(os.path.abspath(os.path.join(ROOT, "..", "bundled", "tools",
+                                                  "update_moo_json.py")))
+SCRIPT = next((p for p in _SCRIPT_CANDS if p and os.path.exists(p)), "")
+REPO_INDEX = os.path.join(_REPO_ROOT, "moo.json") if _REPO_ROOT else ""
 TMP = tempfile.mkdtemp(prefix="moojson-")
 atexit.register(shutil.rmtree, TMP, True)
 FPK = os.path.join(TMP, "fpk")
@@ -65,10 +79,16 @@ def _pkg(fpk_path, tag_prefix, version):
 _REAL = None
 
 
+class SkipCase(Exception):
+    """独立安装版缺少仓库夹具（moo.json）时跳过真实索引用例。"""
+
+
 def real_index():
     """真实形态索引：仓库 moo.json 为底，moo / moo-mate 的版本节点按合成 FPK
     独立重算（sha256 走 hashlib，不经过被测工具），其余条目原样保留。"""
     global _REAL
+    if not REPO_INDEX:
+        raise SkipCase("独立安装版无仓库 moo.json")
     if _REAL is None:
         doc = json.load(open(REPO_INDEX, encoding="utf-8"))
         for app, ver, prefix in (("moo", "0.6.383", "v"), ("moo-mate", "0.2.36", "mate-v")):
@@ -483,17 +503,24 @@ def t23():
 
 
 if __name__ == "__main__":
+    if not SCRIPT:
+        print("FATAL: 找不到 update_moo_json.py（仓库 tools/ 与 bundled/tools/ 均缺失）")
+        sys.exit(2)
     only = sys.argv[1:] or None
     fns = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t22, t23]
+    skipped = 0
     for fn in fns:
         if only and fn.__name__ not in only:
             continue
         try:
             fn()
+        except SkipCase as e:
+            skipped += 1
+            print("SKIP %s  << %s" % (fn.__name__, e))
         except Exception as e:
             check(fn.__name__ + " 崩溃", False, repr(e))
     bad = [r for r in RES if not r[1]]
-    print("\n=== %d 项，%d PASS，%d FAIL ===" % (len(RES), len(RES) - len(bad), len(bad)))
+    print("\n=== %d 项，%d PASS，%d FAIL，%d SKIP ===" % (len(RES), len(RES) - len(bad), len(bad), skipped))
     for n, _, d in bad:
         print("FAIL:", n, "|", d)
     sys.exit(1 if bad else 0)

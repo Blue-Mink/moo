@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（Moo 自索引 + Moo Mate 条目）",
   "description": "Moo 生态自索引（含 Moo 应用商店与 Moo Mate 伴侣工具两个条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-11-03T21:48:52+08:00"
+  "updated_at": "2026-11-06T12:43:54+08:00"
  },
  "apps": {
   "moo": {
@@ -23,6 +23,24 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.6.511": {
+     "updated_at": "2026-11-06T12:44:11+08:00",
+     "changelog": "应用详情：简介与 README 图片可点按看大图（同一灯箱，可滑动切换）；徽章横排并自动刷新\n下载量：改为应用级累计，详情页一行显示「下载量/累计」；测速探针改用非安装包，历史流量不计入并标注「已排除 N 次」",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.511/moo_0.6.511_x86.fpk",
+       "sha256": "dbb45bbe3d0013aaa685f6d4139060159bbdb27b3ed8ebbffb724e5c06e3a031",
+       "size": 5331673,
+       "size_mb": 5.08
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.511/moo_0.6.511_arm.fpk",
+       "sha256": "31c13180961f1589806fa1d98362d5910b73c611f12b658fe4002db525c9e177",
+       "size": 4833289,
+       "size_mb": 4.61
+      }
+     }
+    },
     "0.6.506": {
      "updated_at": "2026-11-05T01:46:00+08:00",
      "changelog": "界面与交互：发现页分类胶囊再次点击可取消选择；分类筛选跨页签保留，Dock 双击当前页签可一键清空分类\n顶栏与布局：桌面顶栏标题与 Dock 文案统一为「全部 / 有更新」；窄窗口下选中分类后标题不再被搜索框遮挡，空间不足时自动省略分类名\n下载与通知：下载失败提示区分网络异常 / HTTP 状态 / 校验失败等原因并给出排查建议；新增飞牛系统更新通知（稳定分支新版本，同版本只提示一次，不自动安装）\n加速源：测速门槛 512KB→1.5MB（≈150KB/s），全部未达标时按实测吞吐兜底；新增续传深测，面板显示「续传✓/✕」，同速优选支持续传的源\n加速源：自定义地址保存时校验（完整 http(s)、不允许账号密码、≤2048）；弱网/中继下下载低速判定阈值 50KB/s→20KB/s，减少中断重下",
@@ -40,27 +58,9 @@
        "size_mb": 4.61
       }
      }
-    },
-    "0.6.500": {
-     "updated_at": "2026-11-03T23:30:00+08:00",
-     "changelog": "安装向导：勾选类字段恢复为勾选框，未勾选许可不能下一步；长说明改为区内滚动，说明页不再被截断；已下载 FPK 的向导标题显示应用名\n安装与更新：重复点击或排队时不再误报「错误代码 10500」；平台报错但应用实际已装好时按成功处理\n通知与日志：设置页点顶部通知栏不再关闭设置页；日志页新增「清理日志」，可按保留 1 / 7 / 30 天或全部清空\n通知设置：「通知详情地址」改为单个完整地址，自动跟随当前访问地址与端口预填；换端口后点「使用当前访问地址」即可更新\n界面与详情：已停止的应用在详情页直接显示「启动」；应用图标升级为 512 高清\n数据与性能：下载量统计不再冻结；已下载 FPK 列表显示应用名与版本、支持批量删除；日志展开大文件明显更快\n关于页：更新日志、文档与开发者文档改读远程清单，不发版也能更新内容",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.500/moo_0.6.500_x86.fpk",
-       "sha256": "6fc7dbe50a7d2a9d19ed685be92a8a9a12a9ab14113c109e930c04cb894a290b",
-       "size": 5269739,
-       "size_mb": 5.03
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.500/moo_0.6.500_arm.fpk",
-       "sha256": "a1e870d342bf68c139da2873229452694f14d796e292fdd4eebf2f2ca2476a87",
-       "size": 4772495,
-       "size_mb": 4.55
-      }
-     }
     }
    },
-   "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
+   "sha256": "dbb45bbe3d0013aaa685f6d4139060159bbdb27b3ed8ebbffb724e5c06e3a031",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -72,10 +72,10 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-11-05T01:46:00+08:00",
-   "version": "0.6.506",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
-   "size": 5328516,
+   "updated_at": "2026-11-06T12:43:54+08:00",
+   "version": "0.6.511",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.511/moo_0.6.511_x86.fpk",
+   "size": 5331673,
    "service_port": "38100",
    "size_mb": 5.08,
    "changelog": ""

@@ -140,7 +140,9 @@ Moo 采用**两层防线**：
 | `homepage` | string | 主页 |
 | `icon_url` | string | 图标直链（可能指向源数据域，抓取受 SSRF 防护约束） |
 | `updated_at` | string | 源更新时间 |
-| `download_count` | int? | 上游下载量（第三方源无 → 用 `local_installs`） |
+| `download_count` | int? | 应用级累计下载量（官方 / 源声明 / GitHub 全版本累计） |
+| `download_current` | int? | 当前版本资产的下载量（GitHub Releases；详情页展示） |
+| `download_scope` | string? | 下载量口径：`official` / `source` / `github` / `github_current` |
 | `local_installs` | int | 本机经 Moo 安装/更新累计次数 |
 | `post_install_note` | string | 安装后提示 |
 | `source` | string | 来源源名 |
