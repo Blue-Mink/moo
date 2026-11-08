@@ -5,7 +5,7 @@
 #   例 `moo-mate@Blue-Mink aurora-11`；不写 = 按应用名哈希取色（自动避开同屏撞色）。
 fnos-apps-store@fnos-store aurora-6
 fndepot@Blue-Mink aurora-9
-fn-knock@kci-lnk aurora-3
+fn-knock@kci-lnk aurora-12
 opencode@CrRinko aurora-2
 fnmedia-ext@yujian0815 aurora-5
 fnmusic-ext@javycoder aurora-7
