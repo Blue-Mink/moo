@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download, Menu } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -350,7 +350,10 @@ const App: React.FC = () => {
     [searchInput]
   );
   const [activeCategory, setActiveCategory] = useState<CategoryKey | null>(null);
-  const [pendingUninstallApp, setPendingUninstallApp] = useState<AppInfo | null>(null);
+  // 0.6.535（用户令）：应用源列表行内「列表」按钮 → 主页只显示该源的应用。
+  // 精确匹配 app.source（= 源 id/name，改名后后端会同步改写），不依赖搜索词条。
+  // 顶部显示可清除的「只看源」胶囊；切到「发现」或点胶囊 × 即清除。
+  const [sourceOnly, setSourceOnly] = useState<{ id: string; label: string } | null>(null);
   // 0.6.312 B2：安装冲突对话框（同名组已有已装卡时点「安装」→ 四分支裁决）。
   const [installConflict, setInstallConflict] = useState<{ app: AppInfo; branch: InstallConflictBranch } | null>(null);
   // Apps can declare an install-time form (fnos/wizard/install). When one
@@ -595,8 +598,20 @@ const App: React.FC = () => {
     // 原实现无条件清空 = 选分类后每切一个 tab 都要重选，重复操作。
     if (next === 'recommended') {
       setActiveCategory(null);
+      // 0.6.535：发现页没有「只看源」胶囊的位置，切过去时一并清掉源筛选
+      setSourceOnly(null);
     }
   }, []);
+
+  // 0.6.535（用户令）：源列表行内「列表」按钮 → 回主页只显示该源的应用。
+  // 关掉设置、清词典/分类/搜索，再切「全部」；源筛选为精确匹配，不走搜索框。
+  const openSourceApps = useCallback((id: string, label: string) => {
+    setSourceOnly({ id, label });
+    setSearchInput('');
+    setSearchExpanded(false);
+    setActiveCategory(null);
+    switchFilter('all');
+  }, [switchFilter]);
 
   // 用户令：Dock 的 tab（全部/已安装/有更新）**双击**
   // = 切到该 tab 并把分类筛选清回「全部」。
@@ -1223,16 +1238,9 @@ const App: React.FC = () => {
     }
   }, [createSSEHandler, setAppOp]);
 
-  // 卸载 = 破坏性操作：详情页「卸载」→ 本层 AlertDialog「确认卸载」→ 确认才发请求。
-  const handleUninstall = useCallback((app: AppInfo) => {
-    setPendingUninstallApp(app);
-  }, []);
-
-  const confirmUninstall = useCallback(async () => {
-    if (!pendingUninstallApp) return;
-    const app = pendingUninstallApp;
-    setPendingUninstallApp(null);
-
+  // 卸载 = 破坏性操作：⋯ 菜单内「卸载」点一次变红、再点一次才执行（0.6.536 用户令：
+  // 不再弹 AlertDialog，改为与设置页删除同款二次确认）。
+  const performUninstall = useCallback(async (app: AppInfo) => {
     const appname = app.appname;
     const handler = createSSEHandler(app, 'uninstall');
 
@@ -1271,7 +1279,11 @@ const App: React.FC = () => {
         loadApps();
       }
     }
-  }, [pendingUninstallApp, createSSEHandler, setAppOp]);
+  }, [createSSEHandler, setAppOp]);
+
+  const handleUninstall = useCallback((app: AppInfo) => {
+    void performUninstall(app);
+  }, [performUninstall]);
 
   const handleCancelOp = useCallback((app: AppInfo) => {
     const op = appOperations.get(app.appname);
@@ -1436,6 +1448,8 @@ const App: React.FC = () => {
   }, [shuffleTick]);
 
   const filteredApps = useMemo(() => apps.filter(app => {
+    // 0.6.535：源列表「列表」按钮的精确源筛选（app.source = 源 id/name）
+    if (sourceOnly && app.source !== sourceOnly.id) return false;
     // 0.6.326 应用溯源：被禁用的应用从「全部/发现/有更新/搜索/分类」隐藏，
     // 但「已安装」tab 不过滤——否则用户禁用自己装的应用后再也找不回来。
     if (app.user_hidden && activeFilter !== 'installed') return false;
@@ -1499,7 +1513,7 @@ const App: React.FC = () => {
         }
         return 0;
     }
-  }), [apps, activeFilter, activeCategory, searchQuery, sortBy, shuffledRank, sourceKeyMap]);
+  }), [apps, activeFilter, activeCategory, searchQuery, sortBy, shuffledRank, sourceKeyMap, sourceOnly]);
 
   // 0.6.314r（用户定稿）：发现页前三固定——fnOS Apps → FnDepot → 敲门knock
   //（顺序由后端 /api/recommended 决定，固定不随机）。无论选中哪种排序都恒定
@@ -2510,6 +2524,22 @@ const App: React.FC = () => {
             </div>
           ) : loadStatus === 'loaded' ? (
             <>
+              {/* 0.6.535b（用户令）：源列表胶囊跳转后的来源筛选提示，文案改成
+                  「☰<源名>的源」——可一键清除；列表已精确过滤到该源。 */}
+              {sourceOnly && (
+                <div className="mb-3 flex items-center gap-2" data-source-only>
+                  <button
+                    type="button"
+                    onClick={() => setSourceOnly(null)}
+                    title="清除来源筛选，显示全部应用"
+                    className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <Menu className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">「{sourceOnly.label}」的源</span>
+                    <X className="h-3.5 w-3.5 shrink-0" />
+                  </button>
+                </div>
+              )}
               {/* 0.6.301（用户定稿）：三种预览模式引入移动端 —— 极简/极光桌面移动
                   共用同一网格（auto-fill/响应式列数已适配窄屏）；标准模式保持
                   各自形态：桌面=卡网格 / 移动=行列表。交互：触屏单击开详情、
@@ -2735,6 +2765,7 @@ const App: React.FC = () => {
           onStoreUpdate={handleStoreUpdate}
           aurora={viewMode === 'aurora'}
           onCatalogChanged={() => setTimeout(() => loadApps(), 2500)}
+          onOpenSourceApps={openSourceApps}
         />
       </Suspense>
 
@@ -2831,23 +2862,6 @@ const App: React.FC = () => {
         />
         </Suspense>
       )}
-
-      <AlertDialog open={!!pendingUninstallApp} onOpenChange={(open) => !open && setPendingUninstallApp(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认卸载</AlertDialogTitle>
-            <AlertDialogDescription>
-              确定要卸载 {pendingUninstallApp?.display_name} 吗？此操作无法撤销。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmUninstall}>
-              确认卸载
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* 0.6.312 B2：安装冲突四分支对话框（同名组已有已装卡时点「安装」）。 */}
       <AlertDialog open={!!installConflict} onOpenChange={(open) => !open && setInstallConflict(null)}>
@@ -2976,6 +2990,7 @@ const App: React.FC = () => {
           <FpkDownloads
             defaultExpanded
             stableHeight
+            enableUpload
             emptyHint={(
               <div className="flex flex-col items-center justify-center text-muted-foreground">
                 <Download className="h-10 w-10 mb-3 opacity-40" />

@@ -251,6 +251,7 @@ func (s *Server) Handler(trust bool) http.Handler {
 		writeJSON(w, map[string]any{"version": s.Version, "platform": "fnos"})
 	})
 	mux.HandleFunc("GET /api/about", s.aboutGet)
+	mux.HandleFunc("GET /api/about/mem", s.aboutMemGet)
 	// 0.6.384：关于页远程清单（更新日志 / 文档和技能 / 开发者文档）立即刷新。
 	mux.HandleFunc("POST /api/about/lists/refresh", s.requireAdmin(s.aboutListsRefresh))
 
@@ -362,6 +363,10 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/mirrors/health", s.requireAdmin(s.mirrorHealth))
 	mux.HandleFunc("GET /api/mirrors/docker/health", s.requireAdmin(s.dockerMirrorHealth))
 	mux.HandleFunc("POST /api/mirrors/check", s.requireAdmin(s.mirrorsCheck))
+	// 0.6.512 清单目录化：加速源清单改读 lists/（同步 / 恢复 / 本机删除默认源）
+	mux.HandleFunc("POST /api/mirrors/sync", s.requireAdmin(s.mirrorsSync))
+	mux.HandleFunc("POST /api/mirrors/restore", s.requireAdmin(s.mirrorsRestore))
+	mux.HandleFunc("POST /api/mirrors/hidden", s.requireAdmin(s.mirrorsHidden))
 	// 0.6.269 Docker 优选接入：把选中的镜像写入系统 daemon.json 并重启（可回滚）
 	mux.HandleFunc("GET /api/settings/docker-mirror/status", s.requireAdmin(s.dockerMirrorStatus))
 	mux.HandleFunc("POST /api/settings/docker-mirror/apply", s.requireAdmin(s.dockerMirrorApply))
@@ -381,6 +386,10 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("POST /api/fpk-downloads/batch-delete", s.requireAdmin(s.batchRemoveDownloads))
 	mux.HandleFunc("POST /api/fpk-downloads/{name}/install", s.requireAdmin(s.installDownloadSSE))
 	mux.HandleFunc("GET /api/fpk-downloads/{name}/wizard", s.requireAdmin(s.fpkDownloadWizard))
+
+	// ---- KSpeeder 独立应用（0.6.524：下载改读 lists/kspeeder.txt 远端清单）----
+	mux.HandleFunc("GET /api/kspeeder/latest", s.requireAdmin(s.ksDownloadInfo))
+	mux.HandleFunc("POST /api/kspeeder/install", s.requireAdmin(s.kspeederInstallSSE))
 
 	// ---- 任务与操作 ----
 	mux.HandleFunc("GET /api/tasks", s.listTasks)

@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -48,9 +48,21 @@ const MoreMenuButton: React.FC<Props> = ({
      居中展开；右侧卡片内余量不足时整体左移到卡片右内边距处（「靠左显示」），
      总之不溢出卡片区域。 */
   const [dx, setDx] = useState(0);
+  /* 0.6.536（用户令）：危险项（卸载）不再弹 AlertDialog，改为与设置页删除一致的
+     「点一次变红 → 再点一次才执行」二次确认。默认与其他菜单项同色。 */
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+  const confirmTimer = useRef<number | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
   const menuId = useId();
+
+  const resetConfirm = useCallback(() => {
+    if (confirmTimer.current !== null) {
+      window.clearTimeout(confirmTimer.current);
+      confirmTimer.current = null;
+    }
+    setConfirmKey(null);
+  }, []);
 
   useEffect(() => { onOpenChange?.(open); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -61,14 +73,15 @@ const MoreMenuButton: React.FC<Props> = ({
       const t = e.target as Node;
       if (wrapRef.current?.contains(t)) return;
       if (document.getElementById(menuId)?.contains(t)) return;
+      resetConfirm();
       setOpen(false);
     };
     document.addEventListener('pointerdown', onDown, true);
     return () => document.removeEventListener('pointerdown', onDown, true);
-  }, [open, menuId]);
+  }, [open, menuId, resetConfirm]);
 
   const toggle = () => {
-    if (open) { setOpen(false); return; }
+    if (open) { resetConfirm(); setOpen(false); return; }
     if (portal && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
       const rows = items.length + dangerItems.length;
@@ -95,24 +108,51 @@ const MoreMenuButton: React.FC<Props> = ({
     setOpen(true);
   };
 
-  const row = (it: MoreMenuItem) => (
+  const row = (it: MoreMenuItem) => {
+    const armed = !!it.danger && confirmKey === it.key;
+    return (
     <button
       key={it.key}
       type="button"
       role="menuitem"
       disabled={it.disabled}
-      onClick={() => { setOpen(false); it.onClick(); }}
+      aria-label={armed ? `确认${it.label}` : undefined}
+      title={armed ? `再点一次确认${it.label}（3 秒内有效）` : undefined}
+      onClick={() => {
+        if (it.disabled) return;
+        if (it.danger) {
+          // 第一下只变红，第二下才执行；3 秒无操作自动复位
+          if (!armed) {
+            if (confirmTimer.current !== null) window.clearTimeout(confirmTimer.current);
+            setConfirmKey(it.key);
+            confirmTimer.current = window.setTimeout(() => {
+              confirmTimer.current = null;
+              setConfirmKey(null);
+            }, 3000);
+            return;
+          }
+          resetConfirm();
+          setOpen(false);
+          it.onClick();
+          return;
+        }
+        resetConfirm();
+        setOpen(false);
+        it.onClick();
+      }}
       className={cn(
         // 0.6.360（用户定稿）：选项文字居中对齐（图标 + 文案作为一组居中）
         'flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-center text-[13px] hover:bg-muted disabled:opacity-50',
-        it.danger ? 'text-rose-500' : 'text-foreground',
+        // 0.6.536：危险项默认与其他项同色，确认态才变红
+        armed ? 'bg-red-500/15 text-red-500 hover:bg-red-500/20' : 'text-foreground',
       )}
     >
       <span className="shrink-0 opacity-80">{it.icon}</span>
-      <span className="truncate">{it.label}</span>
+      <span className="truncate">{armed ? `确认${it.label}` : it.label}</span>
       {it.hint && <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{it.hint}</span>}
     </button>
-  );
+    );
+  };
 
   const body = (
     <div

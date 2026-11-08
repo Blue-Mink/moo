@@ -348,6 +348,8 @@ func (s *Server) recommended(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		used[k] = true
+		// 0.6.536（用户令）：清单行可指定该位横幅的极光配色，随卡片一起下发。
+		ai.RecoColor = e.Color
 		out = append(out, ai)
 	}
 	writeJSON(w, map[string]any{"apps": out})
@@ -364,14 +366,16 @@ func (s *Server) recommendedRefresh(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	entries, ok := s.refreshRecommendList(ctx)
 	keys := make([]string, 0, len(entries))
+	colors := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.Source != "" {
 			keys = append(keys, e.AppName+"@"+e.Source)
 		} else {
 			keys = append(keys, e.AppName)
 		}
+		colors = append(colors, e.Color)
 	}
-	writeJSON(w, map[string]any{"ok": ok, "url": s.recommendListURL(), "count": len(entries), "entries": keys})
+	writeJSON(w, map[string]any{"ok": ok, "url": s.recommendListURL(), "count": len(entries), "entries": keys, "colors": colors})
 }
 
 // pickWithDailySeed 稳定随机选卡（321R7）：种子 = UTC 日期 → 同一天内
@@ -1365,12 +1369,28 @@ func parseSourceList(body string) []string {
 	return out
 }
 
-// fetchSourceList 抓取源列表文本：直连 raw，失败依次走 GitHub 镜像链前缀。
+// fetchSourceList 抓取应用源清单：自定义地址优先；未自定义时先读 lists/
+// 新路径，失败回落根目录旧地址（0.6.512 清单目录化，兼容旧文件与回滚）。
 func (s *Server) fetchSourceList(ctx context.Context) (string, error) {
-	listURL := strings.TrimSpace(s.Cfg.SourceListURL)
-	if listURL == "" {
-		listURL = config.DefaultSourceListURL
+	if u := strings.TrimSpace(s.Cfg.SourceListURL); u != "" {
+		return s.fetchListURL(ctx, u)
 	}
+	var lastErr error
+	for _, u := range config.ListFileURLs(s.Cfg.ListBaseURL, "repo_list.txt", config.DefaultSourceListURL) {
+		body, err := s.fetchListURL(ctx, u)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+	}
+	return "", fmt.Errorf("源列表获取失败: %w", lastErr)
+}
+
+// fetchListURL 抓单个清单地址：直连 raw，失败依次走 GitHub 镜像链前缀。
+func (s *Server) fetchListURL(ctx context.Context, listURL string) (string, error) {
 	candidates := []string{listURL}
 	if strings.Contains(listURL, "raw.githubusercontent.com") {
 		// 有健康数据按延迟升序，无则按声明顺序；最多取前 5 个镜像
@@ -1863,8 +1883,11 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		// 自定义镜像静默抹掉（数据丢失级）。
 		CustomGitHubMirror: s.Cfg.CustomGitHubMirror,
 		CustomDockerMirror: s.Cfg.CustomDockerMirror,
-		InstallVolume:      s.Cfg.InstallVolume,
-		DownloadDir:        s.Cfg.DownloadDir,
+		// 0.6.521：多条自定义加速源（单值字段=第一条，供旧前端/旧调用兼容）。
+		CustomGitHubMirrors: s.Cfg.GitHubCustomMirrors(),
+		CustomDockerMirrors: s.Cfg.DockerCustomMirrors(),
+		InstallVolume:       s.Cfg.InstallVolume,
+		DownloadDir:         s.Cfg.DownloadDir,
 		// 0.6.255：面板账号已从设置中彻底移除（官方源 = 纯 OAuth，
 		// 授权时临时输入账号不落地）。以下字段不再下发：
 		// PanelEnabled / PanelUsername / PanelBaseURL / PanelHasPassword / PanelDecryptFailed
@@ -1964,6 +1987,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 重开设置页又看到旧值 → 观感「保存没作用」）。
 		CustomGitHubMirror *string `json:"custom_github_mirror"`
 		CustomDockerMirror *string `json:"custom_docker_mirror"`
+		// 0.6.521：多条自定义加速源。nil=未提交不改动；[]=清空；数组=整表替换。
+		CustomGitHubMirrors *[]string `json:"custom_github_mirrors"`
+		CustomDockerMirrors *[]string `json:"custom_docker_mirrors"`
 		// 0.6.325 G2：安装卷指针语义 —— nil=未提交不改动；0=清除（回
 		// 「系统默认」自动探测）；1-8=指定卷；越界（负数/>8）整单拒绝。
 		// 此前 `int` + `>0` 守卫让「切回系统默认」永远保存无效（0 被忽略）。
@@ -2043,6 +2069,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if in.DockerMirror != "" {
 		s.Cfg.DockerMirror = in.DockerMirror
 	}
+	oldGHSingle := s.Cfg.CustomGitHubMirror
 	if in.CustomGitHubMirror != nil {
 		// 2026-11-04（PR #14 纯收益部分）：自定义加速地址保存前做形状校验。
 		// 原先这里把用户输入原样写进配置：填个错字（少 https://、贴成
@@ -2071,8 +2098,50 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		s.Cfg.CustomGitHubMirror = v
 	}
+	oldDKSingle := s.Cfg.CustomDockerMirror
 	if in.CustomDockerMirror != nil {
-		s.Cfg.CustomDockerMirror = *in.CustomDockerMirror
+		s.Cfg.CustomDockerMirror = strings.TrimSpace(*in.CustomDockerMirror)
+	}
+	// 0.6.521：多条自定义加速源整表替换（数组优先于单值）。
+	// 单值字段同步为第一条，保证旧代码路径（FpkCandidates 等）仍可用。
+	if in.CustomGitHubMirrors != nil {
+		list, lerr := normalizeCustomMirrorList(*in.CustomGitHubMirrors)
+		if lerr != nil {
+			writeErr(w, http.StatusBadRequest, lerr)
+			return
+		}
+		s.Cfg.CustomGitHubMirrors = list
+		if len(list) > 0 {
+			s.Cfg.CustomGitHubMirror = list[0]
+		} else {
+			s.Cfg.CustomGitHubMirror = ""
+		}
+	} else if in.CustomGitHubMirror != nil && s.Cfg.CustomGitHubMirror != oldGHSingle {
+		// 旧前端/旧调用只提单值：显式改过才替换列表，未改动的回传不覆盖其它条目。
+		if s.Cfg.CustomGitHubMirror == "" {
+			s.Cfg.CustomGitHubMirrors = nil
+		} else {
+			s.Cfg.CustomGitHubMirrors = []string{s.Cfg.CustomGitHubMirror}
+		}
+	}
+	if in.CustomDockerMirrors != nil {
+		list, lerr := normalizeCustomMirrorList(*in.CustomDockerMirrors)
+		if lerr != nil {
+			writeErr(w, http.StatusBadRequest, lerr)
+			return
+		}
+		s.Cfg.CustomDockerMirrors = list
+		if len(list) > 0 {
+			s.Cfg.CustomDockerMirror = list[0]
+		} else {
+			s.Cfg.CustomDockerMirror = ""
+		}
+	} else if in.CustomDockerMirror != nil && s.Cfg.CustomDockerMirror != oldDKSingle {
+		if s.Cfg.CustomDockerMirror == "" {
+			s.Cfg.CustomDockerMirrors = nil
+		} else {
+			s.Cfg.CustomDockerMirrors = []string{s.Cfg.CustomDockerMirror}
+		}
 	}
 	// 0.6.325 G2：nil=未提交不改动；0=清除回「系统默认」（安装走
 	// DefaultVolume 自动探测）；越界整单拒绝（与 dock_order/log_lines 同风格）。
@@ -2175,8 +2244,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// 策略变化影响目录更新判定 → 保存成功后失效目录缓存。
 	if in.UpdatePolicy != nil {
 		v := strings.TrimSpace(*in.UpdatePolicy)
-		if v != "strict" && v != "origin" && v != "lineage" && v != "upstream" {
-			writeErr(w, http.StatusBadRequest, errors.New("更新策略仅支持 strict / origin / lineage / upstream"))
+		if v != "auto" && v != "strict" && v != "origin" && v != "lineage" && v != "upstream" {
+			writeErr(w, http.StatusBadRequest, errors.New("更新策略仅支持 auto / strict / origin / lineage / upstream"))
 			return
 		}
 		if s.Cfg.UpdatePolicy != v {
@@ -2354,8 +2423,43 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if settingsTabOrder != nil {
 		s.Cfg.SettingsTabOrder = settingsTabOrder
 	}
+	// 0.6.521：让新列表立即生效（无需重启）——选项表/测速/下载候选都读内存。
+	config.SetCustomMirrors(s.Cfg.GitHubCustomMirrors(), s.Cfg.DockerCustomMirrors())
 	_ = s.Cfg.Save(dataDirOf(s))
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// normalizeCustomMirrorList 校验并归一多条自定义加速源：http(s)、无凭据、
+// ≤2048 字符、去重、最多 20 条（与 config 侧上限一致）。
+func normalizeCustomMirrorList(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		u, err := url.Parse(v)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("加速地址必须是完整的 http(s) 地址：%s", v)
+		}
+		if u.User != nil {
+			return nil, errors.New("加速地址不允许携带用户信息（user:pass@）")
+		}
+		if len(v) > 2048 {
+			return nil, errors.New("单条加速地址最长 2048 字符")
+		}
+		v = u.String()
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+		if len(out) >= 20 {
+			break
+		}
+	}
+	return out, nil
 }
 
 // DownloadDirOption 是设置页「FPK 下载目录」选择器的一项。
@@ -2925,6 +3029,13 @@ func (s *Server) installDownloadSSE(w http.ResponseWriter, r *http.Request) {
 		sseSend(w, f, map[string]any{"step": "error", "error": "缓存文件不存在"})
 		return
 	}
+	s.installFpkFileSSE(w, f, r, p)
+}
+
+// installFpkFileSSE 从 Downloads 里的一个 FPK 文件安装/升级（暂存 → 向导参数 →
+// 平台安装 → 结果确认）。installDownloadSSE 与 KSpeeder 下载安装（0.6.524）共用。
+func (s *Server) installFpkFileSSE(w http.ResponseWriter, f http.Flusher, r *http.Request, p string) {
+	name := filepath.Base(p)
 	appName := nameFromFpk(name)
 	sseSend(w, f, map[string]any{"step": "stage", "progress": 10, "message": "暂存安装包…"})
 	staged, err := platform.StageFpk(r.Context(), p, func(frac float64) {

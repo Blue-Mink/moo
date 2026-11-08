@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, Check, ChevronDown, ListChecks } from 'lucide-react';
+import { Loader2, RefreshCw, Trash2, Check, ChevronDown, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
 import WizardDialog from './WizardDialog';
@@ -9,6 +9,7 @@ import {
   deleteFpkDownload,
   batchDeleteFpkDownloads,
   installFpkDownload,
+  uploadFpkDownload,
   fetchFpkDownloadWizard,
   type FpkDownloadFile,
   type AppWizard,
@@ -54,8 +55,8 @@ function formatBytes(bytes: number): string {
 }
 
 export interface FpkDownloadsProps {
-  /** 设置页专属：上传按钮槽（渲染在列表段头部右侧，刷新钮之前）。 */
-  uploadSlot?: React.ReactNode;
+  /** 0.6.531：是否在列表段头部内置「上传 FPK」按钮（设置页与首页下载弹窗共用）。 */
+  enableUpload?: boolean;
   /** 设置页专属：后台下载任务块（渲染在头部与列表之间，与原布局同位）。 */
   tasksBlock?: React.ReactNode;
   /** 自增即刷新列表（设置页上传完成/保存设置/切换下载目录后）。 */
@@ -82,14 +83,13 @@ export interface FpkDownloadsProps {
  *
  * 行=应用名（display_name/appname；缺失时回退文件名）+包文件名/size·mtime/已安装徽章/安装钮
  * （SSE 进度 + 必填字段无默认值时弹 WizardDialog）/删除钮（busy 态）。
- * 头部=「已下载的 FPK（n）」+（上传槽）+ 刷新 + 折叠（有条目才显示）。
- *
- * 两处宿主：设置页「FPK 下载目录」卡内（uploadSlot/tasksBlock 保持原布局）
- * 与 Dock「下载」页（页自有大标题，组件头部即刷新/折叠行）。
+ * 头部=「已下载的 FPK（n）」+（上传）+ 刷新 + 批量删除 + 折叠；整行可点开合。
+ * 两处宿主：设置页「FPK 下载目录」卡内（enableUpload/tasksBlock）
+ * 与首页顶栏「下载」弹窗（enableUpload）共用同一套头部。
  * 折叠态本地持久化（localStorage fpk-list-collapsed，沿用原 key）。
  */
 const FpkDownloads: React.FC<FpkDownloadsProps> = ({
-  uploadSlot,
+  enableUpload,
   tasksBlock,
   refreshSignal,
   onCountChange,
@@ -232,6 +232,25 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
     firstSignalRef.current = refreshSignal;
     loadFpkFiles();
   }, [refreshSignal, loadFpkFiles]);
+
+  // 0.6.531（用户令）：上传入口内置到组件——设置页与首页「下载」弹窗共用，
+  // 上传成功即刷新列表（不再依赖宿主各自实现一套 input + handler）。
+  const [fpkUploading, setFpkUploading] = useState(false);
+  const fpkFileRef = useRef<HTMLInputElement>(null);
+  const handleFpkUpload = async (file: File) => {
+    if (fpkUploading) return;
+    setFpkUploading(true);
+    try {
+      const r = await uploadFpkDownload(file);
+      toast.success(r.replaced ? `已覆盖 ${r.name}` : `已上传 ${r.name}（可在列表安装）`);
+      await loadFpkFiles();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '上传失败');
+    } finally {
+      setFpkUploading(false);
+      if (fpkFileRef.current) fpkFileRef.current.value = ''; // 允许重选同名文件
+    }
+  };
 
   const handleFpkRemove = async (name: string) => {
     if (fpkRemoving) return;
@@ -376,60 +395,106 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
 
   return (
     <>
-      {/* 已下载的 FPK 小节（刷新/展开按钮在此，不再占卡片标题行）。
-          0.6.325 C8（用户令）：刷新/展开（+设置页的上传）不再被 justify-between
-          推到卡片最外侧右缘，改为紧贴「已下载的 FPK」标题右侧（内侧），
-          三钮内距仍 12px 防误触。 */}
-      <div className="flex items-center gap-3 pt-1">
-        <span className="shrink-0 text-xs font-medium text-muted-foreground">
-          已下载的 FPK{fpkFiles.length > 0 ? `（${fpkFiles.length}）` : ''}
-        </span>
-        {/* 322：上传/刷新/折叠三钮间距再调宽（321R8 gap-1.5=6px 用户仍反馈易误触）→ gap-3=12px */}
-        <div className="flex items-center gap-3">
-          {uploadSlot}
+      {/* 已下载的 FPK 小节。
+          0.6.530（用户令）：
+          ① 标题行整行可点 = 展开/折叠（对齐「通知规则」的分组折叠：点那一行就开合）；
+          ② 按钮顺序固定为 上传 → 刷新 → 批量删除 → 展开/折叠（折叠放最后）；
+          ③ 批量删除由纯图标改为「垃圾桶 + 文字」，语义直白（进入后文字变「取消」）；
+          ④ 折叠时不再重复渲染「已下载 N 个 FPK · 点击展开」条（标题行已含条数）。
+          0.6.531（用户令）：整行（含按钮之间的空白）都可点开合；后段按钮间距
+          8px→12px、点击区 24px→28px，避免误触；上传按钮内置（设置页/首页弹窗共用）。 */}
+      <div
+        className={cn(
+          'flex items-center gap-2 pt-1',
+          fpkFiles.length > 0 && 'cursor-pointer',
+        )}
+        onClick={fpkFiles.length > 0 ? toggleFpkList : undefined}
+        title={fpkFiles.length > 0 ? (fpkListCollapsed ? '点击展开已下载列表' : '点击折叠已下载列表') : undefined}
+      >
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); if (fpkFiles.length > 0) toggleFpkList(); }}
+          className="flex shrink-0 items-center text-left"
+          aria-expanded={fpkFiles.length > 0 ? !fpkListCollapsed : undefined}
+        >
+          <span className="truncate text-xs font-medium text-muted-foreground">
+            已下载的 FPK{fpkFiles.length > 0 ? `（${fpkFiles.length}）` : ''}
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+          {enableUpload && (
+            <>
+              <input
+                ref={fpkFileRef}
+                type="file"
+                accept=".fpk"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFpkUpload(f); }}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={(e) => { e.stopPropagation(); fpkFileRef.current?.click(); }}
+                disabled={fpkUploading}
+                title="上传 FPK 安装包（手机/电脑本地文件）"
+                aria-label="上传 FPK 安装包"
+              >
+                {fpkUploading
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  : <Upload className="h-3.5 w-3.5" />}
+              </Button>
+            </>
+          )}
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6"
-            onClick={handleFpkRefresh}
+            className="h-7 w-7"
+            onClick={(e) => { e.stopPropagation(); void handleFpkRefresh(); }}
             disabled={fpkLoading}
             title="刷新已下载 FPK 列表"
             aria-label="刷新已下载列表"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${fpkLoading ? 'animate-spin text-primary' : ''}`} />
           </Button>
+          {/* 0.6.530：批量删除入口——垃圾桶 + 文字（桌面显示文字，<sm 只留图标防挤）；
+              进入后行前出现选择圆圈，操作条提供全选/取消全选/取消/删除。 */}
+          {fpkFiles.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'h-7 gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground sm:px-2',
+                batchMode && 'bg-red-500/10 text-red-600 hover:bg-red-500/15 hover:text-red-600',
+              )}
+              onClick={(e) => { e.stopPropagation(); toggleBatchMode(); }}
+              disabled={batchBusy}
+              aria-pressed={batchMode}
+              title={batchMode ? '退出批量删除' : '批量删除已下载的 FPK'}
+              aria-label={batchMode ? '退出批量删除' : '批量删除已下载的 FPK'}
+            >
+              {batchBusy
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Trash2 className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{batchMode ? '取消' : '批量删除'}</span>
+            </Button>
+          )}
           {fpkFiles.length > 0 && (
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
-              onClick={toggleFpkList}
+              className="h-7 w-7"
+              onClick={(e) => { e.stopPropagation(); if (fpkFiles.length > 0) toggleFpkList(); }}
               title={fpkListCollapsed ? '展开已下载列表' : '折叠已下载列表'}
               aria-label={fpkListCollapsed ? '展开已下载列表' : '折叠已下载列表'}
             >
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", fpkListCollapsed && "-rotate-90")} />
             </Button>
           )}
-          {/* 0.6.393（用户令）：批量删除入口——放在展开/折叠钮之后。
-              进入后行前出现选择圆圈，操作条提供全选/取消全选/取消/删除。 */}
-          {fpkFiles.length > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'h-6 w-6',
-                batchMode && 'bg-red-500/10 text-red-600 hover:bg-red-500/15 hover:text-red-600',
-              )}
-              onClick={toggleBatchMode}
-              disabled={batchBusy}
-              aria-pressed={batchMode}
-              title={batchMode ? '退出批量删除' : '批量删除已下载的 FPK'}
-              aria-label={batchMode ? '退出批量删除' : '批量删除已下载的 FPK'}
-            >
-              <ListChecks className="h-3.5 w-3.5" />
-            </Button>
-          )}
         </div>
+        {/* 0.6.530：按钮仍紧贴标题（0.6.325 C8 定稿），行尾空白也是点击区；
+            0.6.531 起整行父容器承接点击，此占位只负责把按钮顶到标题内侧。 */}
+        <div className="h-6 min-w-0 flex-1" />
       </div>
       {tasksBlock}
       {/* 0.6.393（用户令）：批量操作条（对齐 moo-mate：全选 / 已选 N 个 / 取消 / 删除） */}
@@ -494,15 +559,9 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
           </div>
         )
       )}
-      {fpkFiles.length > 0 && (fpkListCollapsed ? (
-        <button
-          type="button"
-          onClick={toggleFpkList}
-          className="w-full rounded-lg border border-border/40 px-3 py-2 text-left text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          已下载 {fpkFiles.length} 个 FPK · 点击展开
-        </button>
-      ) : (
+      {/* 0.6.530（用户令）：折叠态不再渲染「已下载 N 个 FPK · 点击展开」重复条
+          （标题行已显示条数，且整行可点展开）；列表只在展开时存在。 */}
+      {fpkFiles.length > 0 && !fpkListCollapsed && (
         <div className={cn(
           'overflow-y-auto rounded-lg border border-border/40 divide-y divide-border/40',
           // C13：弹窗（stableHeight）用定高 h-60 与加载占位区同高；设置页保持 max-h-60
@@ -617,7 +676,7 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
             );
           })}
         </div>
-      ))}
+      )}
       {/* 已下载 FPK 的安装向导（必填字段无默认值时弹出；
           确认后带参数安装（与应用源 WizardDialog 同一组件） */}
       {fpkWizardName && fpkWizardDef && (

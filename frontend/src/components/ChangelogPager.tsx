@@ -25,11 +25,14 @@ export const ChangelogPager: React.FC<{
   maxH?: string;
   /** 0.6.386（用户令）：不分页，全部条目放进滚动盒上下滑动（关于页用） */
   scroll?: boolean;
+  /** 0.6.537（用户令）：关于页去掉内嵌小框，由外层卡片铺满 */
+  plain?: boolean;
 }> = ({
   text,
   appKey = 'moo',
   maxH = 'max-h-[110px]',
   scroll = false,
+  plain = false,
 }) => {
   const entries = useMemo(() => splitEntries(text), [text]);
   const pages = Math.max(1, Math.ceil(entries.length / PER_PAGE));
@@ -52,7 +55,7 @@ export const ChangelogPager: React.FC<{
   //「版本更新弹窗」与「关于页·最新更新日志」两处共用本组件，同时生效。
   const body = (t: string) => (
     <div className="[&_p]:[margin:0]!">
-      <ReadmeRender readme={t} appKey={appKey} maxH={maxH} />
+      <ReadmeRender readme={t} appKey={appKey} maxH={maxH} plain={plain} />
     </div>
   );
   const perLine = (lines: string[]) => lines.join('\n\n');

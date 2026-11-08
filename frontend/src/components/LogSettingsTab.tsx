@@ -62,7 +62,9 @@ const LogRow = memo(function LogRow({ p, idx, open, overflowed, onToggle }: LogR
   return (
     <div
       data-logrow={idx}
-      className={'flex items-start gap-2 rounded-md px-1.5 py-[2px] font-mono flex-wrap sm:flex-nowrap text-[11px] leading-[1.7] sm:text-xs sm:leading-[1.75] hover:bg-black/[0.035] dark:hover:bg-white/[0.05] ' + (LEVELS[p.level].row || '')}>
+      onClick={() => { if (canExpand) onToggle(idx); }}
+      title={canExpand ? (open ? '点击收起该行' : '点击展开该行') : undefined}
+      className={'flex items-start gap-2 rounded-md px-1.5 py-[2px] font-mono flex-wrap sm:flex-nowrap text-[11px] leading-[1.7] sm:text-xs sm:leading-[1.75] hover:bg-black/[0.035] dark:hover:bg-white/[0.05] ' + (canExpand ? 'cursor-pointer ' : '') + (LEVELS[p.level].row || '')}>
       <span
         data-logtime={idx}
         className={TIME_W + ' shrink-0 whitespace-nowrap tabular-nums ' + (p.timeShort ? 'text-muted-foreground/75' : 'text-muted-foreground/40')}
@@ -92,7 +94,7 @@ const LogRow = memo(function LogRow({ p, idx, open, overflowed, onToggle }: LogR
         <button
           type="button"
           data-logtoggle={idx}
-          onClick={() => onToggle(idx)}
+          onClick={(e) => { e.stopPropagation(); onToggle(idx); }}
           title={open ? '收起' : `展开（${p.detail.length} 字）`}
           aria-label={open ? '收起日志' : '展开日志'}
           className={'mt-[1px] -mr-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary' + (open ? ' order-3 ml-auto sm:order-none sm:ml-0' : '')}>
@@ -300,7 +302,7 @@ export default function LogSettingsTab() {
 
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
-      <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
+      <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
         {/* 0.6.293（用户定稿）：折行方案多占一行 → 恢复 0.6.283 单行布局
             （标题左 + 控件右，justify-between）；弹出同宽修复保留 */}
         <div className="flex items-center justify-between gap-2">
@@ -397,7 +399,7 @@ export default function LogSettingsTab() {
           等宽字体、深色代码面板、无分隔线的连续行，每条日志固定一行：
           时间｜级别｜详情；详情被裁掉时行尾出现展开/收起按钮（展开后整段换行显示）。
           此前「桌面三列 + 移动两行」的换行排版会让一条长日志占掉半屏。 */}
-      <div className="overflow-hidden bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore">
+      <div className="overflow-hidden bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore">
         {/* 0.6.345（用户令）：右侧滑条不要——列表照常可用滚轮/触控板/手指滚动，
             但不渲染滚动条（.no-scrollbar，与 Dog-dev 日志页同为 0 宽滚动条，不再吃掉 10px）；
             深色代码面板改为整卡全出血（去掉外层 12px 内缩），日志正文铺满卡片宽度。 */}

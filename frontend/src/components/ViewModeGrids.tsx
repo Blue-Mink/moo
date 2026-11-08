@@ -101,11 +101,15 @@ const AURORAS = [
   'aurora-5', 'aurora-6', 'aurora-7', 'aurora-8',
   'aurora-9', 'aurora-10', 'aurora-11', 'aurora-12',
 ];
-export const auroraFor = (name: string) => {
+/** 0.6.535：色板对外复用（发现页推荐横幅也用这套 12 色，见 FeaturedShowcase）。 */
+export const AURORA_COUNT = AURORAS.length;
+export const auroraAt = (i: number) => AURORAS[((i % AURORA_COUNT) + AURORA_COUNT) % AURORA_COUNT];
+export const auroraIndex = (name: string) => {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return AURORAS[Math.abs(h) % AURORAS.length];
+  return Math.abs(h) % AURORA_COUNT;
 };
+export const auroraFor = (name: string) => auroraAt(auroraIndex(name));
 
 export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'double', highlightKey }) => {
   const coarse = useCoarsePointer();

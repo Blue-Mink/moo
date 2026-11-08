@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ var embeddedRecommendList string
 type recommendEntry struct {
 	AppName string
 	Source  string
+	// Color 0.6.536（用户令）：该位横幅的极光配色（`aurora-1`..`aurora-12`）。
+	// 行尾第三段 / 空白后写 `aurora-N` 或裸数字 N；空 = 前端按应用名哈希取色。
+	Color string
 }
 
 const (
@@ -51,7 +55,26 @@ var (
 	recoFallbackTTL = 2 * time.Minute
 )
 
+// parseRecoColor 归一化一行里的配色写法：`aurora-3` / `Aurora3` / `3` → `aurora-3`；
+// 越界或认不出 → 空串（前端回落哈希取色，不因写错一个色号就丢掉整条推荐）。
+func parseRecoColor(tok string) string {
+	t := strings.ToLower(strings.TrimSpace(tok))
+	if t == "" {
+		return ""
+	}
+	t = strings.TrimPrefix(t, "aurora-")
+	t = strings.TrimPrefix(t, "aurora")
+	n, err := strconv.Atoi(strings.TrimSpace(t))
+	if err != nil || n < 1 || n > 12 {
+		return ""
+	}
+	return "aurora-" + strconv.Itoa(n)
+}
+
 // parseRecommendList 解析推荐清单文本。
+//
+// 0.6.536（用户令）：行尾可带极光配色——`appname@源名 aurora-3`（或裸 `3`），
+// 也接受第三段 `appname@源名@aurora-3`。配色不写 = 前端按应用名哈希取色（旧行为）。
 func parseRecommendList(body string) []recommendEntry {
 	seen := map[string]bool{}
 	out := make([]recommendEntry, 0, 8)
@@ -60,12 +83,34 @@ func parseRecommendList(body string) []recommendEntry {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if i := strings.IndexAny(line, " \t"); i > 0 { // 行尾注释
+		// 行内 # 注释（配色不含 #，可直接截断）
+		if i := strings.Index(line, "#"); i > 0 {
 			line = strings.TrimSpace(line[:i])
 		}
-		name, src := line, ""
-		if i := strings.Index(line, "@"); i > 0 {
-			name, src = strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+1:])
+		// 拆「条目 + 行尾附加段」：附加段里第一个合法色号即配色，其余忽略
+		// （兼容旧清单里 `appname 行尾注释` 的写法）。
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		head, color := fields[0], ""
+		for _, f := range fields[1:] {
+			if color = parseRecoColor(f); color != "" {
+				break
+			}
+		}
+		name, src := head, ""
+		parts := strings.Split(head, "@")
+		if len(parts) >= 2 {
+			// 第三段及以后：末段是合法色号 → 当配色，源码名取中间各段。
+			if len(parts) >= 3 {
+				if c := parseRecoColor(parts[len(parts)-1]); c != "" {
+					color = c
+					parts = parts[:len(parts)-1]
+				}
+			}
+			name = strings.TrimSpace(parts[0])
+			src = strings.TrimSpace(strings.Join(parts[1:], "@"))
 		}
 		if name == "" || strings.ContainsAny(name, "/\\") {
 			continue
@@ -75,7 +120,7 @@ func parseRecommendList(body string) []recommendEntry {
 			continue
 		}
 		seen[k] = true
-		out = append(out, recommendEntry{AppName: name, Source: src})
+		out = append(out, recommendEntry{AppName: name, Source: src, Color: color})
 		if len(out) >= recoListMaxItems {
 			break
 		}
@@ -83,12 +128,18 @@ func parseRecommendList(body string) []recommendEntry {
 	return out
 }
 
-// recommendListURL 生效的清单地址（配置空 → 内置公网默认）。
-func (s *Server) recommendListURL() string {
+// recommendListURLs 生效的清单地址候选：自定义地址优先；否则 lists/ 新路径
+// → 根目录旧地址（0.6.512 清单目录化，兼容旧文件与回滚）。
+func (s *Server) recommendListURLs() []string {
 	if u := strings.TrimSpace(s.Cfg.RecommendListURL); u != "" {
-		return u
+		return []string{u}
 	}
-	return config.DefaultRecommendListURL
+	return config.ListFileURLs(s.Cfg.ListBaseURL, "recommend_list.txt", config.DefaultRecommendListURL)
+}
+
+// recommendListURL 主清单地址（缓存键用第一个候选）。
+func (s *Server) recommendListURL() string {
+	return s.recommendListURLs()[0]
 }
 
 // recoListCandidates 清单拉取候选顺序：清单是 GitHub 地址时，**健康镜像
@@ -136,10 +187,26 @@ func recoListCandidates(listURL string, m *mirrorMonitor) []string {
 	return append(out, listURL)
 }
 
-// fetchRecommendListText 拉取清单：镜像优先 → 直连兜底；单候选
-// recoCandidateTimeout 超时。
+// fetchRecommendListText 拉取清单：自定义地址优先；未自定义时先读 lists/
+// 新路径，失败回落根目录旧地址（0.6.512 清单目录化）。
 func (s *Server) fetchRecommendListText(ctx context.Context) (string, error) {
-	listURL := s.recommendListURL()
+	var lastErr error
+	for _, listURL := range s.recommendListURLs() {
+		body, err := s.fetchRecommendListOne(ctx, listURL)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+	}
+	return "", fmt.Errorf("推荐清单获取失败: %w", lastErr)
+}
+
+// fetchRecommendListOne 拉单个清单地址：镜像优先 → 直连兜底；单候选
+// recoCandidateTimeout 超时。
+func (s *Server) fetchRecommendListOne(ctx context.Context, listURL string) (string, error) {
 	// 0.6.380（门 2 审计 D2）：清单地址是**管理员配置**的 URL（设置项
 	// recommend_list_url），与「应用源 URL / 自建镜像 / 源列表地址」同属
 	// 管理员显式配置的信任面；但清单内容只含 `appname@源名`（不含任何 URL），

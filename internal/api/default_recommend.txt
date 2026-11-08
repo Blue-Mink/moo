@@ -1,11 +1,13 @@
 # 发现页推荐位内置兜底清单（0.6.379）
 # 仅当远程 recommend_list 拉取失败且无历史成功值时使用；顺序即展示顺序。
 # 格式：一行一条 `appname@源名`，`#` 起注释。
-fnos-apps-store@fnos-store
-fndepot@Blue-Mink
-fn-knock@kci-lnk
-niudao@17funnyway8-ux
-fnmedia-ext@yujian0815
-fnmusic-ext@javycoder
-moo-mate@Blue-Mink
-dog-dev@Blue-Mink
+# 0.6.536：行尾可追加极光配色 `aurora-1`..`aurora-12`（或裸数字 1..12）。
+fnos-apps-store@fnos-store aurora-6
+fndepot@Blue-Mink aurora-9
+fn-knock@kci-lnk aurora-8
+opencode@CrRinko aurora-2
+fnmedia-ext@yujian0815 aurora-5
+fnmusic-ext@javycoder aurora-7
+wb2api@shuangji66 aurora-10
+moo-mate@Blue-Mink aurora-11
+dog-dev@Blue-Mink aurora-1

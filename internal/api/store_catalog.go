@@ -1305,8 +1305,10 @@ func releaseOrigin(url string) string {
 
 // resolveUpdateTargetSelection 已装应用更新目标的单一裁决入口（0.6.326x 单轴化）。
 //
-// update_policy 四档（互斥，取代原「三档策略 + 独立 auto_correct 开关」）：
+// update_policy 五档（互斥，取代原「三档策略 + 独立 auto_correct 开关」）：
 //   - ""/strict = 只认安装源自身最新（0.6.174 默认，零变化）；
+//   - auto     = 自动（推荐）：按应用来源自动判断——搬运应用跟随上游原作者
+//     （同 upstream 纠正），其余按 lineage 允许同仓库/同作者的新版本；
 //   - origin   = 同一发布仓库（download_url 归一 owner/repo）的新版也算；
 //   - lineage  = origin 之外 maintainer / distributor 相等也算同宗；
 //   - upstream = 强制上游：已装的搬运上游应用改用上游原作者版本，其余按 strict。
@@ -1317,13 +1319,19 @@ func releaseOrigin(url string) string {
 //
 // 兼容：0.6.326 的独立开关 auto_correct 若为 true（旧配置文件 / 旧客户端），
 // 等价于 upstream 档（策略值本身优先，仅当不是 upstream 时提升）。
-// 返回本轮**真正被纠正到上游**的应用明细（upstream 档才可能非空；其它档返回
+// 返回本轮**真正被纠正到上游**的应用明细（upstream / auto 档才可能非空；其它档返回
 // nil）——调用方（buildCatalog）锁外异步推 upstream_corrected 通知用，不参与
 // 任何判定。
 func resolveUpdateTargetSelection(out []AppInfo, policy string, autoCorrect bool, byName map[string]platform.InstalledApp) []upstreamCorrection {
 	pol := orStrict(policy)
-	if autoCorrect && pol != "upstream" {
+	if autoCorrect && pol != "upstream" && pol != "auto" {
 		pol = "upstream"
+	}
+	if pol == "auto" {
+		// 自动：先按同宗（同仓库/同作者）给目标，再把「有上游血缘」的搬运应用
+		// 纠正到上游原作者版本（上游版本更新时才覆盖，逻辑同 upstream 档）。
+		applyLineageUpdates(out, "lineage", byName)
+		return applyUpstreamCorrection(out, byName, true)
 	}
 	if pol == "upstream" {
 		// 严格 base：applyLineageUpdates 对 strict 是空操作，故不调用；

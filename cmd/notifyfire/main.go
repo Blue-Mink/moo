@@ -239,9 +239,10 @@ func cardPayload(e ev, now string) map[string]any {
 	if e.link {
 		jumpTitle = "查看完整 155 源明细"
 	}
+	// 0.6.539：与生产 sendWeComCard 对齐——不再带 source（卡片顶部「Moo」行
+	// 与群机器人发送者名重复），让 main_title + 时间成为首行。
 	tc := map[string]any{
 		"card_type":      "text_notice",
-		"source":         map[string]any{"desc": "Moo"},
 		"main_title":     map[string]any{"title": "Moo · " + e.label, "desc": e.group + " · " + now},
 		"sub_title_text": sub,
 		"jump_list": []map[string]any{

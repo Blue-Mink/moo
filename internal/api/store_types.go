@@ -85,11 +85,15 @@ type AppInfo struct {
 	Category         string `json:"category,omitempty"`
 	PostInstallNote  string `json:"post_install_note,omitempty"`
 	Source           string `json:"source,omitempty"`
-	Maintainer       string `json:"maintainer,omitempty"`
-	MaintainerURL    string `json:"maintainer_url,omitempty"`
-	Distributor      string `json:"distributor,omitempty"`
-	DistributorURL   string `json:"distributor_url,omitempty"`
-	Changelog        string `json:"changelog,omitempty"`
+	// RecoColor（0.6.536，用户令）：发现页推荐位该卡在远程清单里指定的极光
+	// 配色（`aurora-1`..`aurora-12`）。只有 GET /api/recommended 会带；其余
+	// 接口为空 = 前端按应用名哈希取色（旧行为）。仅展示用，不参与任何判定。
+	RecoColor      string `json:"reco_color,omitempty"`
+	Maintainer     string `json:"maintainer,omitempty"`
+	MaintainerURL  string `json:"maintainer_url,omitempty"`
+	Distributor    string `json:"distributor,omitempty"`
+	DistributorURL string `json:"distributor_url,omitempty"`
+	Changelog      string `json:"changelog,omitempty"`
 	// ChangelogEntries：changelog 解析后的版本化条目（最新在前），
 	// 供详情页「更新内容」列表渲染；无 changelog 时为空。
 	ChangelogEntries []ChangelogEntry `json:"changelog_entries,omitempty"`
@@ -259,10 +263,13 @@ type Settings struct {
 	DockerMirrorOptions []config.MirrorOption `json:"docker_mirror_options,omitempty"`
 	CustomGitHubMirror  string                `json:"custom_github_mirror,omitempty"`
 	CustomDockerMirror  string                `json:"custom_docker_mirror,omitempty"`
-	InstallVolume       int                   `json:"install_volume"`
-	VolumeOptions       []VolumeOption        `json:"volume_options,omitempty"`
-	DownloadDir         string                `json:"download_dir,omitempty"`
-	AutoUpdate          bool                  `json:"auto_update"`
+	// 0.6.521：多条自定义加速源（设置页一次添加多个）。单值字段=第一条。
+	CustomGitHubMirrors []string       `json:"custom_github_mirrors,omitempty"`
+	CustomDockerMirrors []string       `json:"custom_docker_mirrors,omitempty"`
+	InstallVolume       int            `json:"install_volume"`
+	VolumeOptions       []VolumeOption `json:"volume_options,omitempty"`
+	DownloadDir         string         `json:"download_dir,omitempty"`
+	AutoUpdate          bool           `json:"auto_update"`
 	// AutoCorrect（0.6.326 引入；0.6.326x 起**已弃用**）：语义并入
 	// UpdatePolicy="upstream"（强制上游）。仍透出（不带 omitempty）仅为兼容
 	// 旧前端；保存设置后恒为 false。

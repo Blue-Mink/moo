@@ -53,6 +53,11 @@ type View = 'status' | 'iframe' | 'code';
 // 输入框仍可手动覆盖任意地址（最终兜底）。
 
 const PANEL_BASE_KEY = 'moo.officialPanelBase';
+// 0.6.537（用户令）：Moo 由面板网关托管（/app/<name>）时，授权页与 Moo 同源最稳——
+// 端口/协议/证书都是浏览器已经信任的那一套，不再按 5666/5667 猜（猜错就会
+// 出现「http 打不开、只有 https 能开、但新标签页又能开」的情况）。
+const SERVED_BY_PANEL_GATEWAY = typeof window !== 'undefined'
+  && /^\/app\/[^/]+/.test(window.location.pathname);
 const loadSavedBase = (): string => {
   try { return localStorage.getItem(PANEL_BASE_KEY) || ''; } catch { return ''; }
 };
@@ -66,6 +71,7 @@ const clearSavedBase = () => {
 const guessPanelBase = (): string => {
   const saved = loadSavedBase();
   if (saved) return saved;
+  if (SERVED_BY_PANEL_GATEWAY) return window.location.origin;
   const host = window.location.hostname || 'localhost';
   if (!isLanHost(host.toLowerCase())) {
     // 网关/中继模式：面板与浏览器同入口，origin 自带正确协议与端口
@@ -93,6 +99,24 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
   const [hhPass, setHhPass] = useState('');
   // 0.6.349：用户手动改过面板地址 → 不被后端解析值覆盖
   const baseDirtyRef = useRef(false);
+  // 0.6.537（用户令）：新标签页授权——内嵌窗口被自签名证书/跨源 Cookie 拦住时，
+  // 新标签页是唯一可靠路径（浏览器允许在顶层页面确认证书）。
+  const [openedInTab, setOpenedInTab] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
+
+  // 0.6.537：授权页风险判定（不改安全策略，只决定默认推荐哪种打开方式）
+  const baseInfo = React.useMemo(() => {
+    try {
+      const u = new URL(base.trim());
+      return { origin: u.origin, https: u.protocol === 'https:' };
+    } catch { return null; }
+  }, [base]);
+
+  // ── 0.6.537：新标签页授权（跨源 / 自签名证书 / 内嵌被拦时的可靠路径） ──
+  // 说明：回调定义在 startAuthorize 之后（需要先有 setView 等状态）。
+  const insecurePage = typeof window !== 'undefined' && !window.isSecureContext;
+  const crossOrigin = !!baseInfo && baseInfo.origin !== window.location.origin;
+  const preferNewTab = crossOrigin;
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -102,6 +126,7 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
       // 局域网直连时优先于前端猜测（回环 → 页面主机名，端口保留）；
       // 网关/中继模式仍用当前 origin（端口天然跟随）。用户手改/已记忆不覆盖。
       if (s.panel_base && !baseDirtyRef.current && !loadSavedBase()
+          && !SERVED_BY_PANEL_GATEWAY
           && isLanHost(window.location.hostname.toLowerCase())) {
         setBase(panelBaseForBrowser(s.panel_base, window.location.hostname));
       }
@@ -115,6 +140,8 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
       setView('status');
       setCode('');
       setBusy(false);
+      setOpenedInTab(false);
+      setPopupBlocked(false);
       void refreshStatus();
     }
   }, [open, refreshStatus]);
@@ -134,7 +161,7 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
     clearSavedBase();
     baseDirtyRef.current = false;
     // 局域网直连且后端已解析出端口 → 回到解析值；否则回自动识别
-    if (status?.panel_base && isLanHost(window.location.hostname.toLowerCase())) {
+    if (status?.panel_base && !SERVED_BY_PANEL_GATEWAY && isLanHost(window.location.hostname.toLowerCase())) {
       setBase(panelBaseForBrowser(status.panel_base, window.location.hostname));
     } else {
       setBase(guessPanelBase());
@@ -149,6 +176,35 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
       setAuthUrl(url);
       setView('iframe');
     } catch (e) {
+      toast.error(e instanceof Error ? e.message : '发起授权失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [base]);
+
+  // ── 0.6.537：新标签页授权（跨源 / 自签名证书 / 内嵌被拦时的可靠路径） ──
+  // 同步先开空白页（必须在用户手势内），拿到 URL 后再导航——否则 await 之后
+  // 再 window.open 会被浏览器按弹窗拦截。
+  const openAuthTab = useCallback(async () => {
+    let win: Window | null = null;
+    try { win = window.open('', '_blank'); } catch { win = null; }
+    if (win) { try { win.opener = null; } catch { /* 忽略 */ } }
+    setPopupBlocked(false);
+    setBusy(true);
+    try {
+      const { url } = await officialAuthorize(base.trim() || undefined);
+      setAuthUrl(url);
+      setOpenedInTab(true);
+      setView('code');
+      if (win) {
+        win.location.href = url;
+        toast.info('已在新标签页打开授权页：登录并授权后，复制验证码粘贴到这里');
+      } else {
+        setPopupBlocked(true);
+        toast.warning('浏览器拦截了新标签页，请点下方「打开授权页」继续');
+      }
+    } catch (e) {
+      if (win) { try { win.close(); } catch { /* 忽略 */ } }
       toast.error(e instanceof Error ? e.message : '发起授权失败');
     } finally {
       setBusy(false);
@@ -327,6 +383,21 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
                 </div>
               </div>
               )}
+              {/* 0.6.537（用户令）：把「http 为什么打不开 / 为什么要新标签页」讲清楚；
+                  只影响提示与默认推荐，不改变安全策略（授权页始终是面板自己的 /signin，
+                  仍走 PKCE + 一次性验证码）。 */}
+              {!authorized && (insecurePage || crossOrigin) && (
+                <div className="rounded-lg border border-border/40 bg-muted/30 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                  {insecurePage && <>当前通过 HTTP 打开 Moo，部分浏览器会限制内嵌页面的登录（加密接口 / 第三方 Cookie）。</>}
+                  {crossOrigin && (
+                    <> 授权页 <span className="break-all font-mono">{baseInfo?.origin}</span> 与当前页面不同源；
+                      {baseInfo?.https
+                        ? '面板若使用 HTTPS 自签名证书，内嵌窗口无法确认证书（顶层标签页可以）。'
+                        : '内嵌页面可能因 Cookie 限制无法保持登录。'}</>
+                  )}
+                  {' '}内嵌打不开时，请用「新标签页授权」。
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Button variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={() => onOpenChange(false)}>
                   关闭
@@ -346,11 +417,29 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
                   </Button>
                 ) : (
                   // 0.6.260：按钮名「OAuth授权登录」——页面内 OAuth 授权码流程
-                  // （授权页内登录 + 点授权 + 验证码），与旧面板「临时登录面板」分开
-                  <Button size="sm" className="h-8" onClick={startAuthorize} disabled={busy}>
-                    {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1 h-3.5 w-3.5" />}
-                    OAuth授权登录
-                  </Button>
+                  // （授权页内登录 + 点授权 + 验证码），与旧面板「临时登录面板」分开。
+                  // 0.6.537（用户令）：新增「新标签页授权」——跨源/自签名证书时浏览器
+                  // 只允许顶层页面确认证书，内嵌窗口会直接失败；两条路径共用后端生成的
+                  // 同一个 PKCE 授权 URL，验证码仍由后端 verifier 校验（5 分钟一次性）。
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {/* 0.6.538（用户令）：「新标签页授权」移到「OAuth授权登录」前面——
+                        内嵌窗口在证书 / Cookie 限制下打不开时，靠前的按钮才是可靠路径。 */}
+                    <Button
+                      variant={preferNewTab ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-8"
+                      onClick={openAuthTab}
+                      disabled={busy}
+                      title="在新标签页打开授权页：内嵌窗口打不开（证书 / Cookie 限制）时用这个"
+                    >
+                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                      新标签页授权
+                    </Button>
+                    <Button variant={preferNewTab ? 'outline' : 'default'} size="sm" className="h-8" onClick={startAuthorize} disabled={busy}>
+                      {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <KeyRound className="mr-1 h-3.5 w-3.5" />}
+                      OAuth授权登录
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -379,7 +468,7 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
               <a
                 href={authUrl}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
                 title="若内嵌页面异常，可在新标签页打开"
                 aria-label="新标签页打开授权页"
@@ -391,12 +480,28 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
                 手机上单手可看到「返回输入」顶栏 + 授权页主体） */}
             <div className="bg-muted/30 p-2">
               {slowTip && (
-                <div className="mx-0.5 mb-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-                  <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin" />
-                  <span>
-                    授权页加载较慢或无法打开。可点右上角 ↗ 在新标签页打开，
-                    或返回修改「面板地址」后重试（网关拦截内嵌页面时新标签页通常可用）。
-                  </span>
+                <div className="mx-0.5 mb-2 space-y-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                  <div className="flex items-start gap-1.5">
+                    <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin" />
+                    <span>
+                      授权页加载较慢或无法打开（面板 HTTPS 自签名证书、跨源 Cookie 限制、
+                      网关拦截内嵌页面都会这样）。
+                    </span>
+                  </div>
+                  {/* 0.6.537（用户令）：给出可点的出口，而不只是让用户找右上角小箭头 */}
+                  <div className="flex flex-wrap items-center gap-1.5 pl-[18px]">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 border-amber-600/40 bg-amber-500/10 px-2 text-[11px] text-amber-800 hover:bg-amber-500/20 dark:text-amber-200"
+                      onClick={openAuthTab}
+                      disabled={busy}
+                    >
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                      在新标签页打开授权页
+                    </Button>
+                    <span className="text-[10px] opacity-80">或返回修改「面板地址」后重试</span>
+                  </div>
                 </div>
               )}
               <iframe
@@ -433,6 +538,26 @@ export const OfficialOAuthDialog: React.FC<OfficialOAuthDialogProps> = ({
                 className="h-12 text-center font-mono text-base tracking-widest"
                 onKeyDown={(e) => { if (e.key === 'Enter') void submitCode(); }}
               />
+              {/* 0.6.537：新标签页授权后的引导（弹窗被拦时给可点的兜底链接） */}
+              {(openedInTab || popupBlocked) && (
+                <div className="space-y-1.5 rounded-lg border border-border/40 bg-muted/30 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                  <div>
+                    {openedInTab
+                      ? '已在新标签页打开授权页：登录 → 授权 → 复制验证码，回到这里粘贴提交。'
+                      : '浏览器拦截了新标签页，请点下方按钮手动打开授权页。'}
+                  </div>
+                  {authUrl && (
+                    <a
+                      href={authUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />打开授权页
+                    </a>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2">
                 <Button variant="ghost" size="sm" className="h-9" onClick={cancelAuth}>
                   取消授权

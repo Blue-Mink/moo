@@ -145,6 +145,9 @@ const (
 	// 失败。FPK 普遍 5–50MB，低于 150KB/s 在现代宽带上属于不可用档。
 	ghProbeMinBytes    = 1536 * 1024
 	ghProbeReadTimeout = 10 * time.Second
+	// ghProbeBatchSize 单批并发探测数（0.6.526）：全部源同时拉 2MB 会把出口
+	// 带宽打满、排名每轮翻转（详见 probeGh 注释）；批内并发、批间串行。
+	ghProbeBatchSize = 8
 )
 
 type mirrorProbeRes struct {
@@ -301,49 +304,58 @@ func (m *mirrorMonitor) bumpGhFail(st *MirrorStat) {
 // 镜像（读前 2MB 测 MB/s），更新 ghStats/ghFails/lastProbeGh。
 // 后台间隔由 mirrorProbeLoopGh 按配置（gh_probe_hours/minutes）驱动。
 func (m *mirrorMonitor) probeGh() {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	gh := make(chan mirrorProbeRes, 32)
-
-	ghProbe := func(ch chan mirrorProbeRes, opt config.MirrorOption) {
-		ch <- mirrorProbeRes{opt.Key, m.probeGhOne(ctx, opt)}
-	}
-
-	var wg sync.WaitGroup
-	for _, opt := range config.GitHubMirrorOptions() {
-		if opt.URL == "" {
-			continue // auto/direct/custom 不可探测
-		}
-		wg.Add(1)
-		go func(o config.MirrorOption) {
-			defer wg.Done()
-			ghProbe(gh, o)
-		}(opt)
-	}
 	// 0.6.321 F7：「智能选源包含直连」开启（默认关=零行为变化）时追加合成
-	// 候选 direct——探同一 pinned 资产（raw 直链），bestKey 可返回 direct
+	// 候选 direct——探同一 pinned 资产，bestKey 可返回 direct
 	// = 直连参与排名而非仅兜底（#4 建议 #1 承接；知情开启，大陆无代理场景
 	// 直连常态慢，开关默认关）。
 	// 0.6.333 F1：URL 留空——地址由 ghProbeURL 按 key=direct 拼 https://+资产。
 	m.mu.Lock()
 	includeDirect := m.ghIncludeDirect
 	m.mu.Unlock()
-	if includeDirect {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ghProbe(gh, config.MirrorOption{Key: "direct", Label: "直连 GitHub"})
-		}()
+
+	opts := make([]config.MirrorOption, 0, 24)
+	for _, opt := range config.GitHubMirrorOptions() {
+		if opt.URL == "" {
+			continue // auto/direct/custom 不可探测
+		}
+		opts = append(opts, opt)
 	}
-	wg.Wait()
-	close(gh)
+	if includeDirect {
+		opts = append(opts, config.MirrorOption{Key: "direct", Label: "直连 GitHub"})
+	}
+
+	// 0.6.526（用户实报「自动选最快有时候没选到最快」）：分批探测。
+	// 原实现把全部源（实测 19 个）同时发起、各读前 2MB——出口带宽被瞬时
+	// 打满，测出来的是「谁抢到带宽」而不是「谁真的快」：同一源相邻两轮
+	// 7.28MB/s ↔ 1.0MB/s、直连 7.4MB/s ↔ 超时，排名每轮翻转，优选自然
+	// 常常选不到真最快的。改批内并发、批间串行（总流量不变；总耗时最多
+	// 批数×12s，后台循环每 5 分钟一轮，可接受）。
+	ghMap := map[string]MirrorStat{}
+	for i := 0; i < len(opts); i += ghProbeBatchSize {
+		end := i + ghProbeBatchSize
+		if end > len(opts) {
+			end = len(opts)
+		}
+		batch := opts[i:end]
+		bctx, bcancel := context.WithTimeout(context.Background(), ghProbeReadTimeout+2*time.Second)
+		ch := make(chan mirrorProbeRes, len(batch))
+		var wg sync.WaitGroup
+		for _, opt := range batch {
+			wg.Add(1)
+			go func(o config.MirrorOption) {
+				defer wg.Done()
+				ch <- mirrorProbeRes{o.Key, m.probeGhOne(bctx, o)}
+			}(opt)
+		}
+		wg.Wait()
+		bcancel()
+		close(ch)
+		for r := range ch {
+			ghMap[r.key] = r.ms
+		}
+	}
 
 	// 按声明顺序收集（保持前端列表顺序）
-	ghMap := map[string]MirrorStat{}
-	for r := range gh {
-		ghMap[r.key] = r.ms
-	}
 	ghOut := make([]MirrorStat, 0, len(ghMap))
 	for _, opt := range config.GitHubMirrorOptions() {
 		if st, ok := ghMap[opt.Key]; ok {
@@ -1065,7 +1077,12 @@ func (s *Server) ghOrderedKeys() []string {
 		}
 		out := make([]string, 0, len(tops)+1)
 		out = append(out, "custom")
-		return append(out, tops...)
+		for _, k := range tops {
+			if k != "custom" {
+				out = append(out, k)
+			}
+		}
+		return out
 	default:
 		// 0.6.333 F2：limited（限流）不剔除手选源，与 evaluateMirror 同口径。
 		if statusOf(s.Mirrors.gh(), mirror) == "fail" {

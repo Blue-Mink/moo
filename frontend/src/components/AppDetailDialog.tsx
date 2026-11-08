@@ -170,8 +170,14 @@ export const zoomableImagesIn = (container: HTMLElement): HTMLImageElement[] =>
    给（对话框移动 24rem/桌面 28rem；详情卡片更矮以适配卡高）。
    ReadmeRender：README 正文渲染（HTML/Markdown 双分支 + 图片代理 + 表格
    横滚容器），对话框与卡片共用 → 两处布局逐字节一致。 */
-export const SmallBox: React.FC<{ children: React.ReactNode; maxH?: string }> = ({ children, maxH = "max-h-[24rem] sm:max-h-[28rem]" }) => (
-  <div className={cn("my-2 overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3", maxH)}>
+export const SmallBox: React.FC<{ children: React.ReactNode; maxH?: string; plain?: boolean }> = ({ children, maxH = "max-h-[24rem] sm:max-h-[28rem]", plain = false }) => (
+  <div className={cn(
+    "overflow-y-auto overscroll-contain no-scrollbar px-4 py-3",
+    // 0.6.537（用户令）：关于页更新日志不要「镶嵌式内框」——plain 模式去掉圆角/描边/外边距，
+    // 换成与日志页同款的整卡铺满浅面板（由父卡片 overflow-hidden 收边）。
+    plain ? "bg-zinc-950/[0.045] dark:bg-black/35" : "my-2 rounded-xl border border-border/50 bg-muted/20",
+    maxH,
+  )}>
     {children}
   </div>
 );
@@ -181,8 +187,10 @@ export const ReadmeRender: React.FC<{
   /** 0.6.508：图片点开看大图（详情页传入；更新日志等不传则行为不变） */
   onImageClick?: React.MouseEventHandler<HTMLElement>;
   onImageHover?: React.MouseEventHandler<HTMLElement>;
-}> = ({ readme, appKey, maxH, onImageClick, onImageHover }) => (
-  <SmallBox maxH={maxH}>
+  /** 0.6.537：无内框铺满模式（关于页更新日志用） */
+  plain?: boolean;
+}> = ({ readme, appKey, maxH, onImageClick, onImageHover, plain = false }) => (
+  <SmallBox maxH={maxH} plain={plain}>
     <div onErrorCapture={handleReadmeImgError} onClick={onImageClick} onMouseOver={onImageHover} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
       [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
       [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
@@ -258,13 +266,15 @@ interface AppDetailDialogProps {
 
 export const DetailRow: React.FC<{ icon: React.ElementType; label: string; className?: string; children: React.ReactNode }> = ({ icon: Icon, label, className, children }) => (
   /* 0.6.337（用户定稿）：信息行改两列网格后，行宽只有卡片一半（移动端约 150px）
-     → 图标与文字间距 12→8px（sm 以上恢复 12px），并允许整行被网格拉伸。 */
-  <div className={cn("flex items-start gap-2 sm:gap-3 py-2 min-w-0", className)}>
-    <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+     → 图标与文字间距 12→8px（sm 以上恢复 12px），并允许整行被网格拉伸。
+     0.6.533（用户令）：行距收紧、标签与取值行高对齐——两列网格里长短取值
+     不再把相邻行挤得忽高忽低。 */
+  <div className={cn("flex items-start gap-2 sm:gap-3 py-1.5 min-w-0", className)}>
+    <Icon className="h-4 w-4 mt-[3px] text-muted-foreground shrink-0" />
     <div className="flex-1 min-w-0">
-      <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+      <p className="text-xs leading-tight text-muted-foreground">{label}</p>
       {/* 0.6.319e（用户定稿）：回 14px 常规 + foreground/70（与简介同款，提一点点亮色） */}
-      <div className="text-sm text-foreground/70 break-words">{children}</div>
+      <div className="mt-0.5 text-sm leading-snug text-foreground/70 break-words">{children}</div>
     </div>
   </div>
 );
@@ -1803,11 +1813,11 @@ mdsSim && "mds-sim")}>
             const k = (app.install_type || '').trim().toLowerCase();
             let mode = '';
             if (['root', 'sudo', 'administrator', 'system', 'system-space', '系统空间', '系統空間', 'storage', 'volume', 'storage-space', '存储空间'].includes(k)) {
-              mode = '系统空间（root）';
+              mode = 'root';
             } else if (['package', 'user', 'user-space', 'userspace', '用户空间'].includes(k)) {
-              mode = '用户空间（package）';
+              mode = 'package';
             } else if (isInstalled && (app.install_path || '').startsWith('/var/apps/')) {
-              mode = '系统空间（root）';
+              mode = 'root';
             }
             return mode ? (<DetailRow icon={ShieldCheck} label="运行方式">{mode}</DetailRow>) : null;
           })()}

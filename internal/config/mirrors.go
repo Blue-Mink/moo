@@ -1,5 +1,11 @@
 package config
 
+import (
+	"fmt"
+	"strings"
+	"sync"
+)
+
 // MirrorOption 是一个加速源选项（GitHub 文件加速 / Docker 镜像加速）。
 // 列表与 New Store 对齐（2026-09 实测排序），声明顺序 = 无健康数据时的静态回退顺序。
 type MirrorOption struct {
@@ -9,8 +15,198 @@ type MirrorOption struct {
 	Description string `json:"description,omitempty"`
 }
 
+// 0.6.512：加速源清单改为「远端清单驱动 + 本机覆盖」。
+//   - SetRemoteMirrorOptions：lists/github_mirrors.txt / docker_mirrors.txt 拉到的
+//     内容，覆盖内置清单（空 = 回落内置，保证离线/拉取失败时行为不变）；
+//   - SetHiddenMirrors：本机「删除默认源」的屏蔽集合，只影响本机展示与候选，
+//     远端清单一更新也不会把它顶回来；「恢复」= 清空该集合。
+var (
+	mirrorMu     sync.RWMutex
+	remoteGH     []MirrorOption
+	remoteDK     []MirrorOption
+	hiddenMirror = map[string]bool{}
+	customGH     []string
+	customDK     []string
+)
+
+// 0.6.521：多条自定义加速源。选项表按 custom / custom-2 / custom-3 … 注入，
+// 第一条沿用旧 key「custom」（存量 mirror="custom" 配置无需迁移）。
+func SetCustomMirrors(gh, dk []string) {
+	mirrorMu.Lock()
+	customGH = normalizeCustomList(gh)
+	customDK = normalizeCustomList(dk)
+	mirrorMu.Unlock()
+}
+
+func normalizeCustomList(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, raw := range in {
+		v := strings.TrimSpace(raw)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+		if len(out) >= 20 {
+			break
+		}
+	}
+	return out
+}
+
+// GitHubCustomMirrors / DockerCustomMirrors 返回配置里的完整自定义列表
+// （旧单值字段在前；用于启动预热与保存后同步内存选项表）。
+func (c *Config) GitHubCustomMirrors() []string {
+	return mergeCustomMirrors(c.CustomGitHubMirror, c.CustomGitHubMirrors)
+}
+
+func (c *Config) DockerCustomMirrors() []string {
+	return mergeCustomMirrors(c.CustomDockerMirror, c.CustomDockerMirrors)
+}
+
+func mergeCustomMirrors(single string, list []string) []string {
+	out := make([]string, 0, len(list)+1)
+	if v := strings.TrimSpace(single); v != "" {
+		out = append(out, v)
+	}
+	out = append(out, list...)
+	return normalizeCustomList(out)
+}
+
+// injectCustomMirrors 把自定义地址注入选项表：第一条占旧「custom」位，
+// 其余依次 custom-2/custom-3…，并跳过远端清单里可能存在的同前缀项。
+func injectCustomMirrors(opts []MirrorOption, customs []string) []MirrorOption {
+	out := make([]MirrorOption, 0, len(opts)+len(customs))
+	inserted := false
+	for _, o := range opts {
+		if strings.HasPrefix(o.Key, "custom-") {
+			continue
+		}
+		if o.Key != "custom" {
+			out = append(out, o)
+			continue
+		}
+		if len(customs) == 0 {
+			out = append(out, o)
+			inserted = true
+			continue
+		}
+		first := o
+		first.URL = customs[0]
+		out = append(out, first)
+		for i, u := range customs[1:] {
+			n := i + 2
+			out = append(out, MirrorOption{
+				Key:   fmt.Sprintf("custom-%d", n),
+				Label: fmt.Sprintf("自定义 %d", n),
+				URL:   u,
+			})
+		}
+		inserted = true
+	}
+	if !inserted && len(customs) > 0 {
+		idx := len(out)
+		for i, o := range out {
+			if o.Key == "direct" {
+				idx = i
+				break
+			}
+		}
+		ins := make([]MirrorOption, 0, len(customs))
+		for i, u := range customs {
+			key, label := "custom", "自定义"
+			if i > 0 {
+				key, label = fmt.Sprintf("custom-%d", i+1), fmt.Sprintf("自定义 %d", i+1)
+			}
+			ins = append(ins, MirrorOption{Key: key, Label: label, URL: u})
+		}
+		out = append(out[:idx], append(ins, out[idx:]...)...)
+	}
+	return out
+}
+
+// SetRemoteMirrorOptions 用远端清单覆盖内置加速源（空切片 = 回落内置）。
+func SetRemoteMirrorOptions(gh, dk []MirrorOption) {
+	mirrorMu.Lock()
+	defer mirrorMu.Unlock()
+	remoteGH, remoteDK = gh, dk
+}
+
+// RemoteMirrorOptions 当前生效的远端清单（调试/接口回显用）。
+func RemoteMirrorOptions() (gh, dk []MirrorOption) {
+	mirrorMu.RLock()
+	defer mirrorMu.RUnlock()
+	return append([]MirrorOption(nil), remoteGH...), append([]MirrorOption(nil), remoteDK...)
+}
+
+// SetHiddenMirrors 设置本机屏蔽的加速源 key（auto/custom/direct 永不可屏蔽）。
+func SetHiddenMirrors(keys []string) {
+	m := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if k == "" || k == "auto" || k == "custom" || k == "direct" {
+			continue
+		}
+		m[k] = true
+	}
+	mirrorMu.Lock()
+	hiddenMirror = m
+	mirrorMu.Unlock()
+}
+
+// HiddenMirrors 本机屏蔽的 key 列表（顺序不稳定，仅用于设置回显）。
+func HiddenMirrors() []string {
+	mirrorMu.RLock()
+	defer mirrorMu.RUnlock()
+	out := make([]string, 0, len(hiddenMirror))
+	for k := range hiddenMirror {
+		out = append(out, k)
+	}
+	return out
+}
+
+// effectiveMirrors 远端清单优先、内置兜底，再按本机屏蔽集合过滤。
+func effectiveMirrors(remote []MirrorOption, builtin func() []MirrorOption) []MirrorOption {
+	mirrorMu.RLock()
+	defer mirrorMu.RUnlock()
+	src := builtin()
+	if len(remote) > 0 {
+		src = remote
+	}
+	if len(hiddenMirror) == 0 {
+		return append([]MirrorOption(nil), src...)
+	}
+	out := make([]MirrorOption, 0, len(src))
+	for _, o := range src {
+		if hiddenMirror[o.Key] {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
 // GitHubMirrorOptions GitHub 文件加速源（含 auto/custom/direct 特殊项）。
 func GitHubMirrorOptions() []MirrorOption {
+	mirrorMu.RLock()
+	customs := append([]string(nil), customGH...)
+	remote := append([]MirrorOption(nil), remoteGH...)
+	mirrorMu.RUnlock()
+	return injectCustomMirrors(effectiveMirrors(remote, builtinGitHubMirrorOptions), customs)
+}
+
+// DockerMirrorOptions Docker 镜像加速源（M4 接入 docker 拉取管线前仅展示/探测）。
+func DockerMirrorOptions() []MirrorOption {
+	mirrorMu.RLock()
+	customs := append([]string(nil), customDK...)
+	remote := append([]MirrorOption(nil), remoteDK...)
+	mirrorMu.RUnlock()
+	return injectCustomMirrors(effectiveMirrors(remote, builtinDockerMirrorOptions), customs)
+}
+
+// builtinGitHubMirrorOptions 内置 GitHub 加速源（远端清单不可用时的兜底）。
+func builtinGitHubMirrorOptions() []MirrorOption {
 	return []MirrorOption{
 		{Key: "auto", Label: "智能 · 自动选最快", Description: "系统周期性测速各源，自动选用最快且稳定的加速源"},
 		{Key: "gh-proxy-hk", Label: "GH-Proxy HK", URL: "https://hk.gh-proxy.org/", Description: "HK 节点，实测最快（419ms）"},
@@ -44,8 +240,8 @@ func GitHubMirrorOptions() []MirrorOption {
 	}
 }
 
-// DockerMirrorOptions Docker 镜像加速源（M4 接入 docker 拉取管线前仅展示/探测）。
-func DockerMirrorOptions() []MirrorOption {
+// builtinDockerMirrorOptions 内置 Docker 镜像加速源（远端清单不可用时的兜底）。
+func builtinDockerMirrorOptions() []MirrorOption {
 	return []MirrorOption{
 		{Key: "auto", Label: "智能 · 自动选最快", Description: "系统周期性测速各源，自动选用最快且稳定的加速源"},
 		{Key: "daocloud", Label: "DaoCloud", URL: "https://m.daocloud.io/", Description: "DaoCloud 公共 Docker 镜像加速"},

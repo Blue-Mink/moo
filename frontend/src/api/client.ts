@@ -138,6 +138,12 @@ export interface AppInfo {
   post_install_note?: string;
   /** 应用来自哪个目录源（内置目录无此字段；外部 FnDepot 源为其显示名）。 */
   source?: string;
+  /**
+   * 0.6.536（用户令）：发现页推荐位该卡的极光配色（`aurora-1`..`aurora-12`），
+   * 由远程清单 recommend_list 行尾指定；只有 GET /api/recommended 会带，
+   * 缺省 = 前端按应用名哈希取色（旧行为）。
+   */
+  reco_color?: string;
   // 外部源详情页扩展元数据（内置目录应用无这些字段）。
   maintainer?: string;
   maintainer_url?: string;
@@ -599,6 +605,26 @@ export const installApp = (appname: string, onEvent: SSECallback, wizard?: Wizar
 export const stageApp = (appname: string, onEvent: SSECallback): SSEHandle =>
   streamSSE(apiUrl(`/api/apps/${appname}/stage`), onEvent);
 
+/** 0.6.524（用户令）：KSpeeder 安装包信息改为读远端清单 lists/kspeeder.txt。 */
+export interface KspeederLatest {
+  arch: string;
+  version: string;
+  filename: string;
+  url: string;
+  sha256: string;
+  size: number;
+}
+
+export const fetchKspeederLatest = async (): Promise<KspeederLatest> => {
+  const r = await apiFetch(apiUrl('/api/kspeeder/latest'));
+  if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+  return await r.json() as KspeederLatest;
+};
+
+/** 按远端清单下载 + 校验 + 安装 KSpeeder（SSE 进度）。 */
+export const installKspeeder = (onEvent: SSECallback): SSEHandle =>
+  streamSSE(apiUrl('/api/kspeeder/install'), onEvent);
+
 /** 「下载 fpk」：后端按镜像链下载 FPK 到本地缓存，并登记进面板官方下载通道（SSE 进度）。 */
 export const downloadFpk = (appname: string, onEvent: SSECallback): SSEHandle =>
   streamSSE(apiUrl(`/api/apps/${appname}/download-task`), onEvent);
@@ -733,6 +759,9 @@ export interface Settings {
   docker_mirror_options?: MirrorOption[];
   custom_github_mirror?: string;
   custom_docker_mirror?: string;
+  // 0.6.521：多条自定义加速源（单值字段=第一条）
+  custom_github_mirrors?: string[];
+  custom_docker_mirrors?: string[];
   install_volume: number;
   volume_options?: VolumeOption[];
   // 内置源列表自动同步（空/缺省 = 内置默认列表地址）
@@ -1391,7 +1420,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; custom_github_mirrors?: string[]; custom_docker_mirrors?: string[]; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1424,6 +1453,29 @@ export const fetchDockerMirrorStatus = async (): Promise<DockerMirrorStatus> => 
   if (!res.ok) throw new Error(`获取 Docker 镜像源状态失败: ${res.status}`);
   return res.json();
 };
+/** 0.6.512 清单目录化：加速源清单同步 / 恢复 / 本机删除默认源。 */
+export const syncMirrorLists = async (): Promise<{ ok: boolean; github?: number; docker?: number; error?: string }> => {
+  const res = await apiFetch(apiUrl('/api/mirrors/sync'), { method: 'POST' });
+  if (!res.ok) throw new Error(await extractError(res, `同步加速源清单失败: ${res.status}`));
+  return res.json();
+};
+
+export const restoreMirrorLists = async (): Promise<{ ok: boolean; github?: number; docker?: number; error?: string }> => {
+  const res = await apiFetch(apiUrl('/api/mirrors/restore'), { method: 'POST' });
+  if (!res.ok) throw new Error(await extractError(res, `恢复默认加速源失败: ${res.status}`));
+  return res.json();
+};
+
+export const setMirrorHidden = async (body: { keys?: string[]; add?: string[]; remove?: string[] }): Promise<{ ok: boolean; hidden: string[] }> => {
+  const res = await apiFetch(apiUrl('/api/mirrors/hidden'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await extractError(res, `保存删除记录失败: ${res.status}`));
+  return res.json();
+};
+
 export const applyDockerMirror = async (
   mirror: string,
   customUrl: string,
@@ -1719,6 +1771,22 @@ export const fetchAbout = async (): Promise<AboutInfo> => {
   const response = await apiFetch(apiUrl('/api/about'));
   if (!response.ok) {
     throw new Error(await extractError(response, `Failed to fetch about: ${response.statusText}`));
+  }
+  return response.json();
+};
+
+/** 0.6.531：关于页「内存占用」实时数据（3s 轮询；与 /api/about 分离，不触发清单刷新）。 */
+export interface AboutMem {
+  rss_bytes: number;
+  heap_bytes: number;
+  sys_bytes: number;
+  goroutines: number;
+}
+
+export const fetchAboutMem = async (): Promise<AboutMem> => {
+  const response = await apiFetch(apiUrl('/api/about/mem'));
+  if (!response.ok) {
+    throw new Error(await extractError(response, `Failed to fetch about mem: ${response.statusText}`));
   }
   return response.json();
 };

@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { pickFeaturedApps } from '../lib/recoPins';
 import { ChevronRight, Flame, Clock } from 'lucide-react';
 import AppIcon from './AppIcon';
+import { AURORA_COUNT, auroraAt, auroraIndex } from './ViewModeGrids';
 
 interface FeaturedShowcaseProps {
   apps: AppInfo[];
@@ -15,7 +16,10 @@ interface FeaturedShowcaseProps {
   featured?: AppInfo[];
 }
 
-const GRADIENTS = ['hero-gradient-1', 'hero-gradient-2', 'hero-gradient-3'];
+/* 0.6.535（用户令）：此前 3 色 hero-gradient 循环（i % 3）——只有蓝紫/青蓝/橙红
+   三种，4 张卡就重复。改为与「极光模式」同一套 12 色板：按应用名哈希取色
+   （随机感分布），再对同屏卡做「撞色后移一格」的去重——同一应用恒同色
+   （刷新/重渲染不变色，不闪），同屏推荐卡不会出现两张一样。 */
 
 /** 取应用简介首行作为横幅副标题（HTML 描述先纯文本化，避免露出标签） */
 const tagline = (app: AppInfo) => {
@@ -110,6 +114,25 @@ const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, fea
 
   if (featured.length === 0) return null;
 
+  // 0.6.535：12 色极光按应用名哈希取色；同屏撞色时顺序后移一格（最多试满一圈）。
+  // 0.6.536（用户令）：远程清单行尾写明 `aurora-N` 的卡**以清单为准**（不做移位，
+  // 方便手动配色）；未写色的卡沿用哈希，并避开同屏已用色（含清单指定色）。
+  const featuredColors = (() => {
+    const used = new Set<number>();
+    const explicit = featured.map(app => {
+      const m = /^aurora-(1[0-2]|[1-9])$/.exec((app.reco_color || '').trim());
+      return m ? Number(m[1]) - 1 : -1;
+    });
+    for (const i of explicit) if (i >= 0) used.add(i);
+    return featured.map((app, idx) => {
+      if (explicit[idx] >= 0) return auroraAt(explicit[idx]);
+      let i = auroraIndex(app.appname || app.display_name || '');
+      for (let k = 0; k < AURORA_COUNT && used.has(i); k++) i = (i + 1) % AURORA_COUNT;
+      used.add(i);
+      return auroraAt(i);
+    });
+  })();
+
   // 0.6.379（用户令「自适应」）：横幅列数随条数走，且**不补位**——
   //   1 条 → 整行；2 条 → 两列；4 条 → 2×2；其余（3/5/6/7+）→ 3 列自然换行。
   // 用静态类名（动态拼接会被 Tailwind 清掉）。
@@ -129,7 +152,7 @@ const FeaturedShowcase: React.FC<FeaturedShowcaseProps> = ({ apps, onDetail, fea
             key={app.appname}
             app={app}
             onDetail={onDetail}
-            className={cn(GRADIENTS[i % GRADIENTS.length])}
+            className={cn(featuredColors[i])}
           />
         ))}
       </div>

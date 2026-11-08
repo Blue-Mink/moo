@@ -248,6 +248,12 @@ func main() {
 		Official:  official.NewManager(dataDir),
 	}
 	pipe.FPKCandidates = srv.FpkCandidates
+	// 0.6.512：清单目录化——本机屏蔽的加速源生效，并后台预热远端清单
+	// （lists/github_mirrors.txt / docker_mirrors.txt；失败静默回落内置清单）。
+	config.SetHiddenMirrors(cfg.HiddenMirrors)
+	// 0.6.521：多条自定义加速源注入选项表（单值旧字段在前，兼容存量配置）。
+	config.SetCustomMirrors(cfg.GitHubCustomMirrors(), cfg.DockerCustomMirrors())
+	srv.WarmMirrorLists()
 	// 0.6.325：FPK 新装链路透传设置「应用安装位置」的用户卷（实时读 cfg；
 	// 未配置返回 0 → 平台默认卷探测/诚实报错）。
 	pipe.InstallVolumeFn = func() int { return cfg.InstallVolume }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"moo/internal/secret"
 )
@@ -91,6 +92,10 @@ type Config struct {
 	MirrorIncludeDirect bool   `json:"mirror_include_direct,omitempty"`
 	CustomGitHubMirror  string `json:"custom_github_mirror,omitempty"`
 	CustomDockerMirror  string `json:"custom_docker_mirror,omitempty"`
+	// 0.6.521：自定义加速源支持多条（设置页「添加」可一次粘贴多行）。
+	// 单值字段保留为第一条（旧代码/旧配置兼容），数组为完整列表。
+	CustomGitHubMirrors []string `json:"custom_github_mirrors,omitempty"`
+	CustomDockerMirrors []string `json:"custom_docker_mirrors,omitempty"`
 	// 加速源自动测速间隔（0.6.148，设置页双齿轮时间选择框）：
 	// Gh* = GitHub 加速组，Dk* = Docker 镜像组。0h0m（未设置）= 默认 5 分钟；
 	// 非法值（越界/总分钟 <1）解析为 5 分钟，上限 24 小时。
@@ -101,6 +106,14 @@ type Config struct {
 	// 内置源列表自动同步
 	SourceListURL string `json:"source_list_url,omitempty"`
 	SourceListOff bool   `json:"source_list_disabled,omitempty"`
+	// ListBaseURL 0.6.512：远程清单目录基址（lists/ 下 repo_list.txt /
+	// recommend_list.txt / github_mirrors.txt / docker_mirrors.txt 四份纯文本）。
+	// 空串=DefaultListBaseURL。读取顺序：基址新文件 → 根目录旧地址（兼容
+	// ≤0.6.511 写死根路径的老客户端，也便于回滚）。
+	ListBaseURL string `json:"list_base_url,omitempty"`
+	// HiddenMirrors 0.6.512：本机屏蔽的加速源 key（设置页「删除默认源」用）。
+	// 只影响本机展示与候选，远端清单更新不会把它顶回来；「恢复」= 清空。
+	HiddenMirrors []string `json:"hidden_mirrors,omitempty"`
 	// RecommendListURL 0.6.379：发现页推荐位清单地址（每行 `appname@源名`，
 	// `#` 注释；空串=用 DefaultRecommendListURL）。运行时改设置即时生效，
 	// 改清单不需要重建 FPK。留空不写内网地址——测试用设置项覆盖。
@@ -337,6 +350,27 @@ const DefaultRecommendListURL = "https://raw.githubusercontent.com/Blue-Mink/moo
 // DefaultAboutListsURL 0.6.384：关于页远程清单目录（changelog.md / docs.md /
 // devdocs.md）。与 repo_list.txt 同一套拉取/镜像链逻辑；改清单免重建 FPK。
 const DefaultAboutListsURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main"
+
+// DefaultListBaseURL 0.6.512：远程清单目录（lists/）。应用源 / 推荐位 /
+// GitHub 加速源 / Docker 加速源四份纯文本清单集中在这里，改清单不再重建 FPK。
+// 根目录的 repo_list.txt / recommend_list.txt 保留一版作为兼容副本——≤0.6.511
+// 的客户端把根路径写死在代码里，文件一搬走它们就 404。
+const DefaultListBaseURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/lists"
+
+// ListFileURLs 返回某份清单的候选地址：基址新路径优先，legacy 旧地址兜底。
+// legacy 传空表示没有历史地址（例如两份镜像清单只有新路径）。
+func ListFileURLs(base, name, legacy string) []string {
+	b := strings.TrimSpace(base)
+	if b == "" {
+		b = DefaultListBaseURL
+	}
+	b = strings.TrimRight(b, "/")
+	out := []string{b + "/" + name}
+	if legacy != "" && strings.TrimRight(legacy, "/") != out[0] {
+		out = append(out, legacy)
+	}
+	return out
+}
 
 // Default 返回默认配置（含默认社区源：首装即有可浏览目录）。
 func Default() *Config {

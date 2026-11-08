@@ -423,9 +423,11 @@ func sendWeComCard(client *http.Client, ch config.NotifyChannel, msg *Message) e
 	if r := []rune(title); len(r) > 24 {
 		title = string(r[:21]) + "…"
 	}
+	// 0.6.539（用户截图批注）：不再发 source（卡片顶部那行「Moo」与群机器人
+	// 发送者名重复），直接让 main_title（Moo · 标题）+ 其下时间成为卡片首行，
+	// 省一行并让标题/时间顶到最上方。
 	tc := map[string]any{
 		"card_type":  "text_notice",
-		"source":     map[string]any{"desc": "Moo"},
 		"main_title": map[string]any{"title": "Moo · " + title, "desc": time.Unix(msg.TS, 0).Format("01-02 15:04")},
 		// 0.6.326：按用户令去掉卡片尾部「打开通知详情」跳转列表项；
 		// 整卡点击跳转（card_action，无文字入口）保留。

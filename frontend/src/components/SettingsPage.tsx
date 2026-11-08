@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { fetchSettings, updateSettings, fetchStoreUpdate, checkMirrors, fetchMirrorHealth, fetchDockerMirrorHealth, fetchFpkDownloads, uploadFpkDownload, installApp, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, type MirrorOption, type MirrorCheckResult, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus, type AboutDocItem } from '../api/client';
+import { fetchSettings, updateSettings, fetchStoreUpdate, fetchMirrorHealth, fetchDockerMirrorHealth, fetchKspeederLatest, fetchFpkDownloads, controlApp, fetchTasks, clearDownloadTask, pauseDownload, resumeDownload, browseDownloadDirs, fetchBackups, runBackupNow, deleteBackup, cleanAppCache, restoreBackup, downloadBackup, fetchAbout, fetchAboutMem, fetchApps, fetchAppDetail, testProxy, fetchDockerMirrorStatus, applyDockerMirror, syncMirrorLists, restoreMirrorLists, setMirrorHidden, installKspeeder, type MirrorOption, type VolumeOption, type UpdateProgress, type MirrorHealth, type BackgroundTask, type BackupEntry, type AppCacheStats, type AboutInfo, type DockerMirrorStatus, type AboutDocItem, type AboutMem } from '../api/client';
 import type { StoreUpdateInfo } from '../api/client';
 // 0.6.308：关于页「最新更新日志」卡复用详情页 README 渲染（markdown+滚动盒）
 import { ChangelogPager } from './ChangelogPager';
@@ -28,7 +28,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { AlertTriangle, ArrowLeft, Archive, Bell, BookOpen, ChevronDown, ChevronRight, Code2, Database, Download, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, Upload, XCircle, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, Archive, Bell, BookOpen, ChevronDown, ChevronRight, Code2, Database, Download, DownloadCloud, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Plus, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import SourceManager from './SourceManager'
@@ -90,6 +90,8 @@ interface SettingsPageProps {
   onStoreUpdate?: () => void;
   /** 外部应用源变化后刷新应用目录 */
   onCatalogChanged?: () => void;
+  /** 0.6.535：源列表行内「列表」按钮 → 关闭设置并跳到主页只看该源的应用 */
+  onOpenSourceApps?: (sourceID: string, sourceName: string) => void;
   /** 极光预览模式（0.6.297，仅网页端）：面板底=推荐卡一号渐变，元素样式不动 */
   aurora?: boolean;
 }
@@ -100,22 +102,6 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const val = bytes / Math.pow(1024, i);
   return `${val >= 100 ? Math.round(val) : val.toFixed(1)} ${units[i]}`;
-}
-
-function latencyColor(result: MirrorCheckResult): string {
-  // 0.6.333 F2：限流单列（琥珀），不再混进「失败」的灰/红
-  if (result.status === 'limited') return 'text-amber-500';
-  if (result.status !== 'ok') return 'text-muted-foreground';
-  if (result.latency_ms <= 300) return 'text-green-600';
-  if (result.latency_ms <= 800) return 'text-yellow-600';
-  return 'text-red-500';
-}
-
-function latencyText(result: MirrorCheckResult): string {
-  if (result.status === 'limited') return '限流';
-  if (result.status === 'timeout') return '超时';
-  if (result.status === 'error') return '失败';
-  return `${result.latency_ms}ms`;
 }
 
 /**
@@ -137,7 +123,7 @@ const MirrorHealthPanel: React.FC<{
   showSpeed?: boolean;
   /** showSpeed 时的说明文案（缺省为 GitHub 文案） */
   speedNote?: string;
-  /** 0.6.321 F7：「智能选源包含直连」开关（仅 GitHub 组传入；智能模式才显示）。 */
+  /** 0.6.321 F7：「智能选源包含直连」开关（仅 GitHub 组传入；0.6.525 起常驻占位，非智能模式禁用）。 */
   includeDirect?: { value: boolean; onChange: (v: boolean) => void };
   /**
    * 参考模式（Docker 组专用）：优选结果只驱动本面板展示，**不接入实际镜像
@@ -150,16 +136,67 @@ const MirrorHealthPanel: React.FC<{
   intervalH: number;
   intervalM: number;
   onIntervalChange: (h: number, m: number) => void;
-}> = ({ title, health, options, customConfigured, labelOf, refreshing, onRefresh, showSpeed, speedNote, referenceOnly, includeDirect, intervalH, intervalM, onIntervalChange }) => {
-  const [collapsed, setCollapsed] = React.useState<boolean>(() => {
+  /** 0.6.512 清单目录化：从 lists/ 远端清单同步 / 恢复到默认 / 删掉某个默认源 */
+  onSync?: () => void;
+  onRestore?: () => void;
+  onDelete?: (key: string) => void;
+  listBusy?: boolean;
+  /** 0.6.515：并排两栏时去掉自带卡片底（避免「卡片内嵌卡片」） */
+  plain?: boolean;
+  /** 0.6.523（用户令）：同步 / 恢复 / 添加 统一放在加速源列表正上方 */
+  onAdd?: () => void;
+  /**
+   * 0.6.522（用户令）：取消镜像下拉框——直接在下方测速列表里点选加速源。
+   * selectedKey = 表单当前选择（mirror / dockerMirror，含 auto / direct）；
+   * onSelect = 点选回调（点行 = 手动选用该源；点「智能」行 = 回到智能选源）。
+   */
+  selectedKey?: string;
+  onSelect?: (key: string) => void;
+  /**
+   * 0.6.532（用户令）：GitHub / Docker 的标题行（含开关那一行）也要能整行点开合——
+   * 由父组件受控传入折叠状态与切换回调，标题行与「测速与监控」行共用同一状态，
+   * 不传则保持组件内部自管（默认折叠，localStorage 持久化）。
+   */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
+}> = ({ title, health, options, customConfigured, labelOf, refreshing, onRefresh, showSpeed, speedNote, referenceOnly, includeDirect, intervalH, intervalM, onIntervalChange, onSync, onRestore, onAdd, onDelete, listBusy, plain, selectedKey, onSelect, collapsed: collapsedProp, onToggleCollapsed }) => {
+  // 0.6.524（用户令）：行内删除两段式确认——第一下变红进入确认态，
+  // 3s 内再点才真删（对齐设置页「强制清空」/ 下载弹窗行内删除的既有交互）。
+  const [confirmDel, setConfirmDel] = React.useState<string | null>(null);
+  const confirmDelTimer = React.useRef<number | null>(null);
+  const clearConfirmDel = () => {
+    if (confirmDelTimer.current !== null) {
+      window.clearTimeout(confirmDelTimer.current);
+      confirmDelTimer.current = null;
+    }
+    setConfirmDel(null);
+  };
+  const handleDeleteClick = (e: React.MouseEvent, key: string) => {
+    e.stopPropagation();
+    if (confirmDel === key) {
+      clearConfirmDel();
+      onDelete?.(key);
+      return;
+    }
+    setConfirmDel(key);
+    if (confirmDelTimer.current !== null) window.clearTimeout(confirmDelTimer.current);
+    confirmDelTimer.current = window.setTimeout(() => {
+      confirmDelTimer.current = null;
+      setConfirmDel(null);
+    }, 3000);
+  };
+  const [collapsedLocal, setCollapsedLocal] = React.useState<boolean>(() => {
     try {
       // 默认折叠（无持久化记录时）；用户手动展开/折叠后按保存值
       const v = localStorage.getItem(`health-panel-collapsed:${title}`);
       return v === null ? true : v === 'true';
     } catch { return true; }
   });
+  // 0.6.532：受控优先（父级标题行与「测速与监控」行共用同一状态）
+  const collapsed = collapsedProp !== undefined ? collapsedProp : collapsedLocal;
   const toggleCollapsed = () => {
-    setCollapsed(prev => {
+    if (onToggleCollapsed) { onToggleCollapsed(); return; }
+    setCollapsedLocal(prev => {
       const next = !prev;
       try { localStorage.setItem(`health-panel-collapsed:${title}`, String(next)); } catch { /* ignore */ }
       return next;
@@ -220,7 +257,12 @@ const MirrorHealthPanel: React.FC<{
   ].filter(Boolean).join('，');
 
   return (
-    <div className="relative rounded-xl bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl border border-white/10 px-3 py-3">
+    <div className={cn(
+      'relative',
+      plain
+        ? 'px-0 py-0'
+        : 'rounded-xl bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl border border-white/10 px-3 py-3',
+    )}>
       {/* 0.6.150（用户定稿）：标题上移至「卡片最顶部 ↔ 齿轮最顶部」的正中——
           卡片外顶→齿轮顶 = 1(border) + 12(py-3) + 14(齿轮列顶部留白) = 27px，
           标题中心 = 距卡片顶 13.5px（绝对定位 -translate-y-1/2；
@@ -230,24 +272,21 @@ const MirrorHealthPanel: React.FC<{
           左列 14+24+14=52px 与 GearTimePicker 列同构：中 24px 格=滚轮同高
           （小字中心=齿轮中心线，与刷新/折叠按钮平齐，0.6.149 对齐保持；
           0.6.358 齿轮由 72px 三行收到 24px 单格，故此处 72→24、卡片头随之矮 48px） */}
-      <span className="absolute left-[13px] top-[13.5px] -translate-y-1/2 max-w-[180px] truncate text-[13px] font-medium">
-        {title}
-      </span>
-      <div className="flex items-center justify-between mb-1 gap-2">
-        <div className="flex min-w-0 flex-1 flex-col items-start">
-          <div className="h-3.5 shrink-0" aria-hidden />
-          {/* 0.6.358（用户令：齿轮只留中间一格）：左列与齿轮列重新同构
-              14 + 24 + 14 = 52px——中段 24px 与高亮格同高（标签中心线 = 齿轮中心线），
-              原「绝对定位 top:50%+40px」的 0h0m=5m 改为底部 14px 带内贴底居中，
-              与右侧「时/分」单位行落在同一条基线（原 72px 滚轮时的 +40px 手写偏移作废）。 */}
-          <div className="relative flex h-6 w-full min-w-0 shrink-0 items-center justify-center">
-            <span className="text-[13px] font-medium text-muted-foreground">自动监测间隔</span>
-          </div>
-          <div className="flex h-3.5 w-full min-w-0 shrink-0 items-end justify-center">
-            <span className="whitespace-nowrap text-[10px] leading-none text-muted-foreground/80">0h0m=5m</span>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+      {/* 0.6.512b（用户反馈：加速源页桌面/移动端排版崩坏）→ 标题改回正常流：
+          小屏标题独占一行，控件第二行（同步/恢复 + 间隔齿轮 + 测速/折叠）；
+          大屏同一行排布，控件永不挤压标题（旧实现标题绝对定位 + 左列 flex-1，
+          窄屏时「自动监测间隔」被压成竖排并与标题重叠）。 */}
+      <div
+        className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1.5"
+        onClick={toggleCollapsed}
+        title={collapsed ? '点击展开监测的加速源列表' : '点击折叠监测的加速源列表'}
+      >
+        <span className="min-w-0 cursor-pointer truncate text-[13px] font-medium">{title}</span>
+        <span
+          className="flex w-full shrink-0 items-center gap-1.5 sm:ms-auto sm:w-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="whitespace-nowrap text-[11px] text-muted-foreground">自动监测间隔</span>
           {/* 0.6.148：自动测速间隔（苹果时钟齿轮式：时 0-23 / 分 0-59），
               替换原「每 5 分钟自动测速」静态文案；保存后下一起效周期即按新间隔 */}
           <GearTimePicker
@@ -256,10 +295,12 @@ const MirrorHealthPanel: React.FC<{
             onChange={onIntervalChange}
             ariaLabel={`${title} 自动测速间隔`}
           />
+          {/* 0.6.527（用户令）：移动端也显示「0h0m=5m」换算提示（原 lg 以上才显示）。 */}
+          <span className="whitespace-nowrap text-[10px] leading-none text-muted-foreground/80">0h0m=5m</span>
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="ms-auto h-7 w-7 sm:ms-0"
             onClick={onRefresh}
             disabled={refreshing}
             title="立即测速"
@@ -277,18 +318,69 @@ const MirrorHealthPanel: React.FC<{
           >
             <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", collapsed && "-rotate-90")} />
           </Button>
-        </div>
+        </span>
       </div>
-      {/* 0.6.321 F7：「智能选源包含直连」开关（仅 GitHub 组、智能模式显示，默认关） */}
-      {includeDirect && health?.selected === 'auto' && (
-        <label className="mb-2 flex cursor-pointer select-none items-center gap-2 px-1 text-[12px] text-muted-foreground">
+      {/* 0.6.523（用户令）：同步 / 恢复 / 添加 移到加速源列表正上方。
+          0.6.527（用户令）：折叠从这三个按钮开始——收起时整块隐藏，
+          只保留标题行（间隔/刷新/折叠）与一行健康摘要。 */}
+      {!collapsed && (onSync || onRestore || onAdd) && (
+        <div className="mb-2 grid grid-cols-3 gap-2">
+          {onSync && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 w-full px-2 text-[11px]"
+              onClick={onSync}
+              disabled={listBusy}
+              title="从远端清单同步默认加速源（不影响自定义源）"
+            >
+              <DownloadCloud className={cn('h-3.5 w-3.5 mr-1', listBusy && 'animate-pulse')} />
+              同步
+            </Button>
+          )}
+          {onRestore && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 w-full px-2 text-[11px]"
+              onClick={onRestore}
+              disabled={listBusy}
+              title="恢复被删除的默认加速源（不影响自定义源）"
+            >
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />
+              恢复
+            </Button>
+          )}
+          {onAdd && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 w-full px-2 text-[11px]"
+              onClick={onAdd}
+              disabled={listBusy}
+              title="添加自定义加速源（每行一个地址）"
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              添加
+            </Button>
+          )}
+        </div>
+      )}
+      {/* 0.6.525（用户令）：卡片高度恒定——「包含直连」行常驻占位；
+          0.6.527：折叠时随同步/恢复/添加一起隐藏（折叠起点在按钮组）。 */}
+      {!collapsed && includeDirect && (
+        <label className={cn(
+          'mb-2 flex select-none items-start gap-2 px-1 text-[12px] text-muted-foreground sm:items-center',
+          selectedKey === 'auto' ? 'cursor-pointer' : 'cursor-default opacity-50',
+        )}>
           <input
             type="checkbox"
-            className="h-3.5 w-3.5 accent-primary"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary sm:mt-0"
             checked={includeDirect.value}
+            disabled={selectedKey !== 'auto'}
             onChange={(e) => includeDirect.onChange(e.target.checked)}
           />
-          <span>智能选源包含直连（直连作为候选参与测速排名，默认关）</span>
+          <span>包含直连（作为候选参与测速）</span>
         </label>
       )}
       {collapsed ? (
@@ -301,13 +393,10 @@ const MirrorHealthPanel: React.FC<{
         </p>
       ) : (
         <>
-          <p className="text-[11px] text-muted-foreground mb-2.5">
+          <p className="text-[11px] leading-relaxed text-muted-foreground mb-2">
             {referenceOnly
-              ? (speedNote ?? '测速结果仅供参考：实际镜像拉取由系统 Docker 守护进程按系统级镜像源配置执行。')
-              : (showSpeed
-                ? (speedNote ?? '对 FPK 下载、应用列表图标、README/预览图生效：手选源优先，手选源失效后自动切换智能优选（实测各源速度差可达百倍）。后台按右侧间隔自动测速。')
-                : '按健康状态自动优选加速源，手选源失效后自动切换。')}
-            {health?.selected === 'auto' && !referenceOnly && '当前为智能模式（自动选最快稳定源）。'}
+              ? '仅供参考，实际拉取走系统镜像源。'
+              : (speedNote ?? '点一行手动选用；失效自动切回智能优选。')}
           </p>
           {!referenceOnly && health?.last_switch && (
             <div className="mb-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-[12px] leading-relaxed text-primary">
@@ -317,85 +406,124 @@ const MirrorHealthPanel: React.FC<{
               </span>
             </div>
           )}
-          {/* 列名表头：与数据行的延迟/速度列对齐 */}
-          <div className="flex items-center gap-2 px-1 pb-1 text-[11px] text-muted-foreground/80">
-            <span className="w-2 shrink-0" />
-            <span className="flex-1">加速源</span>
-            <span className="w-[64px] text-right">延迟</span>
-            {showSpeed && <span className="w-[72px] text-right">速度</span>}
-          </div>
-          <div className="space-y-1">
-            {rows.map((row) => (
-              <div key={row.key} className="flex flex-col">
-                <div className="flex items-center gap-2 text-[13px]">
-                <span
-                  className={cn(
-                    "h-2 w-2 rounded-full shrink-0",
-                    row.status === 'ok' && "bg-emerald-500",
-                    // 0.6.333 F4：限流 = 琥珀（链路可达但被临时限流，区别于真实故障的红）
-                    row.status === 'limited' && "bg-amber-500",
-                    row.status === 'fail' && "bg-red-500",
-                    !row.status && "bg-muted-foreground/30"
-                  )}
-                />
-                <span className="flex-1 min-w-0 flex items-center gap-1.5">
-                  <span className="truncate">{row.label}</span>
-                  {row.key === health?.active && (
-                    <span className="shrink-0 rounded-full bg-primary/10 px-1.5 h-4 flex items-center text-[10px] font-medium text-primary">
-                      {referenceOnly ? '最快' : '当前'}
-                    </span>
-                  )}
-                  {/* 2026-11-04（PR #14 纯收益部分）：续传深测徽标。
-                      深测对吞吐 Top3 每源 24h 跑一次，只证明「认 Range、能续传」，
-                      不改变快慢判断——同速优选时才作为 tie-break。 */}
-                  {row.resume_ok === true && (
-                    <span
-                      className="shrink-0 rounded-full bg-emerald-500/10 px-1.5 h-4 flex items-center text-[10px] font-medium text-emerald-600"
-                      title="续传深测通过：支持 Range 分段续传，断流后可从中断处继续"
-                    >
-                      续传✓
-                    </span>
-                  )}
-                  {row.resume_ok === false && (
-                    <span
-                      className="shrink-0 rounded-full bg-muted px-1.5 h-4 flex items-center text-[10px] font-medium text-muted-foreground"
-                      title="续传深测未通过：镜像可能不支持 Range 分段续传（断流后需从头下载）"
-                    >
-                      续传✕
-                    </span>
-                  )}
-                </span>
-                <span className="w-[64px] shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-                  {row.status === 'ok'
-                    ? `${row.latency_ms}ms`
-                    : row.status === 'limited'
-                      ? '限流'
-                      : row.status === 'fail'
-                        ? row.consec_fails > 1 ? `失败×${row.consec_fails}` : '失败'
-                        : '未测速'}
-                </span>
-                {showSpeed && (
-                  <span className="w-[72px] shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
-                    {row.status === 'ok' && row.speed_bps > 0
-                      ? row.speed_bps >= 1048576
-                        ? `${(row.speed_bps / 1048576).toFixed(1)}MB/s`
-                        : `${Math.round(row.speed_bps / 1024)}KB/s`
-                      : '—'}
-                  </span>
+          {/* 0.6.525（用户令）：智能选源恢复为列表首行（与 0.6.522 及更早版本一致），
+              标题行的开关与「智能选源」文字已移除。点该行 = 交回智能优选。 */}
+          <div role="radiogroup" aria-label={title} className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {onSelect && (
+              <div
+                role="radio"
+                aria-checked={selectedKey === 'auto'}
+                tabIndex={0}
+                onClick={() => onSelect('auto')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect('auto'); } }}
+                className={cn(
+                  'min-w-0 rounded-lg px-1.5 py-1 outline-none',
+                  'cursor-pointer hover:bg-muted/40 focus-visible:ring-1 focus-visible:ring-primary/40',
+                  selectedKey === 'auto' && 'bg-primary/10',
                 )}
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                  <span className="min-w-0 flex-1 truncate text-[12px] leading-tight">智能 · 自动选最快</span>
                 </div>
-                {/* 0.6.321 F6：失败原因第二行（短语，#4 可感知性）
-                    0.6.333 F4：限流也展示原因，用琥珀色与真实故障（红）区分 */}
-                {(row.status === 'fail' || row.status === 'limited') && row.error && (
-                  <div
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-3.5 text-[10px] leading-tight text-muted-foreground">
+                  {selectedKey === 'auto' && <span className="shrink-0 font-medium text-primary">已选</span>}
+                  <span className="truncate">按测速结果自动切换</span>
+                </div>
+              </div>
+            )}
+            {rows.map((row) => (
+              <div
+                key={row.key}
+                role={onSelect ? 'radio' : undefined}
+                aria-checked={onSelect ? row.key === selectedKey : undefined}
+                tabIndex={onSelect ? 0 : undefined}
+                onClick={onSelect ? () => onSelect(row.key) : undefined}
+                onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(row.key); } } : undefined}
+                title={row.resume_ok === true ? '支持断点续传' : row.resume_ok === false ? '可能不支持断点续传（断流后需从头下载）' : undefined}
+                className={cn(
+                  'min-w-0 rounded-lg px-1.5 py-1 outline-none',
+                  onSelect && 'cursor-pointer hover:bg-muted/40 focus-visible:ring-1 focus-visible:ring-primary/40',
+                  onSelect && row.key === selectedKey && 'bg-primary/10',
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span
                     className={cn(
-                      'pl-4 text-[10px] leading-tight',
-                      row.status === 'fail' ? 'text-red-400/80' : 'text-amber-500/80'
+                      "h-2 w-2 rounded-full shrink-0",
+                      row.status === 'ok' && "bg-emerald-500",
+                      // 0.6.333 F4：限流 = 琥珀（链路可达但被临时限流，区别于真实故障的红）
+                      row.status === 'limited' && "bg-amber-500",
+                      row.status === 'fail' && "bg-red-500",
+                      !row.status && "bg-muted-foreground/30"
+                    )}
+                  />
+                  {/* 0.6.527（用户令）：续传标记改用 ✓ 且紧跟源名——名字与 ✓ 放进
+                      同一个 flex-1 容器，× 被推到最右，避免「✓ 挨着 ×」的歧义。 */}
+                  <span className="flex min-w-0 flex-1 items-center gap-0.5">
+                    <span className="min-w-0 truncate text-[12px] leading-tight">{row.label}</span>
+                    {row.resume_ok === true && (
+                      <span
+                        className="flex shrink-0 items-center"
+                        title="支持断点续传：镜像认 Range，断流后可从中断处继续下载"
+                        aria-label="支持断点续传"
+                      >
+                        {/* 0.6.528（用户令）：续传标记改心电图折线（lucide Activity）——
+                            ✓ 与删除 × 仍易混，折线与叉形状完全不同。 */}
+                        <Activity className="h-3.5 w-3.5 text-emerald-500" strokeWidth={2.5} />
+                      </span>
+                    )}
+                  </span>
+                  {/* 0.6.521：自定义条目也可移除（本地列表，点保存生效）；默认源仍走本机屏蔽。 */}
+                  {onDelete && row.key !== 'auto' && row.key !== 'direct' && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteClick(e, row.key)}
+                      disabled={listBusy}
+                      className={cn(
+                        // 0.6.529（用户令）：× 由 16×16 文字缩放到 20×20 点击区、
+                        // flex 水平+垂直居中（原 w-4 + text-center 只做了水平居中，
+                        // 行高变化时偏上）；字号 12→16 更醒目。
+                        'flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[16px] leading-none transition-colors disabled:opacity-40',
+                        confirmDel === row.key
+                          ? 'bg-red-500/10 font-bold text-red-500'
+                          : 'text-muted-foreground/50 hover:bg-red-500/10 hover:text-red-500',
+                      )}
+                      title={confirmDel === row.key
+                        ? '再点一次确认删除'
+                        : row.key === 'custom' || row.key.startsWith('custom-')
+                          ? '移除该自定义加速源（点页面底部「保存」生效）；需连点两次确认'
+                          : '从默认清单删除该加速源（仅本机，可用「恢复」找回）；需连点两次确认'}
+                      aria-label={confirmDel === row.key ? `确认删除 ${row.label}` : `删除 ${row.label}`}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                {/* 0.6.523（用户令）：延迟 / 速率移到源名称下方；「当前 / 已选」徽标也放在这一行，
+                    避免窄屏两列时把源名称挤断。失败与限流原因同样在这里显示。 */}
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-3.5 text-[10px] leading-tight tabular-nums text-muted-foreground">
+                  {(row.key === health?.active || (!!onSelect && row.key === selectedKey)) && (
+                    <span className="shrink-0 font-medium text-primary">
+                      {row.key === health?.active ? (referenceOnly ? '最快' : '当前') : '已选'}
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      'truncate',
+                      row.status === 'fail' && 'text-red-400/80',
+                      row.status === 'limited' && 'text-amber-500/80',
                     )}
                   >
-                    {row.error}
-                  </div>
-                )}
+                    {row.status === 'ok'
+                      ? `${row.latency_ms}ms${showSpeed && row.speed_bps > 0 ? ` · ${row.speed_bps >= 1048576 ? `${(row.speed_bps / 1048576).toFixed(1)}MB/s` : `${Math.round(row.speed_bps / 1024)}KB/s`}` : ''}`
+                      : row.status === 'limited'
+                        ? `限流${row.error ? ` · ${row.error}` : ''}`
+                        : row.status === 'fail'
+                          ? `${row.consec_fails > 1 ? `失败×${row.consec_fails}` : '失败'}${row.error ? ` · ${row.error}` : ''}`
+                          : '未测速'}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
@@ -502,10 +630,21 @@ const AboutDocsCard: React.FC<{ title: string; items?: AboutDocItem[]; icon: Rea
 
 const AboutTab: React.FC = () => {
   const [info, setInfo] = React.useState<AboutInfo | null>(null);
+  const [mem, setMem] = React.useState<AboutMem | null>(null);
   const [entries, setEntries] = React.useState<{ version?: string; text: string }[]>([]);
 
   React.useEffect(() => {
     fetchAbout().then(setInfo).catch(() => setInfo(null));
+    // 0.6.531（用户令）：版本信息里显示 Moo 内存实时占用——独立轻量端点 3s 轮询，
+    // 不触发 about 的远程清单刷新；页面卸载即停表。
+    let alive = true;
+    const loadMem = () => {
+      fetchAboutMem()
+        .then((v) => { if (alive) setMem(v); })
+        .catch(() => { /* 轮询失败保留上一次值 */ });
+    };
+    loadMem();
+    const memTimer = window.setInterval(loadMem, 3000);
     (async () => {
       try {
         const list = await fetchApps();
@@ -517,6 +656,10 @@ const AboutTab: React.FC = () => {
         /* 自源缺失或离线：卡片隐藏 */
       }
     })();
+    return () => {
+      alive = false;
+      window.clearInterval(memTimer);
+    };
   }, []);
 
   const logEntry = React.useMemo(() => {
@@ -566,13 +709,15 @@ const AboutTab: React.FC = () => {
       </div>
 
       {/* 最近更新日志：与详情页 README 同款渲染（markdown + 滚动盒），
-          全部日志一次渲染、盒内上下滑动（0.6.386 用户令：取消左右翻页）。 */}
+          全部日志一次渲染、盒内上下滑动（0.6.386 用户令：取消左右翻页）。
+          0.6.537（用户令）：去掉「镶嵌式内框」——卡片自身 overflow-hidden，
+          正文面板整卡铺满（与日志页同款），不再套一层圆角描边小框。 */}
       {logEntry && (
-        <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+        <div className="overflow-hidden bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore">
           {/* 0.6.385（用户令）：标题后不再显示版本号（右上角应用信息已有）。 */}
-          <div className="text-sm font-medium">最近更新日志</div>
+          <div className="px-4 pt-4 pb-2 text-sm font-medium">最近更新日志</div>
           {/* 桌面 ~172px、移动端窄屏折行多放宽到 320px；超出的内容上下滚动查看 */}
-          <ChangelogPager text={logEntry.text} appKey="moo" maxH="max-h-[320px] sm:max-h-[172px]" scroll />
+          <ChangelogPager text={logEntry.text} appKey="moo" maxH="max-h-[320px] sm:max-h-[172px]" scroll plain />
         </div>
       )}
 
@@ -591,6 +736,20 @@ const AboutTab: React.FC = () => {
           {info?.go_version && <AboutRow k="运行时" v={info.go_version} />}
           {info && <AboutRow k="启动时间" v={new Date(info.started_at * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} />}
           {info && <AboutRow k="运行时长" v={formatUptime(info.uptime_s)} />}
+          {/* 0.6.531（用户令）：Moo 进程内存实时占用（3s 轮询 /api/about/mem）。
+              主值 = RSS 常驻集；悬停给出 Go 堆与协程数。 */}
+          {mem && (
+            <AboutRow k="内存占用" v={
+              <span
+                className="inline-flex items-center gap-1.5 tabular-nums"
+                title={`RSS 常驻 ${formatBytes(mem.rss_bytes) || '—'} · Go 堆 ${formatBytes(mem.heap_bytes) || '—'} · 协程 ${mem.goroutines}`}
+              >
+                <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
+                <span>{formatBytes(mem.rss_bytes) || '—'}</span>
+                <span className="text-[11px] font-normal text-muted-foreground">RSS · 实时</span>
+              </span>
+            } />
+          )}
         </div>
       </div>
 
@@ -653,6 +812,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   aurora,
   onStoreUpdate,
   onCatalogChanged,
+  onOpenSourceApps,
 }) => {
   // 0.6.282：初始 tab 支持深链恢复（#settings=<tab>），无效值回落 system
   const [tab, setTab] = useState<SettingsTab>(() =>
@@ -676,6 +836,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       return v === null ? true : v === '1';
     } catch { return true; }
   });
+  // 0.6.532（用户令）：GitHub / Docker 加速源的「标题行（含开关）」也要整行可点开合。
+  // 与「测速与监控」行共用同一折叠状态（沿用原 health-panel 持久化键，升级不丢偏好）。
+  const [accelListCollapsed, setAccelListCollapsed] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('health-panel-collapsed:测速与监控');
+      return v === null ? true : v === 'true';
+    } catch { return true; }
+  });
+  const toggleAccelList = () => {
+    setAccelListCollapsed((v) => {
+      try { localStorage.setItem('health-panel-collapsed:测速与监控', String(!v)); } catch { /* ignore */ }
+      return !v;
+    });
+  };
   const toggleOrderCollapsed = (which: 'dock' | 'tab') => {
     if (which === 'dock') {
       setDockOrderCollapsed((v) => {
@@ -780,16 +954,38 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     if (open) void loadDkStatus();
   }, [open, loadDkStatus]);
 
-  const [customGithubMirror, setCustomGithubMirror] = useState<string>('');
-  const [customDockerMirror, setCustomDockerMirror] = useState<string>('');
+  // 0.6.521：自定义加速源支持多条。数组为完整列表，单值变量=第一条（旧逻辑兼容）。
+  const [customGithubMirrors, setCustomGithubMirrors] = useState<string[]>([]);
+  const [customDockerMirrors, setCustomDockerMirrors] = useState<string[]>([]);
+  const customGithubMirror = customGithubMirrors[0] ?? '';
+  const customDockerMirror = customDockerMirrors[0] ?? '';
+  const setCustomGithubAt = (idx: number, value: string) =>
+    setCustomGithubMirrors((prev) => {
+      const next = [...prev];
+      while (next.length <= idx) next.push('');
+      next[idx] = value;
+      return next;
+    });
+  const setCustomDockerAt = (idx: number, value: string) =>
+    setCustomDockerMirrors((prev) => {
+      const next = [...prev];
+      while (next.length <= idx) next.push('');
+      next[idx] = value;
+      return next;
+    });
   // 应用当前所选镜像到系统 Docker（0.6.269：写 daemon.json + 重启，可回滚）。
   // 镜像地址由后端按 key 解析（custom 除外，需带 custom_url）。
   const handleApplyDockerMirror = useCallback(async () => {
     setDkApplying(true);
     try {
+      const dkIdx = dockerMirror === 'custom'
+        ? 0
+        : /^custom-(\d+)$/.test(dockerMirror)
+          ? Number(dockerMirror.slice(7)) - 1
+          : -1;
       const res = await applyDockerMirror(
         dockerMirror,
-        dockerMirror === 'custom' ? customDockerMirror.trim() : '',
+        dkIdx >= 0 ? (customDockerMirrors[dkIdx] ?? '').trim() : '',
       );
       setDkApplyOpen(false);
       // 0.6.325 安全加固 R2：mirror=auto 时后端已回传实际选中源，明确告知用户
@@ -803,7 +999,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     } finally {
       setDkApplying(false);
     }
-  }, [dockerMirror, customDockerMirror, loadDkStatus]);
+  }, [dockerMirror, customDockerMirrors, loadDkStatus]);
   // 科学加速（0.6.206，加速源设置末卡片）：本机代理，仅 GitHub 域名改道
   const [proxyEnabled, setProxyEnabled] = useState<boolean>(false);
   const [proxyUrl, setProxyUrl] = useState<string>('');
@@ -815,6 +1011,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 0.6.326x：「自动纠正」已并入更新策略第四档「强制上游」，不再有独立 state。
   // 已装应用跨源更新策略（0.6.272）：严格/友好/宽松（替换 0.6.269 目录语言入口）
   const [updatePolicy, setUpdatePolicy] = useState<string>('strict');
+  // 0.6.533（用户令）：自动策略改为开关；关掉时回到上次的手动档（默认 strict）。
+  // 0.6.534（用户令）：删除「手动选择策略」折叠胶囊——自动关掉即直接展示四档手动策略。
+  const lastManualPolicyRef = useRef<string>('strict');
+  // 0.6.533：自动策略开关——开=auto；关=回到上次手动档（不静默改服务端，仍需点保存）
+  const handleAutoPolicyToggle = (v: boolean) => {
+    if (v) {
+      if (updatePolicy !== 'auto') lastManualPolicyRef.current = updatePolicy;
+      setUpdatePolicy('auto');
+      return;
+    }
+    setUpdatePolicy(lastManualPolicyRef.current || 'strict');
+  };
   // FPK 下载目录（0.6.325 C4：已下载列表段抽入 FpkDownloads 组件，此处只留
   // 目录选择 + 轻量 dir 同步 + 上传；列表/安装/删除/向导/折叠态全在组件内）
   // 目录选择对话框：可下钻浏览（卷根 → 共享目录 → 任意子层），切换中状态
@@ -897,6 +1105,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [backupsLoading, setBackupsLoading] = useState(false);
   const [backupRunning, setBackupRunning] = useState(false);
   const [backupRemoving, setBackupRemoving] = useState<string | null>(null);
+  // 0.6.532（用户令）：删除类按钮统一「点一次变红确认，再点才真删」——
+  // 备份删除 / 下载任务删除此前是单击即删，与 FPK 行内删除等交互不一致。
+  const [backupConfirmDel, setBackupConfirmDel] = useState<string | null>(null);
+  const backupConfirmTimer = useRef<number | null>(null);
+  const [taskConfirmDel, setTaskConfirmDel] = useState<string | null>(null);
+  const taskConfirmTimer = useRef<number | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [forceClearing, setForceClearing] = useState(false);
   const [forceArmed, setForceArmed] = useState(false);
@@ -1029,23 +1243,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setFpkDir(res.dir || '');
     } catch { /* 目录不存在等场景：保持旧值 */ }
   }, []);
-  // 321R7 E：上传本地 FPK（手机/电脑文件）到下载目录，上传完即入列表可装
-  const [fpkUploading, setFpkUploading] = useState(false);
-  const fpkFileRef = useRef<HTMLInputElement>(null);
-  const handleFpkUpload = async (file: File) => {
-    if (fpkUploading) return;
-    setFpkUploading(true);
-    try {
-      const r = await uploadFpkDownload(file);
-      toast.success(r.replaced ? `已覆盖 ${r.name}` : `已上传 ${r.name}（可在下方列表安装）`);
-      setFpkRefreshSignal((n) => n + 1); // 列表段（FpkDownloads）静默重拉
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '上传失败');
-    } finally {
-      setFpkUploading(false);
-      if (fpkFileRef.current) fpkFileRef.current.value = ''; // 允许重选同名文件
-    }
-  };
+  // 0.6.531（用户令）：上传入口统一由 FpkDownloads 组件内置（enableUpload），
+  // 设置页与首页下载弹窗共用同一套 input/handler，设置页不再单独维护。
   // 目录浏览器：读取单级列表（path='/' 为卷根虚拟层）
   const browseTo = useCallback(async (path: string) => {
     setBrowseLoading(true);
@@ -1162,6 +1361,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     } finally {
       setBackupRemoving(null);
     }
+  };
+  // 0.6.532：备份删除两段式确认（第一下只变红，3s 内再点才删）
+  const armDeleteBackup = (name: string) => {
+    if (backupConfirmDel === name) {
+      if (backupConfirmTimer.current !== null) {
+        window.clearTimeout(backupConfirmTimer.current);
+        backupConfirmTimer.current = null;
+      }
+      setBackupConfirmDel(null);
+      void handleDeleteBackup(name);
+      return;
+    }
+    setBackupConfirmDel(name);
+    if (backupConfirmTimer.current !== null) window.clearTimeout(backupConfirmTimer.current);
+    backupConfirmTimer.current = window.setTimeout(() => {
+      backupConfirmTimer.current = null;
+      setBackupConfirmDel(null);
+    }, 3000);
   };
   // 手动清理应用缓存中超过保留天数的文件（不碰已下载 FPK；独立于自动清理开关）
   const handleCleanCache = async () => {
@@ -1293,6 +1510,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       toast.error(e instanceof Error ? e.message : '删除失败');
     } finally { setDlBusyApp(null); }
   };
+  // 0.6.532：下载任务删除两段式确认（第一下只变红，3s 内再点才删）
+  const armDlClear = (t: BackgroundTask, key: string) => {
+    if (taskConfirmDel === key) {
+      if (taskConfirmTimer.current !== null) {
+        window.clearTimeout(taskConfirmTimer.current);
+        taskConfirmTimer.current = null;
+      }
+      setTaskConfirmDel(null);
+      void handleDlClear(t);
+      return;
+    }
+    setTaskConfirmDel(key);
+    if (taskConfirmTimer.current !== null) window.clearTimeout(taskConfirmTimer.current);
+    taskConfirmTimer.current = window.setTimeout(() => {
+      taskConfirmTimer.current = null;
+      setTaskConfirmDel(null);
+    }, 3000);
+  };
 
   // 加速源健康监测（智能监测 + 自动切换提示）
   const [mirrorHealth, setMirrorHealth] = useState<MirrorHealth | null>(null);
@@ -1370,6 +1605,105 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setDkHealthRefreshing(false);
     }
   }, [runManualSpeedTest]);
+  // 0.6.512（用户令）：加速源清单目录化——同步 / 恢复 / 删除默认源。
+  const [mirrorListBusy, setMirrorListBusy] = useState(false);
+  const reloadMirrorListOptions = useCallback(async () => {
+    try {
+      const s2 = await fetchSettings();
+      setMirrorOptions(s2.mirror_options || []);
+      setDockerMirrorOptions(s2.docker_mirror_options || []);
+    } catch { /* ignore */ }
+    try { setMirrorHealth(await fetchMirrorHealth()); } catch { /* ignore */ }
+    try { setDockerMirrorHealth(await fetchDockerMirrorHealth()); } catch { /* ignore */ }
+  }, []);
+  const handleMirrorListSync = useCallback(async () => {
+    setMirrorListBusy(true);
+    try {
+      const r = await syncMirrorLists();
+      if (!r.ok) throw new Error(r.error || '同步失败');
+      toast.success(`加速源清单已同步：GitHub ${r.github ?? 0} 条 / Docker ${r.docker ?? 0} 条`);
+      await reloadMirrorListOptions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '同步加速源清单失败');
+    } finally {
+      setMirrorListBusy(false);
+    }
+  }, [reloadMirrorListOptions]);
+  const handleMirrorListRestore = useCallback(async () => {
+    setMirrorListBusy(true);
+    try {
+      const r = await restoreMirrorLists();
+      if (!r.ok) throw new Error(r.error || '恢复失败');
+      toast.success('已恢复默认加速源');
+      await reloadMirrorListOptions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '恢复默认加速源失败');
+    } finally {
+      setMirrorListBusy(false);
+    }
+  }, [reloadMirrorListOptions]);
+  // 0.6.521（用户令）：GitHub / Docker / 科学加速 三个子 tab；「添加」弹窗
+  // 改为与「添加渠道」同款 Dialog，输入框支持多行（每行一个地址，可一次加多个）。
+  const [accelListTab, setAccelListTab] = useState<'github' | 'docker' | 'science'>('github');
+  const [addMirrorOpen, setAddMirrorOpen] = useState(false);
+  const [addMirrorText, setAddMirrorText] = useState('');
+  const addMirrorLines = addMirrorText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const handleAddMirror = useCallback(() => {
+    const lines = addMirrorText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) { toast.error('请填写加速源地址'); return; }
+    const normalized: string[] = [];
+    for (const raw of lines) {
+      if (!/^https?:\/\//i.test(raw) || /\s/.test(raw)) {
+        toast.error(`地址格式不正确：${raw}`);
+        return;
+      }
+      normalized.push(raw.endsWith('/') ? raw : `${raw}/`);
+    }
+    const isGh = accelListTab !== 'docker';
+    const current = (isGh ? customGithubMirrors : customDockerMirrors)
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .map((u) => (u.endsWith('/') ? u : `${u}/`));
+    const merged = [...current];
+    const added: string[] = [];
+    for (const u of normalized) {
+      if (!merged.includes(u)) { merged.push(u); added.push(u); }
+    }
+    if (added.length === 0) { toast.info('这些地址已在自定义列表中'); return; }
+    if (isGh) setCustomGithubMirrors(merged); else setCustomDockerMirrors(merged);
+    const idx = merged.indexOf(added[0]);
+    const key = idx === 0 ? 'custom' : `custom-${idx + 1}`;
+    if (isGh) setMirror(key); else setDockerMirror(key);
+    setAddMirrorOpen(false);
+    setAddMirrorText('');
+    toast.success(`已添加 ${added.length} 个加速源，点「保存」后生效`);
+  }, [addMirrorText, accelListTab, customGithubMirrors, customDockerMirrors]);
+  const handleMirrorDelete = useCallback(async (key: string) => {
+    // 0.6.521：自定义条目 = 本地列表（点保存生效）；默认源仍走本机屏蔽 API。
+    if (key === 'custom' || key.startsWith('custom-')) {
+      const idx = key === 'custom' ? 0 : Number(key.slice(7)) - 1;
+      const isGh = accelListTab !== 'docker';
+      const list = isGh ? customGithubMirrors : customDockerMirrors;
+      const next = list.filter((_, i) => i !== idx);
+      if (isGh) setCustomGithubMirrors(next); else setCustomDockerMirrors(next);
+      const selected = isGh ? mirror : dockerMirror;
+      if (selected === key) {
+        if (isGh) setMirror(next.length ? 'custom' : 'auto'); else setDockerMirror(next.length ? 'custom' : 'auto');
+      }
+      toast.success('已移除自定义加速源，点「保存」后生效');
+      return;
+    }
+    setMirrorListBusy(true);
+    try {
+      await setMirrorHidden({ add: [key] });
+      toast.success('已从默认清单删除（可用「恢复」找回）');
+      await reloadMirrorListOptions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '删除失败');
+    } finally {
+      setMirrorListBusy(false);
+    }
+  }, [reloadMirrorListOptions, accelListTab, customGithubMirrors, customDockerMirrors, mirror, dockerMirror]);
   // KSpeeder 独立应用状态：列表行探测 127.0.0.1:5443（ok=运行中）
   const kspeederRunning = (dockerMirrorHealth?.mirrors || []).find((m) => m.key === 'kspeeder')?.status === 'ok';
   // 0.6.316b：运行中/已停止可点击互切（点击「运行中」=停止，点击「已停止」=启动）。
@@ -1419,6 +1753,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   }, [ksToggling, kspeederRunning, settleKsHealth, refreshKsApp]);
   const [ksInstalling, setKsInstalling] = useState(false);
+  // 0.6.524：远端清单里的 KSpeeder 版本（仅展示，说明安装来源是清单而非应用源）
+  const [ksListVersion, setKsListVersion] = useState('');
   const handleInstallKSpeeder = useCallback(() => {
     if (ksInstalling) return;
     setKsInstalling(true);
@@ -1435,7 +1771,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         refreshKsApp();
       }
     };
-    installApp('kspeeder', handler).promise
+    // 0.6.524（用户令）：不再依赖应用源目录，按远端清单 lists/kspeeder.txt
+    // 下载 + sha256 校验 + 安装（后端 /api/kspeeder/install）。
+    installKspeeder(handler).promise
       .catch((e) => {
         toast.error('安装 KSpeeder 失败：' + (e instanceof Error ? e.message : String(e)));
       })
@@ -1446,6 +1784,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     if (!open || tab !== 'accel') return;
     let cancelled = false;
     refreshKsApp();
+    fetchKspeederLatest()
+      .then((v) => { if (!cancelled) setKsListVersion(v.version); })
+      .catch(() => { /* 清单不可达时保持空，安装时后端会明确报错 */ });
     const load = async () => {
       try {
         const h = await fetchDockerMirrorHealth();
@@ -1456,12 +1797,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const t = window.setInterval(load, 5000);
     return () => { cancelled = true; window.clearInterval(t); };
   }, [open, tab, refreshKsApp]);
-
-  // 测速状态 —— GitHub / Docker 各自独立
-  const [ghChecking, setGhChecking] = useState(false);
-  const [dkChecking, setDkChecking] = useState(false);
-  const [ghLatency, setGhLatency] = useState<Map<string, MirrorCheckResult>>(new Map());
-  const [dkLatency, setDkLatency] = useState<Map<string, MirrorCheckResult>>(new Map());
 
   // 记住最后一次非 direct 选择，切回 ON 时恢复
   const prevMirrorRef = useRef<string>('gh-proxy');
@@ -1489,6 +1824,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     dockerMirror,
     customGithubMirror,
     customDockerMirror,
+    customGithubMirrors,
+    customDockerMirrors,
     installVolume,
     autoUpdate,
     updatePolicy,
@@ -1526,8 +1863,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     formBaselineRef.current = null;
     setFormDirty(false);
     setLoading(true);
-    setGhLatency(new Map());
-    setDkLatency(new Map());
     let cancelled = false;
     const loadData = async () => {
       try {
@@ -1549,8 +1884,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setMirrorIncludeDirect(!!settings.mirror_include_direct);
         setDockerMirror(dm);
         setDockerMirrorOptions(dmOpts);
-        setCustomGithubMirror(settings.custom_github_mirror || '');
-        setCustomDockerMirror(settings.custom_docker_mirror || '');
+        setCustomGithubMirrors(
+          settings.custom_github_mirrors?.length
+            ? settings.custom_github_mirrors
+            : settings.custom_github_mirror
+              ? [settings.custom_github_mirror]
+              : [],
+        );
+        setCustomDockerMirrors(
+          settings.custom_docker_mirrors?.length
+            ? settings.custom_docker_mirrors
+            : settings.custom_docker_mirror
+              ? [settings.custom_docker_mirror]
+              : [],
+        );
         setProxyEnabled(!!settings.proxy_enabled);
         setProxyUrl(settings.proxy_url || '');
         setInstallVolume(settings.install_volume || 0);
@@ -1558,6 +1905,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setAutoUpdate(!!settings.auto_update);
         // 0.6.326x：auto_correct 已并入 update_policy（服务端读旧配置自动迁移）。
         setUpdatePolicy(settings.update_policy || 'strict');
+        // 0.6.534：手动四档的显隐直接由 updatePolicy 派生（非 auto 即显示），不再有独立折叠 state
+        if ((settings.update_policy || 'strict') !== 'auto') lastManualPolicyRef.current = settings.update_policy || 'strict';
         loadedUpdatePolicyRef.current = settings.update_policy || 'strict';
         // 0.6.255：面板账号加载行已移除（设置不再下发 panel_* 字段）
         setBackupDir(settings.backup_dir || '');
@@ -1575,6 +1924,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         if (settings.settings_tab_order && settings.settings_tab_order.length > 0) setSettingsTabOrderArr(settings.settings_tab_order);
         if (m !== 'direct') prevMirrorRef.current = m;
         if (dm !== 'direct') prevDockerMirrorRef.current = dm;
+        // 0.6.522：记住上次手动源（auto/direct 不算），关闭智能选源时回到它
+        if (m !== 'direct' && m !== 'auto') lastManualGithubRef.current = m;
+        if (dm !== 'direct' && dm !== 'auto') lastManualDockerRef.current = dm;
         setStoreInfo(store);
       } catch (error) {
         if (cancelled) return;
@@ -1589,38 +1941,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     loadBackups();
     return () => { cancelled = true; };
   }, [open, loadFpkDir, loadBackups]);
-
-  const handleGhSpeedTest = async () => {
-    setGhChecking(true);
-    setGhLatency(new Map());
-    try {
-      const result = await checkMirrors('github');
-      const gh = new Map<string, MirrorCheckResult>();
-      for (const r of result.github_mirrors) gh.set(r.key, r);
-      setGhLatency(gh);
-    } catch (error) {
-      console.error('GitHub speed test failed:', error);
-      toast.error('GitHub 测速失败');
-    } finally {
-      setGhChecking(false);
-    }
-  };
-
-  const handleDkSpeedTest = async () => {
-    setDkChecking(true);
-    setDkLatency(new Map());
-    try {
-      const result = await checkMirrors('docker');
-      const dk = new Map<string, MirrorCheckResult>();
-      for (const r of result.docker_mirrors) dk.set(r.key, r);
-      setDkLatency(dk);
-    } catch (error) {
-      console.error('Docker speed test failed:', error);
-      toast.error('Docker 测速失败');
-    } finally {
-      setDkChecking(false);
-    }
-  };
 
   const handleGithubToggle = (checked: boolean) => {
     if (checked) {
@@ -1640,6 +1960,30 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
+  /* ── 0.6.525（用户令）：智能选源回到列表首行，标题行不再有独立开关 ──────
+     记忆「最后一次手动选的源」：关闭加速再打开时回到它，绝不回落 direct。
+     手动选源 = 点下方「测速与健康」列表里的行（selectXxxMirror）；
+     点首行「智能 · 自动选最快」= 交回智能优选。 */
+  const lastManualGithubRef = useRef<string>('gh-proxy');
+  const lastManualDockerRef = useRef<string>('daocloud');
+  /** 列表点选：auto = 交回智能；direct = 关闭加速；其它 = 手动选用该源 */
+  const selectGithubMirror = (key: string) => {
+    if (key === 'auto') { setMirror('auto'); return; }
+    if (key !== 'direct') {
+      lastManualGithubRef.current = key;
+      prevMirrorRef.current = key;
+    }
+    setMirror(key);
+  };
+  const selectDockerMirror = (key: string) => {
+    if (key === 'auto') { setDockerMirror('auto'); return; }
+    if (key !== 'direct') {
+      lastManualDockerRef.current = key;
+      prevDockerMirrorRef.current = key;
+    }
+    setDockerMirror(key);
+  };
+
   const handleSave = async () => {
     // 科学加速：开启时地址必填（后端同样整单拒绝，前端先拦给提示）
     if (proxyEnabled && !proxyUrl.trim()) {
@@ -1657,6 +2001,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         // 变成「不提交」，用户清掉自定义镜像/地址后保存无效）。
         custom_github_mirror: customGithubMirror,
         custom_docker_mirror: customDockerMirror,
+        custom_github_mirrors: customGithubMirrors,
+        custom_docker_mirrors: customDockerMirrors,
         install_volume: installVolume,
         auto_update: autoUpdate,
         update_policy: updatePolicy,
@@ -1700,6 +2046,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
+  /* 0.6.530（用户令，回退 0.6.529 的子 tab 内保存按钮）：
+     加速源三个子 tab 不再各带常驻「保存」按钮 —— 统一跟随全局底部保存 dock，
+     只有本页配置改动（formDirty）时才浮出，未改动时不占位。
+     0.6.529 的 accelSaveButton（常驻卡片下方）已删除。 */
+
   // 科学加速（0.6.206）：单独校验给定代理地址的连通性（不保存、不影响当前生效配置）
   const handleTestProxy = async () => {
     const u = proxyUrl.trim();
@@ -1722,13 +2073,36 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const githubSelectOptions = mirrorOptions.filter((opt) => opt.key !== 'direct');
-  const dockerSelectOptions = dockerMirrorOptions.filter((opt) => opt.key !== 'direct');
+  // 0.6.521：把本地「待保存」的自定义地址也合并进选项表——
+  // 添加后无需先保存就能在下拉/健康列表里看到并选中。
+  const mergeCustomOptions = (opts: MirrorOption[], customs: string[]): MirrorOption[] => {
+    const base = opts.filter((o) => o.key !== 'custom' && !o.key.startsWith('custom-'));
+    const list = customs.map((u) => u.trim()).filter(Boolean);
+    const customOpts: MirrorOption[] = list.map((u, i) => ({
+      key: i === 0 ? 'custom' : `custom-${i + 1}`,
+      label: i === 0 ? '自定义' : `自定义 ${i + 1}`,
+      url: u,
+      description: '使用自定义加速地址',
+    }));
+    const out = [...base];
+    const at = out.findIndex((o) => o.key === 'direct');
+    if (at >= 0) out.splice(at, 0, ...customOpts); else out.push(...customOpts);
+    return out;
+  };
+  const githubOptionsAll = mergeCustomOptions(mirrorOptions, customGithubMirrors);
+  const dockerOptionsAll = mergeCustomOptions(dockerMirrorOptions, customDockerMirrors);
+  // 0.6.522：原「镜像下拉框」的选项集合（githubSelectOptions/dockerSelectOptions）
+  // 已随下拉框一起删除——选源改由下方 MirrorHealthPanel 列表点选。
+
+  const customIndexOf = (key: string) =>
+    key === 'custom' ? 0 : /^custom-(\d+)$/.test(key) ? Number(key.slice(7)) - 1 : -1;
 
   const mirrorLabel = (key: string) =>
-    mirrorOptions.find((o) => o.key === key)?.label || (key === 'custom' ? '自定义' : key);
+    githubOptionsAll.find((o) => o.key === key)?.label || (key === 'custom' ? '自定义' : key);
   const dockerMirrorLabel = (key: string) =>
-    dockerMirrorOptions.find((o) => o.key === key)?.label || (key === 'custom' ? '自定义' : key);
+    dockerOptionsAll.find((o) => o.key === key)?.label || (key === 'custom' ? '自定义' : key);
+  const dockerCustomSelectedUrl =
+    customIndexOf(dockerMirror) >= 0 ? (customDockerMirrors[customIndexOf(dockerMirror)] ?? '') : '';
 
   return (
     <>
@@ -1895,7 +2269,11 @@ mdsSim && "mds-sim")}>
               0.6.358（用户实报「设置页卡片和顶部 tab 胶囊间距太大」）：滚动框原 pt-3
               叠加各 tab 自己的 py 让桌面 32 / 移动 28，现由各 tab 的 py-4(py-4 桌面同款)
               独占 16px——tab 胶囊底到首卡顶统一 16px，与卡片间距齐平。 */}
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain"
+          {/* 0.6.526（用户实报「加速源展开/折叠时卡片宽度会变」）：滚动条出现/
+              消失会改变内容区宽度（实测 766→756，卡片 718→708，抖动 10px）。
+              scrollbar-gutter:stable 常驻预留滚动条槽 → 宽度恒定；移动端
+              overlay 滚动条不占位，此属性无副作用。 */}
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
             style={saveDockH > 0 ? { paddingBottom: saveDockH } : undefined}>
             {tab === 'backup' ? (
               <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
@@ -1931,9 +2309,12 @@ mdsSim && "mds-sim")}>
                       未配置时备份存在应用数据目录（仅本机可见）；选 /vol 下的共享目录后可被外部设备同步。
                     </p>
                   </div>
-                  {/* 备份周期（手动输入天数，1–30） */}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
+                  {/* 备份周期（手动输入天数，1–30）
+                      0.6.517（用户实报移动端「一团乱」）：右侧控件原 `w-full shrink-0`
+                      在窄屏占满整行 → 左侧标签被压成每行 1 个字的竖排。改为标签
+                      `flex-1 min-w-0`、控件 `shrink-0` 固定宽度，两端对齐。 */}
+                  <div className="flex items-center justify-between gap-3 border-t border-border/30 pt-3">
+                    <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-medium">备份周期</div>
                       <p className="text-[11px] text-muted-foreground">每 N 天自动写一份快照</p>
                     </div>
@@ -1952,19 +2333,18 @@ mdsSim && "mds-sim")}>
                     </div>
                   </div>
                   {/* 自动备份开关 */}
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
                       <div className="text-[13px] font-medium">自动备份</div>
                       <p className="text-[11px] text-muted-foreground">同目录保留最近 20 份，更早自动淘汰</p>
                     </div>
                     <Switch checked={backupAuto} onCheckedChange={setBackupAuto} />
                   </div>
-                  {/* 最近备份 + 立即备份 */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-muted-foreground">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                       {lastBackupAt ? `最近备份 ${lastBackupAt.replace('T', ' ').slice(0, 16)}` : '尚未备份'}
                     </span>
-                    <Button size="sm" variant="secondary" className="h-8 gap-1.5" onClick={handleBackupNow} disabled={backupRunning}>
+                    <Button size="sm" variant="secondary" className="h-8 shrink-0 gap-1.5" onClick={handleBackupNow} disabled={backupRunning}>
                       {backupRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
                       {backupRunning ? '备份中…' : '立即备份'}
                     </Button>
@@ -1977,7 +2357,7 @@ mdsSim && "mds-sim")}>
                     </div>
                   )}
                   {backups.length > 0 && (
-                    <>
+                    <div className="space-y-2 border-t border-border/30 pt-3">
                       <button
                         type="button"
                         onClick={() => setBackupsCollapsed((v) => {
@@ -2026,11 +2406,16 @@ mdsSim && "mds-sim")}>
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 shrink-0 hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => handleDeleteBackup(b.name)}
+                                className={cn(
+                                  'h-6 w-6 shrink-0',
+                                  backupConfirmDel === b.name
+                                    ? 'bg-red-500/15 text-red-500 hover:bg-red-500/20 hover:text-red-500'
+                                    : 'hover:bg-destructive/10 hover:text-destructive',
+                                )}
+                                onClick={() => armDeleteBackup(b.name)}
                                 disabled={backupRemoving === b.name}
-                                title="删除此备份"
-                                aria-label={`删除备份 ${b.name}`}
+                                title={backupConfirmDel === b.name ? '再点一次确认删除（3 秒内有效）' : '删除此备份（点一次先变红确认）'}
+                                aria-label={backupConfirmDel === b.name ? `确认删除备份 ${b.name}` : `删除备份 ${b.name}`}
                               >
                                 {backupRemoving === b.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                               </Button>
@@ -2038,7 +2423,7 @@ mdsSim && "mds-sim")}>
                           ))}
                         </div>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
 
@@ -2067,7 +2452,7 @@ mdsSim && "mds-sim")}>
                   </div>
                   {cacheCleanOn && (
                     <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="text-[13px] font-medium">清理周期</div>
                         <p className="text-[11px] text-muted-foreground">每 N 天自动清理一次</p>
                       </div>
@@ -2087,7 +2472,7 @@ mdsSim && "mds-sim")}>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-medium">保留天数</div>
                       <p className="text-[11px] text-muted-foreground">更早的缓存文件将被清理</p>
                     </div>
@@ -2105,8 +2490,12 @@ mdsSim && "mds-sim")}>
                       <span className="text-xs text-muted-foreground">天</span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-muted-foreground">
+                  {/* 0.6.529（用户令）：恢复「提示在左、两个按钮在右」同一行布局——
+                      0.6.517 曾把手机端改成上下两行（按钮掉到下一行左对齐），
+                      与桌面/其它操作行不一致；此处改为始终单行：提示可截断、
+                      按钮 shrink-0，窄屏也不会溢出。 */}
+                  <div className="flex items-center justify-between gap-2 border-t border-border/30 pt-2.5">
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                       删除 {parseDays(cacheCleanDays, 7)} 天前的缓存文件
                     </span>
                     <div className="flex shrink-0 items-center gap-1.5">
@@ -2134,7 +2523,15 @@ mdsSim && "mds-sim")}>
               </div>
             ) : tab === 'source' ? (
               <div className="px-3 py-4 sm:px-6 sm:py-4">
-                <SourceManager onCatalogChanged={onCatalogChanged} saveCounter={saveCounter} />
+                <SourceManager
+                  onCatalogChanged={onCatalogChanged}
+                  saveCounter={saveCounter}
+                  onOpenSourceApps={(src) => {
+                    // 0.6.535：先关设置再跳主页（关闭动画与列表筛选并行，无跳闪）
+                    onOpenChange(false);
+                    onOpenSourceApps?.(src.id, src.name);
+                  }}
+                />
               </div>
             ) : tab === 'accel' ? (
               loading ? (
@@ -2143,340 +2540,372 @@ mdsSim && "mds-sim")}>
                 </div>
               ) : (
                 <div className="px-3 py-4 sm:px-6 sm:py-4 space-y-4">
-                {/* 下载加速 */}
-                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-5">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium leading-none whitespace-nowrap">
-                          GitHub 下载加速
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={handleGhSpeedTest}
-                          disabled={ghChecking}
-                          title="测速"
-                          aria-label="GitHub 测速"
-                        >
-                          {ghChecking ? (
-                            <Loader2 className="h-3 w-3 animate-spin sm:mr-1" />
-                          ) : (
-                            <Zap className="h-3 w-3 sm:mr-1" />
-                          )}
-                          <span className="hidden sm:inline">测速</span>
-                        </Button>
-                      </div>
-                      <Switch checked={githubEnabled} onCheckedChange={handleGithubToggle} />
-                    </div>
-                    {githubEnabled && (
-                      <>
-                        <Select value={mirror} onValueChange={(value) => setMirror(value)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择镜像" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {githubSelectOptions.map((opt) => {
-                              const result = ghLatency.get(opt.key);
-                              return (
-                                <SelectItem key={opt.key} value={opt.key}>
-                                  <span className="flex items-center justify-between w-full gap-2">
-                                    <span>{opt.label}</span>
-                                    {result && (
-                                      <span className={`text-[11px] tabular-nums ${latencyColor(result)}`}>
-                                        {latencyText(result)}
-                                      </span>
-                                    )}
-                                  </span>
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                        {mirror === 'custom' && (
-                          <Input
-                            placeholder="https://your-proxy.example.com/"
-                            value={customGithubMirror}
-                            onChange={(e) => setCustomGithubMirror(e.target.value)}
-                          />
-                        )}
-                      </>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {githubEnabled ? '使用镜像加速从 GitHub 下载应用安装包' : '直接从 GitHub 下载，不使用加速'}
-                    </p>
-                    <MirrorHealthPanel
-                      title="GitHub 加速源优选"
-                      health={mirrorHealth}
-                      options={mirrorOptions}
-                      customConfigured={customGithubMirror !== ''}
-                      labelOf={mirrorLabel}
-                      intervalH={ghProbeH}
-                      intervalM={ghProbeM}
-                      onIntervalChange={(h, m) => { setGhProbeH(h); setGhProbeM(m); }}
-                      refreshing={healthRefreshing}
-                      onRefresh={refreshHealth}
-                      showSpeed
-                      includeDirect={{ value: mirrorIncludeDirect, onChange: setMirrorIncludeDirect }}
-                    />
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium leading-none whitespace-nowrap">
-                          Docker 镜像加速
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={handleDkSpeedTest}
-                          disabled={dkChecking}
-                          title="测速"
-                          aria-label="Docker 测速"
-                        >
-                          {dkChecking ? (
-                            <Loader2 className="h-3 w-3 animate-spin sm:mr-1" />
-                          ) : (
-                            <Zap className="h-3 w-3 sm:mr-1" />
-                          )}
-                          <span className="hidden sm:inline">测速</span>
-                        </Button>
-                      </div>
-                      <Switch checked={dockerEnabled} onCheckedChange={handleDockerToggle} />
-                    </div>
-                    {dockerEnabled && (
-                      <>
-                        <Select value={dockerMirror} onValueChange={(value) => setDockerMirror(value)}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择镜像" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {dockerSelectOptions.map((opt) => {
-                              const result = dkLatency.get(opt.key);
-                              return (
-                                <SelectItem key={opt.key} value={opt.key}>
-                                  <span className="flex items-center justify-between w-full gap-2">
-                                    <span>{opt.label}</span>
-                                    {result && (
-                                      <span className={`text-[11px] tabular-nums ${latencyColor(result)}`}>
-                                        {latencyText(result)}
-                                      </span>
-                                    )}
-                                  </span>
-                                </SelectItem>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                        {dockerMirror === 'custom' && (
-                          <Input
-                            placeholder="your-mirror.example.com/"
-                            value={customDockerMirror}
-                            onChange={(e) => setCustomDockerMirror(e.target.value)}
-                          />
-                        )}
-                      </>
-                    )}
-                    {/* 0.6.269 Docker 优选接入：把所选镜像写入系统 daemon.json（可回滚） */}
-                    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
-                      <div className="min-w-0">
-                        {/* 0.6.287：标题强制一行（CJK 默认可在任意字间断行，窄屏被拆成
-                            两行 = 用户实报「本来一行显示被改成两行」）。「已应用」短徽章
-                            随行显示；两条长徽章移动端隐藏（下方说明行已列出当前
-                            registry-mirrors，信息不丢），桌面端保持完整 */}
-                        <div className="text-[13px] font-medium flex items-center gap-2 flex-wrap">
-                          <span className="whitespace-nowrap">应用到系统 Docker</span>
-                          {dkStatus ? (
-                            dkStatus.applied ? (
-                              <Badge className="gap-1.5 text-[11px] whitespace-nowrap">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                已应用
-                              </Badge>
-                            ) : dkStatus.mirrors?.length ? (
-                              <Badge variant="secondary" className="text-[11px] whitespace-nowrap hidden sm:inline-flex">
-                                系统已有其它镜像源
-                              </Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-[11px] whitespace-nowrap hidden sm:inline-flex">
-                                直连（无镜像源）
-                              </Badge>
-                            )
-                          ) : null}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed break-all">
-                          {dkStatus?.mirrors?.length
-                            ? `当前 registry-mirrors：${dkStatus.mirrors.join('，')}`
-                            : '将所选源写入 /etc/docker/daemon.json 并重启 Docker（写前自动备份，失败自动回滚）'}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={dkStatus?.applied ? 'outline' : 'secondary'}
-                        className="shrink-0 h-8"
-                        onClick={() => setDkApplyOpen(true)}
-                        disabled={dockerMirror === 'direct' && !dkStatus?.mirrors?.length}
-                      >
-                        {dkStatus?.applied ? '重新应用' : '应用'}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {dockerEnabled
-                        ? '加速源由上方选择决定；「应用」后系统 Docker 拉取即走该源'
-                        : '关闭加速 = 直连 Docker Hub；「应用」可清除系统镜像源配置'}
-                    </p>
-                    <AlertDialog open={dkApplyOpen} onOpenChange={setDkApplyOpen}>
-                      <AlertDialogContent className="rounded-[18px] border-border/20 shadow-appstore bg-card">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>应用 Docker 镜像源到系统</AlertDialogTitle>
-                          <AlertDialogDescription className="space-y-1.5">
-                            {dockerMirror === 'direct' ? (
-                              <p>将<b>清除</b> /etc/docker/daemon.json 的 registry-mirrors（回到 Docker Hub 直连）。</p>
-                            ) : (
-                              <p>
-                                将把 <b>{dockerMirror === 'custom' ? (customDockerMirror || '自定义地址') : dockerMirrorLabel(dockerMirror)}</b>{dockerMirror === 'custom' ? `（${customDockerMirror}）` : ''} 写入 /etc/docker/daemon.json 的 registry-mirrors。
-                              </p>
-                            )}
-                            {/* 0.6.325 安全加固 R2：智能选源=由系统替你选第三方源，须知情 */}
-                            {dockerMirror === 'auto' ? (
-                              <p className="text-muted-foreground">
-                                智能选源会在<b>应用时</b>对候选源逐个测速，并把<b>最快且可达</b>的一个写入配置；候选含第三方公共加速源，<b>镜像拉取请求会经该源</b>。实际选中结果会在应用后提示。
-                              </p>
-                            ) : null}
-                            <p>
-                              需要<b>重启 Docker</b>：本机所有容器会停止数秒后自动恢复（Docker 类应用短暂不可用）。写前自动备份，任一步失败自动回滚。
-                            </p>
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel disabled={dkApplying}>取消</AlertDialogCancel>
-                          <Button onClick={handleApplyDockerMirror} disabled={dkApplying}>
-                            {dkApplying ? (
-                              <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-                            ) : null}
-                            {dkApplying ? '应用中…' : '确认应用'}
-                          </Button>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                    {/* KSpeeder 镜像加速：独立应用依赖（同 New Store 依赖外部 iStoreEnhance 的做法），
-                        未运行时提供安装入口，走标准应用安装管线（Blue-Mink 源 appname=kspeeder） */}
-                    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="text-[13px] font-medium">KSpeeder 镜像加速</div>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                          独立应用（127.0.0.1:5443）；实际生效需系统镜像源指向 127.0.0.1:5443
-                        </p>
-                      </div>
-                      {ksToggling || ksStatus === 'starting' || ksStatus === 'stopping' ? (
-                        <Button size="sm" variant="secondary" className="shrink-0 h-8" disabled>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          处理中…
-                        </Button>
-                      ) : kspeederRunning ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="shrink-0 h-8 gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20"
-                          onClick={handleToggleKSpeeder}
-                          title="点击停止 KSpeeder"
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          运行中
-                        </Button>
-                      ) : ksInstalled ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="shrink-0 h-8"
-                          onClick={handleToggleKSpeeder}
-                          title="点击启动 KSpeeder"
-                        >
-                          <Power className="h-3.5 w-3.5" />
-                          已停止
-                        </Button>
-                      ) : ksInstalled === null ? (
-                        <Button size="sm" variant="secondary" className="shrink-0 h-8" disabled>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          检测中…
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          className="shrink-0 h-8"
-                          onClick={handleInstallKSpeeder}
-                          disabled={ksInstalling}
-                        >
-                          {ksInstalling ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Download className="h-3.5 w-3.5" />
-                          )}
-                          {ksInstalling ? '安装中…' : '安装 KSpeeder'}
-                        </Button>
+                {/* 0.6.518/0.6.519（用户令）：GitHub / Docker 加速做成子 tab（联排分段样式，放进卡片内）；
+                    0.6.525：智能选源回到加速源列表首行（标题行开关与文字移除）；去掉闪电测速；
+                    同步/恢复/添加 三等分一行；科学加速并入 GitHub 子 tab。 */}
+                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-4">
+                  <div className="inline-flex rounded-full border border-border/40 bg-muted/30 p-0.5" role="tablist" aria-label="加速类型">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={accelListTab === 'github'}
+                      onClick={() => setAccelListTab('github')}
+                      className={cn(
+                        'h-7 rounded-full px-2.5 text-[11px] transition-colors',
+                        accelListTab === 'github'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
                       )}
-                    </div>
-                    <MirrorHealthPanel
-                      title="Docker 加速源测速"
-                      health={dockerMirrorHealth}
-                      options={dockerMirrorOptions}
-                      customConfigured={customDockerMirror !== ''}
-                                            intervalH={dkProbeH}
-                      intervalM={dkProbeM}
-                      onIntervalChange={(h, m) => { setDkProbeH(h); setDkProbeM(m); }}
-                      labelOf={dockerMirrorLabel}
-                      refreshing={dkHealthRefreshing}
-                      onRefresh={refreshDkHealth}
-                      showSpeed
-                      referenceOnly
-                      speedNote="测速结果按拉 nginx 镜像首层实测。仅供参考：实际拉取走系统级镜像源，照下表配置；KSpeeder (本地) 为独立应用本地缓存。后台按右侧间隔自动测速。"
-                    />
+                    >
+                      GitHub 加速
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={accelListTab === 'docker'}
+                      onClick={() => setAccelListTab('docker')}
+                      className={cn(
+                        'h-7 rounded-full px-2.5 text-[11px] transition-colors',
+                        accelListTab === 'docker'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      Docker 加速
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={accelListTab === 'science'}
+                      onClick={() => setAccelListTab('science')}
+                      className={cn(
+                        'h-7 rounded-full px-2.5 text-[11px] transition-colors',
+                        accelListTab === 'science'
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      科学加速
+                    </button>
                   </div>
-                </div>
-                {/* 科学加速（0.6.206）：本机代理，仅 GitHub 域名改道 */}
-                <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium">科学加速</div>
-                      <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                        GitHub 上游流量（源同步 / 图标 / FPK 下载 / 更新检测）走本机代理；镜像与非 GitHub 流量保持直连，代理失效自动回退加速源。
-                      </p>
-                    </div>
-                    <Switch checked={proxyEnabled} onCheckedChange={setProxyEnabled} aria-label="启用科学加速" />
-                  </div>
-                  {proxyEnabled && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
+                  {accelListTab === 'github' ? (
+                    <div className="space-y-3">
+                      {/* 0.6.523（用户令）：页面结构自上而下 = 加速开关 → 加速源列表
+                          （同步 / 恢复 / 添加 在列表正上方；首行=智能 · 自动选最快）。
+                          说明文字精简；「智能 · 自动选最快」列表行由开关取代。 */}
+                      <div
+                        className="flex cursor-pointer items-center justify-between gap-3"
+                        onClick={toggleAccelList}
+                        title={accelListCollapsed ? '点击展开 GitHub 加速源列表' : '点击折叠 GitHub 加速源列表'}
+                      >
+                        <span className="text-sm font-medium leading-none whitespace-nowrap">GitHub 下载加速</span>
+                        {/* 0.6.534（用户令）：标题行右侧的折叠按钮与「测速与监控」行重复，删除；
+                            整行点击仍可展开/折叠，折叠入口统一保留下方那一个 */}
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Switch checked={githubEnabled} onCheckedChange={handleGithubToggle} aria-label="GitHub 加速开关" />
+                        </div>
+                      </div>
+                      {githubEnabled && customIndexOf(mirror) >= 0 && (
                         <Input
-                          value={proxyUrl}
-                          onChange={(e) => setProxyUrl(e.target.value)}
-                          placeholder="socks5://127.0.0.1:1080"
-                          spellCheck={false}
-                          className="h-9 flex-1 font-mono text-[13px]"
-                          aria-label="代理地址"
+                          placeholder="https://your-proxy.example.com/"
+                          value={customGithubMirrors[customIndexOf(mirror)] ?? ''}
+                          onChange={(e) => setCustomGithubAt(customIndexOf(mirror), e.target.value)}
                         />
+                      )}
+                      <MirrorHealthPanel
+                        title="测速与监控"
+                        collapsed={accelListCollapsed}
+                        onToggleCollapsed={toggleAccelList}
+                        health={mirrorHealth}
+                        options={githubOptionsAll}
+                        customConfigured={customGithubMirrors.length > 0}
+                        labelOf={mirrorLabel}
+                        intervalH={ghProbeH}
+                        intervalM={ghProbeM}
+                        onIntervalChange={(h, m) => { setGhProbeH(h); setGhProbeM(m); }}
+                        refreshing={healthRefreshing}
+                        onRefresh={refreshHealth}
+                        showSpeed
+                        includeDirect={{ value: mirrorIncludeDirect, onChange: setMirrorIncludeDirect }}
+                        onSync={handleMirrorListSync}
+                        onRestore={handleMirrorListRestore}
+                        onAdd={() => { setAddMirrorText(''); setAddMirrorOpen(true); }}
+                        onDelete={handleMirrorDelete}
+                        listBusy={mirrorListBusy}
+                        plain
+                        selectedKey={mirror}
+                        onSelect={selectGithubMirror}
+                      />
+                    </div>
+                  ) : accelListTab === 'docker' ? (
+                    <div className="space-y-3">
+                      {/* 0.6.525：与 GitHub 组同构——开关 → 加速源列表（首行=智能 · 自动选最快）。 */}
+                      <div
+                        className="flex cursor-pointer items-center justify-between gap-3"
+                        onClick={toggleAccelList}
+                        title={accelListCollapsed ? '点击展开 Docker 加速源列表' : '点击折叠 Docker 加速源列表'}
+                      >
+                        <span className="text-sm font-medium leading-none whitespace-nowrap">Docker 镜像加速</span>
+                        {/* 0.6.534（用户令）：同上，删除与「测速与监控」行重复的折叠按钮 */}
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Switch checked={dockerEnabled} onCheckedChange={handleDockerToggle} aria-label="Docker 加速开关" />
+                        </div>
+                      </div>
+                      {dockerEnabled && customIndexOf(dockerMirror) >= 0 && (
+                        <Input
+                          placeholder="https://your-mirror.example.com/"
+                          value={customDockerMirrors[customIndexOf(dockerMirror)] ?? ''}
+                          onChange={(e) => setCustomDockerAt(customIndexOf(dockerMirror), e.target.value)}
+                        />
+                      )}
+                      <MirrorHealthPanel
+                        title="测速与监控"
+                        collapsed={accelListCollapsed}
+                        onToggleCollapsed={toggleAccelList}
+                        health={dockerMirrorHealth}
+                        options={dockerOptionsAll}
+                        customConfigured={customDockerMirrors.length > 0}
+                        intervalH={dkProbeH}
+                        intervalM={dkProbeM}
+                        onIntervalChange={(h, m) => { setDkProbeH(h); setDkProbeM(m); }}
+                        labelOf={dockerMirrorLabel}
+                        refreshing={dkHealthRefreshing}
+                        onRefresh={refreshDkHealth}
+                        showSpeed
+                        referenceOnly
+                        speedNote="仅供参考：实际拉取走系统镜像源，照此配置。"
+                        onSync={handleMirrorListSync}
+                        onRestore={handleMirrorListRestore}
+                        onAdd={() => { setAddMirrorText(''); setAddMirrorOpen(true); }}
+                        onDelete={handleMirrorDelete}
+                        listBusy={mirrorListBusy}
+                        plain
+                        selectedKey={dockerMirror}
+                        onSelect={selectDockerMirror}
+                      />
+                      {/* 0.6.269 Docker 优选接入：把所选镜像写入系统 daemon.json（可回滚） */}
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
+                        <div className="min-w-0">
+                          {/* 0.6.287：标题强制一行（CJK 默认可在任意字间断行，窄屏被拆成
+                              两行 = 用户实报「本来一行显示被改成两行」）。「已应用」短徽章
+                              随行显示；两条长徽章移动端隐藏（下方说明行已列出当前
+                              registry-mirrors，信息不丢），桌面端保持完整 */}
+                          <div className="text-[13px] font-medium flex items-center gap-2 flex-wrap">
+                            <span className="whitespace-nowrap">应用到系统 Docker</span>
+                            {dkStatus ? (
+                              dkStatus.applied ? (
+                                <Badge className="gap-1.5 text-[11px] whitespace-nowrap">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                  已应用
+                                </Badge>
+                              ) : dkStatus.mirrors?.length ? (
+                                <Badge variant="secondary" className="text-[11px] whitespace-nowrap hidden sm:inline-flex">
+                                  系统已有其它镜像源
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-[11px] whitespace-nowrap hidden sm:inline-flex">
+                                  直连（无镜像源）
+                                </Badge>
+                              )
+                            ) : null}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed break-all">
+                            {dkStatus?.mirrors?.length
+                              ? `当前 registry-mirrors：${dkStatus.mirrors.join('，')}`
+                              : '写入 daemon.json 并重启 Docker（失败自动回滚）'}
+                          </p>
+                        </div>
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={handleTestProxy}
-                          disabled={proxyTesting || !proxyUrl.trim()}
-                          className="h-9 shrink-0 gap-1.5"
+                          variant={dkStatus?.applied ? 'outline' : 'secondary'}
+                          className="shrink-0 h-8"
+                          onClick={() => setDkApplyOpen(true)}
+                          disabled={dockerMirror === 'direct' && !dkStatus?.mirrors?.length}
                         >
-                          {proxyTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-                          {proxyTesting ? '测试中…' : '测试代理'}
+                          {dkStatus?.applied ? '重新应用' : '应用'}
                         </Button>
                       </div>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        支持 HTTP / HTTPS / SOCKS4 / SOCKS5（含 socks5h 远端 DNS，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080）。地址仅在本机使用，不会外发。
-                      </p>
+                      <AlertDialog open={dkApplyOpen} onOpenChange={setDkApplyOpen}>
+                        <AlertDialogContent className="rounded-[18px] border-border/20 shadow-appstore bg-card">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>应用 Docker 镜像源到系统</AlertDialogTitle>
+                            <AlertDialogDescription className="space-y-1.5">
+                              {dockerMirror === 'direct' ? (
+                                <p>将<b>清除</b> /etc/docker/daemon.json 的 registry-mirrors（回到 Docker Hub 直连）。</p>
+                              ) : (
+                                <p>
+                                  将把 <b>{dockerCustomSelectedUrl || (customIndexOf(dockerMirror) >= 0 ? '自定义地址' : dockerMirrorLabel(dockerMirror))}</b>{dockerCustomSelectedUrl ? `（${dockerCustomSelectedUrl}）` : ''} 写入 /etc/docker/daemon.json 的 registry-mirrors。
+                                </p>
+                              )}
+                              {/* 0.6.325 安全加固 R2：智能选源=由系统替你选第三方源，须知情 */}
+                              {dockerMirror === 'auto' ? (
+                                <p className="text-muted-foreground">
+                                  智能选源会在<b>应用时</b>对候选源逐个测速，并把<b>最快且可达</b>的一个写入配置；候选含第三方公共加速源，<b>镜像拉取请求会经该源</b>。实际选中结果会在应用后提示。
+                                </p>
+                              ) : null}
+                              <p>
+                                需要<b>重启 Docker</b>：本机所有容器会停止数秒后自动恢复（Docker 类应用短暂不可用）。写前自动备份，任一步失败自动回滚。
+                              </p>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel disabled={dkApplying}>取消</AlertDialogCancel>
+                            <Button onClick={handleApplyDockerMirror} disabled={dkApplying}>
+                              {dkApplying ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                              ) : null}
+                              {dkApplying ? '应用中…' : '确认应用'}
+                            </Button>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                      {/* KSpeeder 镜像加速：独立应用依赖（同 New Store 依赖外部 iStoreEnhance 的做法），
+                          未运行时提供安装入口，走标准应用安装管线（Blue-Mink 源 appname=kspeeder） */}
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 border border-border/20 px-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-medium">KSpeeder 镜像加速</div>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            本地缓存 127.0.0.1:5443，需系统镜像源指向它{ksListVersion ? ` · 清单 v${ksListVersion}` : ''}
+                          </p>
+                        </div>
+                        {ksToggling || ksStatus === 'starting' || ksStatus === 'stopping' ? (
+                          <Button size="sm" variant="secondary" className="shrink-0 h-8" disabled>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            处理中…
+                          </Button>
+                        ) : kspeederRunning ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="shrink-0 h-8 gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20"
+                            onClick={handleToggleKSpeeder}
+                            title="点击停止 KSpeeder"
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            运行中
+                          </Button>
+                        ) : ksInstalled ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="shrink-0 h-8"
+                            onClick={handleToggleKSpeeder}
+                            title="点击启动 KSpeeder"
+                          >
+                            <Power className="h-3.5 w-3.5" />
+                            已停止
+                          </Button>
+                        ) : ksInstalled === null ? (
+                          <Button size="sm" variant="secondary" className="shrink-0 h-8" disabled>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            检测中…
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="shrink-0 h-8"
+                            onClick={handleInstallKSpeeder}
+                            disabled={ksInstalling}
+                          >
+                            {ksInstalling ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            {ksInstalling ? '安装中…' : '安装 KSpeeder'}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  )}
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium">科学加速</div>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
+                              GitHub 流量走本机代理，其余直连；代理失效自动回退加速源。
+                            </p>
+                          </div>
+                          <Switch checked={proxyEnabled} onCheckedChange={setProxyEnabled} aria-label="启用科学加速" />
+                        </div>
+                        {proxyEnabled && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={proxyUrl}
+                                onChange={(e) => setProxyUrl(e.target.value)}
+                                placeholder="socks5://127.0.0.1:1080"
+                                spellCheck={false}
+                                className="h-9 flex-1 font-mono text-[13px]"
+                                aria-label="代理地址"
+                              />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleTestProxy}
+                                disabled={proxyTesting || !proxyUrl.trim()}
+                                className="h-9 shrink-0 gap-1.5"
+                              >
+                                {proxyTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                                {proxyTesting ? '测试中…' : '测试代理'}
+                              </Button>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                              支持 HTTP / SOCKS4 / SOCKS5（含 socks5h）；地址仅本机使用。
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
+                {/* 0.6.521（用户令）：添加加速源弹窗与「添加渠道」同款 Dialog；
+                    输入框支持多行（每行一个地址，Ctrl/Cmd+Enter 提交）。 */}
+                <Dialog open={addMirrorOpen} onOpenChange={setAddMirrorOpen}>
+                  <DialogContent className="sm:w-[720px]">
+                    <DialogHeader>
+                      <DialogTitle>添加 {accelListTab === 'github' ? 'GitHub' : 'Docker'} 加速源</DialogTitle>
+                      <DialogDescription>每行一个地址，可一次添加多个。</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 px-1.5 py-1">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-muted-foreground">加速源地址</label>
+                          {addMirrorLines.length > 1 && (
+                            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                              {addMirrorLines.length} 行
+                            </Badge>
+                          )}
+                        </div>
+                        <textarea
+                          value={addMirrorText}
+                          onChange={(e) => setAddMirrorText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                              e.preventDefault();
+                              handleAddMirror();
+                            }
+                          }}
+                          placeholder={
+                            accelListTab === 'github'
+                              ? 'https://gh-proxy.example.com/\nhttps://gh2.example.com/'
+                              : 'https://docker.example.com/\nhttps://docker2.example.com/'
+                          }
+                          rows={3}
+                          spellCheck={false}
+                          className="mt-1 w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-[13px] leading-relaxed placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          aria-label="加速源地址"
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter className="gap-1.5">
+                      <Button variant="ghost" size="sm" onClick={() => setAddMirrorOpen(false)}>取消</Button>
+                      <Button size="sm" onClick={handleAddMirror} disabled={addMirrorLines.length === 0}>
+                        添加{addMirrorLines.length > 1 ? ` ${addMirrorLines.length} 个` : ''}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </div>
               )
             ) : loading ? (
@@ -2494,9 +2923,13 @@ mdsSim && "mds-sim")}>
                 {/* Dock 栏排序（0.6.122）：移动端底部主导航，长按进入拖动；
                     头部「恢复默认 + 折叠」与「应用源列表」同款（默认折叠，持久化） */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-medium leading-none">Dock 栏排序</div>
-                    <div className="flex shrink-0 items-center gap-1">
+                  <div
+                    className="flex items-center justify-between gap-2"
+                    onClick={() => toggleOrderCollapsed('dock')}
+                    title={dockOrderCollapsed ? '点击展开 Dock 栏排序' : '点击折叠 Dock 栏排序'}
+                  >
+                    <div className="cursor-pointer text-sm font-medium leading-none">Dock 栏排序</div>
+                    <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="ghost"
                         className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
@@ -2526,9 +2959,13 @@ mdsSim && "mds-sim")}>
 
                 {/* 设置 tab 排序（0.6.122）：本页顶部 6 个 tab；头部按钮同上 */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-medium leading-none">设置 tab 排序</div>
-                    <div className="flex shrink-0 items-center gap-1">
+                  <div
+                    className="flex items-center justify-between gap-2"
+                    onClick={() => toggleOrderCollapsed('tab')}
+                    title={tabOrderCollapsed ? '点击展开设置 tab 排序' : '点击折叠设置 tab 排序'}
+                  >
+                    <div className="cursor-pointer text-sm font-medium leading-none">设置 tab 排序</div>
+                    <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="ghost"
                         className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
@@ -2646,38 +3083,13 @@ mdsSim && "mds-sim")}>
                         {dirApplying ? '切换中…' : fpkDir || '选择下载目录…'}
                       </span>
                     </Button>
-                    {fpkDir && (
-                      <p className="truncate font-mono text-[11px] text-muted-foreground" title={fpkDir}>
-                        当前生效：{fpkDir}
-                      </p>
-                    )}
+                    {/* 0.6.530（用户令）：目录按钮里已显示完整路径 → 删掉下方
+                        「当前生效：<目录>」重复行（同一信息出现两遍）。 */}
                     {/* 0.6.325 C4：已下载列表段抽入 FpkDownloads 组件（state/handler/渲染全在
-                        组件内）；设置页只保留上传钮（uploadSlot）与进行中的下载任务块
-                        （tasksBlock），布局与 C4 前一致；刷新/折叠/列表/安装向导全在组件 */}
+                        组件内）；0.6.531 起上传按钮也由组件内置（enableUpload），
+                        设置页只保留进行中的下载任务块（tasksBlock）。 */}
                     <FpkDownloads
-                      uploadSlot={<>
-                        {/* 321R7 E：上传本地 FPK（手机/电脑文件）→ 入列表可直接安装 */}
-                        <input
-                          ref={fpkFileRef}
-                          type="file"
-                          accept=".fpk"
-                          className="hidden"
-                          onChange={e => { const f = e.target.files?.[0]; if (f) void handleFpkUpload(f); }}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => fpkFileRef.current?.click()}
-                          disabled={fpkUploading}
-                          title="上传 FPK 安装包（手机/电脑本地文件）"
-                          aria-label="上传 FPK 安装包"
-                        >
-                          {fpkUploading
-                            ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                            : <Upload className="h-3.5 w-3.5" />}
-                        </Button>
-                      </>}
+                      enableUpload
                       // 后台下载（进行中/已暂停）：下载可暂停/继续（按钮与安装同款，下载中显示「暂停」）
                       tasksBlock={dlTasks.length > 0 && (
                       <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 divide-y divide-border/40">
@@ -2740,11 +3152,20 @@ mdsSim && "mds-sim")}>
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
-                                    onClick={() => handleDlClear(t)}
+                                    className={cn(
+                                      'h-6 w-6 shrink-0',
+                                      taskConfirmDel === (t.id || `${t.appname}:${t.op}`)
+                                        ? 'bg-red-500/15 text-red-500 hover:bg-red-500/20 hover:text-red-500'
+                                        : 'text-muted-foreground hover:text-red-500 hover:bg-red-500/10',
+                                    )}
+                                    onClick={() => armDlClear(t, t.id || `${t.appname}:${t.op}`)}
                                     disabled={dlBusyApp !== null}
-                                    title="删除该下载任务（运行中会先停止；断点文件一并清除，成品 FPK 保留）"
-                                    aria-label={`删除 ${t.appname} 下载任务`}
+                                    title={taskConfirmDel === (t.id || `${t.appname}:${t.op}`)
+                                      ? '再点一次确认删除（3 秒内有效）'
+                                      : '删除该下载任务（运行中会先停止；断点文件一并清除，成品 FPK 保留）'}
+                                    aria-label={taskConfirmDel === (t.id || `${t.appname}:${t.op}`)
+                                      ? `确认删除 ${t.appname} 下载任务`
+                                      : `删除 ${t.appname} 下载任务`}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
@@ -2763,18 +3184,11 @@ mdsSim && "mds-sim")}>
                 </div>
 
 
-                {/* 更新策略（0.6.325 C2：「自动更新应用」+「更新检测策略」两卡合一卡——
-                    行序（0.6.326b 用户令定稿）：①自动更新应用开关+说明 → ②严格/友好/宽松
-                    三胶囊+选中说明 → ③自动纠正应用更新（原在①下方，用户令挪到胶囊下方）。
-                    所有 handler/state/0.6.312 重算逻辑原样不动，只改渲染结构；
-                    桌面+390/360 均无溢出（开关行 min-w-0 换行兜底，胶囊行 360 实测 3 列放得下） */}
+                {/* 自动更新应用 + 更新策略（0.6.538b 用户令）：合并为一张卡（同属「更新」语义；
+                    0.6.538 曾拆两卡）。两者仍是独立字段（auto_update / update_policy），
+                    策略不 gate 自动更新：关掉自动更新后，策略照常决定「有更新」判定与手动更新目标。 */}
                 <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3.5">
                   <div className="space-y-3">
-                    <label className="text-sm font-medium leading-none">
-                      更新策略
-                    </label>
-                    {/* 第一行：自动更新应用（周期检查发现更新时后台自动检测+安装，
-                        无需打开应用；排除已忽略应用与商店自身）——label 左、Switch 右对齐 */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-0.5 min-w-0">
                         <label className="text-sm font-medium leading-none flex items-center gap-1.5">
@@ -2782,43 +3196,69 @@ mdsSim && "mds-sim")}>
                           自动更新应用
                         </label>
                         <p className="text-xs text-muted-foreground">
-                          周期检查时自动在后台检测并安装更新，无需打开应用
+                          周期检查时自动在后台安装更新
                         </p>
                       </div>
                       <Switch checked={autoUpdate} onCheckedChange={setAutoUpdate} className="shrink-0 mt-0.5" />
                     </div>
-                    {/* 跨源更新检测策略（0.6.272）：严格 / 友好 / 宽松 三横排切换
-                        （替换 0.6.269 目录语言入口；目录语言回 auto 默认跟随） */}
-                    <div className="space-y-2">
-                      {/* 0.6.287：分段控件→胶囊三横排（选中实心蓝）。旧 bg-muted/50 底 +
-                          bg-card 选中在暗黑模式几乎不可辨（「药丸不明显」同因），
-                          语言与顶部 tab 一致 */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        {UPDATE_POLICY_OPTIONS.map((o) => (
-                          <button
-                            key={o.value}
-                            type="button"
-                            onClick={() => setUpdatePolicy(o.value)}
-                            className={cn(
-                              'h-8 rounded-full text-xs font-medium transition-colors',
-                              // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
-                              updatePolicy === o.value
-                                ? 'bg-primary/15 text-primary border border-primary/40'
-                                : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
-                            )}
-                          >
-                            {o.label}
-                          </button>
-                        ))}
+
+                    <div className="border-t border-white/10 pt-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-0.5 min-w-0">
+                          <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                            <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                            更新策略（推荐）
+                          </label>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            决定哪些来源的版本算更新，手动更新同样按它执行
+                          </p>
+                        </div>
+                        <Switch
+                          checked={updatePolicy === 'auto'}
+                          onCheckedChange={handleAutoPolicyToggle}
+                          className="shrink-0 mt-0.5"
+                          aria-label="更新策略"
+                        />
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}
-                      </p>
+                      {!autoUpdate && (
+                        <p className="text-xs leading-relaxed text-muted-foreground/80">
+                          自动更新已关闭，策略仍决定「有更新」判定与手动更新的目标版本。
+                        </p>
+                      )}
+                      {updatePolicy !== 'auto' && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            {UPDATE_POLICY_OPTIONS.map((o) => (
+                              <button
+                                key={o.value}
+                                type="button"
+                                onClick={() => {
+                                  lastManualPolicyRef.current = o.value;
+                                  setUpdatePolicy(o.value);
+                                }}
+                                aria-pressed={updatePolicy === o.value}
+                                className={cn(
+                                  'h-8 rounded-full text-xs font-medium transition-colors',
+                                  // 0.6.307（用户点名）：选中=胶囊同款浅蓝，未选=灰底保对比
+                                  updatePolicy === o.value
+                                    ? 'bg-primary/15 text-primary border border-primary/40'
+                                    : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
+                                )}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {`当前为手动策略「${UPDATE_POLICY_OPTIONS.find((o) => o.value === updatePolicy)?.label || '严格'}」：${UPDATE_POLICY_DESCS[updatePolicy] || UPDATE_POLICY_DESCS.strict}`}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    {/* 0.6.326x（用户令）：原独立开关「自动纠正应用更新」已并入上方
-                        「更新策略」做第四档「强制上游」，不再单独渲染；逻辑见
-                        internal/api resolveUpdateTargetSelection。 */}
                   </div>
+                  {/* 0.6.326x（用户令）：原独立开关「自动纠正应用更新」已并入
+                      「更新策略」做第四档「强制上游」，不再单独渲染；逻辑见
+                      internal/api resolveUpdateTargetSelection。 */}
                 </div>
 
                 {/* 商店版本卡片已移除：版本号并入顶部 tab 行最右侧（2026-09-26 用户定稿） */}
@@ -3032,7 +3472,9 @@ mdsSim && "mds-sim")}>
           {/* 0.6.343：日志 tab 不显示底部「保存」——该页没有待保存项（行数选择即时
               落库），此前悬浮胶囊会压在日志列表最后一行上（用户报「日志页面很乱」）。
               0.6.364（用户令）：默认不显示——只有当前表单改过（formDirty）才浮出；
-              通知 tab 的设置是子组件逐项即时保存，父级无待提交项，一并排除。 */}
+              通知 tab 的设置是子组件逐项即时保存，父级无待提交项，一并排除。
+              0.6.530（用户令）：加速源 tab 恢复「跟随全局」——改动才浮出，
+              未改动不显示（0.6.529 的常驻卡内保存按钮已删除）。 */}
           {tab !== 'about' && tab !== 'log' && tab !== 'notify' && formDirty && !kbDockHidden && (
             // 0.6.319g（用户定稿）：absolute 悬浮 overlay（与详情页下载胶囊同款）。
             // 内容滚动框贯穿到底，文字从按钮下方滚过（按钮=307 定稿浅蓝玻璃

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchSources, addSourcesBatch, removeSource, renameSource, syncSource, syncAllSources, restoreDefaultSources, deleteDefaultSources, toggleSource, syncSourceList, fetchSettings, updateSettings, reorderSources, toggleSourceFavorite, type SourceEntry } from '../api/client';
+import { fetchSources, addSourcesBatch, removeSource, renameSource, syncSource, syncAllSources, toggleSource, syncSourceList, fetchSettings, updateSettings, reorderSources, toggleSourceFavorite, type SourceEntry } from '../api/client';
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -17,7 +17,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog"
-import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, RotateCcw, ShieldAlert, KeyRound, Search, X } from 'lucide-react'
+import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, ChevronDown, Check, Activity, MoreHorizontal, Copy, GripVertical, Star, ShieldAlert, KeyRound, Search, X, DownloadCloud, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { shouldWarnPlainHttp } from '@/lib/sourceWarnings'
 import { copyTextToClipboard } from '@/lib/clipboard'
@@ -29,6 +29,8 @@ interface SourceManagerProps {
   onCatalogChanged?: () => void;
   /** 父级「保存」动作计数；变化时退出抖动排序模式（界面收敛到静态） */
   saveCounter?: number;
+  /** 0.6.535（用户令）：行内「列表」按钮——跳到主页「全部」并只显示该源的应用 */
+  onOpenSourceApps?: (src: SourceEntry) => void;
 }
 
 /** 0.6.216 P1①：明文 http 源警示规则抽到 lib（官方源豁免，见 sourceWarnings） */
@@ -49,7 +51,7 @@ const overlapTone = (risk?: string): string =>
 
 const overlapPct = (v?: number): string => `${Math.round((v ?? 0) * 100)}%`
 
-const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCounter = 0 }) => {
+const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCounter = 0, onOpenSourceApps }) => {
   const [sources, setSources] = useState<SourceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   // 0.6.346（用户令）：应用源搜索——列表卡前面加搜索框，输入即筛选，
@@ -80,10 +82,14 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  // 0.6.171：一键刷新所有应用源（自动监测卡的圆形刷新按钮）
+  // 0.6.171：一键刷新所有应用源（「刷新源」按钮）
   const [syncingAll, setSyncingAll] = useState(false);
-  // 0.6.172：一键恢复默认应用源列表（防误删 + 相同源去重）
-  const [restoring, setRestoring] = useState(false);
+  // 0.6.529（用户令）：「删除源」改为批量删除——进入选择态 → 勾选多个源 →
+  // 确认后逐个删除。原「删默认清单历史源」逻辑整体下线。
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchSel, setBatchSel] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchConfirm, setBatchConfirm] = useState(false);
   // 源列表折叠（本地持久化）
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
@@ -95,8 +101,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [togglingId, setTogglingId] = useState<string | null>(null);
   // 内置源列表自动同步（列表地址固定用内置/配置值，界面不再暴露输入框）
   const [listAuto, setListAuto] = useState(true);
-  // 0.6.325 安全加固 R1：允许列表同步添加内网/环回源（默认关）
-  const [listAllowPrivate, setListAllowPrivate] = useState(false);
+  // 0.6.512：内网源开关已移除（远端清单不收录本地/内网源，开关无实际用途）
   // 0.6.334：GitHub API token（可选）——服务端只回传「是否已配置」，
   // token 本身永不下发；保存/清除均即时生效（无需重启）。
   const [tokenSet, setTokenSet] = useState(false);
@@ -104,9 +109,6 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [savingToken, setSavingToken] = useState(false);
   const [syncingList, setSyncingList] = useState(false);
   const [savingList, setSavingList] = useState(false);
-  // 0.6.318：删除默认源（dry_run 预检 → 确认弹窗 → 真删）
-  const [deletingDefaults, setDeletingDefaults] = useState(false);
-  const [delDefaultsPreview, setDelDefaultsPreview] = useState<{ deleted: number; scanned: number; deleted_names?: string[] } | null>(null);
   // 应用源自动监测（连续无应用自动关闭 + 空源沉底）
   const [autoCare, setAutoCare] = useState(true);
   const [savingCare, setSavingCare] = useState(false);
@@ -135,7 +137,24 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   // 重命名应用源（⋯ 设置按钮 → 弹窗）
   const [renameSrc, setRenameSrc] = useState<SourceEntry | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [removalSrc, setRemovalSrc] = useState<SourceEntry | null>(null);
+  // 0.6.532（用户令）：删除源改为行内两段式确认（点一次变红，3s 内再点才删）——
+  // 与加速源 / FPK / 备份删除同口径，不再弹确认对话框。
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+  const confirmDelTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armRemove = (src: SourceEntry) => {
+    if (confirmDelId === src.id) {
+      if (confirmDelTimer.current) { clearTimeout(confirmDelTimer.current); confirmDelTimer.current = null; }
+      setConfirmDelId(null);
+      void handleRemove(src);
+      return;
+    }
+    setConfirmDelId(src.id);
+    if (confirmDelTimer.current) clearTimeout(confirmDelTimer.current);
+    confirmDelTimer.current = setTimeout(() => {
+      confirmDelTimer.current = null;
+      setConfirmDelId(null);
+    }, 3000);
+  };
   // 0.6.253：官方应用中心 OAuth 免登录连接对话框
   const [oauthOpen, setOauthOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -264,7 +283,6 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
     fetchSettings()
       .then((s) => {
         setListAuto(!(s.source_list_disabled ?? false));
-        setListAllowPrivate(s.source_list_allow_private ?? false);
         setAutoCare(!(s.source_auto_care_disabled ?? false));
         setTokenSet(!!s.github_token_set);
       })
@@ -273,7 +291,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
 
   // 保存源列表设置（带上现有设置全量回传，避免覆盖其它配置；
   // 列表地址沿用当前值，界面已不提供修改入口）
-  const persistListSettings = useCallback(async (auto?: boolean, care?: boolean, allowPrivate?: boolean) => {
+  const persistListSettings = useCallback(async (auto?: boolean, care?: boolean) => {
     const cur = await fetchSettings();
     await updateSettings({
       check_interval_hours: cur.check_interval_hours,
@@ -281,16 +299,20 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       docker_mirror: cur.docker_mirror,
       custom_github_mirror: cur.custom_github_mirror,
       custom_docker_mirror: cur.custom_docker_mirror,
+      custom_github_mirrors: cur.custom_github_mirrors,
+      custom_docker_mirrors: cur.custom_docker_mirrors,
       install_volume: cur.install_volume,
       source_list_url: cur.source_list_url,
       source_list_disabled: !(auto ?? listAuto),
-      source_list_allow_private: allowPrivate ?? listAllowPrivate,
+      // 0.6.512（用户令）：界面不再提供「允许同步内网源」开关——远端清单本来
+      // 就不会收录本地/内网源；此处恒为 false，保留字段仅为兼容旧配置。
+      source_list_allow_private: false,
       // 全量回传：FPK 下载目录 / 自动监测不能被本组件的保存抹掉
       download_dir: cur.download_dir,
       source_auto_care_disabled: !(care ?? autoCare),
       // 0.6.255：官方源 = 纯 OAuth，无 panel_* 字段可回传
     });
-  }, [listAuto, autoCare, listAllowPrivate]);
+  }, [listAuto, autoCare]);
 
   const handleListAutoChange = async (v: boolean) => {
     setListAuto(v);
@@ -305,20 +327,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
     }
   };
 
-  // 0.6.325 安全加固 R1：内网源开关。默认关闭 = 远端清单里的内网/环回地址
-  // 一律跳过（防清单被篡改后驱动内网抓取）；开启后按清单原样添加。
-  const handleAllowPrivateChange = async (v: boolean) => {
-    setListAllowPrivate(v);
-    setSavingList(true);
-    try {
-      await persistListSettings(undefined, undefined, v);
-      toast.success(v ? '已允许同步内网源' : '已禁止同步内网源');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存设置失败');
-    } finally {
-      setSavingList(false);
-    }
-  };
+  // 0.6.512（用户令）：删除「允许同步内网源」开关——远端清单本来就不会收录
+  // 本地/内网源，开关没有实际用途；后端字段保留且恒为 false（安全默认不变）。
 
   const handleCareChange = async (v: boolean) => {
     setAutoCare(v);
@@ -668,58 +678,64 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
     }
   };
 
-  // 一键恢复默认应用源列表（0.6.172）：补齐被删的默认源 + 相同源地址只留一个
-  const handleRestoreDefaults = async () => {
-    setRestoring(true);
-    try {
-      const r = await restoreDefaultSources();
-      const parts: string[] = [];
-      if (r.restored > 0) parts.push(`恢复 ${r.restored} 个默认源`);
-      if (r.deduped > 0) parts.push(`去重移除 ${r.deduped} 个重复源`);
-      if (parts.length === 0) toast.info('moo 默认源已是完整状态，无缺失');
-      else toast.success(`moo 源恢复完成：${parts.join('，')}`);
-      if (r.failed > 0) toast.warning(`${r.failed} 个源添加失败，可在下方查看`);
-      await load();
-      onCatalogChanged?.();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '恢复源失败');
-    } finally {
-      setRestoring(false);
+  // 0.6.529（用户令）：「删除源」= 批量删除模式（不再删默认清单历史源）。
+  // 进入选择态后每行出现勾选框，确认后逐个 DELETE；官方源不参与。
+  const enterBatch = () => {
+    exitWiggle();
+    setBatchSel(new Set());
+    setBatchMode(true);
+    if (collapsed) {
+      setCollapsed(false);
+      try { localStorage.setItem('new-store.sources.collapsed', '0'); } catch { /* ignore */ }
     }
   };
-
-  // 0.6.318：「删除默认源」——先 dry_run 预检（拿将删清单），确认弹窗展示
-  // 数量后真删。范围=命中旧默认清单的现有源（含与默认精选源重叠的条目，
-  // 删后「恢复源」可找回）；清单外源（官方源/自加源）不受影响。
-  const handleDeleteDefaultsClick = async () => {
-    if (deletingDefaults) return;
-    setDeletingDefaults(true);
+  const exitBatch = () => {
+    setBatchMode(false);
+    setBatchSel(new Set());
+    setBatchConfirm(false);
+  };
+  const toggleBatchSel = (id: string) => {
+    setBatchSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  // 全选/取消全选只作用于当前筛选结果中的非官方源（所见即所选）
+  const batchCandidates = srcMatches.filter((s) => s.id !== 'fnos-official');
+  const allBatchSelected = batchCandidates.length > 0 && batchCandidates.every((s) => batchSel.has(s.id));
+  const toggleBatchAll = () => {
+    setBatchSel((prev) => {
+      const next = new Set(prev);
+      if (allBatchSelected) batchCandidates.forEach((s) => next.delete(s.id));
+      else batchCandidates.forEach((s) => next.add(s.id));
+      return next;
+    });
+  };
+  const handleBatchDelete = async () => {
+    const ids = [...batchSel];
+    if (ids.length === 0) return;
+    setBatchDeleting(true);
+    let ok = 0;
+    let failed = 0;
     try {
-      const p = await deleteDefaultSources(true);
-      if (p.deleted === 0) {
-        toast.info('没有可删除的默认源（现有源均未命中旧默认清单）');
-        return;
+      // 每批 4 个并发，单源失败不阻断其余（与后端批量同步的并发口径一致）
+      for (let i = 0; i < ids.length; i += 4) {
+        const chunk = ids.slice(i, i + 4);
+        const rs = await Promise.allSettled(chunk.map((id) => removeSource(id)));
+        rs.forEach((r) => { if (r.status === 'fulfilled') ok += 1; else failed += 1; });
       }
-      setDelDefaultsPreview(p);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '预检默认源失败');
-    } finally {
-      setDeletingDefaults(false);
-    }
-  };
-  const confirmDeleteDefaults = async () => {
-    setDelDefaultsPreview(null);
-    setDeletingDefaults(true);
-    try {
-      const r = await deleteDefaultSources(false);
-      if (r.errors?.length) toast.warning(`已删除 ${r.deleted} 个默认源，${r.errors.length} 个失败`);
-      else toast.success(`已删除 ${r.deleted} 个默认源`);
+      if (failed === 0) toast.success(`已删除 ${ok} 个应用源`);
+      else toast.warning(`已删除 ${ok} 个应用源，${failed} 个删除失败`);
+      setBatchConfirm(false);
+      setBatchMode(false);
+      setBatchSel(new Set());
       await load();
       onCatalogChanged?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '删除源失败');
+      toast.error(e instanceof Error ? e.message : '批量删除应用源失败');
     } finally {
-      setDeletingDefaults(false);
+      setBatchDeleting(false);
     }
   };
 
@@ -728,11 +744,6 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-medium">
           应用源
-          {sources.length > 0 && (
-            <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-              {sources.length} 个
-            </span>
-          )}
         </h3>
         {wiggle ? (
           <Button
@@ -746,7 +757,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             完成
           </Button>
         ) : (
-          <span className="text-[11px] text-muted-foreground">FnDepot V1/V2</span>
+          <span className="text-[11px] text-muted-foreground">FnDepot V1/V2 Moo</span>
         )}
       </div>
       {wiggle && (
@@ -756,7 +767,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       )}
 
       {/* 应用源自动监测（连续无应用自动关闭 + 空源沉底；列表折叠也放在这里） */}
-      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl p-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Activity className="h-3.5 w-3.5 text-muted-foreground" />
@@ -786,13 +797,17 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
 
       {/* 0.6.318：本卡从列表顶部移到「应用源自动监测」下方；三按钮依次
           同步官源 → 删除默认源 → 恢复官源 */}
-      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
-        <div className="flex items-center justify-between gap-2">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl p-3">
+        <div
+          className="flex cursor-pointer items-center justify-between gap-2"
+          onClick={handleCollapse}
+          title={collapsed ? '点击展开应用源列表' : '点击折叠应用源列表'}
+        >
           <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
             <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
             源列表自动同步
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             {/* 0.6.319k（用户令）：四项依次为 复制 → 刷新 → 开关(打开/关闭) → 折叠/展开 */}
             <Button
               variant="ghost"
@@ -809,18 +824,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               )}
             </Button>
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 rounded-full"
-                onClick={handleSyncAll}
-                disabled={syncingAll || sources.length === 0}
-                title="一键刷新所有应用源（并发抓取，只刷已启用源）"
-                aria-label="一键刷新所有应用源"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${syncingAll ? 'animate-spin text-primary' : ''}`} />
-              </Button>
-              <Switch checked={listAuto} onCheckedChange={handleListAutoChange} disabled={savingList || syncingList || deletingDefaults} title="开启后每次目录检查自动添加官源列表中的新源" />
+              <Switch checked={listAuto} onCheckedChange={handleListAutoChange} disabled={savingList || syncingList} title="开启后每次目录检查自动添加官源列表中的新源" />
               <Button
                 variant="ghost"
                 size="icon"
@@ -835,66 +839,76 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
           </div>
         </div>
         <div className="flex gap-2">
-          {/* 0.6.319m（用户令）：三钮再更名 同步源 / 删除源 / 恢复源（短名移动端单行放得下） */}
+          {/* 0.6.529（用户令）：三钮语义重排 ——
+              同步源 = 从内置清单发现并添加新源（图标改 DownloadCloud，与加速源
+              「同步」同款，避免与刷新源同为 RefreshCw）；
+              删除源 = 批量删除模式（文案不变，逻辑从「删历史默认源」改为多选删除）；
+              刷新源 = 替代原「恢复源」位置，立即重抓所有已启用源的应用。 */}
           <Button
             variant="outline"
             className="h-9 flex-1 gap-1.5 text-xs"
             onClick={handleSyncList}
-            disabled={syncingList || savingList || deletingDefaults || restoring}
+            disabled={syncingList || savingList}
             title="从内置源清单自动发现并添加新应用源（只增不删）"
           >
-            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${syncingList ? 'animate-spin text-primary' : ''}`} />
+            <DownloadCloud className={`h-3.5 w-3.5 shrink-0 ${syncingList ? 'animate-pulse text-primary' : ''}`} />
             {syncingList ? '同步中…' : '同步源'}
           </Button>
-          {/* 0.6.318：一键删除命中旧默认清单的源（预检→确认→删除） */}
           <Button
-            variant="outline"
+            variant={batchMode ? 'destructive' : 'outline'}
             className="h-9 flex-1 gap-1.5 text-xs"
-            onClick={handleDeleteDefaultsClick}
-            disabled={deletingDefaults || syncingList || savingList || restoring}
-            title="一键删除默认清单中的历史源；「恢复源」仅可恢复 moo 默认精选源"
+            onClick={() => (batchMode ? exitBatch() : enterBatch())}
+            aria-pressed={batchMode}
+            disabled={syncingList || savingList || batchDeleting}
+            title={batchMode ? '退出批量删除模式' : '批量删除应用源：进入选择态后勾选要删的源'}
           >
-            <Trash2 className={`h-3.5 w-3.5 shrink-0 ${deletingDefaults ? 'animate-pulse text-primary' : ''}`} />
-            {deletingDefaults ? '处理中…' : '删除源'}
+            <Trash2 className="h-3.5 w-3.5 shrink-0" />
+            删除源
           </Button>
-          {/* 0.6.172：一键恢复官源（防误删；恢复时相同源地址只保留一个） */}
           <Button
             variant="outline"
             className="h-9 flex-1 gap-1.5 text-xs"
-            onClick={handleRestoreDefaults}
-            disabled={restoring || syncingList || savingList || deletingDefaults}
-            title="仅恢复 moo 默认精选源；相同源地址只保留一个"
+            onClick={handleSyncAll}
+            disabled={syncingAll || syncingList || savingList || sources.length === 0}
+            title="立即重新抓取所有已启用应用源（并发抓取，只刷已启用源）"
           >
-            <RotateCcw className={`h-3.5 w-3.5 shrink-0 ${restoring ? 'animate-spin text-primary' : ''}`} />
-            {restoring ? '恢复中…' : '恢复源'}
+            <RefreshCw className={`h-3.5 w-3.5 shrink-0 ${syncingAll ? 'animate-spin text-primary' : ''}`} />
+            {syncingAll ? '刷新中…' : '刷新源'}
           </Button>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」一键删除默认清单中的历史源；「恢复源」仅恢复 moo 默认精选源，并把相同地址的重复源去重为 1 个。
+          「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」进入批量删除模式，勾选后一次删除多个源；「刷新源」立即重新抓取所有已启用源的应用。
         </p>
-        {/* 0.6.325 安全加固 R1：清单里的内网/环回地址默认被跳过（防远端清单被
-            篡改后驱动内网抓取）。需要同步内网源时在此显式放开；
-            在应用源页手工添加的源不受本开关影响。 */}
-        <div className="flex items-start justify-between gap-3 pt-1">
-          <div className="min-w-0 text-[11px] leading-relaxed text-muted-foreground">
-            允许同步内网源
-            <span className="mt-0.5 block text-muted-foreground/80">
-              开启后，清单里的内网/环回地址也会被添加；关闭时自动跳过（推荐关闭）。手工添加的源不受影响。
+        {batchMode && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <span className="text-xs">
+              已选 <b className="tabular-nums">{batchSel.size}</b> 个源
             </span>
+            <div className="ml-auto flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={toggleBatchAll}
+                disabled={batchCandidates.length === 0 || batchDeleting}
+              >
+                {allBatchSelected ? '取消全选' : '全选'}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={exitBatch} disabled={batchDeleting}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-7 text-xs"
+                onClick={() => setBatchConfirm(true)}
+                disabled={batchSel.size === 0 || batchDeleting}
+              >
+                {batchDeleting ? '删除中…' : `删除 ${batchSel.size} 个`}
+              </Button>
+            </div>
           </div>
-          {/* 0.6.325secfix（用户令）：开关须与上面的开关同列对齐——本卡头行开关与
-              上方「应用源自动监测」开关右缘都退让「折叠/展开钮 w-7=28px + gap-1=4px」，
-              此处补同款 w-7 占位，三开关右缘同一竖线。 */}
-          <div className="flex items-center gap-1">
-            <Switch
-              checked={listAllowPrivate}
-              onCheckedChange={handleAllowPrivateChange}
-              disabled={savingList || syncingList || deletingDefaults}
-              title="允许源列表同步添加内网/环回地址的源（默认关闭）"
-            />
-            <div className="w-7" aria-hidden="true" />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* 0.6.346（用户令）：应用源搜索框——列表卡前面，输入即筛选；命中项可
@@ -986,6 +1000,24 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
             // 行内容（官方行 / 可排序行共用）：拖动时控件淡出但保留占位，布局不跳
             const rowContent = (
               <>
+              {/* 0.6.529（用户令）：批量删除模式——每行左侧勾选框（官方源除外） */}
+              {batchMode && !isOfficialSrc && (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={batchSel.has(src.id)}
+                  aria-label={`选择源 ${src.name}`}
+                  onClick={(e) => { e.stopPropagation(); toggleBatchSel(src.id); }}
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors',
+                    batchSel.has(src.id)
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border/60 text-transparent hover:border-primary/60',
+                  )}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+              )}
               {wiggle && !isOfficialSrc && (
                 <button
                   type="button"
@@ -1001,11 +1033,29 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               <div className={`min-w-0 flex-1 ${wiggle && !isOfficialSrc ? 'pointer-events-none' : ''}`}>
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{src.name}</span>
-                  {src.app_count > 0 && (
-                    <Badge variant="secondary" className="h-5 shrink-0 whitespace-nowrap px-1.5 text-[10px] font-normal">
-                      {src.app_count} 个应用
+                  {/* 0.6.535b（用户令）：三条横杠与「数量」合并成一个胶囊——点它跳到主页
+                      只看该源的应用（精确匹配 app.source，不靠搜索词条）。图标改用 Menu
+                      （三条等长横杠，区别于筛选漏斗的递减横杠）；批量选择态只留数字不可点。 */}
+                  {src.app_count > 0 && (onOpenSourceApps && !batchMode ? (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onOpenSourceApps(src); }}
+                      title={`只看「${src.name}」的源（${src.app_count} 个应用）`}
+                      aria-label={`只看源 ${src.name} 的 ${src.app_count} 个应用`}
+                      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-secondary px-1.5 text-[10px] font-normal tabular-nums text-secondary-foreground transition-colors hover:bg-primary/15 hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Menu className="h-3 w-3 shrink-0" />
+                      {src.app_count}
+                    </button>
+                  ) : (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 shrink-0 whitespace-nowrap px-1.5 text-[10px] font-normal tabular-nums"
+                      title={`${src.app_count} 个应用`}
+                    >
+                      {src.app_count}
                     </Badge>
-                  )}
+                  ))}
                   {disabled && (
                     <Badge variant="outline" className="h-5 shrink-0 whitespace-nowrap px-1.5 text-[10px] font-normal text-muted-foreground">
                       已关闭
@@ -1027,10 +1077,10 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   {/* 0.6.319j：官方源行的 url 字段是中文说明文字（非真实地址），
                       点击复制会得到无意义的 https:// 中文串（用户报「乱码」来源之一）
                       → 改纯文本不可复制；其余源保持点击复制 */}
-                  {isOfficialSrc ? (
+                  {isOfficialSrc || batchMode ? (
                     <span
                       className="min-w-0 flex-1 truncate text-left"
-                      title="官方应用中心：走本机面板通道，无需复制地址"
+                      title={isOfficialSrc ? '官方应用中心：走本机面板通道，无需复制地址' : undefined}
                     >
                       {src.url}
                     </span>
@@ -1056,7 +1106,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                     </span>
                   )}
                   {copiedId === src.id && <Check className="h-3 w-3 shrink-0 text-primary" />}
-                  {src.homepage && (
+                  {src.homepage && !batchMode && (
                     <a
                       href={src.homepage}
                       target="_blank"
@@ -1095,7 +1145,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   行按钮依次为 收藏 → 刷新 → 打开 → 删除），组内 6px、组间 12px；
                   危险操作（删除）与日常操作（刷新/开关）视觉分离；抖动模式下控件隐藏（保留占位）。
                   .src-controls 供长按排序的守卫识别（长按控件不进入排序） */}
-              <div className={`src-controls flex shrink-0 items-center gap-1.5 ${wiggle && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
+              <div className={`src-controls flex shrink-0 items-center gap-1.5 ${(wiggle || batchMode) && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
                 {/* 0.6.253：官方源 OAuth 免登录连接（iframe 内嵌授权页 + 验证码输入） */}
                 {isOfficialSrc && (
                   <Button
@@ -1135,7 +1185,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                   <MoreHorizontal className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <div className={`src-controls flex shrink-0 items-center gap-1.5 ${wiggle && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
+              <div className={`src-controls flex shrink-0 items-center gap-1.5 ${(wiggle || batchMode) && !isOfficialSrc ? 'pointer-events-none opacity-0' : ''}`}>
                 {/* 手动同步 */}
                 <Button
                   variant="ghost"
@@ -1159,11 +1209,15 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 rounded-full hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => setRemovalSrc(src)}
+                  className={`h-7 w-7 rounded-full ${confirmDelId === src.id ? 'bg-red-500/15 text-red-500 hover:bg-red-500/20 hover:text-red-500' : 'hover:bg-destructive/10 hover:text-destructive'}`}
+                  onClick={() => armRemove(src)}
                   disabled={isOfficialSrc || removingId === src.id}
-                  title={isOfficialSrc ? '官方应用中心不可删除' : '删除该应用源'}
-                  aria-label={`删除源 ${src.name}`}
+                  title={isOfficialSrc
+                    ? '官方应用中心不可删除'
+                    : confirmDelId === src.id
+                      ? '再点一次确认删除（该源应用不再出现在目录，已安装应用与数据不受影响）'
+                      : '删除该应用源（点一次先变红确认）'}
+                  aria-label={confirmDelId === src.id ? `确认删除源 ${src.name}` : `删除源 ${src.name}`}
                 >
                   {removingId === src.id ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1180,7 +1234,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 <div
                   key={src.id}
                   data-source-id={src.id}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${disabled ? 'opacity-55' : ''} ${srcJumpId === src.id ? 'border-primary/50 ring-2 ring-primary/40' : ''}`}
+                  className={`flex items-center gap-3 rounded-lg border bg-card/95 px-3 py-2 sm:bg-card/55 ${disabled ? 'opacity-55' : ''} ${srcJumpId === src.id ? 'border-primary/50 ring-2 ring-primary/40' : ''}`}
                 >
                   {rowContent}
                 </div>
@@ -1192,10 +1246,10 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 key={src.id}
                 data-source-id={src.id}
                 ref={(el) => { rowElsRef.current[idx] = el; }}
-                onPointerDown={(e) => onRowPointerDown(idx, e)}
-                onPointerMove={(e) => onRowPointerMove(idx, e)}
-                onPointerUp={() => onRowPointerUp(idx)}
-                onPointerCancel={() => onRowPointerCancel(idx)}
+                onPointerDown={(e) => { if (!batchMode) onRowPointerDown(idx, e); }}
+                onPointerMove={(e) => { if (!batchMode) onRowPointerMove(idx, e); }}
+                onPointerUp={() => { if (!batchMode) onRowPointerUp(idx); }}
+                onPointerCancel={() => { if (!batchMode) onRowPointerCancel(idx); }}
                 onContextMenu={(e) => e.preventDefault()}
                 onClickCapture={(e) => {
                   // 长按刚进入抖动模式：吞掉该次按压的 click（URL 复制等副作用）
@@ -1212,7 +1266,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                 }}
               >
                 <div
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${disabled ? 'opacity-55' : ''} ${isDragging ? 'shadow-lg' : ''} ${wiggle && !isDragging ? 'animate-wiggle' : ''} ${srcJumpId === src.id ? 'border-primary/50 ring-2 ring-primary/40' : ''}`}
+                  className={`flex items-center gap-3 rounded-lg border bg-card/95 px-3 py-2 sm:bg-card/55 ${disabled ? 'opacity-55' : ''} ${isDragging ? 'shadow-lg' : ''} ${wiggle && !isDragging ? 'animate-wiggle' : ''} ${srcJumpId === src.id ? 'border-primary/50 ring-2 ring-primary/40' : ''} ${batchMode ? 'cursor-pointer' : ''} ${batchMode && batchSel.has(src.id) ? 'border-primary/60 ring-2 ring-primary/30' : ''}`}
+                  onClick={batchMode ? () => toggleBatchSel(src.id) : undefined}
                   style={wiggle && !isDragging ? { animationDelay: `${idx * 40}ms` } : undefined}
                 >
                   {rowContent}
@@ -1253,55 +1308,21 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         </DialogContent>
       </Dialog>
 
-      {/* 删除应用源确认（危险操作二次确认） */}
-      <AlertDialog open={!!removalSrc} onOpenChange={(v) => { if (!v && removingId === null) setRemovalSrc(null); }}>
+      {/* 0.6.529（用户令）：批量删除确认（危险操作二次确认） */}
+      <AlertDialog open={batchConfirm} onOpenChange={(v) => { if (!v && !batchDeleting) setBatchConfirm(false); }}>
         <AlertDialogContent className="sm:max-w-md rounded-[18px] border-border/20 shadow-appstore bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle>删除应用源</AlertDialogTitle>
+            <AlertDialogTitle>批量删除应用源</AlertDialogTitle>
             <AlertDialogDescription>
-              删除「{removalSrc?.name}」后，该源的应用将不再出现在目录中，也不再检测更新。
-              已安装的应用与其数据不受影响。确定删除吗？
+              将删除已选中的 <b className="text-foreground">{batchSel.size}</b> 个应用源。
+              删除后这些源的应用将不再出现在目录中，也不再检测更新；已安装的应用与其数据不受影响。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={removingId !== null}>取消</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                if (!removalSrc) return;
-                const target = removalSrc;
-                setRemovalSrc(null);
-                await handleRemove(target);
-              }}
-              disabled={removingId !== null}
-            >
-              {removingId !== null && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              删除
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* 0.6.318：删除默认源确认（dry_run 预检数量；危险操作二次确认）
-          0.6.319m（用户令）：标题/文案随按钮更名 → 删除源；描述按用户定稿 */}
-      <AlertDialog open={!!delDefaultsPreview} onOpenChange={(v) => { if (!v && !deletingDefaults) setDelDefaultsPreview(null); }}>
-        <AlertDialogContent className="sm:max-w-md rounded-[18px] border-border/20 shadow-appstore bg-card">
-          <AlertDialogHeader>
-            <AlertDialogTitle>删除源</AlertDialogTitle>
-            <AlertDialogDescription>
-              预检到 <b className="text-foreground">{delDefaultsPreview?.deleted}</b> 个默认源（命中旧默认清单）。
-              删除后通过「恢复源」仅可恢复 moo 默认精选源；清单外的源（官方源、自加源）不受影响。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingDefaults}>取消</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              onClick={confirmDeleteDefaults}
-              disabled={deletingDefaults}
-            >
-              {deletingDefaults && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {deletingDefaults ? '删除中…' : `删除 ${delDefaultsPreview?.deleted ?? ''} 个源`}
+            <AlertDialogCancel disabled={batchDeleting}>取消</AlertDialogCancel>
+            <Button variant="destructive" onClick={handleBatchDelete} disabled={batchDeleting || batchSel.size === 0}>
+              {batchDeleting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {batchDeleting ? '删除中…' : `删除 ${batchSel.size} 个源`}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1368,7 +1389,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         onCatalogChanged={onCatalogChanged}
       />
 
-      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl p-3">
         <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
           <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
           添加应用源
@@ -1377,7 +1398,22 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               {lines.length} 行
             </Badge>
           )}
+          {/* 0.6.532（用户令）：输入框一键清空；0.6.534（用户令）：图标改用与「删除源」同款垃圾桶 */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ms-auto h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => setInput('')}
+            disabled={!input}
+            title="清空输入框"
+            aria-label="清空应用源输入框"
+          >
+            <Trash2 className="mr-0.5 h-3.5 w-3.5" />
+            清空
+          </Button>
         </div>
+        {/* 0.6.537（用户令）：示例不再用作者自己的 FnDepot 仓（会被误认成已填写的内容），
+            改两条通用示例：GitHub 仓库 + Moo 协议 JSON 直链。 */}
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -1387,7 +1423,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
               handleAdd();
             }
           }}
-          placeholder={'每行一个源地址，回车换行继续输入，例如：\nhttps://github.com/Blue-Mink/FnDepot\nhttps://github.com/SomeAuthor/Apps'}
+          placeholder={'每行一个源地址，回车换行继续输入，例如：\nhttps://github.com/SomeAuthor/Apps\nhttps://example.com/moo.json'}
           rows={3}
           className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-xs leading-relaxed placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         />
@@ -1411,7 +1447,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
           覆盖率掉到 45%、picoclaw 33 张卡全无溯源）。配置 token 后 5000 次/小时，
           冷装几分钟内补满。token 加密保存、只在本机进程内使用，界面只回显
           「已配置」，不回显内容。 */}
-      <div className="space-y-2 rounded-lg border border-white/10 bg-card/55 backdrop-blur-xl p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl p-3">
         <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
           <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
           GitHub Token（可选）

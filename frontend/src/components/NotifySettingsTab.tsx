@@ -143,7 +143,10 @@ const ChannelFormDialog: React.FC<{
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       {/* 0.6.144：与背后内容卡片同宽同圆角（基类 ui/dialog 统一：100vw-24px + 18px 圆角；
           桌面端设置卡 = max-w-3xl(768px) - 48px = 720px） */}
-      <DialogContent className="sm:w-[720px]">
+      {/* 0.6.529（用户令）：去掉表单区内部滚动条（原 max-h-[58vh] + overflow-y-auto
+          在桌面也常驻一条右侧滚动条、压缩显示空间）——改为表单自然展开，
+          仅当整窗高度不够时由 DialogContent 整体滚动，正常桌面/平板不出滚动条。 */}
+      <DialogContent className="sm:w-[720px] max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? '编辑渠道' : '添加渠道'}</DialogTitle>
           <DialogDescription>
@@ -152,7 +155,7 @@ const ChannelFormDialog: React.FC<{
         </DialogHeader>
         {/* 0.6.144 补丁2：表单区左右各收 6px（框收窄一点：微信 webview 下超宽框的
             1px 聚焦环左缘渲染不完整，收窄后验证） */}
-        <div className="space-y-3 px-1.5 py-1 max-h-[58vh] overflow-y-auto">
+        <div className="space-y-3 px-1.5 py-1">
           <div>
             <label className="text-xs text-muted-foreground">渠道类型</label>
             <Select value={type} onValueChange={(v) => { setType(v); setParams({}); }} disabled={isEdit}>
@@ -185,7 +188,7 @@ const ChannelFormDialog: React.FC<{
               {format === 'card' && (
                 <p className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
                   {type === 'wecom'
-                    ? '卡片点击跳转通知详情页；需在本页「通知详情地址」配置（飞牛面板网关地址，默认端口 5666），未配置时自动按默认 markdown 发送。'
+                    ? '卡片形式推送时，点按卡片会打开「卡片跳转地址」下的通知详情页；未配置时自动按默认 markdown 发送。'
                     : type === 'dingtalk'
                     ? '卡片 = 钉钉 actionCard 卡片版式（不再带跳转入口）。'
                     : type === 'feishu'
@@ -194,7 +197,7 @@ const ChannelFormDialog: React.FC<{
                     ? '卡片与默认 markdown 同款（不再追加链接）。'
                     : type === 'pushplus'
                     ? '与默认形式同款（不再追加详情链接）。'
-                    : 'iOS 通知点击直接打开详情页；需配置「通知详情地址」。'}
+                    : 'iOS 通知点击直接打开详情页；需配置「卡片跳转地址」。'}
                 </p>
               )}
             </div>
@@ -312,9 +315,9 @@ const NotifySettingsTab: React.FC = () => {
   const [form, setForm] = useState<ChannelFormState | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
-  // 通知详情地址（0.6.500：单个完整地址输入框，自动跟随当前访问地址与端口）。
-  // 走 notify-settings view_base，仍是完整 URL。Moo 的 38100 只监听本机，
-  // 手机能打开的是飞牛面板网关地址（默认 5666），所以默认值取「当前访问地址」。
+  // 卡片跳转地址（0.6.525 用户更正语义：这不是「通知详情地址」，
+  // 而是使用**卡片形式**推送时，卡片被点按后要打开的地址）。
+  // 走 notify-settings view_base，是完整 URL；未配置时卡片按默认 markdown 发送。
   const [vbUrl, setVbUrl] = useState('');
   const [vbSaved, setVbSaved] = useState('');
   const [savingViewBase, setSavingViewBase] = useState(false);
@@ -329,25 +332,13 @@ const NotifySettingsTab: React.FC = () => {
   }, []);
 
   const viewBaseValue = vbUrl.trim();
-  const parseUrlPart = (u: string, part: 'port' | 'hostname') => {
-    try { return new URL(u)[part]; } catch { return null; }
-  };
-  const viewPortLooksLocalOnly = parseUrlPart(viewBaseValue, 'port') === '38100';
-  // 已保存地址与当前访问地址「同主机不同端口」→ 可能换过端口，提示一键更新（不静默改写）。
-  const viewPortMismatch = (() => {
-    if (!vbSaved) return false;
-    const savedPort = parseUrlPart(vbSaved, 'port');
-    const savedHost = parseUrlPart(vbSaved, 'hostname');
-    if (!savedPort || !savedHost || savedHost !== window.location.hostname) return false;
-    return savedPort !== window.location.port;
-  })();
   const viewUrlInvalid = !!viewBaseValue && (() => {
     try {
       const u = new URL(viewBaseValue);
       return !/^https?:$/.test(u.protocol) || !u.hostname;
     } catch { return true; }
   })();
-  // 通知详情地址折叠（0.6.398 语义调整：「应用访问入口」→「通知详情地址」+ IP/端口自动预填；
+  // 卡片跳转地址折叠（0.6.525：语义由「通知详情地址」更正为「卡片跳转地址」；
   // 沿用 0.6.130 全默认折叠约定）
   const [viewOpen, setViewOpen] = useState<boolean>(() => {
     try {
@@ -459,7 +450,7 @@ const NotifySettingsTab: React.FC = () => {
     }
   };
 
-  // 通知详情地址保存（0.6.500）：单个完整地址；空值 = 清除；非法 URL 先拦。
+  // 卡片跳转地址保存（0.6.500）：单个完整地址；空值 = 清除；非法 URL 先拦。
   const saveViewBase = async () => {
     if (viewUrlInvalid) {
       toast.error('请输入完整地址，如 http://192.0.2.10:5666/app/moo');
@@ -469,7 +460,7 @@ const NotifySettingsTab: React.FC = () => {
     try {
       await updateNotifySettings({ view_base: viewBaseValue });
       setVbSaved(viewBaseValue);
-      toast.success(viewBaseValue ? '通知详情地址已保存' : '通知详情地址已清除');
+      toast.success(viewBaseValue ? '卡片跳转地址已保存' : '卡片跳转地址已清除');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '保存失败');
     } finally {
@@ -536,7 +527,7 @@ const NotifySettingsTab: React.FC = () => {
       {/* 子 tab 分段控件（对齐 knock 事件中心：推送渠道/通知规则/推送记录） */}
       {/* 0.6.287：子 tab 与设置页顶部 tab 同语言（选中实心蓝 / 未选毛玻璃胶囊），
           旧 bg-muted/40+bg-card 分段在暗黑模式不可辨 */}
-      <div className="flex items-center gap-1 bg-card/55 backdrop-blur-xl border border-white/10 rounded-full p-1 mb-3 w-fit max-w-full overflow-x-auto" role="tablist">
+      <div className="inline-flex items-center rounded-full border border-border/40 bg-muted/30 p-0.5 mb-3 max-w-full overflow-x-auto" role="tablist">
         {NOTIFY_SUB_TABS.map(({ key, label }) => (
           <button
             key={key}
@@ -545,8 +536,8 @@ const NotifySettingsTab: React.FC = () => {
             onClick={() => setSub(key)}
             className={cn(
               'h-7 rounded-full px-3.5 text-xs font-medium transition-colors whitespace-nowrap focus:outline-none',
-              // 0.6.307：选中=胶囊同款浅蓝（玻璃轨道上，与分类胶囊选中一致）
-              sub === key ? 'bg-primary/15 text-primary border border-primary/40' : 'text-muted-foreground hover:text-foreground border border-transparent'
+              // 0.6.532（用户令）：选中样式对齐加速源三个子 tab（白底/阴影，深色模式同样可辨）
+              sub === key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {label}
@@ -576,11 +567,10 @@ const NotifySettingsTab: React.FC = () => {
             </p>
           </div>
 
-          {/* 通知详情地址（0.6.398：语义由「应用访问入口」改为「通知详情地址」；
-              IP/端口拆开、自动预填当前访问地址——Moo 的 38100 只监听本机，
-              手机能打开的是飞牛面板网关地址（默认 5666）。仅卡片形式渠道消费。 */}
+          {/* 卡片跳转地址（0.6.525 用户更正：不是「通知详情地址」，而是卡片形式
+              推送时卡片被点按的跳转地址；仅卡片形式渠道消费，未配置则退回 markdown）。 */}
           {channels.some((c) => c.format === 'card') && (
-          <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
+          <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
             <button
               type="button"
               onClick={toggleViewOpen}
@@ -588,8 +578,8 @@ const NotifySettingsTab: React.FC = () => {
               className="w-full flex items-center justify-between gap-2 text-left focus:outline-none"
             >
               <span className="text-sm font-medium">
-                通知详情地址
-                <span className="ml-1.5 text-xs font-normal text-muted-foreground">（卡片点按跳转）</span>
+                卡片跳转地址
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">（仅卡片形式推送使用时需要）</span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 <span className={cn("text-[11px]", vbSaved ? "text-emerald-600" : "text-amber-600")}>
@@ -628,19 +618,8 @@ const NotifySettingsTab: React.FC = () => {
                     地址格式不对，请带协议与主机，如 http://192.0.2.10:5666/app/moo
                   </p>
                 )}
-                {!viewUrlInvalid && viewPortLooksLocalOnly && (
-                  <p className="text-[11px] leading-relaxed text-amber-600">
-                    38100 是 Moo 的本机端口，手机打不开；请改用飞牛面板端口（默认 5666），或点「使用当前访问地址」。
-                  </p>
-                )}
-                {!viewUrlInvalid && viewPortMismatch && (
-                  <p className="text-[11px] leading-relaxed text-amber-600">
-                    当前访问端口与已保存地址不一致（保存的是 {parseUrlPart(vbSaved, 'port') || '默认端口'}）；
-                    如已更换端口，点「使用当前访问地址」更新。
-                  </p>
-                )}
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  手机点开通知卡片时，打开这个地址下的通知详情页看完整内容；留空则清除（卡片形式改按默认 markdown 发送）。
+                  使用卡片形式推送时，点按通知卡片会用这个地址打开完整内容；请填手机能访问的地址（如飞牛面板网关 http://主机:5666/app/moo）。留空则清除，卡片改按默认 markdown 发送。
                 </p>
               </div>
             )}
@@ -648,7 +627,7 @@ const NotifySettingsTab: React.FC = () => {
           )}
 
           {channels.length === 0 && (
-            <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-dashed border-border/40 py-10 text-center">
+            <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-dashed border-border/40 py-10 text-center">
               <p className="text-xs text-muted-foreground">尚未配置推送渠道</p>
               {/* 0.6.368：此处原本把上方卡片的渠道清单原样重复一遍（用户报
                   「文案重复」）——改成有信息量的下一步指引。 */}
@@ -660,7 +639,7 @@ const NotifySettingsTab: React.FC = () => {
           {channels.map((ch) => {
             const def = defs.find((d) => d.type === ch.type);
             return (
-              <div key={ch.id} className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
+              <div key={ch.id} className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-xl bg-muted/60 flex items-center justify-center shrink-0 text-base">
                     {TYPE_ICON[ch.type] ?? '•'}
@@ -721,8 +700,12 @@ const NotifySettingsTab: React.FC = () => {
           {/* 外部渠道通知总开关（0.6.124 从「推送渠道」移入；只管外部渠道，
               应用内顶部通知栏始终开、不受此开关控制）。
               折叠按钮在开关后面（0.6.125 用户定稿）：控制下方全部通知类型。 */}
-          <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
-            <div className="flex items-center gap-3">
+          <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore px-4 py-4">
+            <div
+              className="flex cursor-pointer items-center gap-3"
+              onClick={toggleEventsCollapsed}
+              title={eventsCollapsed ? '点击展开通知类型' : '点击折叠通知类型'}
+            >
               <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                 <Bell className="h-5 w-5 text-primary" />
               </div>
@@ -737,12 +720,13 @@ const NotifySettingsTab: React.FC = () => {
                 onCheckedChange={(v) => saveToggle('enabled', v)}
                 disabled={!settings || savingKey === 'enabled'}
                 aria-label="外部渠道通知总开关"
+                onClick={(e) => e.stopPropagation()}
               />
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
-                onClick={toggleEventsCollapsed}
+                onClick={(e) => { e.stopPropagation(); toggleEventsCollapsed(); }}
                 title={eventsCollapsed ? '展开通知类型' : '折叠通知类型'}
                 aria-label={eventsCollapsed ? '展开通知类型' : '折叠通知类型'}
               >
@@ -771,7 +755,7 @@ const NotifySettingsTab: React.FC = () => {
                     <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", groupCollapsed[g.name] !== false && "-rotate-90")} />
                   </button>
                   {groupCollapsed[g.name] === false && (
-                    <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore divide-y divide-border/15 overflow-hidden">
+                    <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore divide-y divide-border/15 overflow-hidden">
                       {g.items.map((e) => (
                         <div key={e.key} className="flex items-center gap-2 px-4 py-2.5">
                           <div className="flex-1 min-w-0">
@@ -845,7 +829,7 @@ const NotifySettingsTab: React.FC = () => {
               </Button>
             </div>
           </div>
-          <div className="bg-card/55 backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore divide-y divide-border/15 overflow-hidden">
+          <div className="bg-card/95 sm:bg-card/55 sm:backdrop-blur-xl rounded-[18px] border border-white/10 shadow-appstore divide-y divide-border/15 overflow-hidden">
             {logLoading && log.length === 0 && (
               <div className="flex justify-center py-10">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
