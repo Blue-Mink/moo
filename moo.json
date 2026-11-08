@@ -6,7 +6,7 @@
   "distributor": "Blue-Mink",
   "generated_by": "gen-repo-moo-json (github) + 手工裁剪（Moo 自索引 + Moo Mate 条目）",
   "description": "Moo 生态自索引（含 Moo 应用商店与 Moo Mate 伴侣工具两个条目；155 社区源合并的 437 应用索引已于 2026-10-08 按维护者要求移除，浏览社区应用请在应用内自行添加对应源）。",
-  "updated_at": "2026-11-06T12:43:54+08:00"
+  "updated_at": "2026-11-08T11:09:51+08:00"
  },
  "apps": {
   "moo": {
@@ -23,6 +23,24 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.6.539": {
+     "updated_at": "2026-11-08T11:09:51+08:00",
+     "changelog": "加速与下载：加速源清单集中到远端 lists/（改清单免重建），GitHub / Docker / 科学加速三个子 tab；智能选源与加速开关独立，支持列表直接选源与自定义多地址；分批测速避免互相抢带宽\n应用源与发现：应用源支持批量删除、刷新源、多行添加；源行合并「数量 + 只看该源」胶囊；推荐位改读远程清单并按 12 色极光随机配色，缺应用整条跳过不留空位\n设置与详情：FPK / 源列表 / 日志 / 加速监测 / 排序 / 通知总开关整行折叠；更新策略新增「自动」并收成一张卡；详情页显示 root / package；关于页实时内存、更新日志铺满卡片\n通知：企业微信卡片去掉顶部重复来源行，标题与时间顶到首行；「通知详情地址」明确为卡片跳转地址\n官方源授权：新增「新标签页授权」并置于「OAuth 授权登录」之前，局域网 http 下也能完成授权；面板地址自动取当前访问地址\n内置默认源与仓库精选清单对齐（96 条），新装与「恢复默认源」一次到位",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.539/moo_0.6.539_x86.fpk",
+       "sha256": "c75382d0a472cb87a50859e9343273cec4e4eb0760ed327fb5d4ea997a644988",
+       "size": 5366796,
+       "size_mb": 5.12
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.539/moo_0.6.539_arm.fpk",
+       "sha256": "df97ac236bff07d57b2796b695694eac436beec39cb7ac1cbe9cc3b3eecd48c7",
+       "size": 4862043,
+       "size_mb": 4.64
+      }
+     }
+    },
     "0.6.511": {
      "updated_at": "2026-11-06T12:44:11+08:00",
      "changelog": "应用详情：简介与 README 图片可点按看大图（同一灯箱，可滑动切换）；徽章横排并自动刷新\n下载量：改为应用级累计，详情页一行显示「下载量/累计」；测速探针改用非安装包，历史流量不计入并标注「已排除 N 次」",
@@ -40,27 +58,9 @@
        "size_mb": 4.61
       }
      }
-    },
-    "0.6.506": {
-     "updated_at": "2026-11-05T01:46:00+08:00",
-     "changelog": "界面与交互：发现页分类胶囊再次点击可取消选择；分类筛选跨页签保留，Dock 双击当前页签可一键清空分类\n顶栏与布局：桌面顶栏标题与 Dock 文案统一为「全部 / 有更新」；窄窗口下选中分类后标题不再被搜索框遮挡，空间不足时自动省略分类名\n下载与通知：下载失败提示区分网络异常 / HTTP 状态 / 校验失败等原因并给出排查建议；新增飞牛系统更新通知（稳定分支新版本，同版本只提示一次，不自动安装）\n加速源：测速门槛 512KB→1.5MB（≈150KB/s），全部未达标时按实测吞吐兜底；新增续传深测，面板显示「续传✓/✕」，同速优选支持续传的源\n加速源：自定义地址保存时校验（完整 http(s)、不允许账号密码、≤2048）；弱网/中继下下载低速判定阈值 50KB/s→20KB/s，减少中断重下",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_x86.fpk",
-       "sha256": "4de1c412d100237854269e6ba7d23a49c780e6400df18efa6a51d3f3e65cbc1c",
-       "size": 5328516,
-       "size_mb": 5.08
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.506/moo_0.6.506_arm.fpk",
-       "sha256": "204dc13c40e063b58f0a0f2298ee3eb58d3ce7a665b6f9c64bf4eb1334e8bbd3",
-       "size": 4830073,
-       "size_mb": 4.61
-      }
-     }
     }
    },
-   "sha256": "dbb45bbe3d0013aaa685f6d4139060159bbdb27b3ed8ebbffb724e5c06e3a031",
+   "sha256": "c75382d0a472cb87a50859e9343273cec4e4eb0760ed327fb5d4ea997a644988",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -72,12 +72,12 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-11-06T12:43:54+08:00",
-   "version": "0.6.511",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.511/moo_0.6.511_x86.fpk",
-   "size": 5331673,
+   "updated_at": "2026-11-08T11:09:51+08:00",
+   "version": "0.6.539",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.539/moo_0.6.539_x86.fpk",
+   "size": 5366796,
    "service_port": "38100",
-   "size_mb": 5.08,
+   "size_mb": 5.12,
    "changelog": ""
   },
   "moo-mate": {

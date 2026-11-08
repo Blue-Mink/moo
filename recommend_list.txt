@@ -1,12 +1,14 @@
 # Moo 发现页推荐位清单（一行一条 appname@源名，# 起注释）
 # 顺序即展示顺序；目录里找不到的应用整条跳过，不补位、不留空位。
 # 条数上限 12；改这个文件无需重建 FPK。
-fnos-apps-store@fnos-store
-fndepot@Blue-Mink
-fn-knock@kci-lnk
-opencode@CrRinko
-fnmedia-ext@yujian0815
-fnmusic-ext@javycoder
-wb2api@shuangji66
-moo-mate@Blue-Mink
-dog-dev@Blue-Mink
+# 配色（0.6.536）：行尾可追加 `aurora-1`..`aurora-12`（也接受裸数字 1..12），
+#   例 `moo-mate@Blue-Mink aurora-11`；不写 = 按应用名哈希取色（自动避开同屏撞色）。
+fnos-apps-store@fnos-store aurora-6
+fndepot@Blue-Mink aurora-9
+fn-knock@kci-lnk aurora-8
+opencode@CrRinko aurora-2
+fnmedia-ext@yujian0815 aurora-5
+fnmusic-ext@javycoder aurora-7
+wb2api@shuangji66 aurora-10
+moo-mate@Blue-Mink aurora-11
+dog-dev@Blue-Mink aurora-1

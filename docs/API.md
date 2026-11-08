@@ -1,8 +1,8 @@
 # Moo HTTP API 全量文档
 
-> 版本基线：0.6.308（2026-10-06）· 适用架构：fnOS x86_64 / arm64（Go 后端 + React 前端单二进制服务）
+> 版本基线：0.6.539（2026-11-08）· 适用架构：fnOS x86_64 / arm64（Go 后端 + React 前端单二进制服务）
 >
-> 本文档覆盖 Moo 对外提供的全部 91 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
+> 本文档覆盖 Moo 对外提供的全部 110 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
 
 ---
 
@@ -52,26 +52,28 @@
 - `Content-Type: application/json`（POST/PUT 必须）；响应 `Accept-Encoding: gzip` 时 JSON 透明压缩（SSE 与二进制直通不压缩）。
 - 列表类大响应（如 `GET /api/apps`）带 **ETag**，支持 `If-None-Match` → `304` 协商缓存。
 
-### 1.3 端点统计（2026-10-01 按代码重算，共 85 条）
+### 1.3 端点统计（2026-11-08 按代码重算，共 110 条）
 
 | 域 | 数量 |
 |---|---|
-| 系统与状态 | 7 |
+| 系统与状态 | 8 |
 | 应用目录 | 6 |
-| 安装/更新/卸载/下载（SSE） | 7 |
-| 应用控制与信息 | 8 |
-| 应用源管理 | 12 |
+| 发现页推荐 | 2 |
+| 安装/更新/卸载/下载（SSE） | 9 |
+| 应用控制与信息 | 11 |
+| 应用源管理 | 13 |
 | 收藏 | 2 |
-| 设置 | 5 |
+| 设置 | 7 |
 | 备份与缓存 | 6 |
-| FPK 下载缓存 | 3 |
-| 后台任务 | 2 |
-| 加速源 | 3 |
-| 面板账号 | 1 |
+| FPK 下载缓存 | 6 |
+| 后台任务 | 3 |
+| 加速源 | 6 |
+| 面板与 Mate 协作 | 2 |
 | 通知系统 | 14 |
 | Moo 自更新 | 2 |
-| 官方应用中心 | 7 |
-| **合计** | **85** |
+| 官方应用中心 | 11 |
+| KSpeeder 独立应用 | 2 |
+| **合计** | **110** |
 
 ### 1.4 上限与超时（2026-10-01 API 审计）
 
@@ -133,6 +135,7 @@ Moo 采用**两层防线**：
 | `upstream_source` / `upstream_repo` | string | 溯源（0.6.326）：包发布仓库 owner 与本源码 owner 不同 ⇒ 判定「搬运上游」——`upstream_repo` = 上游 `owner/repo`（恒有），`upstream_source` = Moo 已添加的该上游源名（未添加则空） |
 | `upstream_version` / `upstream_url` | string | 上游源同名卡最新版本 / 上游仓库地址（非搬运卡全空） |
 | `status` | string | 已装应用运行状态（平台提供） |
+| `reco_color` | string | 0.6.536：仅 `GET /api/recommended` 下发——该推荐位在远程清单里指定的极光配色 `aurora-1`..`aurora-12`；空 = 前端按应用名哈希取色（其它接口恒空） |
 | `start_stop` / `uninstallable` | bool? | 可启停 / 可卸载能力位 |
 | `web_protocol` / `web_url` / `web_port` / `web_path` | string/int | Web 入口 |
 | `web_on_webui` | bool | Web 入口是否在 WebUI 内 |
@@ -217,7 +220,7 @@ Docker 组同构（`/api/mirrors/docker/health`）。
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `github_token`（0.6.334，只写；GET 仅回 `github_token_set` 布尔）, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `custom_github_mirrors[]`（0.6.521）, `custom_docker_mirrors[]`（0.6.521）, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `github_token`（0.6.334，只写；GET 仅回 `github_token_set` 布尔）, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -285,6 +288,20 @@ data: {"step":"install","progress":42,"message":"下载中…"}
 {"ok": true, "changelog_source": "remote", "changelog_version": "0.6.384", "docs": 6, "devdocs": 5}
 ```
 
+### 5.3.2 `GET /api/about/mem`（公开）
+
+关于页「内存占用（实时）」数据源：**进程级内存快照**，只读 `/proc/self/statm` 与
+Go 运行时统计，不触发任何远程清单刷新（与 `/api/about` 分离，可安全轮询）。
+
+```json
+{"rss_bytes": 83927040, "heap_bytes": 39601280, "sys_bytes": 79096088, "goroutines": 874}
+```
+
+- `rss_bytes`：常驻集（读不到 `/proc/self/statm` 时为 0，前端隐藏该行）；
+- `heap_bytes`：Go 堆已分配（`HeapAlloc`）；`sys_bytes`：运行时向 OS 申请总量；
+- `goroutines`：当前协程数；
+- 响应带 `Cache-Control: no-store`，中间层不得缓存。
+
 ### 5.4 `GET /api/daemon/status`（公开）
 ```json
 {"available": true}
@@ -323,6 +340,8 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 ### 6.3 `GET /api/recommended`（公开）
 发现页推荐位列表。数据来自远程清单 `recommend_list`（纯文本，一行一条
 `appname@源名`，`#` 注释；顺序即展示顺序，地址见设置项 `recommend_list_url`）。
+0.6.536 起行尾可追加极光配色：`appname@源名 aurora-3`（或裸数字 `3`，也接受
+`appname@源名@aurora-3`），随卡片以 `reco_color` 下发；不写则前端按应用名哈希取色。
 只返回当前目录里存在的卡：缺卡 / 已去重隐藏 / 用户禁用的条目**整条跳过**，
 不随机补位、不留空位。`?count=N`（1–12）只做上限裁剪。
 
@@ -334,7 +353,7 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 ### 6.3.1 `POST /api/recommended/refresh`（admin）
 丢弃缓存立刻重拉清单（改完远程清单即时生效）。
 ```json
-{"ok": true, "url": "https://…/recommend_list.txt", "count": 4, "entries": ["moo-mate@Blue-Mink", "…"]}
+{"ok": true, "url": "https://…/recommend_list.txt", "count": 4, "entries": ["moo-mate@Blue-Mink", "…"], "colors": ["aurora-11", "…"]}
 ```
 
 ### 6.4 `GET /api/installed-detail`（公开）
@@ -456,9 +475,10 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 - 数值字段（`gh_probe_hours`…、`cache_clean_days`…）：越界整单拒绝。
 - `install_volume`（0.6.325 G2）：指针语义 —— **缺省** = 不改动；`0` = 清除回「系统默认」（安装走系统默认卷自动探测）；`1-8` = 指定存储卷；负数 / `>8` 整单拒绝。`GET /api/settings` 原样返回该值（`0` 不再显示成 `1`，保证「系统默认」可往返）。
 - `check_interval_hours` / `backup_interval_days` / `cache_clean_every_days`（0.6.325 H5）：指针语义 —— **缺省** = 不改动；`0` = 清除回各自默认（检查间隔 **24h** / 备份周期 **7 天** / 清理周期 **1 天**；`GET /api/settings` 透出生效值）。校验：`check_interval_hours` 合法 `0-168`，越界整单拒绝；两个天数字段负数整单拒绝、`>30` 沿用既有钳制（落 `30`）。
+- 0.6.521 起支持多条自定义加速源：`custom_github_mirrors[]` / `custom_docker_mirrors[]` 为整表替换（`nil`=不改、`[]`=清空），单值字段同步为第一条；只提交单值字段时仅在显式改动时替换列表，避免旧前端回传把其它条目清掉。
 - `custom_github_mirror` / `custom_docker_mirror` / `source_list_url` 随 `GET /api/settings` 透出（0.6.325 H1 修复：此前 PUT 可写但 GET 恒缺键，设置页水合空串后全量保存会静默清除已存自定义镜像）；未设置时键缺席（omitempty），前端水合成空串。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
-- `update_policy`（0.6.272 跨源更新策略；0.6.326x 起新增第四档 `upstream`）：仅接受 `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库）/ `upstream`（**强制上游**：已安装且来自「搬运上游」的应用改用上游原作者版本，其余应用按 `strict` 处理），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
+- `update_policy`（0.6.272 跨源更新策略；0.6.326x 起新增第四档 `upstream`）：仅接受 `auto`（0.6.532「自动（推荐）」= `lineage` + 上游纠正，搬运应用跟上游原作者）/ `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库）/ `upstream`（**强制上游**：已安装且来自「搬运上游」的应用改用上游原作者版本，其余应用按 `strict` 处理），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
 - `dedup_policy`（0.6.312 B2 列表去重展示策略）：仅接受 `all`（默认，零变化）/ `merge`（同名组内同宗簇留一代表）/ `one`（每 appname 一张代表卡），其余整单拒绝；变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回三档可见数。
 - `auto_correct`（0.6.326 引入；0.6.326x 起**已弃用**）：语义已并入 `update_policy="upstream"`（强制上游）。字段仍可提交以兼容旧客户端（提交 `true` 等价于把 `update_policy` 置为 `upstream`），保存设置后恒为 `false`；新代码请直接用 `update_policy`。
 
@@ -590,12 +610,27 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 | `GET /api/mirrors/health` | admin | GitHub 组健康快照（§3.4） |
 | `GET /api/mirrors/docker/health` | admin | Docker 组健康快照（含本地 KSpeeder 缓存） |
 | `POST /api/mirrors/check` | admin | 立即手动测速（两组各自全量候选） |
+| `POST /api/mirrors/sync` | admin | 立即从远端清单刷新加速源列表（免重建 FPK；45s 超时，清单不可达回 502） |
+| `POST /api/mirrors/restore` | admin | 清空本机屏蔽集合（删掉的默认源全部回来）并重拉远端清单 |
+| `POST /api/mirrors/hidden` | admin | 本机屏蔽加速源（`auto`/`custom`/`direct` 永不可屏蔽） |
 
 语义：
 - `mirror=auto`：按测速优选，切换触发 `mirror_switched` 通知（30 分钟冷却防抖）。
 - 测速**直连**各镜像（不经科学加速代理）——测的是镜像本身质量。
 - 自动测速间隔由 `gh_probe_*` / `dk_probe_*` 齿轮配置（0h0m = 默认 5 分钟）。
 - 全部候选失败 → `mirrors_all_failed`（Docker 组对偶 `docker_mirrors_all_failed`），恢复 → `mirrors_recovered`。
+
+清单目录化（0.6.512 起）：`lists/github_mirrors.txt` / `lists/docker_mirrors.txt` 一行一条
+`key|label|url|description`（`url` 可空，对应 `auto`/`custom`/`direct`）。远端拉取成功即覆盖
+内置清单，失败保留上一次成功值（离线不受影响）。
+
+- `POST /api/mirrors/sync`：立即重拉两份清单，响应 `{"ok":true,"github":N,"docker":M}`；
+  两份都失败回 502（内置清单继续生效，不影响下载）。
+- `POST /api/mirrors/hidden`：body 支持三种写法——`{"keys":[...]}` 全量覆盖、
+  `{"add":["k"]}` 追加、`{"remove":["k"]}` 移除；`{"keys":[]}` = 全部恢复显示。
+  屏蔽集合持久化在配置里，与远端清单无关（清单更新不会复活被删的源）。
+- `POST /api/mirrors/restore`：清空屏蔽集合并重拉清单；响应 `{"ok":true,"github":N,"docker":M}`，
+  拉取失败时回 `{"ok":false,"restored":true,"error":"…"}`（屏蔽已清空）。
 
 `POST /api/mirrors/check` 响应示例（0.6.321 起 fail 条目带 `error` 原因短语）：
 
@@ -615,6 +650,25 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 - `status` = `ok | limited | error`（服务端 `checkStatus` 映射：ok→ok、**429 限流→limited（0.6.333 F2，链路可达、临时性）**、其余→error）；`error`（0.6.321 F6，可选字段）在 fail 与 limited 时有值：`429 限流（临时）` / `403 拒绝` / `HTTP 5xx` / `慢（10s 读 NKB < 512KB 门槛）` / `连接被拒` / `DNS 解析失败` / `探测资产 404（资产下线或未代理）`。
 - `direct` / `auto` / `custom` 无探测 URL、不入池、不出现在响应；例外：设置 `mirror_include_direct=true`（0.6.321 F7，默认关）时 `direct` 以合成候选（0.6.333 F1 起直接用 `https://` + release 资产探同一 pinned 文件）出现并参与排名。
 - `speed_bps` 仅 GitHub 组（吞吐测速）；Docker 组测速只影响速度列、不改可达判定。
+
+### 15.1 KSpeeder 安装包（远端清单）
+
+0.6.524 起 KSpeeder 卡片不再内置固定下载地址，改为读远端清单（`lists/kspeeder.txt`，
+不可达时用内置版本兜底并退避 2 分钟），下载后按清单做 sha256 + 字节数双重校验。
+
+| 端点 | 权限 | 说明 |
+|---|---|---|
+| `GET /api/kspeeder/latest` | admin | 当前架构的最新条目（最多等 25s） |
+| `POST /api/kspeeder/install` | admin + SSE | 下载 → 校验 → 走与应用源相同的暂存/向导/平台安装管线（最长 15 分钟） |
+
+`GET /api/kspeeder/latest` 响应：
+```json
+{"ok": true, "arch": "amd64", "version": "0.8.9", "filename": "kspeeder_0.8.9_amd64.deb",
+ "url": "https://…", "sha256": "665e76bc…", "size": 6459687}
+```
+
+`POST /api/kspeeder/install` 为 SSE 流（§4），阶段词 `stage → download → verifying → installing →
+done|error`；已存在且校验通过的安装包会跳过下载。
 
 ---
 

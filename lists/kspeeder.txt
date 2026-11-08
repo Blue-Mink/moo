@@ -1,0 +1,5 @@
+# Moo KSpeeder 下载清单（0.6.524）
+# 一行一个架构：arch|version|filename|url|sha256|size（size = 字节数）
+# 改这个文件不需要重建 FPK；Moo 读取后 10 分钟内生效，下载仍做 sha256+字节数双重校验。
+x86|0.8.9|kspeeder-0.8.9-fnos-amd64.fpk|https://github.com/Blue-Mink/FnDepot/releases/download/v0.8.9/kspeeder-0.8.9-fnos-amd64.fpk|665e76bca64f8b547b60660f2a5de59dc74adf8211a68bc5f2b6e74836085e06|6459687
+arm|0.8.9|kspeeder-0.8.9-fnos-arm64.fpk|https://github.com/Blue-Mink/FnDepot/releases/download/v0.8.9/kspeeder-0.8.9-fnos-arm64.fpk|3224f796115eb1c691b68d297a4b16206773fa274c5aaaf2b0207bf66fefce34|6111640

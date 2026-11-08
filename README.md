@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.511-2563eb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.539-2563eb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-single_binary-00add8?style=flat-square&logo=go&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64_%7C_arm64-7c3aed?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,12 +58,12 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.511` · x86 `dbb45bbe3d0013aaa685f6d4139060159bbdb27b3ed8ebbffb724e5c06e3a031`（5.08MB） / arm `31c13180961f1589806fa1d98362d5910b73c611f12b658fe4002db525c9e177`（4.61MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.539` · x86 `c75382d0a472cb87a50859e9343273cec4e4eb0760ed327fb5d4ea997a644988`（5.12MB） / arm `df97ac236bff07d57b2796b695694eac436beec39cb7ac1cbe9cc3b3eecd48c7`（4.64MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
 
-运行要求：fnOS x86_64 / arm64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 4.9 MB（x86）/ 4.5 MB（arm）。
+运行要求：fnOS x86_64 / arm64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 5.1 MB（x86）/ 4.6 MB（arm）。
 
 > [!TIP]
 > 装完可应用内自更新：版本号红点 + 确认框，走平台升级通道就地更新，`@appdata` 数据保留。
@@ -124,6 +124,10 @@
 | 落盘与抓图日志 | 图标缓存后台落盘消除并发竞态；抓图日志区分「请求取消 / 超时 / 真截断」，不再把取消误记为截断（0.6.377） |
 | 发现页推荐位 | 推荐位改读远程清单（一行一条 `appname@源名`），顺序与条数随清单调整、改清单免重建 FPK，缺应用整条跳过不留空位；横幅按条数自适应；移动端 Dock 与列表同宽、搜索展开不再折行（0.6.378→380） |
 | 加速源与图片兜底 | 新增 GH TBAP GitHub 加速源（实测最快，抖动时自动换源）；README 图片 / 预览图 404 需两个独立来源都失联才判死，误判负缓存由 30 分钟缩短到 5 分钟（0.6.381→383） |
+| 远端清单与加速源 | 应用源 / 推荐位 / GitHub·Docker 加速源 / KSpeeder 清单统一改读 `lists/`，设置页可「同步 / 恢复」，改清单免重建 FPK；加速源改为 GitHub / Docker / 科学加速三个子 tab，智能选源与加速开关独立、列表直接选源、自定义多地址，分批测速不互相抢带宽（0.6.512→528） |
+| 设置页收纳 | 已下载 FPK / 源列表 / 日志 / 加速监测 / 排序 / 通知总开关整行可点折叠；FPK 支持上传与批量删除；应用源删除改批量选择、「恢复源」改「刷新源」；更新策略新增「自动（推荐）」，手动策略收进折叠；关于页显示实时内存（0.6.529→535） |
+| 推荐位配色 | 发现页推荐位卡片配色可由远程清单行尾指定（`aurora-1`…`aurora-12` 或裸数字），未指定时沿用哈希配色（0.6.536） |
+| 近三版打磨 | 官方源授权新增「新标签页授权」（局域网 http 下也能完成，面板地址自动取当前访问地址）；关于页更新日志铺满卡片；企业微信卡片去掉顶部重复来源行，标题与时间顶到首行（0.6.537→539） |
 
 ## 工作原理
 

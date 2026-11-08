@@ -1,0 +1,15 @@
+# Moo Docker 镜像加速源清单
+# 一行一条：key|label|url|description（url 留空 = 特殊项 auto/custom/direct）
+# 改这个文件不需要重建 FPK；Moo 读取后按 key 合并，内置列表作为兜底。
+
+auto|智能 · 自动选最快||系统周期性测速各源，自动选用最快且稳定的加速源
+daocloud|DaoCloud|https://m.daocloud.io/|DaoCloud 公共 Docker 镜像加速
+kspeeder|KSpeeder (本地)||独立 KSpeeder 应用的本地镜像缓存（127.0.0.1:5443），未安装/未运行时自动降权
+nju-ghcr|NJU ghcr|https://ghcr.nju.edu.cn/|南京大学 ghcr.io 专用镜像（ghcr 应用推荐）
+docker-1ms|1ms.run|https://docker.1ms.run/|社区 Docker 镜像加速
+daocloud-docker|DaoCloud Docker|https://docker.m.daocloud.io/|DaoCloud Docker 镜像加速（全球可用）
+ratdev|Rat.Dev|https://hub.rat.dev/|Rat 社区 Docker 镜像加速
+1panel|1Panel|https://docker.1panel.live/|1Panel 官方 Docker 镜像加速（仅限国内）
+dockerproxy|DockerProxy|https://dockerproxy.net/|Docker Proxy 社区镜像加速（仅限国内）
+custom|自定义||使用自定义加速地址
+direct|直连 Docker Hub||直接拉取，适合有代理的用户

@@ -1,0 +1,25 @@
+# Moo GitHub 加速源清单
+# 一行一条：key|label|url|description（url 留空 = 特殊项 auto/custom/direct）
+# 改这个文件不需要重建 FPK；Moo 读取后按 key 合并，内置列表作为兜底。
+
+auto|智能 · 自动选最快||系统周期性测速各源，自动选用最快且稳定的加速源
+gh-proxy-hk|GH-Proxy HK|https://hk.gh-proxy.org/|HK 节点，实测最快（419ms）
+cdn-ghproxy|CDN GHProxy|https://cdn.gh-proxy.org/|CDN 节点 GitHub 加速（450ms）
+gh-tbap|GH TBAP|https://github.tbap.top/|社区 GitHub 加速（实测 1.5s/1MB，偶有抖动）
+ghproxy-cxkpro|GHProxy CXK|https://ghproxy.cxkpro.top/|社区 GitHub 加速（实测 534ms）
+yylx|YYLX Git|https://git.yylx.win/|社区 GitHub 加速（实测 535ms）
+gh-proxy|GH-Proxy|https://gh-proxy.com/|公共 GitHub 文件代理，长期稳定运营（552ms）
+gitproxy-mrhjx|GitProxy MRHJX|https://gitproxy.mrhjx.cn/|社区 GitHub 加速（实测 559ms）
+gh-proxy-org|GH-Proxy.ORG|https://gh-proxy.org/|社区 GitHub 加速（实测 563ms）
+felicity|GH Felicity|https://gh.felicity.ac.cn/|社区 GitHub 加速（实测 584ms）
+wget-la|WGET.LA|https://wget.la/|GitHub 下载加速（实测 606ms）
+dpik|GitHub DPIK|https://github.dpik.top/|社区 GitHub 加速（实测 664ms）
+ghproxy-net|GHProxy.net|https://ghproxy.net/|社区维护的 GitHub 加速代理（769ms）
+cors-isteed|Cors Proxy|https://cors.isteed.cc/|Cloudflare Workers GitHub 代理（804ms）
+gh-dpik|GH DPIK|https://gh.dpik.top/|社区 GitHub 加速（实测 880ms）
+memory-echoes|GHProxy ME|https://github-proxy.memory-echoes.cn/|Z 图床公益 GitHub 加速（实测 1020ms）
+ghfast|GHFast|https://ghfast.top/|高速 GitHub 文件加速（1171ms）
+conversun|Conversun Hub|https://hub.conversun.com/|Conversun 自建 GitHub 加速，仅代理 conversun 仓库
+gh-ddlc|GH DDLC|https://gh.ddlc.top/|GitHub 文件下载加速（当前限流 429，智能监测会自动降权）
+custom|自定义||使用自定义加速地址
+direct|直连 GitHub||直接从 GitHub 下载，适合有代理的用户
