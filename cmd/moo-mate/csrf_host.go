@@ -56,7 +56,27 @@ func sameOrigin(raw, reqHost string, allowed []string) bool {
 			return true
 		}
 	}
+	// 0.2.57：面板 nginx 转发时会把 Host 的端口剥掉（实测 Host=192.0.2.15，
+	// Origin=http://192.0.2.15:5666），端口比对必然失败 → 面板里所有写操作 403。
+	// 请求 Host 不含端口时只比主机名，端口差异不参与判定。
+	if !hasPort(reqHost) && strings.EqualFold(hostOnly(u.Host), hostOnly(reqHost)) {
+		return true
+	}
 	return isLoopbackHostPort(u.Host) && isLoopbackHostPort(reqHost)
+}
+
+// hasPort 判断 host[:port] 是否真的带端口（IPv6 字面量 "::1" 不带）。
+func hasPort(hp string) bool {
+	_, _, err := net.SplitHostPort(hp)
+	return err == nil
+}
+
+// hostOnly 去掉端口（IPv6 方括号一并去掉），用于主机名比对。
+func hostOnly(hp string) string {
+	if h, _, err := net.SplitHostPort(hp); err == nil {
+		return h
+	}
+	return strings.Trim(hp, "[]")
 }
 
 func hostAllowed(host string, allowed []string) bool {

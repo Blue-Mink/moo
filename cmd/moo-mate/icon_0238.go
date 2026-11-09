@@ -1,9 +1,9 @@
 package main
 
 // 0.2.38：应用图标补齐。
-// 背景（用户实报「应用源列表里只有软仓有图标，其他都获取不了」）：
-//   - 软仓 personal 源（/api/apps）自带 icon 字段 → 索引里有 icon_url → 有图；
-//   - Gitee 软仓源与所有 GitHub/Gitee release 扫描路径**从不产生 icon_url**；
+// 背景（用户实报「应用源列表里只有部分应用有图标，其他都获取不了」）：
+//   - 历史遗留索引条目自带 icon 字段 → 索引里有 icon_url → 有图；
+//   - 所有 GitHub/Gitee release 扫描路径**从不产生 icon_url**；
 //   - 更早生成的索引条目同样没有图标。
 // 方案（三层，成本从低到高）：
 //  1. 构建索引时从 FPK 包内抽图标（下载 FPK 本来就为了解析 manifest，零额外流量）；

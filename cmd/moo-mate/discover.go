@@ -75,12 +75,13 @@ func ghReleases(ctx context.Context, owner, repo string, httpc *http.Client, tok
 	var all []ghRelease
 	page := 1
 	for {
-		u := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=100&page=%d", owner, repo, page)
+		u := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=100&page=%d", ghAPIBase, owner, repo, page)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "moo-mate")
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -94,7 +95,11 @@ func ghReleases(ctx context.Context, owner, repo string, httpc *http.Client, tok
 			return nil, rerr
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("GitHub API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+			body := strings.TrimSpace(string(data))
+			if resp.StatusCode == http.StatusForbidden && strings.Contains(strings.ToLower(body), "rate limit") {
+				return nil, fmt.Errorf("GitHub API 限流（403）：在 Moo 设置里配置 GitHub Token 可解除 60 次/小时限制，或稍后重试")
+			}
+			return nil, fmt.Errorf("GitHub API HTTP %d: %s", resp.StatusCode, body)
 		}
 		var batch []ghRelease
 		if err := json.Unmarshal(data, &batch); err != nil {
@@ -149,7 +154,7 @@ func giteeReleases(ctx context.Context, owner, repo string, httpc *http.Client) 
 			return nil, rerr
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Gitee API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+			return nil, fmt.Errorf("仓库 API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 		}
 		var batch []giteeRelease
 		if err := json.Unmarshal(data, &batch); err != nil {
@@ -175,7 +180,7 @@ type giteeContent struct {
 	DownloadURL string `json:"download_url"`
 }
 
-// giteeFPKDirs 仓库内 FPK 目录（软仓 2026-11-01 起的新分发形态：release 停更，
+// giteeFPKDirs 仓库内 FPK 目录（2026-11-01 起的新分发形态：release 停更，
 // 包直接放 git 目录）。目录不存在时静默跳过，不影响 release 扫描。
 var giteeFPKDirs = []string{"server-data/apps"}
 
@@ -200,7 +205,7 @@ func giteeRepoDir(ctx context.Context, owner, repo, path string, httpc *http.Cli
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Gitee API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		return nil, fmt.Errorf("仓库 API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	var list []giteeContent
 	if err := json.Unmarshal(data, &list); err != nil {
@@ -263,7 +268,7 @@ func discoverGiteeAppsDir(ctx context.Context, owner, repo string, httpc *http.C
 			if u == "" {
 				u = fmt.Sprintf("https://gitee.com/%s/%s/raw/master/%s", owner, repo, f.Path)
 			}
-			out = append(out, releaseFPK{name: f.Name, url: u, size: 0, ver: versionFromFilename(f.Name)})
+			out = append(out, releaseFPK{name: f.Name, url: u, size: 0, ver: versionFromFilename(f.Name), fromRepo: true})
 		}
 	}
 	return out
@@ -287,10 +292,11 @@ func versionFromTag(tag string) string {
 
 // releaseFPK release 里一条 .fpk 资产（GitHub/Gitee 统一中间形态）。
 type releaseFPK struct {
-	name string
-	url  string
-	size int64
-	ver  string // 从 tag 推导的版本（可能为空）
+	name     string
+	url      string
+	size     int64
+	ver      string // 从 tag / 文件名推导的版本（可能为空）
+	fromRepo bool   // true = 仓库文件树里的包，false = release 资产
 }
 
 // dedupFPKs 按资产文件名去重，同名只留最高版，返回 discoveredApp 列表。
@@ -325,56 +331,105 @@ func dedupFPKs(items []releaseFPK) []discoveredApp {
 	return out
 }
 
-// discoverFromRepo 从仓库发现 .fpk 应用（L2 release 扫描）。
-// 按 host 分派：github.com → GitHub API；gitee.com → Gitee API。
-// 返回按版本降序去重后的候选列表（同名只留最高版）。
+// discoverFromRepo 从仓库发现 .fpk 应用（兼容旧调用，不带日志回调）。
 func discoverFromRepo(ctx context.Context, rawURL, token string, httpc *http.Client) ([]discoveredApp, error) {
+	return discoverFromRepoLog(ctx, rawURL, token, httpc, nil)
+}
+
+// discoverFromRepoLog 扫描两条通道并合并：
+//   - release 资产（GitHub Releases / Gitee Releases）
+//   - 仓库文件树里的 .fpk（包直接提交进仓库的形态）
+//
+// 两条通道互不阻塞：单条失败只记日志，另一条仍可产出候选；两条都失败才返回错误。
+func discoverFromRepoLog(ctx context.Context, rawURL, token string, httpc *http.Client, logf func(string, string)) ([]discoveredApp, error) {
+	log := func(l, m string) {
+		if logf != nil {
+			logf(l, m)
+		}
+	}
 	// GitHub
 	if owner, repo, ok := parseGHRepo(rawURL); ok {
-		rels, err := ghReleases(ctx, owner, repo, httpc, token)
-		if err != nil {
-			return nil, err
-		}
-		items := make([]releaseFPK, 0, len(rels))
-		for _, rel := range rels {
-			ver := versionFromTag(rel.TagName)
-			for _, a := range rel.Assets {
-				items = append(items, releaseFPK{name: a.Name, url: a.URL, size: a.Size, ver: ver})
-			}
-		}
-		return dedupFPKs(items), nil
-	}
-	// Gitee：release 资产 + 仓库内 FPK 目录（软仓 2026-11-01 起的新形态）合并，目录优先
-	if owner, repo, ok := parseGiteeRepo(rawURL); ok {
+		log("info", "GitHub：读取 release 列表…")
+		var relItems []releaseFPK
 		var relErr error
-		rels, err := giteeReleases(ctx, owner, repo, httpc)
-		if err != nil {
+		if rels, err := ghReleases(ctx, owner, repo, httpc, token); err != nil {
 			relErr = err
-			rels = nil
-		}
-		dirItems := discoverGiteeAppsDir(ctx, owner, repo, httpc)
-		seen := make(map[string]bool, len(dirItems))
-		items := make([]releaseFPK, 0, len(dirItems)+len(rels))
-		for _, it := range dirItems {
-			seen[strings.ToLower(it.name)] = true
-			items = append(items, it)
-		}
-		for _, rel := range rels {
-			ver := versionFromTag(rel.TagName)
-			for _, a := range rel.Assets {
-				if seen[strings.ToLower(a.Name)] {
-					continue // 同名以目录版为准（release 多为停更前的旧包）
+			log("warn", "release 读取失败："+err.Error())
+		} else {
+			assets, fpks := 0, 0
+			for _, rel := range rels {
+				ver := versionFromTag(rel.TagName)
+				for _, a := range rel.Assets {
+					assets++
+					if !strings.HasSuffix(strings.ToLower(a.Name), ".fpk") {
+						continue
+					}
+					fpks++
+					relItems = append(relItems, releaseFPK{name: a.Name, url: a.URL, size: a.Size, ver: ver})
 				}
-				items = append(items, releaseFPK{name: a.Name, url: a.URL, size: 0, ver: ver})
 			}
+			log("ok", fmt.Sprintf("release：%d 个资产，%d 个 .fpk", assets, fpks))
 		}
-		out := dedupFPKs(items)
-		if len(out) == 0 && relErr != nil {
-			return nil, relErr
+		fileItems, ferr := scanRepoFilesGitHub(ctx, owner, repo, token, httpc, logf)
+		if ferr != nil {
+			log("warn", "仓库文件扫描跳过："+ferr.Error())
+		} else if len(fileItems) > 0 {
+			log("ok", fmt.Sprintf("仓库文件：%d 个 .fpk", len(fileItems)))
 		}
-		return out, nil
+		merged := mergeFPKs(relItems, fileItems, false)
+		if len(merged) == 0 {
+			if relErr != nil && ferr != nil {
+				return nil, relErr
+			}
+			return nil, nil
+		}
+		log("ok", fmt.Sprintf("合并去重：%d 个候选 .fpk", len(merged)))
+		return dedupMerged(merged, logf), nil
 	}
-	return nil, fmt.Errorf("仅支持 GitHub / Gitee 仓库地址: %s", rawURL)
+	// Gitee：release 资产 + 仓库文件树（2026-11-01 起的新分发形态，目录优先）
+	if owner, repo, ok := parseGiteeRepo(rawURL); ok {
+		log("info", "读取 release 列表…")
+		var relItems []releaseFPK
+		var relErr error
+		if rels, err := giteeReleases(ctx, owner, repo, httpc); err != nil {
+			relErr = err
+			log("warn", "release 读取失败："+err.Error())
+		} else {
+			assets, fpks := 0, 0
+			for _, rel := range rels {
+				ver := versionFromTag(rel.TagName)
+				for _, a := range rel.Assets {
+					assets++
+					if !strings.HasSuffix(strings.ToLower(a.Name), ".fpk") {
+						continue
+					}
+					fpks++
+					relItems = append(relItems, releaseFPK{name: a.Name, url: a.URL, ver: ver})
+				}
+			}
+			log("ok", fmt.Sprintf("release：%d 个资产，%d 个 .fpk", assets, fpks))
+		}
+		fileItems, ferr := scanRepoFilesGitee(ctx, owner, repo, httpc, logf)
+		if ferr != nil {
+			log("warn", "仓库文件树不可用（"+ferr.Error()+"），回落到目录扫描")
+			fileItems = discoverGiteeAppsDir(ctx, owner, repo, httpc)
+			if len(fileItems) > 0 {
+				log("ok", fmt.Sprintf("目录扫描：%d 个 .fpk", len(fileItems)))
+			}
+		} else if len(fileItems) > 0 {
+			log("ok", fmt.Sprintf("仓库文件：%d 个 .fpk", len(fileItems)))
+		}
+		merged := mergeFPKs(relItems, fileItems, true)
+		if len(merged) == 0 {
+			if relErr != nil && ferr != nil {
+				return nil, relErr
+			}
+			return nil, nil
+		}
+		log("ok", fmt.Sprintf("合并去重：%d 个候选 .fpk", len(merged)))
+		return dedupMerged(merged, logf), nil
+	}
+	return nil, fmt.Errorf("仅支持 GitHub 仓库地址: %s", rawURL)
 }
 
 // versionGreater 数值分段比较版本（与 gen-moo-json 同口径）。

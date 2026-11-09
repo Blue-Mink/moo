@@ -110,11 +110,12 @@ func main() {
 	}
 	c := newCompanion(mooBaseVal, selfBaseVal, tokenVal, web, newIndex(dataVal))
 	c.bootDir = bootDir
-	// B1：旧索引里软仓相对下载地址按 Source 补绝对（一次性迁移，幂等）。
-	if n, nerr := c.idx.normalizeDownloads(); nerr != nil {
-		log.Printf("修正软仓相对下载地址失败: %v", nerr)
+	// 一次性历史清理：旧索引里 publisher=="softstore" 的条目所属分发形态已整体移除，
+	// 这里备份 index.json 后删除这些条目（幂等，失败只记日志、不阻断启动）。
+	if n, bak, nerr := c.idx.purgeSoftstoreEntries(); nerr != nil {
+		log.Printf("清理历史软仓条目失败（继续启动）: %v", nerr)
 	} else if n > 0 {
-		log.Printf("已修正 %d 个软仓相对下载地址", n)
+		log.Printf("已清理历史软仓条目 %d 条（备份 %s）", n, bak)
 	}
 	// 0.2.35：自更新下载复用 Moo 的 GitHub 加速镜像表（GET /api/mate/mirrors）。
 	mateMirrorProvider = c.mateMirrorPrefixes
@@ -153,7 +154,7 @@ func main() {
 	mux.HandleFunc("POST /api/batch-sync", c.handleBatchSync)
 	mux.HandleFunc("POST /api/batch-delete", c.handleBatchDelete)
 	mux.HandleFunc("POST /api/check-update", c.handleCheckUpdate)
-	mux.HandleFunc("POST /api/softstore-sync", c.handleSoftstoreSync)
+	mux.HandleFunc("POST /api/sync-now", c.handleSyncNow)
 	mux.HandleFunc("DELETE /api/index/{appname}", c.handleDeleteApp)
 	// 数据备份
 	mux.HandleFunc("GET /api/datadir", c.handleDataDir)
@@ -177,7 +178,7 @@ func main() {
 
 	log.Printf("Moo Mate 启动：%s（Moo base=%s，索引=%s）", listenVal, mooBaseVal, dataVal)
 
-	// 软仓定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
+	// 定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
 	go c.syncLoop()
 
 	// 0.2.38：日志轮转（5MB 阈值 × 5 份归档，10 分钟检查一次；与清理串行）。
@@ -269,17 +270,17 @@ func (c *companion) wakeSync() {
 	}
 }
 
-// trySyncLog 跑一次完整同步（软仓 + 索引里全部应用的上游检查）并记日志（定时循环与唤醒共用）。
+// trySyncLog 跑一次完整同步（索引里全部应用的上游检查）并记日志（定时循环与唤醒共用）。
 func (c *companion) trySyncLog() {
-	softAdded, softUpdated, checked, updated, err := c.runFullSync()
+	checked, updated, err := c.runFullSync()
 	if err != nil {
 		log.Printf("同步失败: %v", err)
 		return
 	}
-	log.Printf("同步完成: 软仓新增 %d / 更新 %d，上游检查 %d / 更新 %d", softAdded, softUpdated, checked, updated)
+	log.Printf("同步完成: 上游检查 %d / 更新 %d", checked, updated)
 }
 
-// syncLoop 软仓定时同步循环：首次启动稍作延迟后立即同步一次，之后按配置间隔；
+// syncLoop 定时同步循环：首次启动稍作延迟后立即同步一次，之后按配置间隔；
 // 间隔改为 manual 时挂起等唤醒信号；配置变更经 wakeSync 立即重排。
 func (c *companion) syncLoop() {
 	time.Sleep(3 * time.Second)

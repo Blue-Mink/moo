@@ -12,9 +12,7 @@ import (
 // 0.2.28 起 GitHub token 不再在伴侣侧保存：统一读取 Moo 设置里的那一份
 // （见 companion.githubToken），避免两处维护、两处泄露面。
 type mateConfig struct {
-	SoftstoreURL    string `json:"softstore_url,omitempty"`    // 个人源地址（非敏感，明文；前端不暴露）
-	SoftstoreSource string `json:"softstore_source,omitempty"` // 软仓源选择："personal"（默认）| "gitee"
-	SyncInterval    string `json:"sync_interval,omitempty"`    // 同步间隔：Go duration 或 "manual"/""（不自动）
+	SyncInterval string `json:"sync_interval,omitempty"` // 同步间隔：Go duration 或 "manual"/""（不自动）
 
 	// 数据备份目录（空 = 数据目录本身；可指向 /volN 下任意目录，参考 Moo backup_dir）。
 	BackupDir string `json:"backup_dir,omitempty"`
@@ -85,28 +83,6 @@ func (c *mateConfig) backupIntervalDays() int {
 		return defaultBackupIntervalDays
 	}
 	return c.BackupIntervalDays
-}
-
-// defaultSoftstoreURL 软仓个人源默认地址（私有，UI 不暴露）。
-const defaultSoftstoreURL = "http://nas.hhxs2025.top:5660"
-
-// defaultGiteeSoftstore 软仓 Gitee 源（软仓官方仓库，release 扫描）。
-const defaultGiteeSoftstore = "https://gitee.com/hhxs2025/fn-appstores"
-
-// softstoreURL 返回生效的个人源地址：配置优先，回落默认值。
-func (c *mateConfig) softstoreURL() string {
-	if v := c.SoftstoreURL; v != "" {
-		return v
-	}
-	return defaultSoftstoreURL
-}
-
-// softstoreSource 返回生效的软仓源选择："gitee" 或 "personal"（默认）。
-func (c *mateConfig) softstoreSource() string {
-	if c.SoftstoreSource == "gitee" {
-		return "gitee"
-	}
-	return "personal"
 }
 
 // validSyncInterval 校验间隔值："manual"/空（不自动）或任意合法 Go duration。

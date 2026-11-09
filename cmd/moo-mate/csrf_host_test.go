@@ -50,6 +50,31 @@ func TestCSRFGatewayChannelAllowsPanelOrigin(t *testing.T) {
 	}
 }
 
+// 0.2.57：面板 nginx 转发会剥掉 Host 的端口（实测 Host=192.0.2.15，
+// Origin=http://192.0.2.15:5666），此时应视为同源放行，否则面板内写操作全 403。
+func TestCSRFGatewayAllowsOriginPortWhenHostHasNoPort(t *testing.T) {
+	h, _ := csrfTestHandler(csrfTestPolicy(false))
+	r := csrfReq(http.MethodPost, "/api/clear-data", "{}")
+	r.Host = "192.0.2.15"
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "http://192.0.2.15:5666")
+	if code := csrfDo(t, h, r); code != http.StatusOK {
+		t.Fatalf("网关剥端口时应放行同主机 Origin，得 %d", code)
+	}
+}
+
+// 反例：主机名不同必须仍然 403。
+func TestCSRFGatewayBlocksDifferentHostWithPort(t *testing.T) {
+	h, _ := csrfTestHandler(csrfTestPolicy(false))
+	r := csrfReq(http.MethodPost, "/api/clear-data", "{}")
+	r.Host = "192.0.2.15"
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "http://evil.example:5666")
+	if code := csrfDo(t, h, r); code != http.StatusForbidden {
+		t.Fatalf("不同主机必须 403，得 %d", code)
+	}
+}
+
 func TestCSRFGatewayChannelBlocksCrossSite(t *testing.T) {
 	h, _ := csrfTestHandler(csrfTestPolicy(false))
 	r := csrfReq(http.MethodPost, "/api/clear-data", "{}")

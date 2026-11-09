@@ -14,8 +14,9 @@ func TestDefaultIndexSnapshotParses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("内置索引解压/解析失败: %v", err)
 	}
-	if len(d.Apps) < 100 {
-		t.Fatalf("内置索引条数异常: %d（应数百条）", len(d.Apps))
+	// 快照内容随默认清单变化（当前为线上 mate 的 5 条），这里只校验非空 + 可解析。
+	if len(d.Apps) == 0 {
+		t.Fatalf("内置索引为空（应至少 1 条）")
 	}
 	for name, a := range d.Apps {
 		if a == nil || a.Appname == "" {

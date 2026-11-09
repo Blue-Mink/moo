@@ -49,10 +49,10 @@ type companion struct {
 	mirrorCache []string
 	mirrorAt    time.Time
 
-	syncWake    chan struct{} // 软仓同步循环唤醒信号（配置变更/手动触发）
+	syncWake    chan struct{} // 同步循环唤醒信号（配置变更/手动触发）
 	syncStateMu sync.Mutex
-	lastSync    time.Time // 上次软仓同步时间
-	syncErr     string    // 上次软仓同步错误（空 = 成功）
+	lastSync    time.Time // 上次同步时间
+	syncErr     string    // 上次同步错误（空 = 成功）
 
 	iconMu sync.RWMutex
 	icons  map[string][]byte // 应用图标内存缓存（appname → 图片字节；经本机代理下载，绕过 Gitee 防盗链）
@@ -248,20 +248,50 @@ type buildAcc struct {
 	version string
 }
 
+// accProgress 解析阶段进度/结果回调（nil 安全）。
+// Start 在开始下载第 i 个包时触发；Done 在解析出结果（成功或跳过）后触发，
+// 让任务弹窗能逐条打印「文件名 → appname 版本 架构」。
+type accProgress struct {
+	Start func(done, total int, name string)
+	Done  func(name, appname, version, arch string, err error)
+}
+
+func (p *accProgress) start(done, total int, name string) {
+	if p != nil && p.Start != nil {
+		p.Start(done, total, name)
+	}
+}
+
+func (p *accProgress) done(name, appname, version, arch string, err error) {
+	if p != nil && p.Done != nil {
+		p.Done(name, appname, version, arch, err)
+	}
+}
+
 // discoverAccs 从 discovered 列表收集「appname → 累积条目」（版本合并 + 架构合并）。
 // 同名多架构 FPK（如 motrix 的 x86/arm 两包）同版本合并进 packages；primary 指向 x86。
-func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp, raw, owner string) (map[string]*buildAcc, []string) {
+// p 为 nil 时等同原行为（不推送进度）。
+func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp, raw, owner string, p *accProgress) (map[string]*buildAcc, []string) {
 	accs := map[string]*buildAcc{}
 	var skipped []string
-	for _, d := range discovered {
+	total := len(discovered)
+	for i, d := range discovered {
+		if err := ctx.Err(); err != nil {
+			skipped = append(skipped, "任务已取消，剩余未解析")
+			break
+		}
+		p.start(i+1, total, d.Name)
 		meta, err := c.downloadAndInspect(ctx, d.DownloadURL)
 		if err != nil {
 			skipped = append(skipped, fmt.Sprintf("%s: %v", d.Name, err))
+			p.done(d.Name, "", "", "", err)
 			continue
 		}
 		appname := strings.TrimSpace(meta.Manifest["appname"])
 		if appname == "" {
-			skipped = append(skipped, d.Name+": manifest 缺少 appname")
+			err := fmt.Errorf("manifest 缺少 appname")
+			skipped = append(skipped, d.Name+": "+err.Error())
+			p.done(d.Name, "", "", "", err)
 			continue
 		}
 		// 0.2.38：构建索引时顺手把包内图标落盘（零额外下载；供 /api/icon 出图）。
@@ -284,17 +314,22 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 			acc.version = e.Version
 			acc.ia.Packages = nil
 		} else if e.Version != "" && acc.version != "" && e.Version != acc.version {
-			skipped = append(skipped, fmt.Sprintf("%s@%s: 低于最高版 %s", appname, e.Version, acc.version))
+			err := fmt.Errorf("低于最高版 %s", acc.version)
+			skipped = append(skipped, fmt.Sprintf("%s@%s: %v", appname, e.Version, err))
+			p.done(d.Name, appname, e.Version, arch, err)
 			continue
 		}
 		if arch == "" {
-			skipped = append(skipped, fmt.Sprintf("%s: 无法识别架构（%s）", appname, d.Name))
+			err := fmt.Errorf("无法识别架构（%s）", d.Name)
+			skipped = append(skipped, appname+": "+err.Error())
+			p.done(d.Name, appname, e.Version, "", err)
 			continue
 		}
 		if acc.ia.Packages == nil {
 			acc.ia.Packages = map[string]*appPackage{}
 		}
 		acc.ia.Packages[arch] = &appPackage{DownloadURL: d.DownloadURL, Sha256: e.Sha256, SizeBytes: e.SizeBytes}
+		p.done(d.Name, appname, e.Version, arch, nil)
 	}
 	// 收尾：扁平 primary 指向 x86（Moo 0.6.352 起按本机架构覆盖选包；x86 为约定默认）。
 	for _, acc := range accs {
@@ -320,6 +355,114 @@ type buildRequest struct {
 }
 
 // handleBuild POST /api/build：发现 .fpk 应用、解析 manifest，落索引（不立即加源）。
+// buildHTTPErr 携带非流式路径原有的 HTTP 状态码（502 探测失败 / 404 无 .fpk）。
+type buildHTTPErr struct {
+	code int
+	msg  string
+}
+
+func (e *buildHTTPErr) Error() string { return e.msg }
+
+// sseStream 把响应升级为 text/event-stream。nil 接收者表示「非流式」，事件静默丢弃，
+// 这样 runBuild 里可以无条件 s.send(...)，不必到处判分支。
+type sseStream struct {
+	mu   sync.Mutex
+	w    http.ResponseWriter
+	f    http.Flusher
+	done chan struct{}
+	once sync.Once
+	wg   sync.WaitGroup
+}
+
+// startSSE 写 SSE 响应头并立即 flush，让客户端马上进入「已连接」态。
+// 同时启动 15s 心跳：反向代理按空闲超时切断长任务（解析几十个包时容易触发）。
+func startSSE(w http.ResponseWriter) *sseStream {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream; charset=utf-8")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	s := &sseStream{w: w, done: make(chan struct{})}
+	if f, ok := w.(http.Flusher); ok {
+		s.f = f
+		f.Flush()
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.heartbeat()
+	}()
+	return s
+}
+
+// heartbeat 定时发 ping，直到 close。
+func (s *sseStream) heartbeat() {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-t.C:
+			s.send(map[string]any{"phase": "ping", "t": time.Now().Unix()})
+		}
+	}
+}
+
+// close 停心跳并置空 writer（幂等；handler 收尾必须调用）。
+func (s *sseStream) close() {
+	if s == nil {
+		return
+	}
+	s.once.Do(func() {
+		close(s.done)
+		s.wg.Wait()
+		s.mu.Lock()
+		s.w = nil
+		s.mu.Unlock()
+	})
+}
+
+// send 输出一条 data: {json}\n\n 事件并 flush（持锁，兼容心跳并发写）。
+func (s *sseStream) send(ev map[string]any) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.w == nil {
+		return
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", b); err != nil {
+		return
+	}
+	if s.f != nil {
+		s.f.Flush()
+	}
+}
+
+// logf 发一条短日志事件（nil 接收者安全，非流式路径可无脑调用）。
+func (s *sseStream) logf(level, msg string) {
+	if s == nil {
+		return
+	}
+	s.send(map[string]any{
+		"phase": "log", "level": level, "msg": msg,
+		"t": time.Now().Format("15:04:05"),
+	})
+}
+
+// handleSyncNow POST /api/sync-now：手动「同步更新」入口，立即唤醒同步循环。
+func (c *companion) handleSyncNow(w http.ResponseWriter, r *http.Request) {
+	c.wakeSync()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (c *companion) handleBuild(w http.ResponseWriter, r *http.Request) {
 	var body buildRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -332,28 +475,102 @@ func (c *companion) handleBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	raw := strings.TrimSpace(body.URL)
 	owner := repoOwner(raw)
-	ctx, cancel := timeoutCtx(r.Context(), 5*time.Minute)
+	// stream=1：SSE 推送进度（前端任务弹窗用）；不带时走原 JSON 路径，行为与结构完全不变。
+	var s *sseStream
+	if r.URL.Query().Get("stream") == "1" {
+		s = startSSE(w)
+		defer s.close()
+	}
+	// 45 分钟总预算：大仓库「release + 仓库文件」双通道扫描 + 逐个下载解析可能远超 5 分钟；
+	// 单次下载另有 4 分钟上限（见 tryDownload），不会挂死在单个镜像上。
+	// 长任务靠 SSE 15s 心跳保活（见 startSSE）。
+	ctx, cancel := timeoutCtx(r.Context(), 45*time.Minute)
 	defer cancel()
-	discovered, err := discoverFromRepo(ctx, raw, c.githubToken(), c.httpc)
+	added, skipped, err := c.runBuild(ctx, s, raw, owner, func(ctx context.Context) ([]discoveredApp, error) {
+		return discoverFromRepoLog(ctx, raw, c.githubToken(), c.httpc, s.logf)
+	})
+	respondBuild(w, s, added, skipped, err)
+}
+
+// respondBuild 输出 build 结果：流式走 done / error 事件，非流式走原 JSON（契约不变）。
+func respondBuild(w http.ResponseWriter, s *sseStream, added, skipped []string, err error) {
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		if s != nil {
+			// 流已开（200 已写出），错误只能以事件形式下发，避免半截 JSON。
+			s.send(map[string]any{"phase": "error", "msg": err.Error()})
+			return
+		}
+		code := http.StatusBadGateway
+		if be, ok := err.(*buildHTTPErr); ok {
+			code = be.code
+		}
+		writeErr(w, code, err.Error())
 		return
+	}
+	if s != nil {
+		// skipped 可能上百条：SSE 只带前 30 条 + 总数，避免事件过大拖慢前端渲染。
+		lim := skipped
+		if len(lim) > 30 {
+			lim = lim[:30]
+		}
+		s.send(map[string]any{"phase": "done", "count": len(added), "added": added,
+			"skipped": lim, "skipped_count": len(skipped)})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"added":   added,
+		"count":   len(added),
+		"skipped": skipped,
+	})
+}
+
+// runBuild 执行「扫描 → 解析 → 落索引」；s 非 nil 时逐条推送进度事件。
+// discover 参数可注入（测试用假实现，不触网、不真下载）。
+func (c *companion) runBuild(ctx context.Context, s *sseStream, raw, owner string,
+	discover func(context.Context) ([]discoveredApp, error)) ([]string, []string, error) {
+
+	s.logf("info", "开始扫描："+raw)
+	s.send(map[string]any{"phase": "discover", "msg": "扫描 release 与仓库文件…"})
+	discovered, err := discover(ctx)
+	if err != nil {
+		return nil, nil, &buildHTTPErr{http.StatusBadGateway, err.Error()}
 	}
 	if len(discovered) == 0 {
-		writeErr(w, http.StatusNotFound, "仓库 release 里没有 .fpk 资产，无法生成")
-		return
+		return nil, nil, &buildHTTPErr{http.StatusNotFound, "仓库 release 与仓库文件里都没有 .fpk，无法生成"}
 	}
-	accs, skipped := c.discoverAccs(ctx, discovered, raw, owner)
+	s.send(map[string]any{"phase": "discover", "done": len(discovered),
+		"msg": fmt.Sprintf("发现 %d 个候选 .fpk", len(discovered))})
+	s.logf("ok", fmt.Sprintf("共 %d 个候选 .fpk，开始逐个下载解析", len(discovered)))
+	accs, skipped := c.discoverAccs(ctx, discovered, raw, owner, &accProgress{
+		Start: func(done, total int, name string) {
+			s.send(map[string]any{"phase": "parse", "done": done, "total": total, "app": name})
+			s.logf("info", fmt.Sprintf("解析 %d/%d：%s", done, total, name))
+		},
+		Done: func(name, appname, version, arch string, err error) {
+			if err != nil {
+				s.logf("warn", fmt.Sprintf("%s 跳过：%v", name, err))
+				return
+			}
+			s.logf("ok", fmt.Sprintf("%s → %s %s（%s）", name, appname, version, arch))
+		},
+	})
+	total := len(accs)
+	seq := 0
 	var added []string
 	for appname, acc := range accs {
+		seq++
+		s.send(map[string]any{"phase": "index", "done": seq, "total": total})
 		if prev := c.idx.get(appname); prev != nil {
 			if acc.version == "" || prev.Version == "" {
 				skipped = append(skipped, appname+": 版本不可比，跳过")
+				s.logf("warn", appname+"：版本不可比，跳过")
 				continue
 			}
 			switch {
 			case versionGreater(acc.version, prev.Version):
 				// 更高版本：覆盖（upsert 保留 synced 状态）
+				s.logf("ok", fmt.Sprintf("覆盖 %s：%s → %s", appname, prev.Version, acc.version))
 			case acc.version == prev.Version:
 				// 同版本：合并架构（补 prev 缺的 arch，幂等重跑可补全多架构）
 				if len(prev.Packages) == 0 {
@@ -376,48 +593,63 @@ func (c *companion) handleBuild(w http.ResponseWriter, r *http.Request) {
 				}
 				if err := c.idx.upsert(prev); err != nil {
 					skipped = append(skipped, appname+": 合并架构落索引失败 "+err.Error())
+					s.logf("err", appname+"：合并架构落索引失败 "+err.Error())
 					continue
 				}
 				added = append(added, appname)
+				s.logf("ok", fmt.Sprintf("合并架构 %s %s（%s）", appname, acc.version, strings.Join(archKeys(prev.Packages), "/")))
 				continue
 			default:
 				skipped = append(skipped, appname+": 索引已有更高版本，跳过")
+				s.logf("warn", fmt.Sprintf("%s：索引已有更高版本 %s，跳过", appname, prev.Version))
 				continue
 			}
 		}
 		if err := c.idx.upsert(acc.ia); err != nil {
 			skipped = append(skipped, appname+": 落索引失败 "+err.Error())
+			s.logf("err", appname+"：落索引失败 "+err.Error())
 			continue
 		}
 		added = append(added, appname)
+		s.logf("ok", fmt.Sprintf("新增 %s %s（%s）", appname, acc.version, strings.Join(archKeys(acc.ia.Packages), "/")))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"added":   added,
-		"count":   len(added),
-		"skipped": skipped,
-	})
+	s.logf("ok", fmt.Sprintf("索引完成：写入 %d 个应用，跳过 %d 条", len(added), len(skipped)))
+	return added, skipped, nil
 }
 
 // downloadAndInspect 下载 FPK 并解析 manifest。GitHub release 资产并发竞速
 // （镜像前缀 + 直连），首个 200 且可解析的候选胜出。
+//
+// 加固：候选按 120ms 阶梯启动（避免 16 路并发抢同一份带宽）；首个成功即 cancel
+// 其余下载（否则败者会继续把整个包读完，白耗带宽/流量）；单候选 4 分钟上限。
 func (c *companion) downloadAndInspect(ctx context.Context, u string) (*fpkMeta, error) {
 	cands := mirrorCandidates(u)
 	type result struct {
 		meta *fpkMeta
 		err  error
 	}
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ch := make(chan result, len(cands))
-	for _, cand := range cands {
-		go func(cand string) {
-			meta, err := c.tryDownload(ctx, cand)
+	for i, cand := range cands {
+		go func(cand string, delay time.Duration) {
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-raceCtx.Done():
+					ch <- result{nil, raceCtx.Err()}
+					return
+				}
+			}
+			meta, err := c.tryDownload(raceCtx, cand)
 			ch <- result{meta, err}
-		}(cand)
+		}(cand, time.Duration(i)*120*time.Millisecond)
 	}
 	var lastErr error
 	for range cands {
 		r := <-ch
 		if r.err == nil {
+			cancel()
 			return r.meta, nil
 		}
 		lastErr = r.err
@@ -429,6 +661,9 @@ func (c *companion) downloadAndInspect(ctx context.Context, u string) (*fpkMeta,
 }
 
 func (c *companion) tryDownload(ctx context.Context, u string) (*fpkMeta, error) {
+	// 单候选 4 分钟：慢镜像不能吃掉整个任务预算（总预算 30 分钟见 handleBuild）。
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -777,7 +1012,7 @@ func (c *companion) handleHost(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(raw)
 }
 
-// handleStatus GET /api/status：当前状态（索引数量、Moo 是否可达、软仓同步状态）。
+// handleStatus GET /api/status：当前状态（索引数量、Moo 是否可达、上次同步状态）。
 func (c *companion) handleStatus(w http.ResponseWriter, r *http.Request) {
 	apps := c.idx.list()
 	mooOK := c.moo.ping() == nil
@@ -819,10 +1054,10 @@ func (c *companion) handleListIndex(w http.ResponseWriter, r *http.Request) {
 
 // handleIcon GET /api/icon/{appname}：返回应用图标（本机代理 + 磁盘缓存）。
 // 0.2.38 起不再要求索引里有 icon_url：候选顺序 =
-// 磁盘缓存 → 内存缓存 → icon_url（软仓 personal 源）→ 仓库根常见路径
+// 磁盘缓存 → 内存缓存 → icon_url（索引自带）→ 仓库根常见路径
 // （ICON.PNG / <appname>/ICON.PNG 等）→ FPK 包内抽图兜底。
 // 命中即落盘（<PKGVAR>/icons/，进程重启不丢）；全部失败回 404，前端回退首字母占位。
-// 软仓图标有的指向 Gitee raw（带 Referer 会 403 防盗链），本机 client 不带 Referer。
+// 部分图标指向 Gitee raw（带 Referer 会 403 防盗链），本机 client 不带 Referer。
 func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 	appname := strings.TrimSpace(r.PathValue("appname"))
 	if appname == "" {
@@ -864,7 +1099,7 @@ func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "未找到应用图标")
 		return
 	}
-	// ③ icon_url（软仓 personal 源自带）
+	// ③ icon_url（索引自带）
 	if u := strings.TrimSpace(ia.IconURL); u != "" {
 		ctx, cancel := timeoutCtx(r.Context(), 8*time.Second)
 		data, ext, okIcon := c.fetchMateIcon(ctx, u)
@@ -907,10 +1142,9 @@ func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleConfigGet GET /api/config：透出 GitHub token 状态（是否可用 + 来源，
-// 绝不下发明文）及软仓源选择与同步间隔（非敏感）。⚠️ 软仓个人源地址属私有链接，不下发。
+// 绝不下发明文）及同步间隔（非敏感）。
 func (c *companion) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	c.mu.RLock()
-	source := c.cfg.softstoreSource()
 	interval := c.cfg.syncInterval()
 	backupDir := c.cfg.BackupDir
 	backupAuto := c.cfg.BackupAuto
@@ -922,7 +1156,6 @@ func (c *companion) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"github_token_set":     tok != "",
 		"github_token_source":  src,
-		"softstore_source":     source,
 		"sync_interval":        interval,
 		"backup_dir":           backupDir,
 		"backup_auto":          backupAuto,
@@ -934,13 +1167,10 @@ func (c *companion) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleConfigPut PUT /api/config {softstore_url?, softstore_source?, sync_interval?}：
-// 软仓源选择与同步间隔。0.2.28 起不再接受 github_token（统一由 Moo 提供）。
-// softstore_url 保留兼容（老配置迁移），新 UI 不再暴露；缺省字段不改动（指针语义）。
+// handleConfigPut PUT /api/config {sync_interval?, ...}：同步间隔与备份/远程清单等设置。
+// 0.2.28 起不再接受 github_token（统一由 Moo 提供）；缺省字段不改动（指针语义）。
 func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		SoftstoreURL    *string `json:"softstore_url"`
-		SoftstoreSource *string `json:"softstore_source"`
 		SyncInterval    *string `json:"sync_interval"`
 		BackupDir       *string `json:"backup_dir"`
 		BackupAuto      *bool   `json:"backup_auto"`
@@ -956,22 +1186,6 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	if c.cfgPath == "" {
 		writeErr(w, http.StatusInternalServerError, "配置存储未初始化")
 		return
-	}
-	if body.SoftstoreURL != nil {
-		u := strings.TrimSpace(*body.SoftstoreURL)
-		if u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-			writeErr(w, http.StatusBadRequest, "softstore_url 必须是 http(s):// 开头")
-			return
-		}
-		c.cfg.SoftstoreURL = u
-	}
-	if body.SoftstoreSource != nil {
-		v := strings.TrimSpace(*body.SoftstoreSource)
-		if v != "personal" && v != "gitee" {
-			writeErr(w, http.StatusBadRequest, "softstore_source 非法（可选 personal / gitee）")
-			return
-		}
-		c.cfg.SoftstoreSource = v
 	}
 	if body.SyncInterval != nil {
 		v := strings.TrimSpace(*body.SyncInterval)
@@ -1134,17 +1348,41 @@ type updateCheckResult struct {
 // 返回错误 = 网络/解析失败；否则返回结果（含「无更新」与「已更新」两类）。
 // 供 /api/check-update 与定时全量同步共用。
 func (c *companion) checkAppUpdateCore(ctx context.Context, ia *indexedApp) (*updateCheckResult, error) {
-	if strings.TrimSpace(ia.Source) == "" {
+	return c.checkAppUpdateCoreCached(ctx, ia, nil)
+}
+
+// checkAppUpdateCoreCached 同上，但可复用同一轮同步里「同一来源仓库」的发现结果，
+// 避免 100 个应用共享一个仓库时把 release/文件树接口打 100 遍（也省 GitHub 限流额度）。
+// cache 为 nil 时每次现扫。
+func (c *companion) checkAppUpdateCoreCached(ctx context.Context, ia *indexedApp, cache map[string][]discoveredApp) (*updateCheckResult, error) {
+	src := strings.TrimSpace(ia.Source)
+	if src == "" {
 		return nil, fmt.Errorf("该应用无来源仓库，无法检查更新")
 	}
-	discovered, err := discoverFromRepo(ctx, ia.Source, c.githubToken(), c.httpc)
-	if err != nil {
-		return nil, err
+	key := strings.TrimRight(src, "/")
+	var discovered []discoveredApp
+	if cache != nil {
+		if v, ok := cache[key]; ok {
+			discovered = v
+		}
+	}
+	if discovered == nil {
+		d, err := discoverFromRepo(ctx, src, c.githubToken(), c.httpc)
+		if err != nil {
+			return nil, err
+		}
+		discovered = d
+		if cache != nil {
+			cache[key] = d
+		}
 	}
 	if len(discovered) == 0 {
-		return &updateCheckResult{updated: false, message: "上游 release 无 .fpk 资产"}, nil
+		return &updateCheckResult{updated: false, message: "上游 release 与仓库文件都没有 .fpk"}, nil
 	}
-	accs, _ := c.discoverAccs(ctx, discovered, ia.Source, repoOwner(ia.Source))
+	// 单应用更新检查没必要下载整个仓库的包：文件名能对上 appname 的优先，
+	// 一个都对不上（文件名不含应用名）才回落到全量扫描。大仓库从这里省下大量流量。
+	discovered = filterCandidatesForApp(discovered, ia.Appname)
+	accs, _ := c.discoverAccs(ctx, discovered, ia.Source, repoOwner(ia.Source), nil)
 	acc := accs[ia.Appname]
 	if acc == nil {
 		return &updateCheckResult{updated: false, message: "上游已不存在该应用"}, nil
@@ -1165,8 +1403,7 @@ func (c *companion) checkAppUpdateCore(ctx context.Context, ia *indexedApp) (*up
 }
 
 // handleCheckUpdate POST /api/check-update {appname}：重新扫描该应用的上游仓库，
-// 若发现更高版本则更新索引，已推送则重建聚合并 sync。软仓来源应用的上游即软仓，
-// 直接触发一次软仓同步。
+// 若发现更高版本则更新索引，已推送则重建聚合并 sync。
 func (c *companion) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Appname string `json:"appname"`
@@ -1179,21 +1416,6 @@ func (c *companion) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	ia := c.idx.get(appname)
 	if ia == nil {
 		writeErr(w, http.StatusNotFound, "索引里没有该应用："+appname)
-		return
-	}
-	// 软仓来源应用：上游就是软仓，直接触发一次软仓同步。
-	if c.isSoftstoreApp(ia) {
-		added, updated, err := c.runSoftstoreSync()
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"updated":           updated > 0,
-			"added":             added,
-			"softstore_updated": updated,
-			"message":           fmt.Sprintf("软仓同步完成：新增 %d、更新 %d", added, updated),
-		})
 		return
 	}
 	ctx, cancel := timeoutCtx(r.Context(), 3*time.Minute)

@@ -157,3 +157,27 @@ if bad:
     print("\n".join("FAIL: " + b for b in bad))
     sys.exit(1)
 print(f"OK: {TAG} 的 {len(pkgs)} 个架构资产与 moo.json 索引逐字一致")
+
+# ---- /releases/latest 指针守卫（C3）----
+# 同仓 moo 与 mate 共用一个 releases/latest 指针。mate 建 release 时若没显式
+# make_latest=false，指针会被抢走 → Moo 客户端 self_update 主通道只认 latest，
+# 会把 `mate-v0.2.55` 解析成 [0,2,55] 判「无更新」并短路整条兜底链（2026-11-08
+# 实测潜伏 4 天）。这里断言指针仍在 Moo 的 `v<数字…>` 上。
+try:
+    latest = get("/releases/latest")
+    lt = (latest.get("tag_name") or "").strip()
+    if lt.startswith("mate-"):
+        print(f"FAIL: /releases/latest 被 Mate 抢走（tag={lt}）——"
+              f"Moo 客户端将检测不到更新；请把该 release 改为 make_latest=false，"
+              f"再把 Moo 最新版重新设为 latest")
+        sys.exit(1)
+    if not re.match(r"^v\d+(\.\d+)*$", lt):
+        print(f"FAIL: /releases/latest 的 tag 形态异常（{lt!r}），"
+              f"self_update 只认 v<数字…>，会静默判无更新")
+        sys.exit(1)
+    print(f"OK: /releases/latest = {lt}（未被 Mate 抢占）")
+except SystemExit:
+    raise
+except Exception as e:  # noqa: BLE001
+    print(f"[warn] 无法读取 /releases/latest（{e}），跳过指针检查")
+

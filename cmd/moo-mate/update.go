@@ -67,7 +67,11 @@ func verLess(a, b string) bool {
 }
 
 // mateReleaseAPI：moo-mate 的发布渠道 = Blue-Mink/moo 仓库里 tag 前缀 mate-v* 的 release。
-const mateReleaseAPI = "https://api.github.com/repos/Blue-Mink/moo/releases?per_page=30"
+//
+// per_page=100（本轮修复起，原 30）：Moo 与 Moo Mate 的 release 同放一个仓，Moo 发版
+// 频繁时会把 mate 条目挤出窗口（GitHub 列表按 created_at 倒序）→ 退化成「检测不到更新」。
+// 100 条按每周 2~3 个 release 估算可覆盖一年以上，且单次响应体仍在 4MB 读取上限内。
+const mateReleaseAPI = "https://api.github.com/repos/Blue-Mink/moo/releases?per_page=100"
 
 // mateReleaseAtom：releases.atom 是 GitHub 的公开订阅源，**不计入 API 速率配额**、
 // 不需要 token。国内出口的匿名配额（60/h 共享 IP）经常是 0，此时 API 通道恒 403，
@@ -99,6 +103,12 @@ type mateGhRelease struct {
 	Body    string             `json:"body"`
 	HTMLURL string             `json:"html_url"`
 	Assets  []mateReleaseAsset `json:"assets"`
+	// 草稿与预发布必须跳过（本轮修复）：mate 探测复用 Moo 的 token，而 GitHub 的
+	// GET /releases 对**带写权限的 token 会把 draft 一并返回**；一旦发布机改走
+	// 「先 draft/prerelease 传资产、再转正」，旧逻辑会把没传完资产的半成品当正式版
+	// 推给用户 → 下载 404 / sha256 对不上 / 验签失败。
+	Prerelease bool `json:"prerelease"`
+	Draft      bool `json:"draft"`
 }
 
 // fetchMateReleases 拉取 release 列表（8s 超时，读 4MB 上限）。
@@ -133,24 +143,45 @@ func fetchMateReleases(client *http.Client, url, token string) ([]mateGhRelease,
 	return rels, nil
 }
 
-// pickMateRelease 从 release 列表里挑出 mate-v* 中版本最高的一版。
-func pickMateRelease(rels []mateGhRelease) (ver, notes, page, dl string, ok bool) {
-	for _, r := range rels {
-		if !strings.HasPrefix(r.TagName, "mate-v") {
+// latestMateRelease 从 release 列表里挑出「已正式发布的 mate-v*」中版本最高的一版。
+//
+// 三条过滤（本轮修复，pickMateRelease 与 mateReleaseAssets 共用同一份逻辑，
+// 避免两处规则漂移）：
+//   - tag 必须是 mate-v<数字…>：Moo 主线的 v0.6.x 以及 mate-vnext 这类非版本 tag 一律跳过；
+//   - draft 跳过：带写权限 token 调 GET /releases 会把草稿一起返回；
+//   - prerelease 跳过：半成品不能推给用户。
+func latestMateRelease(rels []mateGhRelease) (*mateGhRelease, string) {
+	var best *mateGhRelease
+	bestVer := ""
+	for i := range rels {
+		r := &rels[i]
+		if r.Draft || r.Prerelease || !strings.HasPrefix(r.TagName, "mate-v") {
 			continue
 		}
 		v := strings.TrimPrefix(r.TagName, "mate-v")
-		if !ok || verLess(ver, v) {
-			ver, ok = v, true
-			notes = strings.TrimSpace(r.Body)
-			page = r.HTMLURL
-			dl = ""
-			for _, a := range r.Assets {
-				if strings.HasSuffix(a.Name, "_x86.fpk") {
-					dl = a.URL
-					break
-				}
-			}
+		if v == "" || v[0] < '0' || v[0] > '9' {
+			continue
+		}
+		if best == nil || verLess(bestVer, v) {
+			best, bestVer = r, v
+		}
+	}
+	return best, bestVer
+}
+
+// pickMateRelease 从 release 列表里挑出 mate-v* 中版本最高的一版。
+func pickMateRelease(rels []mateGhRelease) (ver, notes, page, dl string, ok bool) {
+	r, v := latestMateRelease(rels)
+	if r == nil {
+		return "", "", "", "", false
+	}
+	ver, ok = v, true
+	notes = strings.TrimSpace(r.Body)
+	page = r.HTMLURL
+	for _, a := range r.Assets {
+		if strings.HasSuffix(a.Name, "_x86.fpk") {
+			dl = a.URL
+			break
 		}
 	}
 	if len(notes) > 600 {

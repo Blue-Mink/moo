@@ -5,7 +5,7 @@ package main
 // 此前 TCP 与网关 unix socket 都直接用 http.ListenAndServe / http.Serve，
 // 零超时、默认头大小 —— 慢头攻击或空闲连接可长期占用 fd/goroutine。
 // 这里只加「读头超时 / 空闲超时 / 头大小」，**不设 WriteTimeout**：
-// 软仓同步、自更新下载、日志/备份下载都是长响应，写超时会误杀。
+// 同步、自更新下载、日志/备份下载都是长响应，写超时会误杀。
 
 import (
 	"net/http"

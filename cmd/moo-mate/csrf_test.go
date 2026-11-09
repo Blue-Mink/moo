@@ -108,7 +108,7 @@ func TestCSRFAllowsSameOriginJSON(t *testing.T) {
 func TestCSRFAllowsNonBrowserClient(t *testing.T) {
 	h, _ := csrfTestHandler(csrfTestPolicy(true))
 	// curl / 脚本：既无 Sec-Fetch-* 也无 Origin。
-	r := csrfReq(http.MethodPost, "/api/softstore-sync", `{}`)
+	r := csrfReq(http.MethodPost, "/api/check-update", `{}`)
 	r.Header.Set("Content-Type", "application/json")
 	if code := csrfDo(t, h, r); code != http.StatusOK {
 		t.Fatalf("无 Origin 的 JSON POST 应放行，得 %d", code)

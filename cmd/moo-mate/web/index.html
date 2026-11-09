@@ -112,6 +112,10 @@ body {
 .collapsible.collapsed .collapse-body { display:none; }
 .collapsible.collapsed .head-arrow svg { transform: rotate(-90deg); }
 .collapsible.collapsed { margin-bottom:16px; }
+/* 折叠态：标题行不再留底部空档（数据与备份卡 / 备份与恢复子块同为整行开关） */
+.collapsible.collapsed > .card-head,
+.collapsible.collapsed > .mrg-sub { margin-bottom:0; }
+.collapsible .mrg-sub[data-collapse] { cursor:pointer; user-select:none; }
 
 /* 深浅按钮：Moo ThemeToggle 图标圆钮 */
 .theme-btn {
@@ -195,25 +199,8 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* 软仓源切换（个人源 / Gitee 源 选择框，位于索引列表分组头内）：
-   靠右排布，与折叠箭头之间留 12px 间距防误触；对齐 Moo 分类胶囊语言
-   （rounded-full + 玻璃材质：未选 bg-card/55+white/10 描边、选中 bg-primary/15+primary/40 描边）。 */
-/* 软仓源切换（个人源 / Gitee 源）：0.2.13 统一为 button.plain 同形（12px 圆角方形 +
-   13px 字 + var(--border) 描边），消除「与其他按钮胶囊不一样」；选中态 = plain.on 同款。 */
-.src-switch { display:flex; flex:1; gap:8px; margin-left:10px; margin-right:49px; min-width:0; justify-content:flex-end; }
-.src-opt-mini {
-  flex:none; height:auto; font-size:13px;
-  display:inline-flex; align-items:center; justify-content:center;
-  border:1px solid hsl(var(--border)); background:transparent; padding:3px 10px; border-radius:12px;
-  color:hsl(var(--muted-foreground)); font-weight:400; cursor:pointer; white-space:nowrap;
-  transition: color .15s, border-color .15s, background-color .15s;
-}
-.src-opt-mini:hover { background:hsl(var(--accent) / 0.6); border-color:hsl(var(--muted-foreground) / 0.4); color:hsl(var(--foreground)); }
-.src-opt-mini.active { color:hsl(var(--primary)); border-color:hsl(var(--primary) / 0.4); background:hsl(var(--primary) / 0.12); font-weight:500; }
 .head-actions { margin-left:auto; display:flex; gap:8px; flex:none; }
 .head-btn { margin-left:auto; flex:none; }
-.soft-status { font-size:12.5px; color:hsl(var(--muted-foreground)); margin-top:12px; }
-.soft-status.err { color:hsl(var(--destructive)); }
 
 /* 批量操作条：进入批量推送/删除模式后显示（全选 / 已选 N / 取消 / 执行） */
 .batch-bar { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border:1px dashed hsl(var(--primary) / 0.4); border-radius:12px; background:hsl(var(--primary) / 0.06); }
@@ -224,6 +211,11 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .sel-dot.on::after { content:""; width:8px; height:8px; border-radius:50%; background:hsl(var(--primary-foreground)); }
 .sel-dot.dis { opacity:.4; cursor:not-allowed; }
 .app-item.batch { cursor:pointer; }
+/* 批量模式点源名整组选中：组头圆圈（全选 / 部分选中 / 无可选三态） */
+.src-head .sel-dot { width:16px; height:16px; }
+.sel-dot.part { border-color:hsl(var(--primary)); background:hsl(var(--primary) / 0.28); }
+.sel-dot.part::after { content:""; width:7px; height:2px; border-radius:1px; background:hsl(var(--primary)); }
+.src-group.grp-sel .src-head { background:hsl(var(--primary) / 0.10); }
 
 /* 齿轮时间选择框（0.2.24 单段化：只留中间选中格，去掉上下渐隐段，更简洁省空间） */
 .gear-row { display:flex; align-items:center; gap:14px; padding:2px 0 16px; flex-wrap:wrap; }
@@ -308,6 +300,8 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
 
 .modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:50; padding:20px; }
 .modal.show { display:flex; }
+/* 确认框恒在任务弹窗之上：两者同用 .modal(z-index:50)，DOM 里 #taskModal 在后会盖住 ask()。 */
+#modal { z-index: 60; }
 .modal-box {
   background: hsl(var(--background) / 0.70); /* 对齐 Moo 对话框 sm:bg-background/70 */
   backdrop-filter: blur(40px) saturate(1.1); /* sm:backdrop-blur-2xl = 40px */
@@ -321,7 +315,43 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
 .modal-changelog { display:none; max-height:180px; overflow:auto; margin:-6px 0 16px; padding:10px 12px; border:1px solid hsl(var(--border)); border-radius:12px; background:hsl(var(--muted) / 0.35); color:hsl(var(--muted-foreground)); font-size:12px; line-height:1.65; white-space:pre-wrap; word-break:break-word; text-align:left; }
 .modal-changelog.show { display:block; }
 .modal-changelog .cl-ver { color:hsl(var(--foreground)); font-weight:600; margin-bottom:4px; }
+/* 0.2.60：更新日志分页条（对齐 Moo ChangelogPager 的「‹ 1/3 ›」） */
+.modal-changelog .cl-pager { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:6px; }
+.modal-changelog .cl-pager button { height:22px; min-width:22px; padding:0 6px; border-radius:999px; border:1px solid hsl(var(--border)); background:hsl(var(--card) / 0.6); color:hsl(var(--muted-foreground)); font-size:12px; line-height:1; cursor:pointer; }
+.modal-changelog .cl-pager button:disabled { opacity:.4; cursor:default; }
+.modal-changelog .cl-pager span { font-size:11px; color:hsl(var(--muted-foreground)); font-variant-numeric:tabular-nums; }
 .modal-ops { display:flex; gap:10px; justify-content:flex-end; }
+
+/* 任务进度弹窗：大仓库生成可跑数分钟，逐条状态 + 步骤条 + 实时日志让用户看到「在动」 */
+.task-box { max-width:560px; max-height:88vh; display:flex; flex-direction:column; }
+.task-clock { float:right; font-size:12px; font-weight:500; color:hsl(var(--muted-foreground)); font-variant-numeric:tabular-nums; }
+.task-sum { font-size:12.5px; color:hsl(var(--muted-foreground)); margin:0 0 4px; word-break:break-all; }
+.task-now { font-size:12px; color:hsl(var(--foreground)); margin:0 0 8px; word-break:break-all; min-height:18px; }
+.task-bar { height:6px; border-radius:999px; background:hsl(var(--muted)); overflow:hidden; margin:0 0 12px; flex:none; }
+.task-bar i { display:block; height:100%; width:0; border-radius:999px; background:hsl(var(--primary)); transition:width .3s ease; }
+.task-rows { overflow:auto; max-height:34vh; display:flex; flex-direction:column; gap:8px; margin:0 0 10px; }
+.task-row { border:1px solid hsl(var(--border)); border-radius:12px; padding:8px 10px; background:hsl(var(--muted) / 0.25); }
+.task-url { font-size:12px; color:hsl(var(--foreground)); word-break:break-all; margin:0 0 5px; }
+.task-line { display:flex; align-items:center; gap:6px; font-size:11.5px; color:hsl(var(--muted-foreground)); }
+.task-chip { flex:none; padding:1px 8px; border-radius:999px; border:1px solid hsl(var(--border)); font-size:11px; }
+.task-chip.run { color:hsl(var(--primary)); border-color:hsl(var(--primary) / .4); background:hsl(var(--primary) / .1); }
+.task-chip.ok { color:hsl(var(--primary)); border-color:hsl(var(--primary) / .4); background:hsl(var(--primary) / .12); }
+.task-chip.err { color:hsl(var(--destructive)); border-color:hsl(var(--destructive) / .4); background:hsl(var(--destructive) / .08); }
+.task-chip.warn { color:#d97706; border-color:rgba(217,119,6,.4); background:rgba(217,119,6,.08); }
+.task-track { display:flex; gap:3px; margin-top:6px; }
+.task-seg { flex:1; height:3px; border-radius:999px; background:hsl(var(--border)); }
+.task-seg.on { background:hsl(var(--primary)); }
+.task-log { flex:none; max-height:168px; min-height:56px; overflow:auto; border:1px solid hsl(var(--border)); border-radius:10px; padding:6px 8px; background:hsl(var(--muted) / 0.3); font-size:11.5px; line-height:1.6; color:hsl(var(--muted-foreground)); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.task-log .lt { color:hsl(var(--muted-foreground)); opacity:.7; margin-right:6px; }
+.task-log .lg-ok { color:hsl(var(--primary)); }
+.task-log .lg-warn { color:#d97706; }
+.task-log .lg-err { color:hsl(var(--destructive)); }
+.task-pill { position:fixed; right:16px; bottom:16px; z-index:55; display:none; align-items:center; gap:6px; padding:9px 14px; border-radius:999px; cursor:pointer; font-size:12.5px; color:hsl(var(--primary-foreground)); background:hsl(var(--primary)); box-shadow:0 8px 20px -6px hsl(var(--primary) / .5); }
+@media (max-width:640px) {
+  .task-rows { max-height:24vh; }
+  .task-log { max-height:132px; }
+}
+.task-pill.show { display:flex; }
 
 /* 可点击路径（数据路径 / 备份目录）：整行即按钮，右侧箭头提示可改） */
 .path-pick {
@@ -531,14 +561,14 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
     <div class="card-head"><span class="step-badge">1</span> 粘贴仓库链接</div>
     <textarea id="url" rows="3" placeholder="每行一个仓库链接，可一次粘贴多个（最多 10 个）&#10;https://github.com/owner/repo&#10;https://github.com/owner/repo2"></textarea>
     <div class="field-hint" style="margin:6px 0 0;">每行一个链接，Ctrl/⌘ + Enter 或点「开始」批量处理（最多 10 个）</div>
-    <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button id="start">开始</button></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;"><button id="urlClear" class="plain" title="清空输入框">清空</button><button id="start">开始</button></div>
   </section>
 
   <section class="card collapsible collapsed">
     <div class="card-head" data-collapse><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8.5L15.5 3Z"/><path d="M15 3v6h6"/><path d="M10 9v6"/><path d="M7 12h6"/></svg>使用流程 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
     <div class="collapse-body">
       <ol class="steps">
-        <li><span class="num">1</span><div class="step-body"><p class="step-title">粘贴仓库链接</p><p class="step-desc">贴入 GitHub / Gitee 飞牛应用仓库地址，Moo Mate 自动探测它是否已发布 moo / fnpack 索引。</p></div></li>
+        <li><span class="num">1</span><div class="step-body"><p class="step-title">粘贴仓库链接</p><p class="step-desc">贴入 GitHub 飞牛应用仓库地址，Moo Mate 自动探测它是否已发布 moo / fnpack 索引。</p></div></li>
         <li><span class="num">2</span><div class="step-body"><p class="step-title">自动比对与发现</p><p class="step-desc">已发布索引 → 与 Moo 现有源比对去重，无重复则弹窗询问是否加入；无索引 → 自动扫描 release 里的 .fpk 并解析生成索引。</p></div></li>
         <li><span class="num">3</span><div class="step-body"><p class="step-title">按需推送</p><p class="step-desc">在下方索引列表里，逐个应用选择「推送」加入 Moo Mate 源，或「删除」移除；「同步上游更新」检查该应用上游是否有新版本。</p></div></li>
       </ol>
@@ -546,7 +576,7 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
   </section>
 
   <section class="card">
-    <div class="card-head"><span class="step-badge">2</span> 应用索引列表 <span class="count" id="idxCount"></span><span class="head-actions"><button id="syncSoftstore" class="plain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>同步更新</button><button id="batchPushBtn" class="plain">批量推送</button><button id="batchDelBtn" class="plain">批量删除</button></span></div>
+    <div class="card-head"><span class="step-badge">2</span> 应用索引列表 <span class="count" id="idxCount"></span><span class="head-actions"><button id="syncNow" class="plain" title="立即同步上游更新"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>同步更新</button><button id="batchPushBtn" class="plain">批量推送</button><button id="batchDelBtn" class="plain">批量删除</button></span></div>
     <div class="batch-bar" id="batchBar" style="display:none;">
       <button class="plain" id="batchSelectAll">全选</button>
       <span class="batch-count" id="batchCount">已选 0 个</span>
@@ -554,7 +584,6 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
       <button class="ghost" id="batchCancel">取消</button>
       <button id="batchApply">推送</button>
     </div>
-    <div class="soft-status" id="softstoreStatus"></div>
     <div id="idxList" class="idx-list"></div>
   </section>
 
@@ -588,8 +617,9 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
           <span class="gear-hint">0:00 = 手动（不自动）</span>
         </div>
       </section>
-      <section class="card">
-        <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>数据与备份</div>
+      <section class="card collapsible">
+        <div class="card-head" data-collapse data-collapse-key="mate-card-databk-collapsed"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>数据与备份 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <div class="collapse-body">
         <div class="field">
           <label class="field-label">数据路径</label>
           <button type="button" class="path-pick" id="pickDataDir">
@@ -606,8 +636,9 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
           </button>
           <div class="field-hint">点击路径选择目录（空 = 数据目录下 backups/）</div>
         </div>
-        <div class="mrg-sec">
-        <div class="mrg-sub"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>备份与恢复</div>
+        <div class="mrg-sec collapsible">
+        <div class="mrg-sub" data-collapse data-collapse-key="mate-bksec-collapsed"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>备份与恢复 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <div class="collapse-body">
         <div class="field-hint" style="margin:0 0 12px;">备份 = 数据目录的完整快照（应用索引 + 配置）。同一目录保留最近 20 份，更早的自动淘汰。</div>
         <div class="bk-row">
           <div>
@@ -634,7 +665,9 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
         <div class="bk-list" id="bkList"></div>
         <input type="file" id="restoreFile" accept=".tar.gz,.tgz,application/gzip" style="display:none;">
         <button type="button" class="ghost" id="restorePickFile" style="width:100%;margin-top:10px;">从手机 / 电脑上传备份文件恢复</button>
+        </div><!-- /bk-sec collapse-body -->
         </div><!-- /mrg-sec -->
+        </div><!-- /card collapse-body -->
       </section>
       <section class="card">
         <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清理</div>
@@ -718,6 +751,24 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
     </div>
   </div>
 </div>
+<!-- 任务进度弹窗：粘贴链接 → 探测 / 发现 / 生成 的实时进度 -->
+<div id="taskModal" class="modal">
+  <div class="modal-box task-box">
+    <div class="modal-title">生成任务<span id="taskElapsed" class="task-clock">00:00</span></div>
+    <div class="task-sum" id="taskSum">准备中…</div>
+    <div class="task-now" id="taskNow">等待开始…</div>
+    <div class="task-bar"><i id="taskBarFill"></i></div>
+    <div class="task-rows" id="taskRows"></div>
+    <div class="task-log" id="taskLog"></div>
+    <div class="modal-ops" style="margin-top:12px">
+      <button id="taskCopy" class="plain" title="复制任务日志">复制日志</button>
+      <button id="taskClose" class="plain" style="display:none">关闭</button>
+      <button id="taskBg" class="plain">后台运行</button>
+      <button id="taskCancel" class="danger">取消</button>
+    </div>
+  </div>
+</div>
+<div id="taskPill" class="task-pill">处理中 <b id="taskPillText">0/0</b></div>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -828,19 +879,38 @@ const askWithChangelog = (title, text, changelog, okText='确定') => new Promis
   $('modalText').textContent = text;
   const box = $('modalChangelog');
   const cl = String(changelog || '').trim();
-  box.textContent = '';
-  if (cl) {
+  // 0.2.60：按 Moo ChangelogPager 的做法分页——空行忽略、一行一条、每页 5 条；
+  // ≤5 条 = 单页（不渲染翻页条，短日志零变化）。
+  const lines = cl.split('\n').map(s => s.trim()).filter(Boolean);
+  const PER_PAGE = 5, pages = Math.max(1, Math.ceil(lines.length / PER_PAGE));
+  let page = 0;
+  const render = () => {
+    box.textContent = '';
+    if (!lines.length) { box.classList.remove('show'); return; }
     const head = document.createElement('div');
     head.className = 'cl-ver';
     head.textContent = '更新内容';
     const body = document.createElement('div');
-    body.textContent = cl;
+    body.textContent = lines.slice(page * PER_PAGE, (page + 1) * PER_PAGE).join('\n');
     box.appendChild(head);
     box.appendChild(body);
+    if (pages > 1) {
+      const pager = document.createElement('div');
+      pager.className = 'cl-pager';
+      const prev = document.createElement('button');
+      prev.type = 'button'; prev.textContent = '‹'; prev.disabled = page === 0;
+      const num = document.createElement('span');
+      num.textContent = (page + 1) + '/' + pages;
+      const next = document.createElement('button');
+      next.type = 'button'; next.textContent = '›'; next.disabled = page >= pages - 1;
+      prev.onclick = () => { if (page > 0) { page--; render(); } };
+      next.onclick = () => { if (page < pages - 1) { page++; render(); } };
+      pager.appendChild(prev); pager.appendChild(num); pager.appendChild(next);
+      box.appendChild(pager);
+    }
     box.classList.add('show');
-  } else {
-    box.classList.remove('show');
-  }
+  };
+  render();
   $('modalOk').textContent = okText;
   $('modal').classList.add('show');
   modalResolve = res;
@@ -848,8 +918,158 @@ const askWithChangelog = (title, text, changelog, okText='确定') => new Promis
 $('modalOk').onclick = () => { $('modal').classList.remove('show'); if (modalResolve) modalResolve(true); };
 $('modalCancel').onclick = () => { $('modal').classList.remove('show'); if (modalResolve) modalResolve(false); };
 
+// ---------- 生成任务进度弹窗 ----------
+// 大仓库「发现 + 解析 + 生成」可跑数分钟；这里把每一步摊开，避免用户误判卡死。
+const TASK_SEGS = 5; // 探测 / 比对 / 加源·发现 / 解析 / 生成
+const fmtClock = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+let taskState = null;
+
+// 日志行：时间前缀 + 级别配色；最多留 800 行（够排障，不撑爆 DOM）。
+// 只有用户本来就在底部时才自动滚到底，向上翻看历史时不会被新日志拽走。
+const taskLog = (t, level) => {
+  const box = $('taskLog'); if (!box || !t) return;
+  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 28;
+  const line = document.createElement('div');
+  line.className = 'lg-' + (level || 'info');
+  const ts = new Date().toTimeString().slice(0, 8);
+  line.innerHTML = '<span class="lt">' + ts + '</span>' + esc(t);
+  box.appendChild(line);
+  while (box.children.length > 800) box.removeChild(box.firstChild);
+  if (stick) box.scrollTop = box.scrollHeight;
+};
+
+// 当前阶段行（多链接时显示最后处理的那一条）。
+const taskNow = (chip, note) => {
+  const el = $('taskNow'); if (!el) return;
+  el.textContent = chip + (note ? (' · ' + note) : '');
+};
+
+const taskSet = (i, stage, chip, note, cls) => {
+  const st = taskState; if (!st) return;
+  const r = st.rows[i]; if (!r) return;
+  r.stage = stage;
+  for (let n = 0; n < TASK_SEGS; n++) r.segs[n].classList.toggle('on', n <= Math.min(stage, TASK_SEGS - 1));
+  r.chip.textContent = chip;
+  r.chip.className = 'task-chip ' + (cls || 'run');
+  if (note != null) r.note.textContent = note;
+  taskNow(chip, r.note.textContent);
+};
+
+const taskPaint = () => {
+  const st = taskState; if (!st) return;
+  const n = st.rows.length;
+  $('taskBarFill').style.width = (n ? Math.round(st.done / n * 100) : 0) + '%';
+  $('taskSum').textContent = '已完成 ' + st.done + '/' + n + (st.finished ? '' : '，逐条处理中…');
+  $('taskPillText').textContent = st.done + '/' + n;
+};
+
+const taskShow = show => {
+  $('taskModal').classList.toggle('show', show);
+  $('taskPill').classList.toggle('show', !show && !!taskState && !taskState.finished);
+};
+
+const taskOpen = urls => {
+  $('taskRows').innerHTML = '';
+  $('taskLog').innerHTML = '';
+  $('taskClose').style.display = 'none';
+  $('taskCancel').style.display = '';
+  $('taskBg').style.display = '';
+  $('taskElapsed').textContent = '00:00';
+  $('taskNow').textContent = '准备中…';
+  const rows = urls.map(u => {
+    const el = document.createElement('div');
+    el.className = 'task-row';
+    el.innerHTML = '<div class="task-url">' + esc(u) + '</div>'
+      + '<div class="task-line"><span class="task-chip" data-chip>排队中</span><span data-note>等待处理…</span></div>'
+      + '<div class="task-track">' + Array.from({ length: TASK_SEGS }, () => '<span class="task-seg"></span>').join('') + '</div>';
+    $('taskRows').appendChild(el);
+    return { url: u, el, segs: Array.from(el.querySelectorAll('.task-seg')),
+             chip: el.querySelector('[data-chip]'), note: el.querySelector('[data-note]') };
+  });
+  const st = { rows, multi: urls.length > 1, done: 0, finished: false, cancelled: false,
+               startedAt: Date.now(), abort: null, timer: null };
+  st.timer = setInterval(() => { $('taskElapsed').textContent = fmtClock(Math.floor((Date.now() - st.startedAt) / 1000)); }, 1000);
+  taskState = st;
+  taskPaint();
+  taskShow(true);
+  return st;
+};
+
 // 主流程（支持多链接）：逐个探测 → 命中且未重复的批量加源（一次确认）→
 // 未命中索引的逐个发现 + 生成 → 汇总。
+// POST 不能用 EventSource：用 fetch + body reader 手撕 SSE；非 event-stream（老服务/降级）按 JSON 当完成。
+const sseBuild = async (i, u) => {
+  const st = taskState;
+  st.abort = new AbortController();
+  const res = await fetch('api/build?stream=1', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: u }),
+    signal: st.abort.signal,
+  });
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  if (!res.ok && !ct.includes('event-stream')) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.error || ('HTTP ' + res.status));
+  }
+  if (!ct.includes('event-stream')) return await res.json().catch(() => ({}));
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', result = null, failure = null, gotLog = false;
+  const eat = chunk => {
+    chunk.split('\n').forEach(line => {
+      if (line.slice(0, 5) !== 'data:') return;
+      let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch(_) { return; }
+      if (ev.phase === 'log') {
+        gotLog = true;
+        taskLog(ev.msg, ev.level);
+      } else if (ev.phase === 'ping') {
+        // 心跳：只为保持连接，不改 UI
+      } else if (ev.phase === 'discover') {
+        taskSet(i, 2, ev.done ? ('发现 ' + ev.done + ' 个') : '发现中', ev.msg || '扫描 release 与仓库文件…');
+        if (!gotLog) taskLog(ev.msg || '扫描 release 与仓库文件…');
+      } else if (ev.phase === 'parse') {
+        taskSet(i, 3, '解析 ' + ev.done + '/' + ev.total, ev.app || '');
+      } else if (ev.phase === 'index') {
+        taskSet(i, 4, '生成 ' + ev.done + '/' + ev.total, '写入索引…');
+      } else if (ev.phase === 'done') { result = ev; }
+      else if (ev.phase === 'error') { failure = new Error(ev.msg || '生成失败'); }
+    });
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, idx).replace(/\r/g, '');
+      buf = buf.slice(idx + 2);
+      eat(chunk);
+    }
+  }
+  if (buf.trim()) eat(buf.replace(/\r/g, ''));
+  if (failure) throw failure;
+  return result || {};
+};
+
+const taskFinish = (st, fails) => {
+  st.finished = true;
+  clearInterval(st.timer);
+  taskPaint();
+  $('taskSum').textContent = '已完成 ' + st.done + '/' + st.rows.length
+    + (fails.length ? ('，' + fails.length + ' 个失败') : '，全部完成')
+    + '，用时 ' + fmtClock(Math.floor((Date.now() - st.startedAt) / 1000));
+  taskLog('任务结束：已完成 ' + st.done + '/' + st.rows.length
+    + (fails.length ? ('，' + fails.length + ' 个失败') : '，全部完成')
+    + '，用时 ' + fmtClock(Math.floor((Date.now() - st.startedAt) / 1000)),
+    fails.length ? 'warn' : 'ok');
+  taskNow(fails.length ? '已结束（有失败）' : '已结束', '');
+  $('taskCancel').style.display = 'none';
+  $('taskBg').style.display = 'none';
+  $('taskClose').style.display = '';
+  $('taskPill').classList.remove('show');
+};
+
 const start = async () => {
   const urls = urlLines();
   if (!urls.length) return msg('请先粘贴仓库链接','err');
@@ -857,39 +1077,93 @@ const start = async () => {
   msgHide();
   const multi = urls.length > 1;
   const done = busy($('start'), multi ? '处理中 0/' + urls.length : '探测中…');
+  const st = taskOpen(urls);
+  const idxOf = new Map(urls.map((u, i) => [u, i]));
   let addList = [], missList = [], dupCount = 0, addCount = 0, built = 0, skippedTotal = 0;
   const fails = [];
   try {
     for (let i = 0; i < urls.length; i++) {
+      if (st.cancelled) break;
       const u = urls[i];
       if (multi) $('start').textContent = '处理中 ' + (i + 1) + '/' + urls.length;
+      taskSet(i, 0, '探测中', '检查仓库是否已发布索引…');
+      taskLog('▶ ' + u.replace(/^https?:\/\//, ''), 'info');
       try {
         const p = await post('/api/probe', {url:u});
-        if (p.hit) { if (p.duplicate) dupCount++; else addList.push(u); }
-        else missList.push(u);
-      } catch(e) { fails.push(u + '：' + e.message); }
+        if (p.hit) {
+          if (p.duplicate) {
+            dupCount++;
+            taskSet(i, 1, '重复跳过', '该源已在列表中', 'warn');
+            taskLog('已在源列表「' + (p.dup_source || '未知') + '」，跳过', 'warn');
+            st.done++; taskPaint();
+          } else {
+            addList.push(u);
+            taskSet(i, 1, '可加源', '已发布索引，待加入');
+            taskLog('已发布 ' + (p.index || '索引') + '，待加入源列表', 'ok');
+          }
+        } else {
+          missList.push(u);
+          taskSet(i, 1, '无索引', '待发现 + 生成');
+          taskLog('未发现已发布索引，进入发现 + 生成', 'info');
+        }
+      } catch(e) {
+        fails.push(u + '：' + e.message);
+        taskSet(i, 0, '失败', e.message, 'err');
+        taskLog('探测失败：' + e.message, 'err');
+        st.done++; taskPaint();
+      }
     }
     // 已发布索引的仓库：批量加源（一次确认）
-    if (addList.length) {
+    if (addList.length && !st.cancelled) {
       const ok = multi
         ? await ask('加入 Moo 应用源', '发现 ' + addList.length + ' 个已发布索引的仓库，是否全部加入 Moo 应用源列表？', '全部加入')
         : await ask('加入 Moo 应用源', '该仓库已发布索引，是否加入 Moo 应用源列表？', '加入');
-      if (ok) {
-        for (const u of addList) {
-          try { await post('/api/add-direct', {url:u}); addCount++; }
-          catch(e) { fails.push(u + '：' + e.message); }
+      for (const u of addList) {
+        const i = idxOf.get(u);
+        if (!ok) { taskSet(i, 2, '未加入', '已取消加源', 'warn'); st.done++; taskPaint(); continue; }
+        if (st.cancelled) { taskSet(i, 2, '已取消', '未处理', 'warn'); st.done++; taskPaint(); continue; }
+        taskSet(i, 2, '加源中', '写入应用源列表…');
+        try {
+          await post('/api/add-direct', {url:u});
+          addCount++;
+          taskSet(i, 4, '加源成功', '✔ 已加入源列表', 'ok');
+          taskLog('已加入源列表', 'ok');
+        } catch(e) {
+          fails.push(u + '：' + e.message);
+          taskSet(i, 2, '加源失败', e.message, 'err');
+          taskLog('加源失败：' + e.message, 'err');
         }
+        st.done++; taskPaint();
       }
     }
-    // 未命中索引：逐个发现 + 生成（可能较慢）
+    // 未命中索引：逐个发现 + 生成（SSE 实时进度，可能较慢）
     for (const u of missList) {
+      const i = idxOf.get(u);
+      if (st.cancelled) { taskSet(i, 2, '已取消', '未开始', 'warn'); st.done++; taskPaint(); continue; }
+      taskSet(i, 2, '发现中', '扫描 release 与仓库文件…');
       try {
-        const d = await post('/api/build', {url:u});
-        built += (d.count || 0);
-        if (d.skipped && d.skipped.length) skippedTotal += d.skipped.length;
-      } catch(e) { fails.push(u + '：' + e.message); }
+        const d = await sseBuild(i, u);
+        const cnt = d.count || 0;
+        const sk = (d.skipped_count != null) ? d.skipped_count : (d.skipped || []).length;
+        built += cnt;
+        skippedTotal += sk;
+        taskSet(i, 4, cnt ? ('生成 ' + cnt + ' 个') : '无新增', sk ? ('跳过 ' + sk + ' 个') : '✔ 已写入索引', cnt ? 'ok' : 'warn');
+        taskLog('生成 ' + cnt + ' 个' + (sk ? ('，跳过 ' + sk + ' 个') : ''), cnt ? 'ok' : 'warn');
+      } catch(e) {
+        if (st.cancelled || e.name === 'AbortError') {
+          taskSet(i, 2, '已取消', '请求已中断', 'warn');
+          taskLog('已取消', 'warn');
+        } else {
+          fails.push(u + '：' + e.message);
+          taskSet(i, 2, '失败', e.message, 'err');
+          taskLog('生成失败：' + e.message, 'err');
+        }
+      }
+      st.done++; taskPaint();
     }
-    await loadIndex();
+    if (!st.cancelled) { try { await loadIndex(); } catch(_) {} }
+    taskFinish(st, fails);
+    if (st.cancelled) return msg('已取消', 'warn');
     const parts = [];
     if (addCount) parts.push('加源 ' + addCount);
     if (built) parts.push('生成 ' + built + ' 个应用');
@@ -907,6 +1181,56 @@ const start = async () => {
   finally { done(); }
 };
 $('start').onclick = start;
+// 清空输入框：只清内容，按钮文案回到「开始」，焦点留在框里方便重新粘贴
+$('urlClear').onclick = () => {
+  $('url').value = '';
+  updateStartLabel();
+  try { $('url').focus(); } catch(_) {}
+};
+
+// 任务弹窗：后台运行收成右下角胶囊 / 点胶囊回到前台 / 取消中断当前请求 / 关闭只关窗
+$('taskBg').onclick = () => taskShow(false);
+$('taskPill').onclick = () => taskShow(true);
+$('taskCancel').onclick = () => {
+  if (!taskState || taskState.finished) return;
+  taskState.cancelled = true;
+  if (taskState.abort) { try { taskState.abort.abort(); } catch(_) {} }
+  taskLog('已取消，正在中断当前请求…', 'warn');
+  taskNow('已取消', '正在中断当前请求…');
+};
+// 关闭：只把窗口关掉（任务已完成）；运行中关窗等于「后台运行」，任务不中断
+$('taskClose').onclick = () => taskShow(false);
+// 点窗口外的遮罩区域同样关闭窗口（运行中则收成右下角胶囊）
+$('taskModal').addEventListener('click', e => { if (e.target === $('taskModal')) taskShow(false); });
+// 复制任务日志（排障用）：任务行 + 日志原文
+$('taskCopy').onclick = async () => {
+  const rows = Array.from(document.querySelectorAll('#taskRows .task-row'))
+    .map(r => r.innerText.replace(/\n+/g, ' · ')).join('\n');
+  const txt = '[' + new Date().toLocaleString() + ']\n'
+    + (rows ? ('--- 任务 ---\n' + rows + '\n') : '')
+    + '--- 日志 ---\n' + ($('taskLog').innerText || '');
+  try {
+    await navigator.clipboard.writeText(txt);
+    msg('日志已复制', 'ok');
+  } catch(_) {
+    const ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); msg('日志已复制', 'ok'); }
+    catch(__) { msg('复制失败，请手动选择日志', 'err'); }
+    ta.remove();
+  }
+};
+
+// 手动「同步更新」：立即唤醒同步循环，按钮忙 2 秒给反馈
+$('syncNow').onclick = async () => {
+  const btn = $('syncNow');
+  if (btn.disabled) return;
+  const restore = busy(btn, '同步中…');
+  try { await post('/api/sync-now', {}); msg('已触发同步', 'ok'); }
+  catch(e) { msg('触发同步失败：' + e.message, 'err'); }
+  setTimeout(restore, 2000);
+};
 $('url').addEventListener('input', updateStartLabel);
 $('url').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); start(); } });
 
@@ -938,6 +1262,35 @@ let lastApps = [];
 // 可被批量选中的应用（推送模式下已推送的应用不可选，删除模式下全部可选）
 const selectableApps = () => lastApps.filter(a => batchMode !== 'push' || !a.synced);
 
+// 某个源（发布者分组）下的应用；批量推送模式下已推送的不参与整组选中
+const groupAppsOf = pub => lastApps.filter(a => (a.publisher || a.source || '未知来源') === pub);
+const selectableOfGroup = pub => groupAppsOf(pub).filter(a => batchMode !== 'push' || !a.synced);
+
+// 批量模式：点源名 = 整组选中 / 取消（只重绘本组圆圈，不重建整个列表）
+const toggleGroupSelect = grp => {
+  const apps = selectableOfGroup(grp.dataset.group);
+  if (!apps.length) return;
+  const allSel = apps.every(a => selectedApps.has(a.appname));
+  apps.forEach(a => allSel ? selectedApps.delete(a.appname) : selectedApps.add(a.appname));
+  grp.querySelectorAll('.app-item [data-sel]').forEach(el => el.classList.toggle('on', selectedApps.has(el.dataset.sel)));
+  updateBatchUI();
+};
+
+// 组头圆圈状态：全选 / 部分选中 / 无可选应用
+const paintGroupHead = () => {
+  document.querySelectorAll('#idxList .src-group').forEach(grp => {
+    const dot = grp.querySelector('.src-head [data-gsel]');
+    if (!dot) return;
+    const apps = selectableOfGroup(grp.dataset.group);
+    const n = apps.filter(a => selectedApps.has(a.appname)).length;
+    const all = apps.length > 0 && n === apps.length;
+    dot.classList.toggle('on', all);
+    dot.classList.toggle('part', n > 0 && !all);
+    dot.classList.toggle('dis', apps.length === 0);
+    grp.classList.toggle('grp-sel', all);
+  });
+};
+
 // 索引列表（按发布者分组）
 const loadIndex = async () => {
   try {
@@ -963,22 +1316,20 @@ const renderIndex = () => {
   }
   // 固定排序：分组按显示名 A-Z，组内应用按名称 A-Z（点击按钮重渲染不再跳序）
   const sortName = a => String(a.display_name || a.appname || '').toLowerCase();
-  const groupLabel = pub => (pub === 'softstore' ? '软仓' : pub).toLowerCase();
+  const groupLabel = pub => String(pub || '未知来源').toLowerCase();
   for (const list of Object.values(groups)) list.sort((x, y) => sortName(x).localeCompare(sortName(y), 'zh-Hans-CN'));
   const sortedKeys = Object.keys(groups).sort((x, y) => groupLabel(x).localeCompare(groupLabel(y), 'zh-Hans-CN'));
   let h = '';
   for (const pub of sortedKeys) {
     const list = groups[pub];
-    // 软仓分组头（publisher=softstore）：显示「软仓」+ 个人源/Gitee 源两个选择框（私有地址不暴露）
-    const srcCtrl = pub === 'softstore'
-      ? '<span class="src-switch">'
-        + '<button type="button" class="src-opt-mini' + (softstoreSource === 'personal' ? ' active' : '') + '" data-src="personal">个人源</button>'
-        + '<button type="button" class="src-opt-mini' + (softstoreSource === 'gitee' ? ' active' : '') + '" data-src="gitee">Gitee 源</button>'
-        + '</span>'
-      : '<span class="srcurl">' + esc(list[0].source || '') + '</span>';
+    const srcCtrl = '<span class="srcurl">' + esc(list[0].source || '') + '</span>';
     // 批量模式强制展开全部分组，保证能看到并选中所有应用
     const collapsed = batchMode ? false : !expandedGroups.has(pub);
-    h += '<div class="src-group' + (collapsed ? ' collapsed' : '') + '" data-group="' + esc(pub) + '"><div class="src-head" data-collapse><span class="dot"></span><span class="srcname">' + esc(pub === 'softstore' ? '软仓' : pub) + '</span><span class="src-count">' + list.length + '</span>' + srcCtrl + '<span class="collapse-arrow">' + ICON_CHEVRON + '</span></div>';
+    // 批量模式：组头换成整组选择框（点源名一次选中该源下全部应用），
+    // 折叠箭头隐藏——批量模式本就强制展开，留着会误导成「点它折叠」。
+    const headLead = batchMode ? '<span class="sel-dot" data-gsel></span>' : '<span class="dot"></span>';
+    const headTail = batchMode ? '' : '<span class="collapse-arrow">' + ICON_CHEVRON + '</span>';
+    h += '<div class="src-group' + (collapsed ? ' collapsed' : '') + '" data-group="' + esc(pub) + '"><div class="src-head" data-collapse' + (batchMode ? ' title="点一下选中该源下全部应用，再点取消"' : '') + '>' + headLead + '<span class="srcname">' + esc(pub) + '</span><span class="src-count">' + list.length + '</span>' + srcCtrl + headTail + '</div>';
     for (const a of list) h += appRow(a);
     h += '</div>';
   }
@@ -999,6 +1350,7 @@ const updateBatchUI = () => {
   $('batchSelectAll').textContent = allSel ? '取消全选' : '全选';
   $('batchSelectAll').disabled = none;
   $('batchApply').disabled = selectedApps.size === 0;
+  paintGroupHead();
 };
 
 // 进入/退出批量模式（点击批量推送/批量删除；再次点击同一按钮 = 退出）
@@ -1146,25 +1498,6 @@ const opApp = async (op, appname) => {
   } catch(e) { msg('操作失败：' + e.message, 'err'); }
 };
 
-// 软仓源选择（个人源 / Gitee 源）：点击即切即存，私有地址不暴露
-let softstoreSource = 'personal';
-const paintSource = () => {
-  document.querySelectorAll('[data-src]').forEach(b => {
-    b.classList.toggle('active', b.dataset.src === softstoreSource);
-  });
-};
-const saveSource = async (src) => {
-  await fetch('api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ softstore_source: src }) });
-};
-const switchSource = async (src) => {
-  if (softstoreSource === src) return;
-  softstoreSource = src;
-  paintSource();
-  msg('软仓源切换为「' + (src === 'gitee' ? 'Gitee 源' : '个人源') + '」…', 'info');
-  try { await saveSource(src); msg('✅ 软仓源已保存', 'ok'); }
-  catch(e) { msg('保存失败：' + e.message, 'err'); }
-};
-
 // 齿轮时间选择（对齐 Moo GearTimePicker：时 0-23 / 分 0-59，滚轮吸附）
 const GEAR_ITEM_H = 24;
 let gearH = 0, gearM = 0, gearReady = false;
@@ -1222,50 +1555,26 @@ const fmtTime = s => {
   const t = String(s).replace('T', ' ');
   return t.length > 16 ? t.slice(0, 16) : t;
 };
-const loadSyncStatus = async () => {
-  try {
-    const s = await getJSON('/api/status');
-    const el = $('softstoreStatus');
-    const parts = [];
-    if (s.last_sync) parts.push('上次同步：' + fmtTime(s.last_sync));
-    if (s.sync_error) parts.push('错误：' + s.sync_error);
-    el.textContent = parts.join(' · ') || '尚未同步';
-    el.className = 'soft-status' + (s.sync_error ? ' err' : '');
-  } catch(e) {}
-};
-const loadSoftstore = async () => {
+const loadConfig = async () => {
   try {
     const c = await getJSON('/api/config');
-    softstoreSource = c.softstore_source || 'personal';
-    paintSource();
     const { h, m } = durParse(c.sync_interval);
     gearH = h; gearM = m;
     $('gearHoursScroll').scrollTop = gearH * GEAR_ITEM_H;
     $('gearMinutesScroll').scrollTop = gearM * GEAR_ITEM_H;
     gearReady = true;
-    await loadSyncStatus();
   } catch(e) { gearReady = true; }
 };
-$('syncSoftstore').onclick = async () => {
-  const done = busy($('syncSoftstore'), '同步中…');
-  try {
-    const d = await post('/api/softstore-sync', {});
-    await loadSyncStatus();
-    msg('✅ 同步完成：新增 ' + (d.added ?? 0) + '、更新 ' + (d.updated ?? 0), 'ok');
-  } catch(e) { msg('同步失败：' + e.message, 'err'); }
-  finally { done(); }
-};
 
-// 启动：构建齿轮 → 加载索引 + token + 软仓 + 状态提示
+// 启动：构建齿轮 → 加载索引 + token + 配置
 buildGearCol($('gearHoursScroll'), 23, () => gearH, v => { gearH = v; });
 buildGearCol($('gearMinutesScroll'), 59, () => gearM, v => { gearM = v; });
-// 索引列表事件委托：源选择框（不折叠）→ 折叠分组头 → 批量勾选 → 行内操作
+// 索引列表事件委托：折叠分组头 → 批量勾选 → 行内操作
 $('idxList').addEventListener('click', e => {
-  const srcBtn = e.target.closest('[data-src]');
-  if (srcBtn) { e.stopPropagation(); switchSource(srcBtn.dataset.src); return; }
   const head = e.target.closest('[data-collapse]');
   if (head) {
-    if (batchMode) return; // 批量模式保持全部展开，禁止折叠
+    // 批量模式：点源名 = 整组选中/取消（保持全部展开，禁止折叠）
+    if (batchMode) { toggleGroupSelect(head.parentElement); return; }
     const grp = head.parentElement;
     grp.classList.toggle('collapsed');
     const key = grp.dataset.group;
@@ -1293,11 +1602,18 @@ $('batchCancel').onclick = exitBatch;
 $('batchApply').onclick = applyBatch;
 // 使用流程卡片折叠/展开（默认折叠）
 document.querySelectorAll('.collapsible [data-collapse]').forEach(h => {
-  h.addEventListener('click', () => h.closest('.collapsible').classList.toggle('collapsed'));
+  const box = h.closest('.collapsible');
+  const key = h.getAttribute('data-collapse-key');
+  // 带 key 的折叠记忆用户选择（默认展开；「使用流程」卡无 key，保持原行为）
+  if (key) { try { if (localStorage.getItem(key) === '1') box.classList.add('collapsed'); } catch(e) {} }
+  h.addEventListener('click', () => {
+    box.classList.toggle('collapsed');
+    if (key) { try { localStorage.setItem(key, box.classList.contains('collapsed') ? '1' : '0'); } catch(e) {} }
+  });
 });
 (async () => {
   await loadIndex();
-  loadSoftstore();
+  loadConfig();
   try {
     const s = await getJSON('/api/status');
     if (!s.moo_ok) msg('⚠️ 本机 Moo 不可达，请检查 -moo-base 配置', 'warn');
@@ -1351,17 +1667,21 @@ const loadVerInfo = async force => {
 };
 $('verChip').onclick = async () => {
   if (verInfo && verInfo.has_update) {
-    // 0.2.37：弹窗读取远程 mate-changelog.md 的最新一段（与 Moo 一致）
+    // 0.2.60（用户令「参考 Moo 的弹窗样式」）：对齐 Moo 的三条做法——
+    //  ① 正文只留一句确认语。旧版把 verInfo.notes（GitHub release 正文，含资产清单/
+    //     sha256）整段拼进正文，而下方又单独渲染远程 changelog → 同三条修复出现两遍；
+    //  ② 日志二选一：优先远程 mate-changelog.md 最新一段，不可达才回落 release 正文
+    //     （与 Moo 的 `remoteChangelogLatest || latest_changelog` 同序），绝不两份同显；
+    //  ③ 日志条目本身即内容，不再额外拼一行 `vX`（版本号标题里已有）。
     let cl = '';
     try {
       const c = await getJSON('api/changelog');
-      if (c && c.latest) cl = (c.version ? 'v' + c.version + '\n' : '') + c.latest;
-    } catch(e) { /* 清单不可达时照常弹更新确认，不挡升级 */ }
+      if (c && c.latest) cl = c.latest;
+    } catch(e) { /* 清单不可达时回落 release 正文，不挡升级 */ }
     const ok = await askWithChangelog('发现新版本 v' + verInfo.available_version,
       '当前版本 v' + verInfo.current_version
-      + (verInfo.notes ? '\n\n' + verInfo.notes : '')
-      + '\n\n现在可以直接在应用内更新，数据保留。',
-      cl, '立即更新');
+      + '。点击「立即更新」将下载并安装新版本，完成后 Moo Mate 会自动重启。',
+      cl || verInfo.notes || '', '立即更新');
     if (ok) startSelfUpdate();
     return;
   }

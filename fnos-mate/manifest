@@ -1,5 +1,5 @@
 appname         = moo-mate
-version         = 0.2.55
+version         = 0.2.60
 display_name    = Moo Mate
 platform        = x86
 maintainer      = Blue-Mink
@@ -12,7 +12,7 @@ service_port    = 38108
 ctl_stop        = true
 checkport       = false
 beta            = no
-desc            = <p>Moo Mate — Moo 应用源生成器：粘贴飞牛应用仓库链接（GitHub / Gitee），自动探测、发现并生成 moo.json 应用源索引，一键同步到本机 Moo 应用源列表。</p>
+desc            = <p>Moo Mate — Moo 应用源生成器：粘贴飞牛应用仓库链接（GitHub），自动探测、发现并生成 moo.json 应用源索引，一键同步到本机 Moo 应用源列表。</p>
 source          = thirdparty
 checksum        = 
 micro_app       = true

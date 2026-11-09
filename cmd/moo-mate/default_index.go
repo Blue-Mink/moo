@@ -17,7 +17,7 @@ import (
 // defaultIndexGz 出厂默认应用索引（0.2.35+）：由 gen_default_index.py 从生产
 // index.json 生成，gzip 压缩后约 120KB（JSON 约 700KB）。
 //
-// 为什么内置：mate 以前是纯聚合器 —— 新装/离线时索引从 0 开始，软仓不可达就是
+// 为什么内置：mate 以前是纯聚合器 —— 新装/离线时索引从 0 开始，上游不可达就是
 // 一个空应用列表。内置快照让「装完即有内容」，网络恢复后正常同步覆盖。
 //
 //go:embed default_index.json.gz

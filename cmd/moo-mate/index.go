@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -24,7 +23,7 @@ type indexedApp struct {
 	Synced       bool                   `json:"synced"`                  // 是否已同步到 Moo
 	SyncedName   string                 `json:"synced_name,omitempty"`   // Moo 里的源名
 	Packages     map[string]*appPackage `json:"packages,omitempty"`      // 架构 → 包（多架构）
-	DownloadURLs []string               `json:"download_urls,omitempty"` // 候选下载链（原始链 + 软仓服务器，测速选优用；不进 mate.json）
+	DownloadURLs []string               `json:"download_urls,omitempty"` // 候选下载链（测速选优用；不进 mate.json）
 }
 
 // indexDoc 索引文件磁盘结构。
@@ -144,9 +143,7 @@ func (ix *index) reload() error {
 	ix.mu.Lock()
 	ix.doc = &d
 	ix.mu.Unlock()
-	// 恢复备份/切换数据目录后也修正旧索引里的相对下载地址。
-	_, err = ix.normalizeDownloads()
-	return err
+	return nil
 }
 
 // filePath 当前索引文件路径。
@@ -243,59 +240,6 @@ func (ix *index) upsert(a *indexedApp) error {
 	}
 	ix.doc.Apps[a.Appname] = a
 	return ix.save()
-}
-
-// normalizeDownloads 修正旧索引里软仓条目的相对下载地址（B1）。
-//
-// 只处理 Publisher=softstore 的条目：它们的 Source 是软仓基址，可安全拼接；
-// GitHub/Gitee 仓库来源保持原样，避免把仓库内相对路径错误拼成网页地址。
-// 返回修正条数；有变更才落盘。
-func (ix *index) normalizeDownloads() (int, error) {
-	ix.mu.Lock()
-	n := 0
-	for _, a := range ix.doc.Apps {
-		if a == nil || a.Publisher != "softstore" {
-			continue
-		}
-		if normalizeAppDownloads(a) {
-			n++
-		}
-	}
-	var err error
-	if n > 0 {
-		err = ix.save()
-	}
-	ix.mu.Unlock()
-	return n, err
-}
-
-// normalizeAppDownloads 把单条软仓应用的顶层/架构/候选下载链补成绝对地址。
-// 已是绝对地址的保持不变（幂等）。
-func normalizeAppDownloads(a *indexedApp) bool {
-	if a == nil || strings.TrimSpace(a.Source) == "" {
-		return false
-	}
-	changed := false
-	fix := func(p *string) {
-		if p == nil || strings.TrimSpace(*p) == "" {
-			return
-		}
-		v := resolveSoftstoreURL(a.Source, *p)
-		if v != *p {
-			*p = v
-			changed = true
-		}
-	}
-	fix(&a.DownloadURL)
-	for _, p := range a.Packages {
-		if p != nil {
-			fix(&p.DownloadURL)
-		}
-	}
-	for i := range a.DownloadURLs {
-		fix(&a.DownloadURLs[i])
-	}
-	return changed
 }
 
 // delete 从索引移除一条。

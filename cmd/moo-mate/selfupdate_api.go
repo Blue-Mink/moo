@@ -63,18 +63,9 @@ func mateReleaseAssets() ([]mateReleaseAsset, string, error) {
 			errs = append(errs, p.name+": "+err.Error())
 			continue
 		}
-		var best *mateGhRelease
-		bestVer := ""
-		for i := range rels {
-			r := &rels[i]
-			if !strings.HasPrefix(r.TagName, "mate-v") {
-				continue
-			}
-			v := strings.TrimPrefix(r.TagName, "mate-v")
-			if best == nil || verLess(bestVer, v) {
-				best, bestVer = r, v
-			}
-		}
+		// 与探测通道共用同一份筛选逻辑（跳过 draft / prerelease / 非 mate-v 版本 tag），
+		// 避免「探测到 X、资产却按 Y 取」这类规则漂移。
+		best, bestVer := latestMateRelease(rels)
 		if best == nil {
 			errs = append(errs, p.name+": release 列表里没有 mate-v*")
 			continue

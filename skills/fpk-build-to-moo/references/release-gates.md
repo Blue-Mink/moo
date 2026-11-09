@@ -56,6 +56,11 @@
 - 自更新应用：每架构 `FPK + .sha256 + .minisig`；资产矩阵、tag、索引顺序、兜底三 URL、asset digest 全过。
 - **索引跟版提交与 tag 同一次推送**（tag 打在含索引的提交上）；只推 tag 后补索引会让 `Verify release assets` 判红，补完须把 tag 移到含索引提交并确认新 run 绿。清单见 [self-update-signing.md](self-update-signing.md) §7。
 - 发布后回读：`/api/about` 版本、bundle 指纹、数据零回归、icon 尺寸、release 资产 sha。
+- **`releases/latest` 指针 + 药丸可见性（2026-11-08 事故，不可省）**：Moo 与 Moo Mate 的 release 同放 `Blue-Mink/moo` 一个仓，`/releases/latest` **全仓只有一个指针**。
+  1. 转正 PATCH 必须带 `{"make_latest":"true"}`（moo）/ `{"make_latest":"false"}`（mate）。不带就沿用上一任指针——**0.6.539 发了等于没发**。
+  2. `GET /repos/Blue-Mink/moo/releases/latest` 的 `tag_name` 必须 == `v<本次版本>`，不等即发布失败。
+  3. **药丸验收（站旧版视角）**：`MOO_SELFUPDATE_AS_VERSION=<上一版>` 起独立实例 → `GET /api/store-update` 必须 `has_update:true` + `available_version=<新版>`；或对真在旧版的机器只读 `?force=1`。
+  4. 客户端必须校验 tag 形态：`mate-v0.2.55` 这类非版本号不得当作「最新版本」，否则静默判无更新且短路整条兜底（详见 `AGENTS.md`「GitHub `releases/latest` 指针铁律」与 `MOO_PILL_LATEST_TODO.md`）。
 
 ## 6. 证据记录
 | 门 | 命令/产出 | 结果 |
