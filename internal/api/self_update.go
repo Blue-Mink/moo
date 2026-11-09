@@ -281,12 +281,63 @@ func (p *selfUpdateProbe) probe(force bool) (tag, assetURL, asset, shaURL, minis
 // 余量），调用方在此之前不再打 API。
 // body = release 正文（更新日志，0.6.311：设置页更新确认弹窗展示）；
 // 仅 API 主通道有值，web/FnDepot 兜底通道为空（调用方优雅降级）。
+// selfUpdateTokenHost 允许携带 token 的 URL 前缀。生产恒为官方 API；单测可覆写，
+// 用来验证「只发官方域」与「401 自动退回匿名」两条安全/健壮性契约。
+var selfUpdateTokenHost = "https://api.github.com/"
+
+// githubAPIRequest 构造 GitHub API 请求，并**只在官方 api.github.com 域**带上
+// 用户配置的 token（匿名配额 60/h/出口 IP → 带 token 5000/h）。
+//
+// 共用一个出口 IP 时（Moo 每 30 分钟探一次 + Moo Mate 按需探），匿名配额极易
+// 打满；403 之后客户端被迫走兜底链——2026-11-08 事故正是「403 → web 兜底 →
+// 拿到 mate 的 tag」。带上 token 让主通道稳定，是对共用面的根本缓解。
+//
+// 安全边界：自定义 base（含测试 httptest、镜像）一律不带——凭据只发官方域。
+func (s *Server) githubAPIRequest(url string) (*http.Request, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if s != nil && s.Cfg != nil {
+		if tok := strings.TrimSpace(s.Cfg.GithubToken); tok != "" &&
+			strings.HasPrefix(url, selfUpdateTokenHost) {
+			req.Header.Set("Authorization", "token "+tok)
+		}
+	}
+	return req, nil
+}
+
+// doGitHubGET 发一次 GitHub API GET；带 token 却收到 401（PAT 过期/被撤销）时
+// **自动退回匿名再试一次**——一份过期凭据不该把本来可用的匿名读打掉。
+func (s *Server) doGitHubGET(url string) (*http.Response, error) {
+	client := netx.NewClient(selfDlTimeout)
+	req, err := s.githubAPIRequest(url)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized && req.Header.Get("Authorization") != "" {
+		resp.Body.Close()
+		anon, aerr := http.NewRequest(http.MethodGet, url, nil)
+		if aerr != nil {
+			return nil, aerr
+		}
+		anon.Header.Set("Accept", "application/vnd.github+json")
+		return client.Do(anon)
+	}
+	return resp, nil
+}
+
 func (s *Server) doProbe() (tag, assetURL, asset, shaURL, minisigURL, body string, rateLimitUntil time.Time, err error) {
 	apiURL := selfUpdateAPIBase + "/repos/" + selfUpdateRepo + "/releases/latest"
 
-	client := netx.NewClient(selfDlTimeout)
-	resp, gerr := client.Get(apiURL)
+	resp, gerr := s.doGitHubGET(apiURL)
 	var apiErr error
+	var tagInvalid bool
 	if gerr != nil {
 		apiErr = fmt.Errorf("官方 release 探测失败: %w", gerr)
 	} else if resp.StatusCode != http.StatusOK {
@@ -322,28 +373,49 @@ func (s *Server) doProbe() (tag, assetURL, asset, shaURL, minisigURL, body strin
 		if tag == "" {
 			return "", "", "", "", "", "", rateLimitUntil, errors.New("release 无版本号")
 		}
-		// 选本机架构对应的 FPK 资产（0.6.355：x86 与 arm 都发布；
-		// 找不到同架构资产时兜底选任意 fpk，保持旧行为的可用性）
-		assets := make([]selfUpdateAsset, 0, len(rel.Assets))
-		for _, a := range rel.Assets {
-			assets = append(assets, selfUpdateAsset{Name: a.Name, URL: a.URL})
-		}
-		assetURL, asset = pickSelfUpdateAsset(assets, selfUpdateArchSuffix())
-		// D1：release 附 .sha256 资产（资产同名 + .sha256 后缀）→ 下载后验哈希
-		for _, a := range rel.Assets {
-			if a.URL != "" && a.Name == asset+".sha256" {
-				shaURL = a.URL
-				break
+		if !isMooVersionTag(tag) {
+			// 同仓 Moo Mate 的 release 抢走了 releases/latest（2026-11-08 事故）：
+			// 不能把它当成本仓最新版本 —— cmpVersions 会把 mate-v0.2.55 拆成
+			// [0,2,55] 判「无更新」，且 API 返回 200 无 error 会短路整条兜底链。
+			tagInvalid = true
+			apiErr = fmt.Errorf("官方 release 探测失败: releases/latest 指向非 Moo 版本 tag %q（疑似同仓其它应用发布抢占 latest）", strings.TrimSpace(rel.TagName))
+		} else {
+			// 选本机架构对应的 FPK 资产（0.6.355：x86 与 arm 都发布；
+			// 找不到同架构资产时兜底选任意 fpk，保持旧行为的可用性）
+			assets := make([]selfUpdateAsset, 0, len(rel.Assets))
+			for _, a := range rel.Assets {
+				assets = append(assets, selfUpdateAsset{Name: a.Name, URL: a.URL})
 			}
-		}
-		// 0.6.329：release 附 .minisig 资产（minisign 分离签名）→ 下载后验签
-		for _, a := range rel.Assets {
-			if a.URL != "" && a.Name == asset+".minisig" {
-				minisigURL = a.URL
-				break
+			assetURL, asset = pickSelfUpdateAsset(assets, selfUpdateArchSuffix())
+			// D1：release 附 .sha256 资产（资产同名 + .sha256 后缀）→ 下载后验哈希
+			for _, a := range rel.Assets {
+				if a.URL != "" && a.Name == asset+".sha256" {
+					shaURL = a.URL
+					break
+				}
 			}
+			// 0.6.329：release 附 .minisig 资产（minisign 分离签名）→ 下载后验签
+			for _, a := range rel.Assets {
+				if a.URL != "" && a.Name == asset+".minisig" {
+					minisigURL = a.URL
+					break
+				}
+			}
+			return tag, assetURL, asset, shaURL, minisigURL, rel.Body, rateLimitUntil, nil
 		}
-		return tag, assetURL, asset, shaURL, minisigURL, rel.Body, rateLimitUntil, nil
+	}
+
+	// 兜底 0（本轮新增）：latest 被同仓其它应用的 release 抢占时，改用 release
+	// 列表挑最高的 Moo 版本。只在「API 200 但 tag 非法」时调用——此时本来就要
+	// 走兜底，不会额外多打一次 API（403 场景由后面的 web 通道接手）。
+	if tagInvalid {
+		if ltag, lerr := s.probeReleaseList(); lerr == nil {
+			log.Printf("[selfupdate] %v，改用 release 列表兜底命中 v%s", apiErr, ltag)
+			assetURL, asset := selfUpdateFallbackAsset(ltag)
+			return ltag, assetURL, asset, assetURL + ".sha256", assetURL + ".minisig", "", rateLimitUntil, nil
+		} else {
+			apiErr = fmt.Errorf("%v（release 列表兜底: %v）", apiErr, lerr)
+		}
 	}
 
 	// 兜底 1：web 通道 302
@@ -417,6 +489,9 @@ func (s *Server) probeWebLatest() (string, error) {
 	tag := strings.TrimPrefix(segs[len(segs)-1], "v")
 	if tag == "" {
 		return "", errors.New("web 探测: 重定向目标无版本号")
+	}
+	if !isMooVersionTag(tag) {
+		return "", fmt.Errorf("web 探测: 重定向目标不是 Moo 版本 tag（%q，疑似同仓其它应用抢占 latest）", segs[len(segs)-1])
 	}
 	return tag, nil
 }
@@ -656,6 +731,77 @@ func (s *Server) probeFnDepotMirrorLatest() (string, error) {
 		return tag, nil
 	}
 	return "", errors.New(strings.Join(errs, " | "))
+}
+
+// isMooVersionTag 判断一个 tag（或去前缀后的版本串）是否是 Moo 自己的版本号：
+// 去掉可选 `v` 前缀后必须是**纯数字点分**（0.6.539）。
+//
+// 为什么必须有（2026-11-08 事故）：Moo 与 Moo Mate 的 release 同放
+// Blue-Mink/moo 一个仓，`/releases/latest` 是全仓唯一指针。mate 发版会把
+// `mate-v0.2.55` 顶成 latest，旧逻辑只 TrimPrefix("v") 就采信，`splitVersion`
+// 拆成 [0,2,55] 判「无更新」——且 HTTP 200 无 error，短路整条兜底链。
+func isMooVersionTag(s string) bool {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "v")
+	if s == "" {
+		return false
+	}
+	dots := 0
+	for _, c := range s {
+		switch {
+		case c == '.':
+			dots++
+		case c >= '0' && c <= '9':
+		default:
+			return false
+		}
+	}
+	return dots > 0
+}
+
+// probeReleaseList 兜底 0：latest 指针被同仓其它应用的 release 抢占时，
+// 直接列 releases 挑最高的 Moo 版本（只认 v<数字点分>、非 draft、非 prerelease）。
+//
+// 只在「API 200 但 tag 形态非法」时调用：既不会在 403 限流时多打一次 API，
+// 也不依赖 latest 指针——即便 mate 永远占着 latest 也能拿到正确的 Moo 版本。
+func (s *Server) probeReleaseList() (string, error) {
+	u := selfUpdateAPIBase + "/repos/" + selfUpdateRepo + "/releases?per_page=10"
+	resp, err := s.doGitHubGET(u)
+	if err != nil {
+		return "", fmt.Errorf("release 列表探测失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("release 列表探测失败: HTTP %d", resp.StatusCode)
+	}
+	data, rerr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if rerr != nil {
+		return "", fmt.Errorf("release 列表探测失败: %w", rerr)
+	}
+	var rels []struct {
+		TagName    string `json:"tag_name"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	if uerr := json.Unmarshal(data, &rels); uerr != nil {
+		return "", fmt.Errorf("release 列表探测失败: %w", uerr)
+	}
+	best := ""
+	for _, r := range rels {
+		if r.Draft || r.Prerelease {
+			continue
+		}
+		t := strings.TrimPrefix(strings.TrimSpace(r.TagName), "v")
+		if !isMooVersionTag(t) {
+			continue
+		}
+		if best == "" || cmpVersions(t, best) > 0 {
+			best = t
+		}
+	}
+	if best == "" {
+		return "", errors.New("release 列表里没有可用的 Moo 版本 tag")
+	}
+	return best, nil
 }
 
 // cmpVersions 点分数字版本比较（返回 -1/0/1）。非数字段按 0 处理。
