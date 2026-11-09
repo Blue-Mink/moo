@@ -94,6 +94,24 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.2.60": {
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.60/moo-mate_0.2.60_x86.fpk",
+       "sha256": "808003ab322523977c7e254d7f5763c8856262e0569d4b0990256927ac7ce87c",
+       "size": 4028646,
+       "size_mb": 3.84
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.60/moo-mate_0.2.60_arm.fpk",
+       "sha256": "31638e3779afeb929d4fb9bb137e00c5ca722c92309fe413fdffe365fb2fbb06",
+       "size": 3647627,
+       "size_mb": 3.48
+      }
+     },
+     "changelog": "界面：批量模式点源名整组选中该源下应用；任务弹窗可关闭、点遮罩关闭、运行中收成右下角胶囊；输入框新增清空；数据与备份、备份与恢复支持整行折叠\n生成：新增任务进度弹窗，逐条显示处理结果、阶段、耗时与实时日志，可复制日志、可取消\n扫描：新增仓库内 FPK 文件发现（文件树与仓库文件双通道），同名取高版本、按应用聚合去旧版；大仓库按预算处理，私有仓库跳过\n移除：不再内置第三方软仓源与页面上 Gitee 相关提示（粘贴 Gitee 链接仍可扫描）；启动时清理历史条目（先备份），默认清单精简到 5 条并改为优先读远端清单\n修复：经面板网关访问时写操作误判跨源 403；版本弹窗对齐 Moo（正文一句话、日志单一来源、超过 5 条分页）",
+     "updated_at": "2026-11-09T13:24:37+08:00"
+    },
     "0.2.55": {
      "updated_at": "2026-11-05T09:04:03+08:00",
      "changelog": "修复：/api/index 应用列表固定按名称排序，响应字节可复现（客户端缓存与内容比对恢复有效）\n修复：并发备份改为独占创建，同名冲突自动顺延到下一秒，不再互相覆盖\n修复：索引文件损坏时先隔离为 index.json.bad-时间戳 再回落空索引，状态接口暴露 last_index_error 便于排查",
@@ -111,39 +129,21 @@
        "size_mb": 3.59
       }
      }
-    },
-    "0.2.54": {
-     "updated_at": "2026-11-05T05:01:23+08:00",
-     "changelog": "安全：写接口统一 CSRF 防线（跨站/跨源、Content-Type、防 DNS rebinding）\n安全：所有接口补 Host 白名单并限制请求体（默认 1MB，恢复备份上传 256MB）\n安全：HTTP 读头与空闲超时、头大小限制；非回环监听默认拒绝启动；数据目录拒绝存储卷根\n应用源：软仓相对下载地址自动转绝对，软仓已下架（404/410）条目自动移出索引\n界面：清除数据改名「清除同步索引」；响应统一 nosniff；备份下载文件名按 RFC 6266 编码",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.54/moo-mate_0.2.54_x86.fpk",
-       "sha256": "e4cf4785764bd6d7a85af1687f958bbbfc3c92949e8eca8faaccc3327d243b4d",
-       "size": 4139427,
-       "size_mb": 3.95
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.54/moo-mate_0.2.54_arm.fpk",
-       "sha256": "270c55f1305d3730935bc52ee941b55b0e6600e25be1452cc78120cf642e6016",
-       "size": 3760182,
-       "size_mb": 3.59
-      }
-     }
     }
    },
-   "sha256": "fe1efb8b2e0f9ef42b9b2f5b6c901f11bc99dba03fe17e9b3edbe3fcf76a58e6",
+   "sha256": "808003ab322523977c7e254d7f5763c8856262e0569d4b0990256927ac7ce87c",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos-mate/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/cmd/moo-mate/README.md",
    "labels": "系统工具",
    "install_type": "系统空间",
    "download_count": 0,
    "first_release_at": "2026-10-28T09:29:16+08:00",
-   "updated_at": "2026-11-05T09:04:03+08:00",
-   "version": "0.2.55",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_x86.fpk",
-   "size": 4141091,
+   "updated_at": "2026-11-09T13:24:37+08:00",
+   "version": "0.2.60",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.60/moo-mate_0.2.60_x86.fpk",
+   "size": 4028646,
    "service_port": "38108",
-   "size_mb": 3.95,
+   "size_mb": 3.84,
    "preview_urls": [
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-list.png",
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps.png",
