@@ -23,9 +23,27 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.6.552": {
+     "updated_at": "2026-11-14T08:45:18+08:00",
+     "changelog": "- 设置与详情：详情页「安装位置」只显示 vol1 / vol2，去掉「存储空间 N · 」前缀；自动停用时段写错（相同或不足 1 小时）立刻红字提示并拦住保存，合法时显示总时长、跨零点一眼可见；关于页更新日志与详情页说明框的底色改成与卡片一致（详情页保留圆角描边）\n- 官方源与授权：官方应用升级前先预检——缺必填项、需同意许可协议、依赖被占用都会提前告知，不再点完才失败；需要许可协议时给明确指引（须在飞牛应用中心手动同意）\n- 自动更新与依赖：「依赖被占用时」可设三档——跳过（默认）/ 提示 / 自动停用，自动停用只在指定时段内、且应用在白名单里才动手；社区源应用的升级向导不再只报一句错，缺项直接弹向导填完继续；依赖方停用改由服务端事务保证，升级成功、失败、进程中断都会自动恢复启动\n- 通知：自动更新轮次通知区分成功 / 失败 / 跳过，并写清跳过原因；本轮若临时停用过依赖方，通知里列出停了哪些、是否已恢复\n- 稳定性修复：修复部分依赖停不掉、网络失败或关掉弹窗后依赖方一直停着不恢复；修复连点「更新」重复提交；修复需人工确认的应用每小时刷一条失败通知（12 小时内不再重试，同版本换新包会自动重新探测）；修复平台明确拒绝时被误报为「任务不再持有」，现在直接给真实原因；页面分片加载失败不再白屏，可一键重试\n- 构建与发布：构建不再改动推荐快照与内嵌更新日志，安装包来源可核（版本戳去掉 +dirty）；同一版本重复构建结果一致，生成物被改写会立即指名警告",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.552/moo_0.6.552_x86.fpk",
+       "sha256": "4e40e50cfbd633cab4d4dce73133e3c2abf9f5738c0ddcd470e7dd40000c4b84",
+       "size": 5410830,
+       "size_mb": 5.16
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.552/moo_0.6.552_arm.fpk",
+       "sha256": "4783fc5409ba5b42d13e32f3a48bf5007989d298001979c218f68aaf9ecfb543",
+       "size": 4902550,
+       "size_mb": 4.68
+      }
+     }
+    },
     "0.6.539": {
      "updated_at": "2026-11-08T11:09:51+08:00",
-     "changelog": "加速与下载：加速源清单集中到远端 lists/（改清单免重建），GitHub / Docker / 科学加速三个子 tab；智能选源与加速开关独立，支持列表直接选源与自定义多地址；分批测速避免互相抢带宽\n应用源与发现：应用源支持批量删除、刷新源、多行添加；源行合并「数量 + 只看该源」胶囊；推荐位改读远程清单并按 12 色极光随机配色，缺应用整条跳过不留空位\n设置与详情：FPK / 源列表 / 日志 / 加速监测 / 排序 / 通知总开关整行折叠；更新策略新增「自动」并收成一张卡；详情页显示 root / package；关于页实时内存、更新日志铺满卡片\n通知：企业微信卡片去掉顶部重复来源行，标题与时间顶到首行；「通知详情地址」明确为卡片跳转地址\n官方源授权：新增「新标签页授权」并置于「OAuth 授权登录」之前，局域网 http 下也能完成授权；面板地址自动取当前访问地址\n内置默认源与仓库精选清单对齐（96 条），新装与「恢复默认源」一次到位",
+     "changelog": "感谢@SwrodKing—早期贡献者，多项体验改进与加速源能力源自他的提交\n加速与下载：加速源清单集中到远端 lists/（改清单免重建），GitHub / Docker / 科学加速三个子 tab；智能选源与加速开关独立，支持列表直接选源与自定义多地址；分批测速避免互相抢带宽\n应用源与发现：应用源支持批量删除、刷新源、多行添加；源行合并「数量 + 只看该源」胶囊；推荐位改读远程清单并按 12 色极光随机配色，缺应用整条跳过不留空位\n设置与详情：FPK / 源列表 / 日志 / 加速监测 / 排序 / 通知总开关整行折叠；更新策略新增「自动」并收成一张卡；详情页显示 root / package；关于页实时内存、更新日志铺满卡片\n通知：企业微信卡片去掉顶部重复来源行，标题与时间顶到首行；「通知详情地址」明确为卡片跳转地址\n官方源授权：新增「新标签页授权」并置于「OAuth 授权登录」之前，局域网 http 下也能完成授权；面板地址自动取当前访问地址\n内置默认源与仓库精选清单对齐（96 条），新装与「恢复默认源」一次到位",
      "packages": {
       "x86": {
        "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.539/moo_0.6.539_x86.fpk",
@@ -40,27 +58,9 @@
        "size_mb": 4.64
       }
      }
-    },
-    "0.6.511": {
-     "updated_at": "2026-11-06T12:44:11+08:00",
-     "changelog": "应用详情：简介与 README 图片可点按看大图（同一灯箱，可滑动切换）；徽章横排并自动刷新\n下载量：改为应用级累计，详情页一行显示「下载量/累计」；测速探针改用非安装包，历史流量不计入并标注「已排除 N 次」",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.511/moo_0.6.511_x86.fpk",
-       "sha256": "dbb45bbe3d0013aaa685f6d4139060159bbdb27b3ed8ebbffb724e5c06e3a031",
-       "size": 5331673,
-       "size_mb": 5.08
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.511/moo_0.6.511_arm.fpk",
-       "sha256": "31c13180961f1589806fa1d98362d5910b73c611f12b658fe4002db525c9e177",
-       "size": 4833289,
-       "size_mb": 4.61
-      }
-     }
     }
    },
-   "sha256": "c75382d0a472cb87a50859e9343273cec4e4eb0760ed327fb5d4ea997a644988",
+   "sha256": "4e40e50cfbd633cab4d4dce73133e3c2abf9f5738c0ddcd470e7dd40000c4b84",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -72,12 +72,12 @@
    ],
    "download_count": 0,
    "first_release_at": "2026-09-26T08:39:41+08:00",
-   "updated_at": "2026-11-08T11:09:51+08:00",
-   "version": "0.6.539",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.539/moo_0.6.539_x86.fpk",
-   "size": 5366796,
+   "updated_at": "2026-11-14T09:20:48+08:00",
+   "version": "0.6.552",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.552/moo_0.6.552_x86.fpk",
+   "size": 5410830,
    "service_port": "38100",
-   "size_mb": 5.12,
+   "size_mb": 5.16,
    "changelog": ""
   },
   "moo-mate": {

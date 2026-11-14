@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.539-2563eb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.552-2563eb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-single_binary-00add8?style=flat-square&logo=go&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64_%7C_arm64-7c3aed?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.539` · x86 `c75382d0a472cb87a50859e9343273cec4e4eb0760ed327fb5d4ea997a644988`（5.12MB） / arm `df97ac236bff07d57b2796b695694eac436beec39cb7ac1cbe9cc3b3eecd48c7`（4.64MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.552` · x86 `4e40e50cfbd633cab4d4dce73133e3c2abf9f5738c0ddcd470e7dd40000c4b84`（5.16MB） / arm `4783fc5409ba5b42d13e32f3a48bf5007989d298001979c218f68aaf9ecfb543`（4.68MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -248,6 +248,7 @@ go test ./...     # 单元测试
 - [FnDepot](https://github.com/EWEDLCM/FnDepot) 及其源开发者们 —— 第三方应用源生态
 - [fn-knock](https://github.com/kci-lnk/fn-knock-turborepo) —— 通知事件中心与设置备份的形式参考、发布审计（CI 门禁）借鉴
 - [飞牛 fnOS](https://www.fnnas.com/) —— 友好的 NAS 操作系统
+- [@SwrodKing](https://github.com/SwrodKing) —— 早期贡献者，多项体验改进与加速源能力源自他的提交
 - AI 模型 —— 开发全程协作伙伴
 
 ---

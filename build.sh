@@ -30,6 +30,33 @@ trap cleanup EXIT
 
 mkdir -p "$BUILD_DIR/tmp"
 
+# ── 树卫生守卫（0.6.551）───────────────────────────────────────────────────
+# 背景：本脚本有两步会重写「受版本控制」的生成物——
+#   Step 0.5  internal/api/changelog_current.json（跟 moo.json 版本 + 日志）
+#   Step 1.5  internal/reco/snapshots.json（联网抓取：generated_at / 下载量）
+# 只要构建自己改脏了树，Go 就会在二进制里盖 vcs.modified=true，
+# `go version -m` 显示 `...+dirty`（审计报告里像「工作树不干净」，实际是
+# 构建自己写脏的）。对策三条：
+#   1) 快照刷新改「显式开关」MOO_REFRESH_SNAPSHOTS=1（默认不动快照）；
+#   2) 构建前后对比两个生成物的 sha256，被改写就报出文件名；
+#   3) MOO_RELEASE=1 时要求工作树全净，且构建不得改写生成物（否则直接失败）。
+# 发布构建的正确姿势（先 gen → 提交 → 再构建）：
+#   MOO_REFRESH_SNAPSHOTS=1 bash build.sh x86    # 需要刷新快照时才跑
+#   git add internal/reco/snapshots.json internal/api/changelog_current.json
+#   git commit -m "..."                          # 生成物入库后树才干净
+#   MOO_RELEASE=1 bash build.sh all              # 此时二进制不带 +dirty
+GEN_TRACKED="internal/api/changelog_current.json internal/reco/snapshots.json"
+IS_GIT=0; DIRTY_BEFORE=""; GEN_HASH_BEFORE=""
+if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    IS_GIT=1
+    DIRTY_BEFORE=$(git -C "$SCRIPT_DIR" status --porcelain | wc -l | tr -d ' ')
+    GEN_HASH_BEFORE=$(cd "$SCRIPT_DIR" && sha256sum $GEN_TRACKED 2>/dev/null | awk '{print $1, $2}')
+    if [ "${MOO_RELEASE:-0}" = "1" ] && [ "$DIRTY_BEFORE" != "0" ]; then
+        error "MOO_RELEASE=1 要求干净工作树，当前仍有 $DIRTY_BEFORE 项改动（未提交 → 二进制带 vcs.modified=true/+dirty）。先提交或 stash 后重试。"
+    fi
+    [ "${MOO_RELEASE:-0}" = "1" ] && info "MOO_RELEASE=1：工作树干净，发布会话不带 +dirty"
+fi
+
 # ── Step 0: fnpack ──────────────────────────────────────────────────────────
 if [ ! -x "$FNPACK" ]; then
     info "fnpack 未找到，尝试下载..."
@@ -89,19 +116,44 @@ else
     warn "frontend/ 未就绪，跳过前端构建（web/ 使用现有产物或占位）"
 fi
 
-# ── Step 1.5: 刷新固定推荐快照（0.6.314 C，构建期抓取）─────────────────────
+# ── Step 1.5: 刷新固定推荐快照（0.6.314 C，构建期抓取；0.6.551 起改用显式开关）──
 # gen_reco_snapshots.py 从三源（raw 主 + jsDelivr 备）抓取固定前三推荐
 # （fnos-apps-store / fndepot / fn-knock）完整元数据 + README 全文 +
 # 图标 base64 → internal/reco/snapshots.json（go:embed，必须早于 Step 2）。
 # 离线 / 网络失败 / python3 缺失 → 保留仓库已有快照，不阻塞构建。
-if command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/gen_reco_snapshots.py" ]; then
+# 0.6.551：默认【不】刷新。该文件受版本控制，且天生不幂等（generated_at=当下、
+# download_count 实时）——默认刷新等于「每次构建都把树写脏」，二进制必然带
+# vcs.modified=true（+dirty）。需要更新快照时显式开：
+#   MOO_REFRESH_SNAPSHOTS=1 bash build.sh x86
+# 跑完把 internal/reco/snapshots.json 提交，之后的发布构建就干净了。
+# （MOO_SKIP_GEN=1 仍兼容，等价于不刷新。）
+if [ "${MOO_REFRESH_SNAPSHOTS:-0}" != "1" ] || [ "${MOO_SKIP_GEN:-0}" = "1" ]; then
+    info "跳过固定推荐快照刷新（默认：构建不改动受版本控制的 snapshots.json）"
+    info "  需要刷新时：MOO_REFRESH_SNAPSHOTS=1 bash build.sh $TARGET 然后提交该文件"
+elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/gen_reco_snapshots.py" ]; then
     if python3 "$SCRIPT_DIR/gen_reco_snapshots.py" --out "$SCRIPT_DIR/internal/reco/snapshots.json"; then
-        info "固定推荐快照已刷新 -> internal/reco/snapshots.json"
+        info "固定推荐快照已刷新 -> internal/reco/snapshots.json（记得提交）"
     else
         warn "固定推荐快照刷新失败（保留仓库已有文件）——见上方脚本输出"
     fi
 else
     warn "python3 或 gen_reco_snapshots.py 缺失，跳过固定推荐快照刷新"
+fi
+
+# ── 生成物守卫（0.6.551）：go build 之前必须确认「生成步骤没把树写脏」─────
+# 放在 Step 2 之前，是为了不让一个注定带 +dirty 的二进制被打包出去。
+if [ "$IS_GIT" = "1" ]; then
+    GEN_HASH_NOW=$(cd "$SCRIPT_DIR" && sha256sum $GEN_TRACKED 2>/dev/null | awk '{print $1, $2}')
+    if [ "$GEN_HASH_NOW" != "$GEN_HASH_BEFORE" ]; then
+        CHANGED=$(diff <(echo "$GEN_HASH_BEFORE") <(echo "$GEN_HASH_NOW") | awk '/^>/{print $3}' | tr '\n' ' ')
+        if [ "${MOO_RELEASE:-0}" = "1" ]; then
+            error "构建改写了受版本控制的生成物：${CHANGED}——MOO_RELEASE=1 不允许（二进制会带 +dirty）。先提交这些生成物再重建。"
+        fi
+        warn "构建改写了受版本控制的生成物：${CHANGED}"
+        warn "  → 产物将带 vcs.modified=true（审计显示 +dirty）；只可本地联调，交付前须提交或还原后重建。"
+    else
+        info "树卫生：生成步骤未改动受版本控制的文件"
+    fi
 fi
 
 # ── Step 2: 构建 Go 二进制（x86 + arm64，0.6.303 起 arm 适配）──────────────
@@ -181,3 +233,20 @@ case "$TARGET" in
     all) pack_fpk x86; pack_fpk arm ;;
     *)   error "未知构建目标: $TARGET（可选 x86 / arm / all）" ;;
 esac
+
+# ── 收尾自检（0.6.551）：把「本次构建有没有写脏树」与「二进制 VCS 戳记」──────
+# 直接打在终端上，免得下次又在审计报告里才看见 +dirty。
+if [ "$IS_GIT" = "1" ]; then
+    DIRTY_AFTER=$(git -C "$SCRIPT_DIR" status --porcelain | wc -l | tr -d ' ')
+    info "工作树改动项：构建前 $DIRTY_BEFORE → 构建后 $DIRTY_AFTER"
+    if [ "$DIRTY_AFTER" != "$DIRTY_BEFORE" ]; then
+        warn "构建新增了 $((DIRTY_AFTER - DIRTY_BEFORE)) 项工作树改动（见上，通常是生成物）"
+    fi
+    VCS_STAMP=$(go version -m "$BUILD_DIR/moo-server-x86" 2>/dev/null | awk '/^[[:space:]]*mod[[:space:]]/{print $3; exit}')
+    if [ -n "$VCS_STAMP" ]; then
+        info "二进制模块戳记：$VCS_STAMP"
+        case "$VCS_STAMP" in
+            *+dirty*) warn "该二进制带 +dirty（vcs.modified=true）：只可本地联调，不要当发布产物交付。";;
+        esac
+    fi
+fi

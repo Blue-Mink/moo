@@ -631,20 +631,32 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 	if !s.Cfg.AutoUpdate {
 		return
 	}
+	// 0.6.548：依赖占用策略。只有 stop 档才可能在无人值守时停用用户的应用，
+	// 且必须落在自动停用时段内；其余档位与窗口外一律不动任何应用。
+	depPolicy := autoUpdateDepPolicyOf(s.Cfg.AutoUpdateDepPolicy)
+	winStart, winEnd := autoUpdateDepWindowOf(s.Cfg.AutoUpdateWindowStart, s.Cfg.AutoUpdateWindowEnd)
+	canStopDeps := depPolicy == depPolicyStop && inAutoUpdateWindow(time.Now(), winStart, winEnd)
 	// daemon 报 upgradeInfo 的应用 = 应用中心认定有官方可升级版本，
 	// 一律走平台 cloud 通道（与应用中心 UI 同源，保留 @appdata）；
 	// 其余（纯社区目录更新）走 FPK 升级管线。
 	officialUpgrade := map[string]bool{}
+	// autoFailed：平台自己已经标了「自动更新失败」的应用（wizardInfo 必填项、
+	// 依赖未停等都会落到这里）。平台权威信号，直接跳过、不重复踩一遍。
+	autoFailed := map[string]bool{}
 	if ias, err := platform.ListInstalled(ctx); err == nil {
 		for _, ia := range ias {
 			if ia.UpgradeInfo != nil && ia.UpgradeInfo.Version != "" {
 				officialUpgrade[ia.AppName] = true
+				if ia.UpgradeInfo.AutoUpdateFailed {
+					autoFailed[ia.AppName] = true
+				}
 			}
 		}
 	}
 	apps := s.buildCatalog(s.bgLang())
 	type job struct {
 		key, appName, display, source, target string
+		sha, blocked                          string
 		official                              bool
 	}
 	jobs := make([]job, 0)
@@ -664,8 +676,28 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 		jobs = append(jobs, job{
 			key: a.Key, appName: a.AppName, display: display, source: src,
 			target:   a.AvailableVersion,
+			sha:      a.Sha256,
 			official: a.Source == OfficialSourceID || officialUpgrade[a.AppName],
+			blocked:  autoUpdateBlockedReason(a.AppName, autoFailed, depPolicy, canStopDeps),
 		})
+	}
+	// 0.6.543/0.6.545：负缓存 —— 同一「应用 + 目标版本 + 目标包 sha」已判定
+	// 「需人工处理」的，本轮直接不建任务（不下载、不试探、不写日志、不进通知）。
+	// 缓存分两类：wizard（升级需确认向导，12h）/ blocked（平台标记自动更新失败，2h）。
+	// 同版本号换包（sha 变）或平台标志消失（reason 变）都会立刻重新探测。
+	if len(jobs) > 0 {
+		if skips := s.autoUpdateSkips(); len(skips) > 0 {
+			kept := jobs[:0]
+			for _, j := range jobs {
+				// 0.6.548（审计增量）：wizard 与 blocked 都要查——依赖占用写的是
+				// blocked 条目，而这类应用的 j.blocked 通常为空（平台没标记）。
+				if autoUpdateSkipHitAny(skips, j.appName, j.target, j.sha) {
+					continue
+				}
+				kept = append(kept, j)
+			}
+			jobs = kept
+		}
 	}
 	if len(jobs) == 0 {
 		return
@@ -676,11 +708,32 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 	}
 	log.Printf("[auto-update] 开始自动更新 %d 个应用: %v", len(jobs), names)
 	done, failed := 0, 0
+	skipped := 0
+	// 0.6.548：本轮依赖相关结果（用于通知正文，类型见下方 autoUpdateDepReport）。
+	var depStoppedRows []autoUpdateDepStopped
+	var depBlockedRows []autoUpdateDepBlocked
 	var doneNames, failedNames []string
+	var skippedNames []string
 	failedSet := map[string]bool{}
 	for _, j := range jobs {
 		if ctx.Err() != nil {
 			return
+		}
+		if j.blocked != "" {
+			skipped++
+			skippedNames = append(skippedNames, j.display)
+			// 平台权威标记：跳过不记失败（否则每小时一条假失败通知）。
+			// 0.6.548（审计 B1′）：stop 档在时段外不写负缓存——否则时段内会被
+			// hitAny 静默过滤（无日志/通知/计数），整个允许窗口一次都不尝试。
+			if shouldCacheDepBlocked(depPolicy, canStopDeps) {
+				// 0.6.545：同时记 2h 负缓存，后续轮次不再刷同样的日志/通知；
+				// 平台标志一消失（reason 不同）就立刻恢复探测。
+				s.markAutoUpdateSkip(j.appName, j.target, j.sha, autoUpdateSkipReasonBlocked, []string{j.blocked})
+				log.Printf("[auto-update] %s 跳过（%s），2 小时内不再重复记录", j.appName, j.blocked)
+			} else {
+				log.Printf("[auto-update] %s 跳过（%s）；当前不在自动停用时段，等时段内再尝试", j.appName, j.blocked)
+			}
+			continue
 		}
 		// 0.6.312 B1/F1：自动更新也走操作队列——与手动操作全局互斥（此前
 		// autoUpdatePass 直调管线，手动更新撞上时同一应用会双管线并发、
@@ -691,13 +744,28 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 			return
 		}
 		log.Printf("[auto-update] %s → v%s（%s）开始…", j.appName, j.target, j.source)
-		var err error
+		var stoppedDeps []string
+		var run func(c context.Context, p func(string, float64)) error
 		if j.official {
-			_, err = s.Ops.StartSync(ctx, "update", j.appName, func(c context.Context, p func(string, float64)) error {
+			run = func(c context.Context, p func(string, float64)) error {
+				// 平台任务表同一时刻只容一个任务：自动更新的官方分支此前是
+				// 唯一没过闸门的路径（手动安装/云下载/FPK 通道都有 Gate），
+				// 与用户的安装/下载并发时会互顶成 10500。下载阶段让出队列
+				// 名额，安装/升级阶段串行。
+				if s.Pipe != nil && s.Pipe.Gate != nil {
+					operation.Detach(c)
+					release, gerr := s.Pipe.Gate.Acquire(c, func(pos int) {
+						p(fmt.Sprintf("等待平台通道空闲（前面还有 %d 个任务）…", pos), 10)
+					})
+					if gerr != nil {
+						return fmt.Errorf("等待平台通道失败: %w", gerr)
+					}
+					defer release()
+				}
 				return s.runOfficialUpgrade(c, j.appName, nil, p)
-			})
+			}
 		} else {
-			_, err = s.Ops.StartSync(ctx, "update", j.appName, func(c context.Context, p func(string, float64)) error {
+			run = func(c context.Context, p func(string, float64)) error {
 				srcName, a, rerr := s.resolveKey(j.key)
 				if rerr != nil {
 					return rerr
@@ -708,9 +776,66 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 					return rerr
 				}
 				return s.Pipe.InstallWithParams(c, srcName, a.Name, nil, p)
-			})
+			}
 		}
+		// 0.6.548：stop 档 + 自动停用时段内才把升级包进「停依赖 → 升级 → 恢复」；
+		// 其余情况走原路径（平台预检会返回 DependencyBlockedError，按跳过处理）。
+		_, err := s.Ops.StartSync(ctx, "update", j.appName, func(c context.Context, p func(string, float64)) error {
+			if canStopDeps {
+				return s.withUpgradeDepsChecked(c, j.appName, s.Cfg.AutoUpdateDepAllow, p,
+					func(ns []string) { stoppedDeps = ns }, run)
+			}
+			return run(c, p)
+		})
 		if err != nil {
+			// 0.6.542：升级向导缺必填项属于「需人工确认」，不是失败——
+			// 无人值守跑不通同样的确认，计失败只会每小时刷一条假失败通知。
+			var wreq *platform.WizardRequiredError
+			if errors.As(err, &wreq) {
+				skipped++
+				skippedNames = append(skippedNames, j.display)
+				s.invalidateCatalog()
+				// 0.6.543/0.6.545：记 12h 负缓存（key 带目标包 sha），
+				// 后续轮次连日志/通知都不再刷；源同版本换包则重新探测。
+				s.markAutoUpdateSkip(j.appName, j.target, j.sha, autoUpdateSkipReasonWizard, wreq.Missing)
+				log.Printf("[auto-update] %s 跳过（升级需先在界面确认向导：%s），12 小时内不再重试",
+					j.appName, strings.Join(wreq.Missing, "、"))
+				continue
+			}
+			// 0.6.548：依赖方未全部允许自动停用（stop 档但白名单没覆盖全）。
+			var notAllowed *DepNotAllowedError
+			if errors.As(err, &notAllowed) {
+				skipped++
+				skippedNames = append(skippedNames, j.display)
+				depBlockedRows = append(depBlockedRows, autoUpdateDepBlocked{
+					App: j.display, Blockers: depBlockerLabels(notAllowed.Blockers), Missing: notAllowed.Missing,
+				})
+				s.markAutoUpdateSkip(j.appName, j.target, j.sha, autoUpdateSkipReasonBlocked, notAllowed.Missing)
+				log.Printf("[auto-update] %s 跳过（依赖方未全部允许自动停用：%s），2 小时内不再重试",
+					j.appName, strings.Join(notAllowed.Missing, "、"))
+				continue
+			}
+			// 0.6.548：依赖占用（skip/notify 档，或 stop 档在自动停用时段外）——
+			// 这是「需要人处理」而不是「失败」，计失败只会每小时刷一条假失败通知。
+			var dbe *platform.DependencyBlockedError
+			if errors.As(err, &dbe) {
+				skipped++
+				skippedNames = append(skippedNames, j.display)
+				depBlockedRows = append(depBlockedRows, autoUpdateDepBlocked{
+					App: j.display, Blockers: depBlockerLabels(dbe.Blockers),
+				})
+				// 0.6.548（审计 B1）：stop 档在自动停用时段外不写负缓存——缓存过滤
+				// 发生在轮次开始且不重评时段，写 2h 会挡住马上到来的时段窗口。
+				if shouldCacheDepBlocked(depPolicy, canStopDeps) {
+					s.markAutoUpdateSkip(j.appName, j.target, j.sha, autoUpdateSkipReasonBlocked, nil)
+					log.Printf("[auto-update] %s 跳过（被 %s 占用，需手动处理），2 小时内不再重试",
+						j.appName, strings.Join(depBlockerLabels(dbe.Blockers), "、"))
+				} else {
+					log.Printf("[auto-update] %s 被 %s 占用；当前不在自动停用时段，等时段内再尝试",
+						j.appName, strings.Join(depBlockerLabels(dbe.Blockers), "、"))
+				}
+				continue
+			}
 			failed++
 			failedNames = append(failedNames, j.display) // 跨源同宗更新带「来自 XX 源」
 			failedSet[j.appName] = true
@@ -722,7 +847,11 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 		}
 		done++
 		doneNames = append(doneNames, j.display) // 跨源同宗更新带「来自 XX 源」
+		if len(stoppedDeps) > 0 {
+			depStoppedRows = append(depStoppedRows, autoUpdateDepStopped{App: j.display, Deps: stoppedDeps})
+		}
 		s.invalidateCatalog()
+		s.clearAutoUpdateWizardSkip(j.appName)
 		log.Printf("[auto-update] %s 已更新到 v%s", j.appName, j.target)
 		// 给平台任务队列/应用重启留缓冲，避免连环升级踩踏
 		select {
@@ -731,56 +860,154 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 		case <-time.After(5 * time.Second):
 		}
 	}
-	log.Printf("[auto-update] 本轮完成: %d 成功 / %d 失败", done, failed)
+	log.Printf("[auto-update] 本轮完成: %d 成功 / %d 失败 / %d 跳过（需手动处理）", done, failed, skipped)
 	// 0.6.133：后台自动更新轮次摘要通知（一轮一条）。
 	// 0.6.210 排版统一：成功/失败分列（旧版混列全名单、企微换行折叠成
 	// 「成功 1 / 失败 5 · - 1Panel · - Gitea …」不可读），与其余通知同款
 	// 简洁/完整变体 + 卡片行 + markdown 表格。
-	if done+failed > 0 {
-		content, table, rows, variants := buildAutoUpdateRoundMsg(doneNames, failedNames)
+	if done+failed+skipped > 0 {
+		var dep *autoUpdateDepReport
+		if len(depStoppedRows) > 0 || len(depBlockedRows) > 0 {
+			dep = &autoUpdateDepReport{Stopped: depStoppedRows, Blocked: depBlockedRows}
+		}
+		content, table, rows, variants := buildAutoUpdateRoundMsg(doneNames, failedNames, skippedNames, dep)
 		s.notifyEventRichV("auto_update_round", "应用自动更新完成", content, table, rows, "", "", failed == 0, variants)
 	}
 }
 
+// blockedReason 返回该应用本轮应跳过自动更新的原因（空 = 可自动）。
+// 唯一权威信号是平台自己的 autoUpdateFailed：平台已经试过并失败
+// （升级向导必填项未确认、依赖应用未停用等），Moo 再试只会重复同一次失败。
+// autoUpdateBlockedReason 在平台标记之上叠加 0.6.548 的依赖策略：
+// stop 档且处于自动停用时段内时不再采信平台 autoUpdateFailed——该标记很大比例
+// 来自 16006「依赖未停用」，正是本功能要处理的人群；向导类失败会由
+// WizardRequiredError 分支记 12h 缓存，依赖类失败记 2h。注意：下载/校验/
+// 磁盘等通用失败仍按 failed 计数（既有行为，本批不改变）。
+func autoUpdateBlockedReason(appName string, autoFailed map[string]bool, policy string, canStopDeps bool) string {
+	if policy == depPolicyStop && canStopDeps {
+		return ""
+	}
+	return blockedReason(appName, autoFailed)
+}
+
+func blockedReason(appName string, autoFailed map[string]bool) string {
+	if autoFailed[appName] {
+		return "平台自动更新已失败（需手动确认向导或先停用依赖）"
+	}
+	return ""
+}
+
+// autoUpdateDepReport 自动更新一轮里的依赖相关结果（仅供通知正文）。
+type autoUpdateDepReport struct {
+	Stopped []autoUpdateDepStopped
+	Blocked []autoUpdateDepBlocked
+}
+
+// autoUpdateDepStopped 已成功升级、且升级期间停用过依赖方的应用。
+type autoUpdateDepStopped struct {
+	App  string
+	Deps []string
+}
+
+// autoUpdateDepBlocked 因依赖占用未更新的应用（需手动处理）。
+type autoUpdateDepBlocked struct {
+	App      string
+	Blockers []string
+	Missing  []string
+}
+
 // buildAutoUpdateRoundMsg 拼「应用自动更新完成」通知（0.6.210 排版统一）：
+// 第三段 skipped = 平台已标记「自动更新失败」、需人工处理的应用，不计失败。
 // 成功/失败分列（旧版混列全名单、企微换行折叠成「成功 1 / 失败 5 · - 1Panel
 // · - Gitea …」不可读），与其余通知同款简洁/完整变体 + 卡片行 + 表格。
-func buildAutoUpdateRoundMsg(doneNames, failedNames []string) (content, table string, rows []notify.CardRow, variants *notify.Variants) {
+// 0.6.548：dep 非空时追加「升级期间暂停的应用」与「因依赖占用未更新」两段。
+func buildAutoUpdateRoundMsg(doneNames, failedNames, skippedNames []string, dep *autoUpdateDepReport) (content, table string, rows []notify.CardRow, variants *notify.Variants) {
 	done, failed := len(doneNames), len(failedNames)
+	skipped := len(skippedNames)
+	paused := 0
+	if dep != nil {
+		for _, s := range dep.Stopped {
+			paused += len(s.Deps)
+		}
+	}
 	joinNames := func(ns []string, cap int) string {
 		if len(ns) > cap {
 			return strings.Join(ns[:cap], "、") + fmt.Sprintf(" 等 %d 个", len(ns))
 		}
 		return strings.Join(ns, "、")
 	}
+	head := func() string {
+		base := fmt.Sprintf("成功 %d / 失败 %d", done, failed)
+		if skipped > 0 {
+			base = fmt.Sprintf("成功 %d / 失败 %d / 跳过 %d", done, failed, skipped)
+		}
+		if paused > 0 {
+			base += fmt.Sprintf(" / 暂停依赖 %d", paused)
+		}
+		return base
+	}
 	var b, bFull strings.Builder
-	if failed == 0 {
+	if failed == 0 && skipped == 0 {
 		fmt.Fprintf(&b, "全部 %d 个成功：\n%s\n", done, joinNames(doneNames, 8))
 		fmt.Fprintf(&bFull, "全部 %d 个成功：\n%s\n", done, strings.Join(doneNames, "、"))
 	} else {
-		fmt.Fprintf(&b, "成功 %d / 失败 %d\n", done, failed)
+		fmt.Fprintf(&b, "%s\n", head())
+		fmt.Fprintf(&bFull, "%s\n", head())
 		if len(doneNames) > 0 {
 			fmt.Fprintf(&b, "成功：%s\n", joinNames(doneNames, 5))
-		}
-		fmt.Fprintf(&b, "失败：%s", joinNames(failedNames, 5))
-		fmt.Fprintf(&bFull, "成功 %d / 失败 %d\n", done, failed)
-		if len(doneNames) > 0 {
 			fmt.Fprintf(&bFull, "成功：%s\n", strings.Join(doneNames, "、"))
 		}
-		fmt.Fprintf(&bFull, "失败：%s", strings.Join(failedNames, "、"))
+		if failed > 0 {
+			fmt.Fprintf(&b, "失败：%s\n", joinNames(failedNames, 5))
+			fmt.Fprintf(&bFull, "失败：%s\n", strings.Join(failedNames, "、"))
+		}
+		if skipped > 0 {
+			// 跳过 = 平台已标记「自动更新失败」，需用户手动确认或先停依赖。
+			// 不计入失败（否则每小时一条假失败通知），但必须可见。
+			fmt.Fprintf(&b, "跳过（需手动处理）：%s", joinNames(skippedNames, 5))
+			fmt.Fprintf(&bFull, "跳过（需手动处理）：%s", strings.Join(skippedNames, "、"))
+		}
+	}
+	// 0.6.548：依赖明细两个分支都要追加——「全部成功」时也可能停过依赖方。
+	if dep != nil && len(dep.Stopped) > 0 {
+		fmt.Fprintf(&b, "\n升级期间暂停 %d 个应用（升级完成后已自动恢复）：\n", paused)
+		fmt.Fprintf(&bFull, "\n升级期间暂停 %d 个应用（升级完成后已自动恢复）：\n", paused)
+		for _, s := range dep.Stopped {
+			fmt.Fprintf(&b, "- %s：%s\n", s.App, joinNames(s.Deps, 3))
+			fmt.Fprintf(&bFull, "- %s：%s\n", s.App, strings.Join(s.Deps, "、"))
+		}
+	}
+	if dep != nil && len(dep.Blocked) > 0 {
+		fmt.Fprintf(&b, "\n因依赖占用未更新（需手动处理）：\n")
+		fmt.Fprintf(&bFull, "\n因依赖占用未更新（需手动处理）：\n")
+		for _, s := range dep.Blocked {
+			why := strings.Join(s.Blockers, "、")
+			if len(s.Missing) > 0 {
+				why += "；未允许自动停用：" + strings.Join(s.Missing, "、")
+			}
+			fmt.Fprintf(&b, "- %s（被 %s 占用）\n", s.App, why)
+			fmt.Fprintf(&bFull, "- %s（被 %s 占用）\n", s.App, why)
+		}
 	}
 	failedSet := make(map[string]bool, len(failedNames))
 	for _, n := range failedNames {
 		failedSet[n] = true
 	}
+	skippedSet := make(map[string]bool, len(skippedNames))
+	for _, n := range skippedNames {
+		skippedSet[n] = true
+	}
 	var tb strings.Builder
-	fmt.Fprintf(&tb, "成功 %d / 失败 %d\n\n| 应用 | 结果 |\n| :-- | :-- |\n", done, failed)
-	rows = make([]notify.CardRow, 0, done+failed)
+	fmt.Fprintf(&tb, "%s\n\n| 应用 | 结果 |\n| :-- | :-- |\n", head())
+	rows = make([]notify.CardRow, 0, done+failed+skipped)
 	i := 0
-	for _, n := range append(append([]string{}, doneNames...), failedNames...) {
+	all := append(append(append([]string{}, doneNames...), failedNames...), skippedNames...)
+	for _, n := range all {
 		res := "成功"
 		if failedSet[n] {
 			res = "失败"
+		} else if skippedSet[n] {
+			res = "跳过"
 		}
 		fmt.Fprintf(&tb, "| %s | %s |\n", mdCell(n), res)
 		if i < 8 {
@@ -788,9 +1015,12 @@ func buildAutoUpdateRoundMsg(doneNames, failedNames []string) (content, table st
 		}
 		i++
 	}
-	concise := fmt.Sprintf("成功 %d / 失败 %d", done, failed)
-	if failed == 0 {
+	concise := head()
+	if failed == 0 && skipped == 0 {
 		concise = fmt.Sprintf("全部 %d 个成功", done)
+		if paused > 0 {
+			concise += fmt.Sprintf("（暂停依赖 %d 个，已恢复）", paused)
+		}
 	}
 	variants = &notify.Variants{
 		ContentConcise: concise,
@@ -1873,8 +2103,14 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	if interval <= 0 {
 		interval = 24 // 默认值（与前端默认一致）
 	}
+	depWinStart, depWinEnd := autoUpdateDepWindowOf(s.Cfg.AutoUpdateWindowStart, s.Cfg.AutoUpdateWindowEnd)
 	set := Settings{
 		CheckIntervalHours:  interval,
+		// 0.6.548：依赖策略/白名单/自动停用时段（默认值也要下发，否则前端恒空）。
+		AutoUpdateDepPolicy:   autoUpdateDepPolicyOf(s.Cfg.AutoUpdateDepPolicy),
+		AutoUpdateDepAllow:    append([]string{}, s.Cfg.AutoUpdateDepAllow...),
+		AutoUpdateWindowStart: depWinStart,
+		AutoUpdateWindowEnd:   depWinEnd,
 		Mirror:              s.Cfg.Mirror,
 		MirrorIncludeDirect: s.Cfg.MirrorIncludeDirect,
 		DockerMirror:        s.Cfg.DockerMirror,
@@ -2018,6 +2254,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
 		AutoUpdate *bool `json:"auto_update"`
+		// 0.6.548：自动更新「依赖占用」策略 + 允许自动停用的应用 + 自动停用时段。
+		// 指针语义同 auto_update：nil = 未提交不改动（空串/空数组是合法值）。
+		AutoUpdateDepPolicy   *string   `json:"auto_update_dep_policy"`
+		AutoUpdateDepAllow    *[]string `json:"auto_update_dep_allow"`
+		AutoUpdateWindowStart *string   `json:"auto_update_window_start"`
+		AutoUpdateWindowEnd   *string   `json:"auto_update_window_end"`
 		// 自动纠正上游版本（0.6.326）：nil = 未提交不改动（指针语义，
 		// 同 auto_update，开关允许切回 false）。
 		AutoCorrect *bool `json:"auto_correct"`
@@ -2222,6 +2464,58 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// 0.6.255：面板账号已彻底移除——不再接受/落盘 panel_* 字段。
 	if in.AutoUpdate != nil {
 		s.Cfg.AutoUpdate = *in.AutoUpdate
+	}
+	// 0.6.548：自动更新「依赖占用」策略 / 允许停用名单 / 自动停用时段。
+	// 策略与名单一旦变化立即清 blocked 负缓存——否则用户刚放开某个应用，
+	// 仍要等 2 小时（或目标包换 sha）才会重新尝试。
+	if in.AutoUpdateDepPolicy != nil {
+		p := strings.ToLower(strings.TrimSpace(*in.AutoUpdateDepPolicy))
+		if p != "" && p != depPolicySkip && p != depPolicyNotify && p != depPolicyStop {
+			writeErr(w, http.StatusBadRequest, errors.New("auto_update_dep_policy 只能是 skip / notify / stop"))
+			return
+		}
+		if p != autoUpdateDepPolicyOf(s.Cfg.AutoUpdateDepPolicy) {
+			s.Cfg.AutoUpdateDepPolicy = p
+			s.clearAutoUpdateBlockedSkips()
+		}
+	}
+	if in.AutoUpdateDepAllow != nil {
+		list := make([]string, 0, len(*in.AutoUpdateDepAllow))
+		seen := make(map[string]bool, len(*in.AutoUpdateDepAllow))
+		for _, n := range *in.AutoUpdateDepAllow {
+			n = strings.TrimSpace(n)
+			if n == "" {
+				continue
+			}
+			k := strings.ToLower(n)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			list = append(list, n)
+			if len(list) >= 200 {
+				break
+			}
+		}
+		if !stringSliceEqualFold(list, s.Cfg.AutoUpdateDepAllow) {
+			s.Cfg.AutoUpdateDepAllow = list
+			s.clearAutoUpdateBlockedSkips()
+		}
+	}
+	if in.AutoUpdateWindowStart != nil || in.AutoUpdateWindowEnd != nil {
+		st, en := s.Cfg.AutoUpdateWindowStart, s.Cfg.AutoUpdateWindowEnd
+		if in.AutoUpdateWindowStart != nil {
+			st = *in.AutoUpdateWindowStart
+		}
+		if in.AutoUpdateWindowEnd != nil {
+			en = *in.AutoUpdateWindowEnd
+		}
+		st, en, verr := validateAutoUpdateWindow(st, en)
+		if verr != nil {
+			writeErr(w, http.StatusBadRequest, verr)
+			return
+		}
+		s.Cfg.AutoUpdateWindowStart, s.Cfg.AutoUpdateWindowEnd = st, en
 	}
 	// 0.6.326x：「自动纠正」已并入更新策略（upstream = 强制上游），不再是独立
 	// 开关。旧客户端若仍提交 auto_correct=true，在下面 update_policy 赋值之后

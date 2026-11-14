@@ -296,6 +296,10 @@ func main() {
 	//（appcenter daemon RPC 可达 + config 可读），异常/恢复推送（0.6.121）
 	go srv.StartSelfMonitor(ctx)
 
+	// 0.6.547：升级中途进程被杀/断电时，把当时为升级停掉的依赖方恢复启动
+	// （标记落在 <datadir>/dep_stops.json，正常流程结束时会自行删除）。
+	go srv.SweepDepStops(ctx)
+
 	// 欢迎语（0.6.155）：安装后首次启动自动推送「欢迎使用Moo」一次，
 	// 重启/升级不重复（WelcomeSentAt 持久化）；手动重发走 POST /api/notify/welcome。
 	go srv.MaybeFireWelcome(ctx)

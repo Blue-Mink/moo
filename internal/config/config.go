@@ -138,6 +138,23 @@ type Config struct {
 	// （官方应用走平台 cloud 通道、社区应用走 FPK 升级管线，均保留 @appdata）。
 	// 排除商店自身（moo，防自更新环）。依赖 Moo 服务保持运行。
 	AutoUpdate bool `json:"auto_update,omitempty"`
+	// AutoUpdateDepPolicy 自动更新遇到「依赖占用」时的策略（0.6.548）：
+	// 平台在升级被运行中应用依赖的运行时（nodejs_v22/v24 等）时会拒绝覆盖并
+	// 记 16006 `dependent app not stopped`。此前自动更新只能失败/跳过。
+	//   ""/skip = 保持原样：不碰任何应用，留用户手动处理（默认，零行为变化）
+	//   notify  = 同上跳过，但每轮首次推一条「N 个应用因依赖占用未更新」通知
+	//   stop    = 依赖方全部在 AutoUpdateDepAllow 内且处于免打扰时段内时，
+	//             停用 → 升级 → 自动恢复；任一条不满足则整体跳过（等同 notify）
+	AutoUpdateDepPolicy string `json:"auto_update_dep_policy,omitempty"`
+	// AutoUpdateDepAllow 允许「自动停用」的应用名（daemon appName，比较大小写
+	// 不敏感）。默认空 = 任何应用都不会被自动停用——安全默认，由用户显式勾选；
+	// 只有全部依赖方都在名单内才会动手（部分允许 = 停不完仍会 16006）。
+	AutoUpdateDepAllow []string `json:"auto_update_dep_allow,omitempty"`
+	// AutoUpdateWindowStart / End 免打扰时段（HH:MM，分钟粒度，支持跨零点）。
+	// 空 = 默认 00:00 / 23:59（= 全天不限）。仅 AutoUpdateDepPolicy="stop" 生效：
+	// 只 gate「自动停用依赖」这一步，不改变 CheckIntervalHours 的轮次语义。
+	AutoUpdateWindowStart string `json:"auto_update_window_start,omitempty"`
+	AutoUpdateWindowEnd   string `json:"auto_update_window_end,omitempty"`
 	// HiddenApps 应用级「禁用」（0.6.326 溯源批次）：存卡片 key，上限 500
 	//（同忽略更新/收藏）。语义=从列表/搜索/推荐消失；已安装的禁用卡仍在
 	// 列表（前端按 user_hidden 过滤、已安装 tab 保留，保证可恢复），

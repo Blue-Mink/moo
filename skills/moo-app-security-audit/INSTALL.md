@@ -119,7 +119,7 @@ python3 "$SKILL_DIR/scripts/fpk_audit.py"        # 无参数 = 打印用法（�
 sh "$SKILL_DIR/scripts/install.sh" --list        # 目标清单
 # 接入自检（需有可访问的 Moo）
 curl -s -H "X-Trim-Isadmin: true" -H "X-Moo-Admin: 1" \
-  http://127.0.0.1:13813/app/moo/api/version     # {"trusted":true,...}
+  http://127.0.0.1:<代理端口>/app/moo/api/version     # {"trusted":true,...}
 ```
 
 ## 五、更新与卸载

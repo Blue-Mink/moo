@@ -90,7 +90,7 @@ function Copy-Tree {
     if (Test-Path $Dst) { Remove-Item -LiteralPath $Dst -Recurse -Force }
     New-Item -ItemType Directory -Path $Dst -Force | Out-Null
     Get-ChildItem -LiteralPath $Src -Force | Where-Object {
-        $_.Name -notmatch '^(\.git|\.pushpack.*|__pycache__|node_modules|\.DS_Store)$' -and $_.Name -notlike '*.pyc'
+        $_.Name -notmatch '^(\.git|\.pushpack.*|__pycache__|node_modules|\.DS_Store)$' -and $_.Name -notlike '*.pyc' -and $_.Name -notlike '*.local.md'
     } | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $Dst -Recurse -Force
     }

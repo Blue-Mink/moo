@@ -1,0 +1,64 @@
+[
+  {
+    "stepTitle": "安装向导",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "欢迎使用我们的应用！"
+      },
+      {
+        "type": "text",
+        "field": "wizard_username",
+        "label": "账号",
+        "initValue": "admin",
+        "rules": [
+          {
+            "required": true,
+            "message": "请输入管理员账号"
+          },
+          {
+            "pattern": "^[a-zA-Z0-9_]+$",
+            "message": "账号只能包含字母、数字和下划线"
+          }
+        ]
+      },
+      {
+        "type": "password",
+        "field": "wizard_password",
+        "label": "密码",
+        "rules": [
+          {
+            "required": true,
+            "message": "请输入管理员密码"
+          },
+          {
+            "min": 4,
+            "message": "密码长度不能少于4位"
+          }
+        ]
+      },
+      {
+        "type": "radio",
+        "field": "wizard_base",
+        "label": "Base WebUI 类型",
+        "initValue": "latest",
+        "options": [
+          {
+            "label": "selkies - 新（推荐）",
+            "value": "latest"
+          },
+          {
+            "label": "kasmvnc - 旧",
+            "value": "kasm"
+          }
+        ],
+        "rules": [
+          {
+            "required": true,
+            "message": "请选择 Base WebUI 类型"
+          }
+        ]
+      }
+    ]
+  }
+]

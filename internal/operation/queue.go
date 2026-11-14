@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -18,6 +19,13 @@ const (
 	StateError   = "error"
 )
 
+// Detailer 由错误实现，把结构化细节带到操作终态视图：升级向导缺项、
+// 阻塞升级的运行中依赖等。SSE 客户端据此直接弹窗/给按钮，不必再发一次
+// 探测请求（0.6.5xx：官方 cloud 升级向导）。
+type Detailer interface {
+	ErrorDetail() map[string]any
+}
+
 // View 是操作的可序列化视图（不含锁）。
 type View struct {
 	ID         string    `json:"id"`
@@ -29,6 +37,8 @@ type View struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at,omitempty"`
 	Err        string    `json:"error,omitempty"`
+	// Detail 是失败原因的结构化补充（Detailer 提供）；无则 nil，JSON 省略。
+	Detail map[string]any `json:"detail,omitempty"`
 }
 
 // Op 是一次长操作（内部持有锁）。
@@ -43,6 +53,12 @@ type Op struct {
 	startedAt  time.Time
 	finishedAt time.Time
 	errMsg     string
+	errDetail  map[string]any
+	// errVal 保留原始错误值：StartSync 的调用方（自动更新等）要用
+	// errors.As 判断类型（如平台升级向导必填项 *platform.WizardRequiredError）。
+	// 只存字符串会把类型信息丢掉，判断恒不成立（0.6.542 的「跳过」归类
+	// 因此在真机上从未生效，0.6.544 修）。
+	errVal error
 }
 
 func newOp(kind, target string) *Op {
@@ -72,6 +88,30 @@ func (o *Op) setErr(err string) {
 	o.mu.Unlock()
 }
 
+// setErrDetail 记录失败原因与结构化细节（err 实现 Detailer 时）。
+func (o *Op) setErrDetail(err string, detail map[string]any) {
+	o.mu.Lock()
+	o.state = StateError
+	o.errMsg = err
+	o.errDetail = detail
+	o.finishedAt = time.Now()
+	o.mu.Unlock()
+}
+
+// setErrValue 保留原始错误值（类型判断用；对外 View 仍只暴露字符串）。
+func (o *Op) setErrValue(err error) {
+	o.mu.Lock()
+	o.errVal = err
+	o.mu.Unlock()
+}
+
+// errValue 取原始错误值（无则 nil）。
+func (o *Op) errValue() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.errVal
+}
+
 func (o *Op) setDone() {
 	o.mu.Lock()
 	o.state = StateDone
@@ -87,6 +127,7 @@ func (o *Op) View() View {
 		ID: o.id, Kind: o.kind, Target: o.target,
 		State: o.state, Msg: o.msg, Progress: o.progress,
 		StartedAt: o.startedAt, FinishedAt: o.finishedAt, Err: o.errMsg,
+		Detail: o.errDetail,
 	}
 }
 
@@ -210,7 +251,14 @@ func (q *Queue) run(op *Op, fn RunFn) {
 		err = fmt.Errorf("操作超时（25 分钟）")
 	}
 	if err != nil {
-		op.setErr(err.Error())
+		// 包装过的错误（"依赖 X 安装失败: %w"）也要能取到结构化细节。
+		var d Detailer
+		if errors.As(err, &d) {
+			op.setErrDetail(err.Error(), d.ErrorDetail())
+		} else {
+			op.setErr(err.Error())
+		}
+		op.setErrValue(err)
 	} else {
 		op.setDone()
 	}
@@ -251,6 +299,11 @@ func (q *Queue) StartSync(ctx context.Context, kind, target string, fn RunFn) (V
 		case StateDone:
 			return v, nil
 		case StateError:
+			// 0.6.544：优先返回原始错误值，保留类型——调用方用 errors.As
+			// 判断「升级需先确认向导」等语义；字符串化后类型恒丢失。
+			if ev := op.errValue(); ev != nil {
+				return v, ev
+			}
 			return v, fmt.Errorf("%s", v.Err)
 		}
 		select {

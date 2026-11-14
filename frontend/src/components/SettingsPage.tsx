@@ -28,14 +28,17 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Progress } from "@/components/ui/progress"
-import { Activity, AlertTriangle, ArrowLeft, Archive, Bell, BookOpen, ChevronDown, ChevronRight, Code2, Database, Download, DownloadCloud, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Plus, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowLeft, Archive, Bell, BookOpen, ChevronDown, ChevronRight, Clock, Code2, Database, Download, DownloadCloud, FileText, Folder, FolderDown, HardDrive, Info, Loader2, Pause, Play, Plus, Power, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
+import { depWindowIssue, depWindowSpanMinutes, formatSpanMinutes } from "@/lib/depWindow"
 import SourceManager from './SourceManager'
 import NotifySettingsTab from './NotifySettingsTab'
 import LogSettingsTab from './LogSettingsTab'
 import ReorderList from './ReorderList'
 import GearTimePicker from './GearTimePicker'
+// 0.6.548：自动更新「允许自动停用的应用」白名单勾选弹窗
+import DepAllowPickerDialog from './DepAllowPickerDialog'
 // 0.6.325 C4：已下载 FPK 列表段（含安装向导）抽入独立组件
 import FpkDownloads from './FpkDownloads'
 // 0.6.325 C1：卷显示名优先级（友好名 · /volN → 存储空间 N · /volN）
@@ -55,6 +58,18 @@ const UPDATE_POLICY_DESCS: Record<string, string> = {
   origin: '同一发布仓库的新版本也提示，其他源的同名包不算更新',
   lineage: '同作者或同发布仓库的新版本都提示（覆盖最全）',
   upstream: '已装的搬运应用改用上游原作者的版本；其余应用按「严格」处理（不跨源）',
+};
+
+// 0.6.548：自动更新遇到「依赖方正在运行」时的三档处理策略
+const DEP_POLICY_OPTIONS: { value: 'skip' | 'notify' | 'stop'; label: string }[] = [
+  { value: 'skip', label: '跳过' },
+  { value: 'notify', label: '只提醒' },
+  { value: 'stop', label: '自动停用后升级' },
+];
+const DEP_POLICY_DESCS: Record<'skip' | 'notify' | 'stop', string> = {
+  skip: '保持现状：不碰任何应用，留给你手动处理',
+  notify: '跳过，并在每轮自动更新时提示你手动处理',
+  stop: '停用依赖方 → 升级 → 自动启用回来',
 };
 
 type SettingsTab = 'system' | 'accel' | 'source' | 'backup' | 'notify' | 'log' | 'about';
@@ -778,6 +793,11 @@ const AboutTab: React.FC = () => {
           </p>
           <p>
             感谢{' '}
+            <a href="https://github.com/SwrodKing" target="_blank" rel="noreferrer" className="text-primary hover:underline">@SwrodKing</a>
+            {' '}（早期贡献者），多项体验改进与加速源能力源自他的提交。
+          </p>
+          <p>
+            感谢{' '}
             <a href="https://github.com/kspeeder/docker_kspeeder" target="_blank" rel="noreferrer" className="text-primary hover:underline">KSpeeder</a>
             {' '}项目，Moo「Docker 镜像加速」中的本地镜像缓存加速由它的独立应用提供。
           </p>
@@ -1011,6 +1031,28 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 0.6.326x：「自动纠正」已并入更新策略第四档「强制上游」，不再有独立 state。
   // 已装应用跨源更新策略（0.6.272）：严格/友好/宽松（替换 0.6.269 目录语言入口）
   const [updatePolicy, setUpdatePolicy] = useState<string>('strict');
+  // 0.6.548：自动更新遇到依赖占用时的策略 / 允许自动停用的依赖方 / 自动停用时段
+  // policy 切走再切回时保留名单与时段（不清空），方便用户来回对比
+  const [depPolicy, setDepPolicy] = useState<'skip' | 'notify' | 'stop'>('skip');
+  const [depAllow, setDepAllow] = useState<string[]>([]);
+  const [depWindowStart, setDepWindowStart] = useState('00:00');
+  // 0.6.549：时段改用齿轮选择（与加速源间隔同款），需要 时/分 拆分与回写
+  const parseHM = (v: string): [number, number] => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec((v || '').trim());
+    if (!m) return [0, 0];
+    return [Math.min(23, Number(m[1])), Math.min(59, Number(m[2]))];
+  };
+  const fmtHM = (h: number, m: number) => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  const [depWindowEnd, setDepWindowEnd] = useState('23:59');
+  // 0.6.551（用户令）：时段即时校验——规则实体在 src/lib/depWindow.ts（带单测），
+  // 与后端 internal/api/autoupdate_deps.go validateAutoUpdateWindow 同口径
+  // （HH:MM、开始≠结束、窗口 ≥ 1 小时）。以前只有点「保存」后由后端 400 回一句
+  // toast，滚轮调错要试错一轮才知道；现在改完即红字并拦住保存（后端仍是最终权威）。
+  const depWindowSpanMin = depWindowSpanMinutes(depWindowStart, depWindowEnd);
+  const depWindowRawError = depWindowIssue(depWindowStart, depWindowEnd);
+  // 选择器只在 stop 策略下可见：只有那时才红字 + 拦保存（否则用户看不见、也改不了）。
+  const depWindowError = depPolicy === 'stop' ? depWindowRawError : '';
+  const [depPickerOpen, setDepPickerOpen] = useState(false);
   // 0.6.533（用户令）：自动策略改为开关；关掉时回到上次的手动档（默认 strict）。
   // 0.6.534（用户令）：删除「手动选择策略」折叠胶囊——自动关掉即直接展示四档手动策略。
   const lastManualPolicyRef = useRef<string>('strict');
@@ -1829,6 +1871,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     installVolume,
     autoUpdate,
     updatePolicy,
+    // 0.6.548：依赖占用策略三件套一起纳入脏态比较
+    depPolicy,
+    depAllow,
+    depWindowStart,
+    depWindowEnd,
     backupDir,
     backupAuto,
     backupIntervalDays: String(parseDays(backupIntervalDays, 7)),
@@ -1905,6 +1952,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setAutoUpdate(!!settings.auto_update);
         // 0.6.326x：auto_correct 已并入 update_policy（服务端读旧配置自动迁移）。
         setUpdatePolicy(settings.update_policy || 'strict');
+        // 0.6.548：依赖占用策略 / 允许自动停用的应用 / 自动停用时段
+        setDepPolicy(
+          settings.auto_update_dep_policy === 'stop' || settings.auto_update_dep_policy === 'notify'
+            ? settings.auto_update_dep_policy
+            : 'skip',
+        );
+        setDepAllow(settings.auto_update_dep_allow || []);
+        setDepWindowStart(settings.auto_update_window_start || '00:00');
+        setDepWindowEnd(settings.auto_update_window_end || '23:59');
         // 0.6.534：手动四档的显隐直接由 updatePolicy 派生（非 auto 即显示），不再有独立折叠 state
         if ((settings.update_policy || 'strict') !== 'auto') lastManualPolicyRef.current = settings.update_policy || 'strict';
         loadedUpdatePolicyRef.current = settings.update_policy || 'strict';
@@ -1990,8 +2046,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       toast.error('开启科学加速须先填写代理地址');
       return;
     }
+    // 0.6.551：时段非法时前端先拦——后端同样整单 400，先拦可少一次往返，
+    // 且提示直接指到「自动停用时段」那一行（不在保存失败后让人猜哪里错）。
+    if (depWindowError) {
+      toast.error(depWindowError);
+      return;
+    }
     setSaving(true);
     try {
+      // 0.6.551：时段字段总是成对提交（后端无条件校验）。非 stop 策略时选择器不可见，
+      // 若历史配置本身非法（旧版允许开始=结束），提交空串让后端回默认 00:00–23:59
+      // ——后端本就把「开始=结束」当全天，语义等效，且不会把整张设置卡在 400 上。
+      const winStart = depPolicy !== 'stop' && depWindowRawError ? '' : depWindowStart;
+      const winEnd = depPolicy !== 'stop' && depWindowRawError ? '' : depWindowEnd;
       await updateSettings({
         check_interval_hours: interval,
         mirror,
@@ -2006,6 +2073,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         install_volume: installVolume,
         auto_update: autoUpdate,
         update_policy: updatePolicy,
+        // 0.6.548：依赖占用策略 + 白名单 + 自动停用时段（时段成对提交）
+        auto_update_dep_policy: depPolicy,
+        auto_update_dep_allow: depAllow,
+        auto_update_window_start: winStart,
+        auto_update_window_end: winEnd,
         // 0.6.255：面板账号字段已彻底移除（官方源 = 纯 OAuth）
         // 备份设置（备份目录空串 = 回本机默认数据目录，需显式提交）
         backup_dir: backupDir,
@@ -3255,11 +3327,141 @@ mdsSim && "mds-sim")}>
                         </div>
                       )}
                     </div>
+
+                    {/* 0.6.548：依赖占用策略 —— 仅自动更新开启时显示（关闭即整组隐藏，不显示禁用态） */}
+                    {autoUpdate && (
+                      <>
+                        <div className="border-t border-white/10 pt-3 space-y-2">
+                          <div className="space-y-0.5 min-w-0">
+                            <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                              <Power className="h-3.5 w-3.5 text-muted-foreground" />
+                              依赖被占用时
+                            </label>
+                            <p className="text-xs leading-relaxed text-muted-foreground">
+                              {DEP_POLICY_DESCS[depPolicy]}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {DEP_POLICY_OPTIONS.map((o) => (
+                              <button
+                                key={o.value}
+                                type="button"
+                                onClick={() => setDepPolicy(o.value)}
+                                aria-pressed={depPolicy === o.value}
+                                className={cn(
+                                  'h-8 rounded-full text-xs font-medium transition-colors',
+                                  depPolicy === o.value
+                                    ? 'bg-primary/15 text-primary border border-primary/40'
+                                    : 'bg-muted/60 text-muted-foreground hover:text-foreground border border-transparent',
+                                )}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 0.6.548：允许自动停用的应用白名单 —— 只有「自动停用后升级」档才需要 */}
+                        {depPolicy === 'stop' && (
+                          <div className="border-t border-white/10 pt-3 space-y-2">
+                            <button
+                              type="button"
+                              onClick={() => setDepPickerOpen(true)}
+                              className="flex w-full items-start justify-between gap-3 text-left"
+                            >
+                              <div className="space-y-0.5 min-w-0">
+                                <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                                  <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                                  允许自动停用的应用
+                                  <span className="text-xs font-normal text-muted-foreground">
+                                    ({depAllow.length})
+                                  </span>
+                                </label>
+                                <p className="text-xs leading-relaxed text-muted-foreground">
+                                  只有全部依赖方都在名单里才会动手，否则整体跳过
+                                </p>
+                              </div>
+                              <span className="shrink-0 rounded-full border border-primary/40 bg-primary/15 px-2.5 py-1 text-[11px] font-medium text-primary">
+                                选择
+                              </span>
+                            </button>
+                            {depAllow.length === 0 && (
+                              <p className="text-destructive text-[11px] leading-relaxed">
+                                尚未选择应用，本轮不会自动停用任何应用
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {/* 0.6.549（用户令）：时段改用与加速源间隔同款齿轮选择，不再弹浏览器时间选择器 */}
+                        {depPolicy === 'stop' && (
+                          <div className="border-t border-white/10 pt-3 space-y-2">
+                            <div className="space-y-0.5 min-w-0">
+                              <label className="text-sm font-medium leading-none flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                                自动停用时段
+                              </label>
+                              <p className="text-xs leading-relaxed text-muted-foreground">
+                                仅在该时段内自动停用依赖；跨零点显示「次日」
+                              </p>
+                            </div>
+                            <div
+                              className={cn(
+                                'flex flex-wrap items-center gap-x-3 gap-y-1.5',
+                                // 0.6.551：非法时只加描边提示（ring 不占布局，避免跳动）
+                                depWindowError && 'rounded-lg ring-1 ring-destructive/50',
+                              )}
+                              aria-describedby="dep-window-hint"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="whitespace-nowrap text-[11px] text-muted-foreground">开始</span>
+                                <GearTimePicker
+                                  hours={parseHM(depWindowStart)[0]}
+                                  minutes={parseHM(depWindowStart)[1]}
+                                  onChange={(h, m) => setDepWindowStart(fmtHM(h, m))}
+                                  ariaLabel="自动停用时段开始"
+                                />
+                              </div>
+                              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                                {depWindowStart > depWindowEnd ? '至次日' : '至'}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="whitespace-nowrap text-[11px] text-muted-foreground">结束</span>
+                                <GearTimePicker
+                                  hours={parseHM(depWindowEnd)[0]}
+                                  minutes={parseHM(depWindowEnd)[1]}
+                                  onChange={(h, m) => setDepWindowEnd(fmtHM(h, m))}
+                                  ariaLabel="自动停用时段结束"
+                                />
+                              </div>
+                            </div>
+                            {/* 0.6.551：合法时给时长（跨零点一眼看得出），非法时红字说明原因 */}
+                            {depWindowError ? (
+                              <p id="dep-window-hint" role="alert" className="text-destructive text-[11px] leading-relaxed">
+                                {depWindowError}
+                              </p>
+                            ) : (
+                              <p id="dep-window-hint" className="text-[11px] leading-relaxed text-muted-foreground">
+                                共 {formatSpanMinutes(depWindowSpanMin)}
+                                {depWindowStart > depWindowEnd ? '（跨零点）' : ''}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                   {/* 0.6.326x（用户令）：原独立开关「自动纠正应用更新」已并入
                       「更新策略」做第四档「强制上游」，不再单独渲染；逻辑见
                       internal/api resolveUpdateTargetSelection。 */}
                 </div>
+
+                {/* 0.6.548：允许自动停用的应用白名单勾选弹窗 */}
+                <DepAllowPickerDialog
+                  open={depPickerOpen}
+                  onOpenChange={setDepPickerOpen}
+                  value={depAllow}
+                  onSave={setDepAllow}
+                />
 
                 {/* 商店版本卡片已移除：版本号并入顶部 tab 行最右侧（2026-09-26 用户定稿） */}
 

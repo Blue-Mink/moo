@@ -217,13 +217,12 @@ func (s *Server) appInstallSSE(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
-	var params []platform.WizardParam
-	if qz := r.URL.Query().Get("wizard"); qz != "" {
-		if err := jsonUnmarshal([]byte(qz), &params); err != nil {
-			writeErr(w, http.StatusBadRequest, errors.New("wizard 参数解析失败: "+err.Error()))
-			return
-		}
+	wparams, werr := parseWizardQuery(r)
+	if werr != nil {
+		writeErr(w, http.StatusBadRequest, errors.New("wizard 参数解析失败: "+werr.Error()))
+		return
 	}
+	params := platformWizardParams(wparams)
 	f := sseStart(w)
 	s.sseRunOp(r, w, f, "install", a.Name, func(ctx context.Context, progress func(string, float64)) error {
 		return s.Pipe.InstallWithParams(ctx, srcName, a.Name, params, progress)
@@ -263,18 +262,54 @@ func (s *Server) appStageSSE(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// parseWizardQuery 解析 `?wizard=[{key,value}]`（安装与升级共用同一契约）。
+// query 缺失返回 (nil, nil)。格式错误必须显式报错：此前官方通道静默吞掉
+// 解析失败，用户会在「升级确认」里反复确认、永远升不上去（0.6.5xx 修复）。
+func parseWizardQuery(r *http.Request) ([]panel.WizardParam, error) {
+	qz := r.URL.Query().Get("wizard")
+	if qz == "" {
+		return nil, nil
+	}
+	var params []panel.WizardParam
+	if err := jsonUnmarshal([]byte(qz), &params); err != nil {
+		return nil, err
+	}
+	return params, nil
+}
+
 // panelInstallSSE 官方应用中心 cloud 安装/更新（SSE）。
 func (s *Server) panelInstallSSE(w http.ResponseWriter, r *http.Request, opName string) {
 	ai, _ := s.catalogByKey(r.PathValue("key"))
+	wparams, err := parseWizardQuery(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, errors.New("wizard 参数解析失败: "+err.Error()))
+		return
+	}
 	f := sseStart(w)
 	pparams := parsePanelParams(r)
-	var wparams []panel.WizardParam
-	if qz := r.URL.Query().Get("wizard"); qz != "" {
-		_ = jsonUnmarshal([]byte(qz), &wparams)
-	}
+	// 0.6.547：?stop_deps=1 = 用户已确认「停用依赖方并重试」。
+	// 停用依赖方与恢复都放进同一个升级操作里——关浏览器/SSE 中断也会恢复，
+	// 不再依赖前端内存态（此前只在页面活着时才恢复）。
+	stopDeps := opName == "update" && r.URL.Query().Get("stop_deps") == "1"
 	s.sseRunOp(r, w, f, opName, ai.AppName, func(ctx context.Context, progress func(string, float64)) error {
-		return s.runPanelInstall(ctx, ai.AppName, pparams, wparams, progress)
+		return s.withUpgradeDeps(ctx, ai.AppName, stopDeps, progress, func() error {
+			return s.runPanelInstall(ctx, ai.AppName, pparams, wparams, progress)
+		})
 	})
+}
+
+// platformWizardParams 把面板通道的向导参数转成平台通道的结构（字段一致，
+// 两套类型各自属于 panel / platform 包，这里只做一次显式转换，避免出现
+// 「官方通道解析一份、社区通道又内联解析一份」的双份契约）。
+func platformWizardParams(in []panel.WizardParam) []platform.WizardParam {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]platform.WizardParam, 0, len(in))
+	for _, p := range in {
+		out = append(out, platform.WizardParam{Key: p.Key, Value: p.Value})
+	}
+	return out
 }
 
 // appUpdateSSE POST /api/apps/{key}/update：官方应用走面板 cloud 通道，其余走 FPK 升级管线。
@@ -313,9 +348,21 @@ func (s *Server) appUpdateSSE(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("应用尚未安装"))
 		return
 	}
+	// 0.6.542/0.6.545：社区源升级同样支持「升级确认」——前端收到 wizard_required
+	// 细节后弹窗收集参数，再带 ?wizard=[{key,value}] 重入本端点。
+	// 与官方 cloud 通道共用 parseWizardQuery（只留一份解析/报错契约）。
+	wparams, werr := parseWizardQuery(r)
+	if werr != nil {
+		writeErr(w, http.StatusBadRequest, errors.New("wizard 参数解析失败: "+werr.Error()))
+		return
+	}
+	params := platformWizardParams(wparams)
 	f := sseStart(w)
+	stopDeps := r.URL.Query().Get("stop_deps") == "1"
 	s.sseRunOp(r, w, f, "update", a.Name, func(ctx context.Context, progress func(string, float64)) error {
-		return s.Pipe.InstallWithParams(ctx, srcName, a.Name, nil, progress)
+		return s.withUpgradeDeps(ctx, a.Name, stopDeps, progress, func() error {
+			return s.Pipe.InstallWithParams(ctx, srcName, a.Name, params, progress)
+		})
 	})
 }
 
@@ -3037,7 +3084,13 @@ func (s *Server) sseRunOp(r *http.Request, w http.ResponseWriter, f http.Flusher
 			if msg == "" {
 				msg = "操作失败"
 			}
-			sseSend(w, f, map[string]any{"step": "error", "error": msg})
+			ev := map[string]any{"step": "error", "error": msg}
+			// 0.6.5xx：失败原因的结构化补充（升级向导缺项 / 阻塞依赖）。
+			// 前端凭 detail.kind 决定是弹向导、还是只提示，无需二次探测。
+			if len(st.Detail) > 0 {
+				ev["detail"] = st.Detail
+			}
+			sseSend(w, f, ev)
 			return
 		}
 	}

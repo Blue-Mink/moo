@@ -100,6 +100,7 @@ copy_tree() { # src dst —— 排除 VCS / 推送包 / 缓存
     ( cd "$src" && tar \
         --exclude=.git --exclude='.pushpack*' --exclude=__pycache__ \
         --exclude='*.pyc' --exclude=node_modules --exclude=.DS_Store \
+        --exclude='*.local.md' \
         -cf - . ) | ( cd "$dst" && tar -xf - )
 }
 

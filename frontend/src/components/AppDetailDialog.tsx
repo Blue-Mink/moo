@@ -174,8 +174,12 @@ export const SmallBox: React.FC<{ children: React.ReactNode; maxH?: string; plai
   <div className={cn(
     "overflow-y-auto overscroll-contain no-scrollbar px-4 py-3",
     // 0.6.537（用户令）：关于页更新日志不要「镶嵌式内框」——plain 模式去掉圆角/描边/外边距，
-    // 换成与日志页同款的整卡铺满浅面板（由父卡片 overflow-hidden 收边）。
-    plain ? "bg-zinc-950/[0.045] dark:bg-black/35" : "my-2 rounded-xl border border-border/50 bg-muted/20",
+    // 由父卡片 overflow-hidden 收边、正文整卡铺满。
+    // 0.6.552（用户令）：正文底色与卡片不一致（内层偏暗，深浅色下都看得出分层）→
+    // plain 模式背景改全透明，直接透出父卡片底色，两者完全同色。
+    // 0.6.552（用户令）：详情页保留圆角描边小框，但框内底色改成与主卡片一致——
+    // 去掉 bg-muted/20（偏暗一档的分层感），改为透明，直接透出所在卡片底色。
+    plain ? "bg-transparent" : "my-2 rounded-xl border border-border/50 bg-transparent",
     maxH,
   )}>
     {children}
@@ -1832,16 +1836,17 @@ mdsSim && "mds-sim")}>
           )}
 
           {/* 0.6.337（用户定稿）：安装位置——优先真实落盘（后端扫 /volN/@appcenter
-              与 /var/apps），显示「存储空间 N · /volN」；未安装时回落源声明。 */}
+              与 /var/apps）。
+              0.6.550（用户令）：只显示简洁卷名 `volN`，不再带「存储空间 N · 」前缀。 */}
           {(() => {
             const vol = app.install_volume || 0;
             let loc = '';
-            if (isInstalled && app.install_path && vol > 0) loc = `存储空间 ${vol} · /vol${vol}`;
+            if (isInstalled && app.install_path && vol > 0) loc = `vol${vol}`;
             else if (isInstalled && (app.install_path || '').startsWith('/var/apps/')) loc = '系统空间';
             else {
               const it = installTypeRow(app.install_type);
               if (it && it.label === '安装位置') loc = it.value;
-              else if (isInstalled && (panelInfo?.volume || 0) > 0) loc = `存储空间 ${panelInfo!.volume}`;
+              else if (isInstalled && (panelInfo?.volume || 0) > 0) loc = `vol${panelInfo!.volume}`;
             }
             return loc ? (<DetailRow icon={FolderOpen} label="安装位置">{loc}</DetailRow>) : null;
           })()}
@@ -1980,8 +1985,9 @@ mdsSim && "mds-sim")}>
               <p className="py-2 text-xs text-muted-foreground">{readmeError}</p>
             ) : (
               /* 阅读友好框：上限约 17~20 行（移动端 24rem / 桌面 28rem），
-                 圆角+细边框+浅底区分卡片层，四周留白 px-4 py-3 */
-              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
+                 圆角+细边框勾出阅读区，四周留白 px-4 py-3；
+                 0.6.552（用户令）：框内不再用浅底分层，直接透出卡片底色。 */
+              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 px-4 py-3">
               <div onErrorCapture={handleReadmeImgError} onClick={onRichImageClick} onMouseOver={onRichImageHover} className="markdown-body text-sm leading-relaxed text-foreground/90 prose prose-sm dark:prose-invert max-w-none
                 [&_img]:max-w-full [&_img]:rounded-lg [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_h1]:mt-4 [&_h1]:mb-2 [&_h2]:mt-3 [&_h2]:mb-1.5 [&_h3]:mt-2 [&_h3]:mb-1
                 [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-3 [&_pre]:overflow-x-auto [&_code]:text-xs
@@ -2053,9 +2059,10 @@ mdsSim && "mds-sim")}>
                 )}
               </div>
               {/* 0.6.280（用户定稿）：去掉「展开全部 N 条 / 收起」按钮——更新日志装入 README 同款小框：
-                  圆角+细边框+浅底、固定上限（移动 24rem / 桌面 28rem）；短列表自然缩到内容高度，
-                  长列表框内独立滚动（overscroll-contain 防滚动链外泄），两框外观与行为完全一致 */}
-              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 bg-muted/20 px-4 py-3">
+                  圆角+细边框、固定上限（移动 24rem / 桌面 28rem）；短列表自然缩到内容高度，
+                  长列表框内独立滚动（overscroll-contain 防滚动链外泄），两框外观与行为完全一致。
+                  0.6.552（用户令）：框内底色与主卡片一致（去掉浅底分层）。 */}
+              <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 px-4 py-3">
                 <ChangelogList entries={entries} highlightLatest={app.has_update} />
               </div>
             </>

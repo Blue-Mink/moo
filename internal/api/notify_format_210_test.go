@@ -13,6 +13,7 @@ func TestBuildAutoUpdateRoundMsg(t *testing.T) {
 	c, tb, rows, v := buildAutoUpdateRoundMsg(
 		[]string{"Gitea"},
 		[]string{"1Panel", "nodejs_v22", "nodejs_v24", "python312", "java-21-openjdk"},
+		nil, nil,
 	)
 	want := "成功 1 / 失败 5\n成功：Gitea\n失败：1Panel、nodejs_v22、nodejs_v24、python312、java-21-openjdk"
 	if c != want {
@@ -29,7 +30,7 @@ func TestBuildAutoUpdateRoundMsg(t *testing.T) {
 	}
 
 	// ② 全部成功
-	c2, _, rows2, v2 := buildAutoUpdateRoundMsg([]string{"a", "b"}, nil)
+	c2, _, rows2, v2 := buildAutoUpdateRoundMsg([]string{"a", "b"}, nil, nil, nil)
 	if c2 != "全部 2 个成功：\na、b" { // 尾部换行被 TrimSpace 吃掉
 		t.Fatalf("全成功 content 不符: %q", c2)
 	}
@@ -42,7 +43,7 @@ func TestBuildAutoUpdateRoundMsg(t *testing.T) {
 
 	// ③ 超长列表截断（成功>5 / 失败>5）
 	many := []string{"a", "b", "c", "d", "e", "f", "g"}
-	c3, _, rows3, _ := buildAutoUpdateRoundMsg(many, many)
+	c3, _, rows3, _ := buildAutoUpdateRoundMsg(many, many, nil, nil)
 	if !strings.Contains(c3, "成功：a、b、c、d、e 等 7 个") {
 		t.Fatalf("成功列表应截断: %q", c3)
 	}

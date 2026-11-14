@@ -4,7 +4,7 @@
 `{{SKILL_DIR}}/SKILL.md`，检查清单 `references/audit-checklist.md`，评分口径
 `references/scoring-model.md`。
 
-1. **接入**：连用户自己的 Moo（面板网关 `/app/moo/api`、回环 `127.0.0.1:13813/app/moo/api` 需
+1. **接入**：连用户自己的 Moo（面板网关 `/app/moo/api`、回环 `127.0.0.1:<代理端口>/app/moo/api` 需
    `X-Trim-Isadmin: true` + `X-Moo-Admin: 1`、或直连端口粗探）。三条自检（about / apps / version trusted=true）
    过了才继续。
 2. **定位**：同名卡 >1 张时列表格 + **编号选项 1/2/3**，用户回序号即可（可多选）。

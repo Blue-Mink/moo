@@ -341,6 +341,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/favorites", s.requireAdmin(s.favoritesList))
 	mux.HandleFunc("POST /api/favorites", s.requireAdmin(s.favoriteToggle))
 
+	// 0.6.549：允许自动停用弹窗的「应用 → 依赖的运行时」映射（反查 daemon stop/check，缓存 10 分钟）。
+	mux.HandleFunc("GET /api/auto-update/dep-map", s.requireAdmin(s.autoUpdateDepMap))
 	mux.HandleFunc("GET /api/settings", s.requireAdmin(s.getSettings))
 	mux.HandleFunc("PUT /api/settings", s.requireAdmin(s.putSettings))
 	// 0.6.354：Moo Mate 读取 Moo 的 GitHub token（伴侣专用，见 mate.go）

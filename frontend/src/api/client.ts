@@ -343,6 +343,20 @@ export interface CheckResponse {
   updates_available: number;
 }
 
+/** 失败事件的结构化补充（0.6.5xx：后端 operation.Detailer 提供）。
+ *  目前只有官方 cloud 升级向导缺项一种；未识别的 kind 一律按普通失败处理。 */
+export interface OperationErrorDetail {
+  kind: 'wizard_required' | 'dependency_blocked' | 'license_required' | string;
+  appname?: string;
+  version?: string;
+  /** 缺项的字段标签（与 wizard.content 里的 label 对应）。 */
+  missing?: string[];
+  /** 与 GET /api/apps/{key}/wizard 同形状，直接喂 WizardDialog。 */
+  wizard?: AppWizard;
+  /** dependency_blocked：正在占用目标应用、需要先停用的依赖方。 */
+  blockers?: { appname: string; display_name?: string; status?: string }[];
+}
+
 export interface UpdateProgress {
   type?: string;
   step: string;
@@ -351,6 +365,8 @@ export interface UpdateProgress {
   new_version?: string;
   app?: string;
   error?: string;
+  /** 失败原因的结构化补充（升级向导缺项等）。 */
+  detail?: OperationErrorDetail;
   speed?: number;
   downloaded?: number;
   total?: number;
@@ -370,6 +386,23 @@ export const fetchApps = async (): Promise<AppsResponse> => {
   const response = await apiFetch(apiUrl('/api/apps'));
   if (!response.ok) {
     throw new Error(`Failed to fetch apps: ${response.statusText}`);
+  }
+  return response.json();
+};
+
+/**
+ * 0.6.549：「允许自动停用的应用」弹窗用 —— 应用 → 它依赖的运行时映射。
+ * 平台没有正向接口，后端对已装应用逐个 stop/check 反查后反转，结果缓存 10 分钟。
+ * runtimes: {nodejs_v24: ["app1","app2"]}；apps: {"app1": ["nodejs_v24"]}。
+ */
+export const fetchAutoUpdateDepMap = async (): Promise<{
+  runtimes: Record<string, string[]>;
+  apps: Record<string, string[]>;
+  checked_at?: string;
+}> => {
+  const response = await apiFetch(apiUrl('/api/auto-update/dep-map'));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dep map: ${response.statusText}`);
   }
   return response.json();
 };
@@ -713,8 +746,22 @@ export const fetchInstalledDetail = async (appname: string): Promise<PanelDetail
 // 0.6.255：testPanelLogin（POST /api/panel/test）已随面板账号一并移除。
 // 官方源连接见 officialAuthorize / officialAuthorizeHeadless（OAuth）。
 
-export const updateApp = (appname: string, onEvent: SSECallback): SSEHandle => {
-  return streamSSE(apiUrl(`/api/apps/${appname}/update`), onEvent);
+/** 更新（升级）。官方 cloud 应用若需要升级确认（必填向导字段），
+ *  首次调用会以 error 事件 + detail.wizard_required 返回；前端弹窗收集后
+ *  带 wizard 参数重入本函数（后端 panelInstallSSE 早已解析 ?wizard=）。 */
+export const updateApp = (
+  appname: string,
+  onEvent: SSECallback,
+  wizard?: WizardParam[],
+  // stopDeps：用户已在「依赖占用」弹窗确认「停用并重试」。停用与恢复都由
+  // 后端在同一个升级操作里完成（关浏览器也会恢复），前端不再自己停应用。
+  stopDeps?: boolean,
+): SSEHandle => {
+  const params = new URLSearchParams();
+  if (wizard && wizard.length) params.set('wizard', JSON.stringify(wizard));
+  if (stopDeps) params.set('stop_deps', '1');
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return streamSSE(apiUrl(`/api/apps/${appname}/update${qs}`), onEvent);
 };
 
 export const uninstallApp = (appname: string, onEvent: SSECallback): SSEHandle => {
@@ -782,6 +829,14 @@ export interface Settings {
   catalog_language?: string;
   // 已装应用跨源更新判定策略（0.6.272；0.6.326x 加 upstream=强制上游）：strict（默认）/ origin / lineage / upstream
   update_policy?: string;
+  // 0.6.548：自动更新遇到「依赖方正在运行」时的处理策略 skip（默认）/ notify / stop
+  auto_update_dep_policy?: string;
+  /** 0.6.548：允许自动停用的依赖方（daemon appName）；全部在名单内才动手 */
+  auto_update_dep_allow?: string[];
+  /** 0.6.548：自动停用时段起（HH:MM）；仅在该时段内自动停用依赖 */
+  auto_update_window_start?: string;
+  /** 0.6.548：自动停用时段止（HH:MM） */
+  auto_update_window_end?: string;
   /** 列表去重展示策略（0.6.312 B2）：all（默认）/ merge / one */
   dedup_policy?: string;
   // 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
@@ -1420,7 +1475,7 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; custom_github_mirrors?: string[]; custom_docker_mirrors?: string[]; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; custom_github_mirrors?: string[]; custom_docker_mirrors?: string[]; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; auto_update_dep_policy?: string; auto_update_dep_allow?: string[]; auto_update_window_start?: string; auto_update_window_end?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {

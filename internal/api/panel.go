@@ -586,6 +586,16 @@ func (s *Server) runOfficialUpgrade(ctx context.Context, appName string, wizardP
 	if err := platform.UpgradeCloud(ctx, appName, ia.SourceID, target, params, func(pct float64) {
 		progress(fmt.Sprintf("升级 %s → v%s…", appName, target), pct)
 	}); err != nil {
+		// 结果未知 ≠ 失败：平台在任务完成或预检拒绝后都会回收任务记录
+		// （0.6.342 已为启停修过同一范式，官方升级路径此前漏了这一条）。
+		// 用权威已装列表按版本复核，达标即视为成功。
+		if errors.Is(err, platform.ErrTaskOutcomeUnknown) {
+			if ia2, e2 := platform.SingleInstalled(ctx, appName); e2 == nil && ia2 != nil &&
+				ia2.Version != "" && compareVersions(ia2.Version, target) >= 0 {
+				progress(fmt.Sprintf("%s 已升级到 v%s（任务记录已回收）", appName, target), 100)
+				return nil
+			}
+		}
 		return err
 	}
 	if ia2, err := platform.SingleInstalled(ctx, appName); err == nil && ia2 != nil && ia2.Version != "" {

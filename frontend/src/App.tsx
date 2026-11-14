@@ -18,6 +18,10 @@ import FeaturedShowcase from './components/FeaturedShowcase';
 const AppDetailDialog = React.lazy(() => import('./components/AppDetailDialog'));
 const SettingsPage = React.lazy(() => import('./components/SettingsPage'));
 const WizardDialog = React.lazy(() => import('./components/WizardDialog'));
+// 0.6.5xx：升级「需要人做一步」的两类失败（依赖占用 / 许可协议）
+const UpdateBlockedDialog = React.lazy(() => import('./components/UpdateBlockedDialog'));
+// 懒加载弹窗的兜底边界（chunk 加载失败不能静默，见组件注释）
+import LazyBoundary from './components/LazyBoundary';
 import ThemeToggle from './components/ThemeToggle';
 import MobileDock from './components/MobileDock';
 import FpkDownloads from './components/FpkDownloads';
@@ -29,7 +33,7 @@ import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
 import { installPresenceTracking } from './lib/pagePresence';
-import type { AppInfo, AppOperation, SSECallback, RecommendedApp, AppWizard, WizardParam, PanelDetailResponse, PanelInstallParams } from './api/client';
+import type { AppInfo, AppOperation, SSECallback, RecommendedApp, AppWizard, WizardParam, PanelDetailResponse, PanelInstallParams, OperationErrorDetail } from './api/client';
 import { toast } from "sonner"
 import { Toaster } from "@/components/ui/sonner"
 // 重型对话框懒加载（见上方说明）：按需分包，首屏只加载列表/导航核心。
@@ -155,10 +159,9 @@ const App: React.FC = () => {
   // .catch 不再追加「网络连接失败」误导行。
   const reloadInStreamErrorRef = useRef(false);
   const appOperationsRef = useRef<Map<string, AppOperation>>(new Map());
-  // Keep ref synced with state so guards in event handlers see current value
-  // without forcing them to depend on appOperations (which would re-create
-  // them on every progress update and trigger child re-renders).
-  appOperationsRef.current = appOperations;
+  // 0.6.547：ref 与 state 由 mutateAppOps 同步更新（不再依赖 render）。
+  // 旧写法只在 render 时赋值 → 同一 tick 内连点两次都能穿过守卫，
+  // 造成双提交（真的会安装/升级两遍）。
 
   const [settingsVisible, setSettingsVisible] = useState(false);
   // 0.6.282：设置页深链——关闭时重置 tab 记忆（下次打开默认「系统设置」，同旧行为），
@@ -366,6 +369,17 @@ const App: React.FC = () => {
   // 官方通道：用户在体积/依赖弹窗里确认的参数，向导弹窗确认后随安装一起提交
   // （FPK 通道恒为 null）。
   const [panelWizardParams, setPanelWizardParams] = useState<PanelInstallParams | null>(null);
+  // 0.6.5xx：官方 cloud 升级确认。平台要求填/确认向导字段的版本，首次 update
+  // 会以 error + detail.kind='wizard_required' 返回（后端带完整向导定义）；
+  // 这里独立于安装向导状态，收集后带 ?wizard= 重入 handleUpdate。
+  const [updateWizardApp, setUpdateWizardApp] = useState<AppInfo | null>(null);
+  const [updateWizardDef, setUpdateWizardDef] = useState<AppWizard | null>(null);
+  const [updateWizardMissing, setUpdateWizardMissing] = useState<string[]>([]);
+  // 依赖占用 / 许可协议：同样由弹窗接管（detail.kind 区分）
+  const [updateBlocked, setUpdateBlocked] = useState<{ app: AppInfo; detail: OperationErrorDetail } | null>(null);
+  const [updateBlockedBusy, setUpdateBlockedBusy] = useState(false);
+  // 详情类失败（向导/依赖/许可）已由弹窗接管 → handleUpdate 的 catch 不再重复报错。
+  const updateDetailHandledRef = useRef(false);
   // 0.6.269：源声明的安装向导（moo.json wizard.fields）——先收集、后走 FPK 探测流；
   // 收集值暂存 ref，最终在 runInstall 调用点与 FPK 向导参数合并（?wizard= 契约）。
   const [sourceWizardApp, setSourceWizardApp] = useState<AppInfo | null>(null);
@@ -697,17 +711,34 @@ const App: React.FC = () => {
     setHighlightKey(found.key || found.appname);
   }, [detailApp, searchInput, switchFilter]);
 
-  const setAppOp = useCallback((appname: string, op: AppOperation | null) => {
-    setAppOperations(prev => {
-      const next = new Map(prev);
-      if (op === null) {
-        next.delete(appname);
-      } else {
-        next.set(appname, op);
-      }
-      return next;
+  // mutateAppOps：操作表的唯一写入口——ref 与 state 同时更新，
+  // 事件处理里的守卫才能看到「刚刚提交」的操作（防同 tick 双提交）。
+  const mutateAppOps = useCallback((fn: (m: Map<string, AppOperation>) => Map<string, AppOperation>) => {
+    const next = fn(new Map(appOperationsRef.current));
+    appOperationsRef.current = next;
+    setAppOperations(next);
+  }, []);
+
+  // 命中「同一应用已有操作」时的统一反馈（此前静默 return，用户以为没点动）。
+  // id 固定 → 连点只会刷新同一条提示，不会刷屏。
+  const busyHint = useCallback((app: AppInfo) => {
+    const op = appOperationsRef.current.get(app.appname);
+    const pct = op?.progress ? Math.round(op.progress) : 0;
+    toast.info(`「${app.display_name}」正在处理中${pct > 0 ? `（${pct}%）` : ''}，请稍候`, {
+      id: `busy-${app.appname}`,
     });
   }, []);
+
+  const setAppOp = useCallback((appname: string, op: AppOperation | null) => {
+    mutateAppOps(prev => {
+      if (op === null) {
+        prev.delete(appname);
+      } else {
+        prev.set(appname, op);
+      }
+      return prev;
+    });
+  }, [mutateAppOps]);
 
   const pollForRestart = useCallback(() => {
     // Dedup: createSSEHandler and handleStoreUpdate may both call this.
@@ -978,6 +1009,26 @@ const App: React.FC = () => {
     }
 
     if (data.step === 'error') {
+      // 0.6.5xx：官方 cloud 升级需要「升级确认」（向导必填项）——后端随 error
+      // 事件带 detail.wizard_required（含完整向导定义），这里弹窗收集参数重试，
+      // 不当作失败上报（此前用户只会看到「需要先完成升级确认（必填：xxx）」文本）。
+      if (operation === 'update' && data.detail?.kind === 'wizard_required' && data.detail.wizard) {
+        updateDetailHandledRef.current = true;
+        setAppOp(appname, null);
+        setUpdateWizardApp(app);
+        setUpdateWizardDef(data.detail.wizard);
+        setUpdateWizardMissing(data.detail.missing ?? []);
+        return;
+      }
+      // 依赖占用（平台 16006）/ 许可协议（平台要求交互同意）：给出可执行动作，
+      // 不再是「请先停用后再升级」这句让用户自己去猜的话。
+      if (operation === 'update' && data.detail
+          && (data.detail.kind === 'dependency_blocked' || data.detail.kind === 'license_required')) {
+        updateDetailHandledRef.current = true;
+        setAppOp(appname, null);
+        setUpdateBlocked({ app, detail: data.detail });
+        return;
+      }
       const lastStep = appOperationsRef.current.get(appname)?.step || 'starting';
       toast.error(data.message || data.error || '发生未知错误', {
         duration: 8000, // 带「上报」操作的错误通知留足点击时间，其余通知 3 秒自动消失
@@ -1029,7 +1080,7 @@ const App: React.FC = () => {
   const runInstall = useCallback(async (app: AppInfo, wizard?: WizardParam[], panel?: PanelInstallParams, bypassConflict = false) => {
     const appname = app.appname;
     // Guard: prevent double-trigger overwriting an in-flight operation's cancel handle.
-    if (appOperationsRef.current.has(appname)) return;
+    if (appOperationsRef.current.has(appname)) { busyHint(app); return; }
 
     // 0.6.312 B2：安装冲突（同名组已有已装卡）→ 四分支对话框显式裁决
     //（bypassConflict = 用户在对话框里已裁决「仍要安装」）。
@@ -1062,6 +1113,13 @@ const App: React.FC = () => {
       if (selfUpdateRestartSeenRef.current) {
         return;
       }
+      // 详情类失败已被弹窗接管（createSSEHandler 里置位）：不报错
+      if (updateDetailHandledRef.current) {
+        updateDetailHandledRef.current = false;
+        setAppOp(appname, null);
+        loadApps();
+        return;
+      }
       console.error(error);
       toast.error('安装请求失败', {
         action: {
@@ -1074,11 +1132,9 @@ const App: React.FC = () => {
       loadApps();
     } finally {
       const hadOperation = appOperationsRef.current.has(appname);
-      setAppOperations(prev => {
-        if (!prev.has(appname)) return prev;
-        const next = new Map(prev);
-        next.delete(appname);
-        return next;
+      mutateAppOps(prev => {
+        if (prev.has(appname)) prev.delete(appname);
+        return prev;
       });
       // Skip loadApps during self-update: the server is restarting and the
       // poll-then-reload flow will refresh the entire page anyway.
@@ -1097,7 +1153,7 @@ const App: React.FC = () => {
   const continueInstall = useCallback(async (app: AppInfo) => {
     const pending = pendingSourceParamsRef.current;
     const appname = app.appname;
-    if (appOperationsRef.current.has(appname)) return;
+    if (appOperationsRef.current.has(appname)) { busyHint(app); return; }
     const handler = createSSEHandler(app, 'install');
     const handle = stageApp(appname, handler);
     setAppOp(appname, {
@@ -1159,7 +1215,7 @@ const App: React.FC = () => {
   }, [installConflict, runInstall]);
 
   const handleInstall = useCallback(async (app: AppInfo) => {
-    if (appOperationsRef.current.has(app.appname)) return;
+    if (appOperationsRef.current.has(app.appname)) { busyHint(app); return; }
 
     // 官方应用中心源：走面板 cloud 通道。先拉详情+依赖（依赖弹窗数据），
     // 失败必须提示而不是静默回退（回退到 FPK 通道会 404/死循环，无意义）。
@@ -1189,12 +1245,14 @@ const App: React.FC = () => {
     void continueInstall(app);
   }, [continueInstall]);
 
-  const handleUpdate = useCallback(async (app: AppInfo) => {
+  const handleUpdate = useCallback(async (app: AppInfo, wizard?: WizardParam[], stopDeps?: boolean) => {
     const appname = app.appname;
-    if (appOperationsRef.current.has(appname)) return;
+    if (appOperationsRef.current.has(appname)) { busyHint(app); return; }
 
     const handler = createSSEHandler(app, 'update');
-    const handle = updateApp(appname, handler);
+    // 0.6.547：stopDeps 交给后端在同一个操作里完成「停依赖→升级→恢复」，
+    // 不再由前端逐个 stop（关浏览器/SSE 中断时前端没有机会恢复）。
+    const handle = updateApp(appname, handler, wizard, stopDeps);
     setAppOp(appname, {
       step: 'starting',
       progress: 0,
@@ -1213,11 +1271,23 @@ const App: React.FC = () => {
       if (selfUpdateRestartSeenRef.current) {
         return;
       }
+      // 详情类失败已被弹窗接管（createSSEHandler 里置位）：不报错
+      if (updateDetailHandledRef.current) {
+        updateDetailHandledRef.current = false;
+        setAppOp(appname, null);
+        loadApps();
+        return;
+      }
       console.error(error);
+      // 0.6.5xx：把后端原文带到主提示上（此前 409「没有可更新的更高版本」
+      // 只显示成「更新请求失败」，用户不知道原因；原文只藏在「上报」弹窗里）。
+      const failReason = error instanceof Error && error.message ? error.message : String(error);
       toast.error('更新请求失败', {
+        description: failReason,
+        duration: 8000,
         action: {
           label: '上报',
-          onClick: () => setReportTarget({ app: app.appname, step: 'request', error: error instanceof Error ? error.message : String(error) })
+          onClick: () => setReportTarget({ app: app.appname, step: 'request', error: failReason })
         }
       });
       // 0.6.312：409「没有可更新的更高版本」等即时失败——finally 的
@@ -1226,11 +1296,9 @@ const App: React.FC = () => {
       loadApps();
     } finally {
       const hadOperation = appOperationsRef.current.has(appname);
-      setAppOperations(prev => {
-        if (!prev.has(appname)) return prev;
-        const next = new Map(prev);
-        next.delete(appname);
-        return next;
+      mutateAppOps(prev => {
+        if (prev.has(appname)) prev.delete(appname);
+        return prev;
       });
       if (hadOperation && !selfUpdateActiveRef.current) {
         loadApps();
@@ -1269,11 +1337,9 @@ const App: React.FC = () => {
       });
     } finally {
       const hadOperation = appOperationsRef.current.has(appname);
-      setAppOperations(prev => {
-        if (!prev.has(appname)) return prev;
-        const next = new Map(prev);
-        next.delete(appname);
-        return next;
+      mutateAppOps(prev => {
+        if (prev.has(appname)) prev.delete(appname);
+        return prev;
       });
       if (hadOperation) {
         loadApps();
@@ -2796,6 +2862,62 @@ const App: React.FC = () => {
           }}
         />
         </Suspense>
+      )}
+
+      {/* 0.6.5xx：官方 cloud 升级确认（平台要求确认向导字段）——
+          收集后带 ?wizard= 重入更新；与上面的安装向导状态互不干扰 */}
+      {updateWizardApp && (
+        <LazyBoundary>
+        <Suspense fallback={null}>
+          <WizardDialog
+            appDisplayName={updateWizardApp.display_name}
+            wizard={updateWizardDef}
+            loading={false}
+            mode="update"
+            missing={updateWizardMissing}
+            onCancel={() => {
+              setUpdateWizardApp(null);
+              setUpdateWizardDef(null);
+              setUpdateWizardMissing([]);
+            }}
+            onConfirm={(params) => {
+              const app = updateWizardApp;
+              setUpdateWizardApp(null);
+              setUpdateWizardDef(null);
+              setUpdateWizardMissing([]);
+              void handleUpdate(app, params.length ? params : undefined);
+            }}
+          />
+        </Suspense>
+        </LazyBoundary>
+      )}
+
+      {/* 0.6.5xx：依赖占用 / 许可协议——详情由后端 error.detail 提供 */}
+      {updateBlocked && (
+        <LazyBoundary>
+        <Suspense fallback={null}>
+          <UpdateBlockedDialog
+            appName={updateBlocked.app.display_name}
+            kind={updateBlocked.detail.kind as 'dependency_blocked' | 'license_required'}
+            blockers={updateBlocked.detail.blockers}
+            version={updateBlocked.detail.version}
+            busy={updateBlockedBusy}
+            onClose={() => setUpdateBlocked(null)}
+            onStopAndRetry={
+              updateBlocked.detail.kind === 'dependency_blocked'
+                ? async () => {
+                    // 0.6.547：不在前端逐个停用——后端在升级操作里停用并保证恢复。
+                    const target = updateBlocked;
+                    setUpdateBlockedBusy(true);
+                    setUpdateBlocked(null);
+                    void handleUpdate(target.app, undefined, true);
+                    setUpdateBlockedBusy(false);
+                  }
+                : undefined
+            }
+          />
+        </Suspense>
+        </LazyBoundary>
       )}
 
       {/* 0.6.269：源声明的安装向导（moo.json wizard.fields，键名由应用定义） */}

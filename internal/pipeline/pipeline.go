@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -88,6 +89,14 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 		return fmt.Errorf("该应用没有下载链接")
 	}
 
+	// 0.6.548：社区源升级也做依赖预检（官方 cloud 通道 0.6.547 已有同款）。
+	// 平台拒绝覆盖被运行中应用依赖的运行时目录并记 16006 `dependent app not
+	// stopped`；提前拦截可省一次整包下载，且能让前端按 detail.kind=
+	// dependency_blocked 弹「停用并重试」。预检失败/未装一律忽略（不阻断）。
+	if deps, checked := platform.RunningDependentsForInstalled(ctx, app.Name); checked && len(deps) > 0 {
+		return &platform.DependencyBlockedError{App: app.Name, Blockers: deps}
+	}
+
 	// 1) 本地 FPK（下载/复用不占平台闸门——多个应用可以同时下载）
 	progress("准备安装包…", 2)
 	fpkPath, err := p.ensureFpk(ctx, app, progress)
@@ -159,12 +168,13 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 	progress("读取安装向导…", 20)
 	if params == nil {
 		var missing []string
-		params, missing, err = platform.AutoFillParams(ctx, staged)
+		var wz *platform.AppWizard
+		wz, params, missing, err = platform.AutoFillParamsWithWizard(ctx, staged)
 		if err != nil {
 			return err
 		}
 		if len(missing) > 0 {
-			return fmt.Errorf("以下字段必填且无默认值: %s（请先在飞牛官方应用中心安装该应用并配置）", strings.Join(missing, "、"))
+			return missingWizardErr(staged, wz, missing)
 		}
 	}
 
@@ -211,6 +221,32 @@ func (p *Pipeline) InstallWithParams(ctx context.Context, sourceName, appName st
 	platform.RemoveStagedPackage(staged.Path)
 	progress(fmt.Sprintf("%s完成", what), 100)
 	return nil
+}
+
+// missingWizardErr 把「向导必填项缺值」转成前端能处理的错误。
+//
+// 升级（0.6.542）：返回 *platform.WizardRequiredError，把缺项 + 完整向导定义
+// 带进操作终态 detail（kind=wizard_required）——前端弹「升级确认」收集参数，
+// 再带 ?wizard= 重试。此前这里只有一句 fmt.Errorf，社区源应用升级遇到新增必填
+// 向导时永远失败，提示还让用户「去飞牛官方应用中心安装并配置」——社区源应用在
+// 应用中心里根本没有这个入口。自动更新也据此识别为「需人工确认」而非失败。
+//
+// 新装：保留原文案（安装路径前端已先取 /api/apps/{key}/wizard 收集参数，
+// 走到这里说明探测与暂存之间向导发生了变化，属异常情况）。
+func missingWizardErr(staged *platform.StagedPackage, wz *platform.AppWizard, missing []string) error {
+	if staged.Installed {
+		var content json.RawMessage
+		if wz != nil {
+			content = wz.Content
+		}
+		return &platform.WizardRequiredError{
+			App:     staged.AppName,
+			Version: staged.Version,
+			Missing: missing,
+			Content: content,
+		}
+	}
+	return fmt.Errorf("以下字段必填且无默认值: %s（请先在飞牛官方应用中心安装该应用并配置）", strings.Join(missing, "、"))
 }
 
 // StageOnly 下载（或复用）FPK 并暂存，返回暂存包（供读取向导定义，不安装）。

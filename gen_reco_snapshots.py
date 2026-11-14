@@ -362,6 +362,26 @@ def self_check(apps):
             raise RuntimeError(f"{a['appname']} 图标 base64 解出非 PNG")
 
 
+def _generated_at():
+    """快照时间戳（0.6.551：可复现生成）。
+
+    优先级：--generated-at <ISO8601> > 环境变量 SOURCE_DATE_EPOCH（Unix 秒）
+    > 当前 UTC 时间。给固定时间戳后，同一上游内容重复生成得到逐字节相同的
+    文件——发布流程「先 gen → 提交 → 再构建」才有意义：构建前后对比该文件
+    哈希即可判定「构建自己把树写脏了」（见 build.sh 的树卫生守卫）。
+    """
+    if "--generated-at" in sys.argv:
+        raw = sys.argv[sys.argv.index("--generated-at") + 1].strip()
+        dt = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+    epoch = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
+    if epoch:
+        return datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc)
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 def main():
     out = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "internal/reco/snapshots.json")
@@ -371,8 +391,7 @@ def main():
     apps = [build_conversun(), build_fndepot(), build_fn_knock(), build_moo_mate()]
     self_check(apps)
     doc = {
-        "generated_at": datetime.datetime.now(datetime.timezone.utc)
-        .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": _generated_at().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "generator": "gen_reco_snapshots.py (0.6.314 C)",
         "note": "发现页固定前三推荐完整元数据快照；源删除/抓取失败时回落，"
                 "源恢复后自动切回实时（按当前目录每请求判定，非粘性）。",

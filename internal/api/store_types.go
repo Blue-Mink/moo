@@ -270,6 +270,13 @@ type Settings struct {
 	VolumeOptions       []VolumeOption `json:"volume_options,omitempty"`
 	DownloadDir         string         `json:"download_dir,omitempty"`
 	AutoUpdate          bool           `json:"auto_update"`
+	// 0.6.548：自动更新「依赖占用」策略 / 允许自动停用的应用 / 免打扰时段。
+	// 不带 omitempty：前端据此渲染三态胶囊与时段（skip、00:00-23:59 都是合法值，
+	// omitempty 会把默认值吞成 undefined）。
+	AutoUpdateDepPolicy   string   `json:"auto_update_dep_policy"`
+	AutoUpdateDepAllow    []string `json:"auto_update_dep_allow"`
+	AutoUpdateWindowStart string   `json:"auto_update_window_start"`
+	AutoUpdateWindowEnd   string   `json:"auto_update_window_end"`
 	// AutoCorrect（0.6.326 引入；0.6.326x 起**已弃用**）：语义并入
 	// UpdatePolicy="upstream"（强制上游）。仍透出（不带 omitempty）仅为兼容
 	// 旧前端；保存设置后恒为 false。

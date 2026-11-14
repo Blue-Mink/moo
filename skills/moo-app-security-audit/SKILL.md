@@ -5,7 +5,7 @@ description: "Audit the security posture of third-party apps in the Moo app sour
 
 # Moo 应用安全审核
 
-审核 Moo 应用源（飞牛 fnOS 第三方应用中心）里**非官方第三方应用**的安全性。飞牛官方源（source 标识 `fnos-official`，即「飞牛应用中心」OAuth 源）经平台审核，不在本技能范围。⚠️ **`fnos-store`（conversun/fnos-apps）是社区源、在审计范围内**，勿当官方源。
+审核 Moo 应用源（飞牛 fnOS 第三方应用中心）里**非官方第三方应用**的安全性。飞牛官方源（source 标识 `fnos-official`，即「飞牛应用中心」OAuth 源）经平台审核，不在本技能范围。⚠️ **`fnos-store`（社区聚合源）是社区源、在审计范围内**，勿当官方源。
 
 先定 `SKILL_DIR`（本 SKILL.md 所在目录），工具用绝对路径调用：
 
@@ -29,8 +29,11 @@ Moo 未安装 / 未运行 → 先引导安装并启动（构建、安装、热�
 | 通道 | Base URL | 适用场景 | 说明 |
 |---|---|---|---|
 | **面板网关（推荐）** | `http://<NAS_IP>:5666/app/moo/api` | 任意机器；用户已登录 fnOS 面板 | 网关代理注入管理员身份 → 可信通道；手工 curl 需带面板会话 Cookie |
-| **本机回环 + 调试代理** | `http://127.0.0.1:13813/app/moo/api` | 命令就跑在 NAS 上 | 必须带两个头：`X-Trim-Isadmin: true`、`X-Moo-Admin: 1` |
+| **本机回环 + 调试代理** | `http://127.0.0.1:<代理端口>/app/moo/api` | 命令就跑在 NAS 上 | 必须带两个头：`X-Trim-Isadmin: true`、`X-Moo-Admin: 1` |
 | **直连端口** | `http://<NAS_IP>:38100/api` | 只读粗探 | 非可信通道，敏感读/写一律 **403**，仅够确认版本 |
+
+> 说明：`127.0.0.1` 是回环地址（不暴露任何内网拓扑），`<代理端口>` 以本机 Moo 调试代理
+> 服务的实际监听为准，各部署可能不同；`<NAS_IP>` 一律由用户当场提供，文档里不写死。
 
 ### 3. 接入自检（三条都过才算接通）
 
@@ -72,8 +75,8 @@ curl -s "$BASE/version"      # ③ trusted=true 才可读配置类数据
 
    | # | key | 显示名 | 版本 | 来源 | 已装 | 权限 |
    |---|---|---|---|---|---|---|
-   | 1 | `foo@Blue-Mink` | Foo | 1.2.0 | 社区源 | 否 | 系统空间 |
-   | 2 | `foo@shuangji66` | Foo | 1.1.8 | 搬运源 | 是 | root |
+   | 1 | `foo@source-a` | Foo | 1.2.0 | 社区源 | 否 | 系统空间 |
+   | 2 | `foo@source-b` | Foo | 1.1.8 | 搬运源 | 是 | root |
 
    例外：用户已给出完整 key，或明确要求「全部同名卡都审」，则按其范围执行。
 1. **界定范围**：从全目录剔除飞牛官方源（`fnos-official`，406 卡），得非官方应用集合（含 `fnos-store` 等社区源）。
@@ -133,6 +136,37 @@ python3 "$SKILL_DIR/scripts/fpk_audit.py" <下载的.fpk>
 - **混淆/反分析**：UPX / 加壳特征
 - **数据隐私/外联**：上报端点与遥测行为
 
+#### 3.1 加壳二进制：解不开 ≠ 看不到底
+
+`file` 报 `no section header` + `statically linked`、`strings` 只有壳 stub、
+`upx -d` 报 `NotPacked` / `header corrupted` → **不要就此写「无法审计」**。这类是
+**改头 UPX**（PackHeader 的 version/format 被改过），可用 gdb 两阶段动态 dump 解出主体。
+
+- 完整流程（判型 → 找 stub 跳转点 → 两阶段 dump → 截断判据 → 四重验证 → 解壳后取证）：
+  [references/packed-binary-unpack.md](references/packed-binary-unpack.md)
+- 三个最贵的坑：①断点要用**运行地址**（文件偏移 + 段 VirtAddr），用文件偏移会静默不命中；
+  ②截断不能只按 `PT_LOAD`，要算到**非 NOBITS 节的尾部**；③`grep | head` 看完前几行就断言
+  「无命中」是假阴性——**先统计命中数**。
+- 解壳只把「看不见」变成「可以看」，**不构成安全结论**；评分仍按 M1–M6。解壳需在
+  **隔离环境**做，产物不在生产机执行。
+
+#### 3.2 逆向工具：REA（Agent 驱动的反汇编/逆向 MCP）
+
+上游 <https://github.com/morluto/rea>（MIT，npm `rea-agents`）。解壳之后要追「谁调用了
+`exec`」「数据从哪读到哪发」「Go 二进制的真实依赖」，用它比 `grep` 可靠，且结论自带证据与局限。
+
+```bash
+npx rea-agents setup                     # 给 Agent 注册 MCP + 配套工作流（会备份原配置）
+npx -y rea-agents@latest --help          # 一次性调用
+```
+
+- 需要 Node 22+；原生分析要挂 Hopper / Ghidra / IDA / Kuna 之一（无后端时只能做内置静态检查：
+  Go 模块表、ELF notes、加固标志、PE imports）。
+- 用法、降级方案（`objdump` / `rizin` / `tshark`）与第三方工具纪律：
+  [references/rea-toolkit.md](references/rea-toolkit.md)
+- **纪律**：只在受信目录安装、锁版本、写进报告时带上工具版本与输入 sha256；
+  「工具没发现问题」不得作为上调安全分的理由。
+
 ### 4. 恶意代码与数据破坏专项（M1–M6，必查）
 
 三层分析之外，**每个被审应用都要单独过这六项**，结论写进报告（命中/未命中/无法判断）。
@@ -171,6 +205,8 @@ grep -RnE '/etc/shadow|\.ssh/|id_rsa|Cookies|\.aws/|@appdata/' .
 - [references/audit-checklist.md](references/audit-checklist.md) —— 完整检查清单
 - [references/default-creds.md](references/default-creds.md) —— 弱默认口令库
 - [references/report-template.md](references/report-template.md) —— 八维报告模板
+- [references/packed-binary-unpack.md](references/packed-binary-unpack.md) —— 改头 UPX / 加壳 ELF 的动态 dump 解包流程
+- [references/rea-toolkit.md](references/rea-toolkit.md) —— REA 逆向工具链用法与降级方案
 
 **供应链完整性对比**（搬运源 FPK vs 上游官方 FPK 的二进制 sha256）：
 ```bash
@@ -227,15 +263,15 @@ python3 "$SKILL_DIR/scripts/supply_chain_compare.py" <搬运fpk> <上游官方fp
 
 完整归纳见 [references/risk-patterns.md](references/risk-patterns.md)。核心十条（按严重度排序）：
 
-1. **搬运/供应链放大**（最高）：432 个 appname 被 156 个 fork 源放大到 1605 卡（fntermx 高达 54 源），shuangji66 家族占 47%，任何一环投毒即全链放大。
-2. **root/系统空间安装面**：208 系统空间 + 40 root 卡，`run-as: root` 集中于服务器面板/媒体服务器/网盘挂载。
+1. **搬运/供应链放大**（最高）：单个 appname 可被数十个 fork 源重复打包（实测最高 50+ 源），一个搬运家族即占全目录近半，任何一环投毒即全链放大。
+2. **root/系统空间安装面**：系统空间 + root 卡占比可观，`run-as: root` 集中于服务器面板/媒体服务器/网盘挂载。
 3. **Docker 特权容器**：docker.sock + host 网络 + root，容器逃逸高发。
 4. **回调脚本 root 系统注入**：`cp → /usr/local/bin`、systemd 自启、明文密码写系统脚本。
-5. **弱默认凭据**：Lucky `666`、lxserver `123456`、lunatv `admin_password`。
-6. **持有第三方登录态**：deepseek.harness（会话 token）、loomyproxy（Loomy Cookie）。
-7. **无源码黑盒**：982 卡无 maintainer_url，闭源二进制无法静态审计。
-8. **任意代码执行面**：duanju 上传 .js 接口文件即执行。
-9. **镜像源混杂**：docker.io / ghcr.io / 南大镜像 / 自建 GHCR 并存。
+5. **弱默认凭据**：面板类、命令行类、媒体类均有已知默认值（形态见 [references/default-creds.md](references/default-creds.md)，**不在文档里保留字面值**）。
+6. **持有第三方登录态**：AI 服务 token、电商/网盘类 Cookie 被长期持有，泄露即账号失陷。
+7. **无源码黑盒**：近半卡无 maintainer_url，闭源二进制无法静态审计。
+8. **任意代码执行面**：部分应用支持上传 `.js` 接口文件并由服务端直接执行。
+9. **镜像源混杂**：docker.io / ghcr.io / 镜像站 / 自建 registry 并存。
 10. **当前基线（正面）**：抽样 0 恶意代码（无 curl|sh 注入/挖矿/反弹 shell），风险集中在供应链、权限面、凭据管理。
 
 安装前按四类给出提示：

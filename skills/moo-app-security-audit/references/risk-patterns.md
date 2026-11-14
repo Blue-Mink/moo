@@ -1,14 +1,14 @@
 # Moo 应用生态 · 风险模式归纳（基于 2026-10-17 抽样审核）
 
-> 抽样 18 应用 + 1 索引仓（native 13 / docker 5），覆盖 shuangji66 搬运家族、自打包（有源码）、无源码黑盒、系统空间/root 高风险面。结果：高 2 · 中 6 · 低 10 · **恶意代码 0**。
+> 抽样 18 应用 + 1 索引仓（native 13 / docker 5），覆盖单一搬运家族、自打包（有源码）、无源码黑盒、系统空间/root 高风险面。结果：高 2 · 中 6 · 低 10 · **恶意代码 0**。
 
 ## 生态级数据（2026-10-17）
 
 - 全目录 2164 卡；非官方（排除 fnos-official 飞牛官方源 406 卡）1758 卡（含 fnos-store 社区源 153 卡）
-- 非官方 distinct appname **432**（234 个 appname 被 ≥2 个源打包，fntermx 高达 54 源）
+- 非官方 distinct appname **432**（其中 234 个 appname 被 ≥2 个源打包，最高单名被 50+ 源重复分发）
 - 类型：native 1497 / docker 107
 - 安装类型：存储空间 957 / 系统空间 **208** / root **40** / 未标 378
-- shuangji66 家族（10+ 个 fork 源）合计 **762 卡（47%）**
+- 单一搬运家族（10+ 个 fork 源）合计占全目录 **约 47%**
 - 有源码线索 623 / 无源码黑盒 982
 
 ## 十六大风险模式
@@ -20,12 +20,12 @@
 
 ### 2. root / 系统空间安装面
 
-`run-as: root` 集中在服务器面板/媒体服务器/网盘挂载三类（1panel/embyserver/CloudDrive2/deepseek.harness），均需系统级权限但安装前无显著提示。
+`run-as: root` 集中在三类：服务器面板、媒体服务器、网盘挂载——均需系统级权限，但安装前无显著提示。
 **识别**：`install_type=root` 或 `系统空间`；FPK `config/privilege` `run-as: root`。
 
 ### 3. Docker 特权容器（容器逃逸高发形态）
 
-「Docker 管理型」应用（MoviePilot 类）要求 `docker.sock` 挂载 + `network_mode: host` + `PUID/PGID=0`。
+「Docker 管理型」应用（媒体库/下载器一类）要求 `docker.sock` 挂载 + `network_mode: host` + `PUID/PGID=0`。
 **识别**：docker-compose `privileged: true`、`/var/run/docker.sock`、`network_mode: host`、`cap_add: [ALL/SYS_ADMIN]`。
 
 ### 4. 回调脚本 root 系统注入
@@ -36,17 +36,17 @@
 ### 5. 弱默认凭据 / 硬编码口令
 
 装完即有已知默认口令，未改密即被接管。
-**识别**：`config.go` / `install_callback` 里 `默认口令 666`、`123456`、`admin_password`、`admin/admin_password`。
+**识别**：`config.go` / `install_callback` 里出现「三位纯数字」「六位纯数字」「字段名当口令」等形态的硬编码默认值（具体值比对见 [default-creds.md](default-creds.md)，本文不保留字面值）。
 
 ### 6. 持有第三方登录态 / 会话中继
 
-应用长期持有第三方账号会话（DeepSeek token、Loomy/讯飞 HttpOnly Cookie），泄露即账号失陷。
+应用长期持有第三方账号会话（AI 服务 token、电商/网盘类 HttpOnly Cookie），泄露即账号失陷。
 **识别**：描述/文档提及「登录态迁移」「会话 cookie」；源码持有 token/cookie 持久化。
 
 ### 7. 无源码黑盒（闭源二进制）
 
 982 张卡无 maintainer_url，只能 FPK 解包，二进制内部行为无法静态审计。
-**识别**：详情 `maintainer_url` 缺失；FPK 内是闭源二进制（emby-server/clouddrive/server.js）。
+**识别**：详情 `maintainer_url` 缺失；FPK 内是闭源二进制（无符号 ELF / 打包后的 JS 单文件）。
 
 ### 8. 任意代码执行面
 
@@ -55,13 +55,15 @@
 
 ### 9. 镜像源混杂（供应链镜像不可见）
 
-docker 镜像来自 docker.io / ghcr.io / 南大镜像 ghcr.nju.edu.cn / 自建 GHCR，来源与更新不可见。
-**识别**：docker-compose `image:` 指向非官方 registry。
+docker 镜像来自 docker.io / ghcr.io / 公共镜像站 / 自建 registry，来源与更新不可见。
+**识别**：docker-compose `image:` 指向非官方 registry 或第三方镜像站。
 
 ### 10. UPX 加壳 / 混淆（反静态分析，对应「混淆/反分析」维度）
 
 二进制经 UPX 或自定义壳压缩/混淆，strings/grep 只能看到壳 stub 与极少量常量，默认口令逻辑、更新下载地址、外联地址等关键字符串全部不可见，搬运者是否夹带无法静态确认。
-**识别**：`file` 报 `no section header` + `statically linked`；strings 见 `upx.sf.net`；`no section header` 是强信号。lucky 2.27.2 即典型（官方原版也 UPX，但搬运源叠加后供应链更不可信）。
+**识别**：`file` 报 `no section header` + `statically linked`；strings 见 `upx.sf.net`；`no section header` 是强信号。官方原版也可能 UPX，搬运源叠加后供应链更不可信。
+**跟进**：改头变种（`upx -d` 报 `NotPacked` / `header corrupted`）可用动态 dump 解包后再取证，
+见 [packed-binary-unpack.md](packed-binary-unpack.md)；解壳只提高可见度，**不等于安全**。
 
 ### 11. 数据外联 / 遥测（对应「数据隐私/外联」维度）
 
@@ -70,7 +72,7 @@ docker 镜像来自 docker.io / ghcr.io / 南大镜像 ghcr.nju.edu.cn / 自建 
 
 ### 12. 正面观察（当前生态基线）
 
-抽样样本打包脚本/源码**未发现** `curl|sh` 管道注入、base64 混淆、反弹 shell、挖矿矿池等明显恶意模式。当前生态整体恶意率低，风险集中在供应链、权限面与凭据管理，而非显式恶意代码。mi-paiai 的 compose 加固（read_only/cap_drop ALL/no-new-privileges/tmpfs）是正面范例。
+抽样样本打包脚本/源码**未发现** `curl|sh` 管道注入、base64 混淆、反弹 shell、挖矿矿池等明显恶意模式。当前生态整体恶意率低，风险集中在供应链、权限面与凭据管理，而非显式恶意代码。个别样本的 compose 已做加固（read_only / cap_drop ALL / no-new-privileges / tmpfs），可作正面范例。
 
 ### 13. 木马 / 后门（M2，硬失败）
 

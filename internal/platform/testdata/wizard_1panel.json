@@ -1,0 +1,45 @@
+[
+    {
+        "stepTitle": "初始化账号密码",
+        "items": [
+			{
+				"type": "text",
+				"helpText": "设置安全入口",
+				"field": "wizard_entrance",
+				"label":"设置安全入口",
+				"rules": [{
+					"required": true,
+					"message":"面板安全入口仅支持字母、数字、下划线，长度 3-30 位",
+					"min": 3,
+					"max": 30,
+					"pattern":"^[a-zA-Z0-9_]{3,30}$"
+				}]
+			},
+			{
+				"type": "text",
+				"helpText": "初始化用户名",
+				"field": "wizard_username",
+				"label":"输入用户名",
+				"rules": [{
+					"required": true,
+					"message":"面板用户仅支持字母、数字、下划线，长度 3-30 位",
+					"min": 3,
+					"max": 30,
+					"pattern":"^[a-zA-Z0-9_]{3,30}$"
+				}]
+			},
+			{
+				"type": "text",
+				"field": "wizard_password",
+				"label":"输入密码",
+				"rules": [{
+					"required": true,
+					"message":"面板密码仅支持字母、数字、特殊字符（!@#$%*_,.?），长度 8-30 位",
+					"min": 8,
+					"max": 30,
+					"pattern":"^[a-zA-Z0-9_!@#$%*,.?]{8,30}$"
+				}]
+			}
+        ]
+    }
+]

@@ -21,6 +21,10 @@ interface WizardDialogProps {
   loading: boolean;
   onCancel: () => void;
   onConfirm: (params: WizardParam[]) => void;
+  /** 0.6.5xx：升级确认复用同一弹窗（标题「升级 X」、末页按钮「开始升级」）。 */
+  mode?: 'install' | 'update';
+  /** 升级时平台缺的必填项标签（展示在标题下，让人知道为什么要填）。 */
+  missing?: string[];
 }
 
 /**
@@ -46,7 +50,10 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
   loading,
   onCancel,
   onConfirm,
+  mode = 'install',
+  missing,
 }) => {
+  const isUpdate = mode === 'update';
   const steps = useMemo<WizardStep[]>(() => wizard?.content ?? [], [wizard]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -125,7 +132,7 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
       <DialogContent className="rounded-[18px] max-w-[calc(100vw-1.5rem)] sm:max-w-md max-h-[calc(100dvh-2rem)] flex flex-col border-border/20 shadow-appstore bg-card">
         <DialogHeader className="shrink-0">
           <div className="flex items-center justify-between gap-3 pr-6">
-            <DialogTitle>安装 {appDisplayName}</DialogTitle>
+            <DialogTitle>{isUpdate ? '升级' : '安装'} {appDisplayName}</DialogTitle>
             {isMulti && (
               <span className="shrink-0 rounded-full bg-muted/80 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
                 {page + 1} / {steps.length}
@@ -135,13 +142,20 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
           {isMulti && curTitle && (
             <p className="text-xs text-muted-foreground">{curTitle}</p>
           )}
+          {isUpdate && !loading && (
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {missing && missing.length
+                ? `新版本需要先确认：${missing.join('、')}`
+                : '新版本需要先确认安装设置，确认后开始升级。'}
+            </p>
+          )}
         </DialogHeader>
 
         {loading ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="text-xs text-muted-foreground text-center leading-relaxed">
-              正在读取安装向导…
+              正在读取{isUpdate ? '升级' : '安装'}向导…
             </p>
           </div>
         ) : (
@@ -317,7 +331,7 @@ const WizardDialog: React.FC<WizardDialogProps> = ({
                 </Button>
               )}
               <Button onClick={next} disabled={loading}>
-                {isLast ? '安装' : '下一页'}
+                {isLast ? (isUpdate ? '开始升级' : '安装') : '下一页'}
               </Button>
             </div>
           </div>

@@ -63,7 +63,22 @@ const (
 	// 常见于重复安装/任务进行中（用户看到的「错误代码 10500」就是它）。
 	daemonCodeStatusUnsupported = 10500
 	daemonCodeWizardRequired    = 19000
+	// daemonCodeDependentRunning 平台「依赖方未停用」：升级 nodejs 这类被
+	// 运行中应用依赖的运行时会被拒绝（error.log: dependent app not stopped）。
+	daemonCodeDependentRunning = 16006
 )
+
+// isDeterministicReject 判断该错误码是否属于「平台已明确拒绝」。
+// 这类拒绝之后平台会立刻回收任务记录，继续轮询只会把真实原因等成
+// 「任务不再持有」，所以同一 code 连续出现就必须提前定论。
+func isDeterministicReject(code int) bool {
+	switch code {
+	case daemonCodeValidation, daemonCodePackageMissing,
+		daemonCodeStatusUnsupported, daemonCodeDependentRunning, daemonCodeWizardRequired:
+		return true
+	}
+	return false
+}
 
 // daemonCodeHint 把平台错误码翻成用户能看懂的一句话（0.6.398）。
 // 此前 10500 会以「app center 返回错误 10500 (…)」原样弹出，
@@ -78,6 +93,8 @@ func daemonCodeHint(code int) string {
 		return "缺少安装向导必填参数"
 	case daemonCodeValidation:
 		return "参数校验失败"
+	case daemonCodeDependentRunning:
+		return "依赖该应用的其他应用正在运行，请先停用它们"
 	}
 	return ""
 }
@@ -108,6 +125,111 @@ func (e *DaemonError) Error() string {
 		return fmt.Sprintf("app center 返回错误 %d: %s", e.Code, msg)
 	}
 	return fmt.Sprintf("app center 返回错误 %d (%s)", e.Code, e.Path)
+}
+
+// WizardRequiredError 表示升级向导存在必填项，而调用方没有提供（也无默认值）。
+// 平台会以 19000「wizard required field ... not found」拒绝，且**拒绝后立刻
+// 回收任务记录**——若只靠轮询 common/status，错误会被吞成「任务不再持有」。
+// 上层用 errors.As 取出缺项与向导定义，交给用户确认后带 customParameters 重试。
+type WizardRequiredError struct {
+	App     string
+	Version string
+	Missing []string
+	Content json.RawMessage
+}
+
+func (e *WizardRequiredError) Error() string {
+	return fmt.Sprintf("%s v%s 需要先完成升级确认（必填：%s）",
+		e.App, e.Version, strings.Join(e.Missing, "、"))
+}
+
+// ErrorDetail 把缺项与完整向导定义带到操作终态（operation.Detailer）：
+// 前端据此复用安装向导弹窗收集参数，再带 customParameters 重试升级——
+// 不需要新增 `/update-wizard` 端点，也不必为了「探测向导」先下载目标包。
+func (e *WizardRequiredError) ErrorDetail() map[string]any {
+	wizard := map[string]any{
+		"appname":    e.App,
+		"version":    e.Version,
+		"has_wizard": true,
+	}
+	if len(e.Content) > 0 {
+		var content any
+		if err := json.Unmarshal(e.Content, &content); err == nil {
+			wizard["content"] = content
+		}
+	}
+	return map[string]any{
+		"kind":    "wizard_required",
+		"appname": e.App,
+		"version": e.Version,
+		"missing": e.Missing,
+		"wizard":  wizard,
+	}
+}
+
+// DepBlocker 是一个正在运行、阻塞升级的依赖方（平台 16006 的成因）。
+type DepBlocker struct {
+	AppName     string `json:"appName"`
+	DisplayName string `json:"displayName"`
+	Status      string `json:"status"`
+}
+
+// DependencyBlockedError 表示目标应用被运行中的依赖方占用：
+// 平台拒绝覆盖正在被使用的运行时目录。只能由用户先停用依赖方。
+type DependencyBlockedError struct {
+	App      string
+	Blockers []DepBlocker
+}
+
+func (e *DependencyBlockedError) Error() string {
+	names := make([]string, 0, len(e.Blockers))
+	for _, b := range e.Blockers {
+		n := b.DisplayName
+		if n == "" {
+			n = b.AppName
+		}
+		names = append(names, n)
+	}
+	return fmt.Sprintf("%s 正被 %s 使用，请先停用后再升级", e.App, strings.Join(names, "、"))
+}
+
+// ErrorDetail 把「谁在占用」带到前端（operation.Detailer）：弹窗逐条列出，
+// 用户确认后可一键停用这些依赖方并重试升级，不必自己去找应用。
+func (e *DependencyBlockedError) ErrorDetail() map[string]any {
+	blockers := make([]map[string]any, 0, len(e.Blockers))
+	for _, b := range e.Blockers {
+		blockers = append(blockers, map[string]any{
+			"appname":      b.AppName,
+			"display_name": b.DisplayName,
+			"status":       b.Status,
+		})
+	}
+	return map[string]any{
+		"kind":     "dependency_blocked",
+		"appname":  e.App,
+		"blockers": blockers,
+	}
+}
+
+// LicenseRequiredError 表示该版本要求接受许可协议（wizardInfo.hasLicense）。
+// Moo 不代用户同意许可，需引导到应用中心完成。
+type LicenseRequiredError struct {
+	App     string
+	Version string
+}
+
+func (e *LicenseRequiredError) Error() string {
+	return fmt.Sprintf("%s v%s 需要先接受许可协议，请在应用中心完成后再更新", e.App, e.Version)
+}
+
+// ErrorDetail：许可协议只能在应用中心交互确认（daemon 已带 agreedToProtocol=true
+// 仍被拒），因此前端给「去应用中心」指引，不做自动重试。
+func (e *LicenseRequiredError) ErrorDetail() map[string]any {
+	return map[string]any{
+		"kind":    "license_required",
+		"appname": e.App,
+		"version": e.Version,
+	}
 }
 
 type rpcEnvelope struct {
@@ -161,6 +283,13 @@ func daemonCallMethod(ctx context.Context, method, path string, body any, out an
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 	if env.Code != 0 {
+		// 平台在「任务已接受但预检失败」时会用非 0 code 返回，同时 Data 里
+		// 仍带着 Status 对象（实测 common/status：code=19000 + Data{status:1}，
+		// 每秒一条）。这里 best-effort 解析一次 Data，让轮询方能看到任务态；
+		// 调用方仍以返回的 *DaemonError 为准（所有调用点都先判 err）。
+		if out != nil && len(env.Data) > 0 {
+			_ = json.Unmarshal(env.Data, out)
+		}
 		return &DaemonError{Path: path, Code: env.Code, Msg: env.Msg}
 	}
 	if out != nil && len(env.Data) > 0 {
@@ -314,6 +443,9 @@ type wizardInfo struct {
 	InstalledVolumeID int             `json:"installedVolumeID"`
 	HasWizard         bool            `json:"hasWizard"`
 	WizardContent     json.RawMessage `json:"wizardContent"`
+	// HasLicense 平台返回的「需要接受许可协议」标记（0.6.5xx）。
+	// 此前未解析：遇到需要许可的版本时平台报错但无法给出可读原因。
+	HasLicense bool `json:"hasLicense"`
 }
 
 type infoResponse struct {
@@ -365,18 +497,26 @@ func FetchWizard(ctx context.Context, staged *StagedPackage) (*AppWizard, error)
 // 返回填充后的参数与缺失的必填字段清单（无向导时为空参数、无缺失）。
 // 供安装路径统一使用：必填无默认 → 调用方明确报错而非 daemon 19000。
 func AutoFillParams(ctx context.Context, staged *StagedPackage) ([]WizardParam, []string, error) {
+	_, params, missing, err := AutoFillParamsWithWizard(ctx, staged)
+	return params, missing, err
+}
+
+// AutoFillParamsWithWizard 同 AutoFillParams，但同时把向导定义带回来。
+// 升级路径缺必填项时，调用方需要用 Content 构造 WizardRequiredError，
+// 让前端直接弹「升级确认」收集参数（社区源升级与官方 cloud 通道同款契约）。
+func AutoFillParamsWithWizard(ctx context.Context, staged *StagedPackage) (*AppWizard, []WizardParam, []string, error) {
 	w, err := FetchWizard(ctx, staged)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if !w.HasWizard || len(w.Content) == 0 {
-		return []WizardParam{}, nil, nil
+		return w, []WizardParam{}, nil, nil
 	}
 	params, missing, err := AutoFillWizardParams(w.Content)
 	if err != nil {
-		return nil, nil, err
+		return w, nil, nil, err
 	}
-	return params, missing, nil
+	return w, params, missing, nil
 }
 
 // AutoFillWizardParams 用向导声明的 initValue 自动填充参数；
@@ -422,6 +562,52 @@ func AutoFillWizardParams(content json.RawMessage) (params []WizardParam, missin
 	return params, missing, nil
 }
 
+// unsatisfiedRequired 返回「必填、且调用方没有提供值」的字段。
+// 有 initValue 的字段由 AutoFillWizardParams 自动填充，不算缺；
+// 勾选类字段（同意兼容性/备份说明）没有 initValue，必须由用户提供。
+func unsatisfiedRequired(content json.RawMessage, provided []WizardParam) []string {
+	if len(content) == 0 {
+		return nil
+	}
+	have := make(map[string]bool, len(provided))
+	for _, p := range provided {
+		if strings.TrimSpace(p.Value) != "" {
+			have[p.Key] = true
+		}
+	}
+	var steps []struct {
+		Items []struct {
+			Type      string `json:"type"`
+			Field     string `json:"field"`
+			InitValue string `json:"initValue"`
+			Rules     []struct {
+				Required bool `json:"required"`
+			} `json:"rules"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(content, &steps); err != nil {
+		return nil
+	}
+	var missing []string
+	for _, st := range steps {
+		for _, it := range st.Items {
+			if it.Type == "tips" || it.Field == "" || have[it.Field] {
+				continue
+			}
+			if strings.TrimSpace(it.InitValue) != "" {
+				continue
+			}
+			for _, r := range it.Rules {
+				if r.Required {
+					missing = append(missing, it.Field)
+					break
+				}
+			}
+		}
+	}
+	return missing
+}
+
 // ---------------------------------------------------------------------------
 // 任务轮询
 // ---------------------------------------------------------------------------
@@ -445,7 +631,84 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 const (
 	taskPollOutageBudget = 90 * time.Second
 	taskPollInterval     = 1 * time.Second
+	// 官方云升级的分段预算（0.6.5xx）。操作队列有 25 分钟硬超时
+	// （operation/queue.go），内部预算之和必须留余量：此前 下载 10min +
+	// 等待 15min 正好等于 25min，大包或慢网时外层先超时，错误被降级成
+	// 「过程中断开连接」，真实原因（下载慢/平台任务仍在跑）全部丢失。
+	upgradeDownloadBudget = 8 * time.Minute
+	upgradeWaitBudget     = 12 * time.Minute
 )
+
+// UpgradeDeps 返回「依赖目标应用且正在运行」的应用清单。
+// 平台升级被依赖的运行时（nodejs_v22/v24）时会拒绝覆盖其目录并记
+// `dependent app not stopped`（code 16006）。该检查只用 stop/check，
+// 不依赖安装包，可以放在下载之前，避免白下载一整包。
+func UpgradeDeps(ctx context.Context, appname string) ([]DepBlocker, error) {
+	var chk struct {
+		DependentApps struct {
+			IsDependency   bool         `json:"isDependency"`
+			DependencyApps []DepBlocker `json:"dependencyApps"`
+		} `json:"dependentApps"`
+	}
+	if err := daemonCall(ctx, routeStopCheck, map[string]any{"appName": appname}, &chk); err != nil {
+		return nil, err
+	}
+	out := make([]DepBlocker, 0, len(chk.DependentApps.DependencyApps))
+	for _, d := range chk.DependentApps.DependencyApps {
+		switch d.Status {
+		case "running", "start", "starting":
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// DependentApps 返回应用的全部依赖方（不过滤状态，含 stopped）（0.6.549）。
+//
+// 「允许自动停用的应用」弹窗要显示「这个应用依赖哪个运行时」，但平台没有
+// 正向查询接口：只能对每个已装应用 stop/check 反查，再把 runtime→apps 反转。
+// isDep=false 表示该应用不是被依赖方（无依赖方）。
+func DependentApps(ctx context.Context, appname string) (deps []DepBlocker, isDep bool, err error) {
+	var chk struct {
+		DependentApps struct {
+			IsDependency   bool         `json:"isDependency"`
+			DependencyApps []DepBlocker `json:"dependencyApps"`
+		} `json:"dependentApps"`
+	}
+	if err := daemonCall(ctx, routeStopCheck, map[string]any{"appName": appname}, &chk); err != nil {
+		return nil, false, err
+	}
+	return chk.DependentApps.DependencyApps, chk.DependentApps.IsDependency, nil
+}
+
+// RunningDependentsForInstalled 「已装应用」才返回运行中的依赖方（0.6.548）。
+//
+// 社区 FPK 通道此前没有依赖预检：升级被依赖的运行时（nodejs_v22/v24）时，
+// 平台先下载整包再以 16006 拒绝，前端只看到裸错误、弹不出「停用并重试」。
+// checked=false 表示「未安装」或「预检失败」——调用方一律忽略，不阻断升级
+//（不因 daemon 抖动误伤正常安装）。
+func RunningDependentsForInstalled(ctx context.Context, appName string) (deps []DepBlocker, checked bool) {
+	list, err := ListInstalled(ctx)
+	if err != nil {
+		return nil, false
+	}
+	// daemon appName 与源 feed 的 name 大小写/别名可能不一致（0.6.208 同款问题）。
+	daemonName := ""
+	for _, a := range list {
+		if strings.EqualFold(a.AppName, appName) {
+			daemonName = a.AppName
+			break
+		}
+	}
+	if daemonName == "" {
+		return nil, false
+	}
+	deps, err = UpgradeDeps(ctx, daemonName)
+	if err != nil {
+		return nil, false
+	}
+	return deps, true
+}
 
 // WaitTask 轮询 daemon 任务至终态。区分：成功 / 确定失败 / ErrTaskOutcomeUnknown。
 func WaitTask(ctx context.Context, taskID, what string, budget time.Duration, onProgress func(float64)) error {
@@ -454,12 +717,30 @@ func WaitTask(ctx context.Context, taskID, what string, budget time.Duration, on
 	}
 	deadline := time.Now().Add(budget)
 	var outageStart time.Time
+	// lastReject 记住最近一次「确定性拒绝」：平台在预检拒绝后立刻回收任务
+	// 记录，不记住它就只能报「已不再持有任务」（实测 motrix 19000、
+	// nodejs_v22/v24 16006 都是这条路径）。
+	var lastReject *DaemonError
+	rejectStreak := 0
 	for time.Now().Before(deadline) {
 		var st taskStatus
 		err := daemonCall(ctx, routeCommonStatus, map[string]any{"taskId": taskID}, &st)
 		if err != nil {
 			if ctx.Err() != nil {
 				return fmt.Errorf("%w: %s过程中断开与 app center 的连接", ErrTaskOutcomeUnknown, what)
+			}
+			var de *DaemonError
+			if errors.As(err, &de) && isDeterministicReject(de.Code) {
+				if lastReject != nil && lastReject.Code == de.Code {
+					rejectStreak++
+				} else {
+					lastReject, rejectStreak = de, 1
+				}
+				// 实测平台每秒回一次同样的拒绝；3 次即可定论，
+				// 不必陪跑到任务记录被回收（那还会刷爆平台 error.log）。
+				if rejectStreak >= 3 {
+					return fmt.Errorf("%s失败: %w", what, de)
+				}
 			}
 			if outageStart.IsZero() {
 				outageStart = time.Now()
@@ -481,6 +762,11 @@ func WaitTask(ctx context.Context, taskID, what string, budget time.Duration, on
 				onProgress(st.Progress)
 			}
 		case daemonStatusUnknownTask:
+			// 任务记录被回收：若此前出现过确定性拒绝，真实原因是那次拒绝。
+			// 报成「任务丢失」会把用户与排障者引向完全错误的方向。
+			if lastReject != nil {
+				return fmt.Errorf("%s失败: %w", what, lastReject)
+			}
 			return fmt.Errorf("%w: app center 已不再持有该%s任务", ErrTaskOutcomeUnknown, what)
 		default:
 			detail := st.Message
@@ -599,6 +885,14 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 	if sourceID == "" {
 		return fmt.Errorf("%s 缺少应用中心 sourceID，无法走官方通道升级", appName)
 	}
+	// 依赖预检（0.6.5xx）：平台拒绝覆盖被运行中应用依赖的运行时目录
+	// （error.log: dependent app not stopped / code 16006）。放在下载之前，
+	// 省一次整包下载。stop/check 自身失败不阻断升级（不因预检故障误伤）。
+	if deps, derr := UpgradeDeps(ctx, appName); derr != nil {
+		log.Printf("[upgrade] %s 依赖预检失败（忽略，继续）: %v", appName, derr)
+	} else if len(deps) > 0 {
+		return &DependencyBlockedError{App: appName, Blockers: deps}
+	}
 	if customParams == nil {
 		customParams = []WizardParam{}
 	}
@@ -624,7 +918,7 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 		return fmt.Errorf("启动官方下载失败: %w", err)
 	}
 	dlDone := false
-	deadline := time.Now().Add(10 * time.Minute)
+	deadline := time.Now().Add(upgradeDownloadBudget)
 	transient := 0
 	for time.Now().Before(deadline) {
 		var st stageStatus
@@ -670,6 +964,25 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 	if volume <= 0 && info.WizardInfo.InstalledType != "root" {
 		return fmt.Errorf("无法确定 %s 当前所在存储卷，已中止升级以保护数据", appName)
 	}
+	// 许可协议（0.6.5xx）：平台用 hasLicense 表示该版本要求接受许可，
+	// Moo 不代用户同意，引导到应用中心完成。
+	if info.WizardInfo.HasLicense && len(customParams) == 0 {
+		return &LicenseRequiredError{App: appName, Version: upgradeVersion}
+	}
+	// 升级向导预检（0.6.5xx）：平台直到 update/task 阶段才校验必填项并回
+	// 19000，随即回收任务记录 —— 轮询端只能报「不再持有任务」。这里用
+	// update/info 已返回的 wizardContent 提前判定，缺项交给用户确认。
+	if info.WizardInfo.HasWizard && len(info.WizardInfo.WizardContent) > 0 {
+		if len(customParams) == 0 {
+			if filled, _, ferr := AutoFillWizardParams(info.WizardInfo.WizardContent); ferr == nil {
+				customParams = filled // 只填有 initValue 的字段，不替用户同意任何勾选项
+			}
+		}
+		if missing := unsatisfiedRequired(info.WizardInfo.WizardContent, customParams); len(missing) > 0 {
+			return &WizardRequiredError{App: appName, Version: upgradeVersion,
+				Missing: missing, Content: info.WizardInfo.WizardContent}
+		}
+	}
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
@@ -689,7 +1002,7 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 		return fmt.Errorf("升级提交失败: %w", err)
 	}
 	// WaitTask 进度量程 0~100（common/status 实测），映射到总进度 50~100。
-	if err := WaitTask(ctx, task.TaskID, "升级", 15*time.Minute, func(p float64) {
+	if err := WaitTask(ctx, task.TaskID, "升级", upgradeWaitBudget, func(p float64) {
 		report(50 + p/2)
 	}); err != nil {
 		return err
@@ -801,7 +1114,7 @@ func InstallCloud(ctx context.Context, appName, sourceID, version string, volume
 		return fmt.Errorf("启动官方下载失败: %w", err)
 	}
 	dlDone := false
-	deadline := time.Now().Add(10 * time.Minute)
+	deadline := time.Now().Add(upgradeDownloadBudget)
 	transient := 0
 	for time.Now().Before(deadline) {
 		var st stageStatus
