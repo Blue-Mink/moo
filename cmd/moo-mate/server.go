@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"moo/internal/secret"
@@ -54,8 +55,14 @@ type companion struct {
 	lastSync    time.Time // 上次同步时间
 	syncErr     string    // 上次同步错误（空 = 成功）
 
+	// 0.2.63（B8）：整轮同步互斥。定时同步与「同步更新」按钮此前可以并行跑，
+	// 两轮各自持有代次并写 upsert / applyCheckResults，后写者会把前者刚写的
+	// 红点与检查状态冲掉。TryLock 失败 = 已有一轮在跑，直接跳过本轮。
+	syncMu   sync.Mutex
+	syncBusy atomic.Bool
+
 	iconMu sync.RWMutex
-	icons  map[string][]byte // 应用图标内存缓存（appname → 图片字节；经本机代理下载，绕过 Gitee 防盗链）
+	icons  map[string][]byte // 应用图标内存缓存（appname → 图片字节；经本机代理下载，避免浏览器直连失败）
 }
 
 // newCompanion 构造伴侣（cfg/sealer 由 main 初始化后经 setConfig 注入，可为空）。
@@ -458,9 +465,30 @@ func (s *sseStream) logf(level, msg string) {
 }
 
 // handleSyncNow POST /api/sync-now：手动「同步更新」入口，立即唤醒同步循环。
+// handleSyncNow POST /api/sync-now：**双重同步**（0.2.62，用户令合并成一个按钮）。
+//
+//	① 补远端默认应用清单：只把索引里没有的条目加进来，已有条目一律不动；
+//	② 唤醒上游版本检查：逐个应用看仓库作者是否发了新版本（异步，前端轮询状态看结果）。
+//
+// 响应里带 ① 的结果，前端可提示「补充 N 个默认应用」。
 func (c *companion) handleSyncNow(w http.ResponseWriter, r *http.Request) {
+	remote := ""
+	if c.cfg != nil {
+		remote = c.cfg.defaultIndexURL()
+	}
+	added, src := 0, ""
+	var derr error
+	if c.idx != nil { // 测试里可能只构造了最小 companion
+		added, src, derr = c.idx.mergeDefaultList(remote, c.httpc)
+	}
 	c.wakeSync()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	resp := map[string]any{"ok": true, "default_added": added, "default_source": src,
+		// 0.2.63：让前端知道「已有一轮在跑」，不要傻等 last_sync 变化（B4 的一半）。
+		"running": c.syncBusy.Load()}
+	if derr != nil {
+		resp["default_error"] = derr.Error()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (c *companion) handleBuild(w http.ResponseWriter, r *http.Request) {
@@ -489,6 +517,15 @@ func (c *companion) handleBuild(w http.ResponseWriter, r *http.Request) {
 	added, skipped, err := c.runBuild(ctx, s, raw, owner, func(ctx context.Context) ([]discoveredApp, error) {
 		return discoverFromRepoLog(ctx, raw, c.githubToken(), c.httpc, s.logf)
 	})
+	// 0.2.61b：用户主动扫描且确实新增了应用 = 重新开始用索引，此时才清「主动清除」标记，
+	// 让后续「空索引补默认清单」重新生效。自动同步不经过这里，不会再误清用户标记。
+	// 0.2.62：同名应用被重新加回来时，同时撤销「用户删过」的排除记录。
+	if err == nil && len(added) > 0 {
+		c.idx.clearUserClearedFlag()
+		for _, name := range added {
+			_ = c.idx.unmarkRemovedDefault(name)
+		}
+	}
 	respondBuild(w, s, added, skipped, err)
 }
 
@@ -701,8 +738,6 @@ func (c *companion) handleAddDirect(w http.ResponseWriter, r *http.Request) {
 	name := hostFromURL(raw)
 	if o, r, ok := parseGHRepo(raw); ok {
 		name = o + "/" + r
-	} else if o, r, ok := parseGiteeRepo(raw); ok {
-		name = o + "/" + r
 	}
 	src, err := c.moo.addSource(name, raw)
 	if err != nil {
@@ -812,7 +847,8 @@ func (c *companion) handleUnsyncApp(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if src, err := c.ensureMateSource(); err == nil {
+	if src, err := c.findMateSource(); err == nil && src != nil {
+		// 0.2.62：撤回只更新已存在的源，不因撤回动作重建被用户删掉的源。
 		_, _ = c.moo.syncSource(src.ID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -835,9 +871,17 @@ func (c *companion) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 记下「用户主动删过」：后续补默认清单不得把这条又加回来（删了就是删了）。
+	_ = c.idx.markRemovedDefault(appname)
 	c.mu.Lock()
 	delete(c.hosted, appname)
 	c.mu.Unlock()
+	// 0.2.62：顺手清掉本机残留（图标缓存 / 图标失败负缓存），
+	// 否则「删了再加回来」仍会命中旧缓存或负缓存，看起来像是没生效。
+	purged, perr := c.purgeAppArtifacts(appname)
+	if perr != nil {
+		logf("清理「%s」残留失败（忽略）：%v", appname, perr)
+	}
 	// 联动聚合源：删的是 synced 应用则重建并 sync（空则删源）。
 	if _, err := c.rebuildAggregate(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -848,12 +892,14 @@ func (c *companion) handleDeleteApp(w http.ResponseWriter, r *http.Request) {
 			if src, err := c.findMateSource(); err == nil && src != nil {
 				_ = c.moo.deleteSource(src.ID)
 			}
-		} else if src, err := c.ensureMateSource(); err == nil {
+		} else if src, err := c.findMateSource(); err == nil && src != nil {
+			// 0.2.62：删除应用只更新「已存在的」源；源被用户从 Moo 删掉后不得因删应用又建回来。
 			_, _ = c.moo.syncSource(src.ID)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"deleted": true,
+		"purged":  purged,
 		"message": fmt.Sprintf("已删除「%s」", appname),
 	})
 }
@@ -939,6 +985,7 @@ func (c *companion) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deleted := 0
+	purged := 0
 	for _, appname := range body.Appnames {
 		appname = strings.TrimSpace(appname)
 		if appname == "" || c.idx.get(appname) == nil {
@@ -947,9 +994,16 @@ func (c *companion) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 		if err := c.idx.delete(appname); err != nil {
 			continue
 		}
+		// 与单条删除口径一致：记「用户主动删过」+ 清本机残留。
+		_ = c.idx.markRemovedDefault(appname)
 		c.mu.Lock()
 		delete(c.hosted, appname)
 		c.mu.Unlock()
+		if ok, perr := c.purgeAppArtifacts(appname); perr != nil {
+			logf("清理「%s」残留失败（忽略）：%v", appname, perr)
+		} else if ok {
+			purged++
+		}
 		deleted++
 	}
 	if _, err := c.rebuildAggregate(); err != nil {
@@ -961,12 +1015,14 @@ func (c *companion) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
 			if src, err := c.findMateSource(); err == nil && src != nil {
 				_ = c.moo.deleteSource(src.ID)
 			}
-		} else if src, err := c.ensureMateSource(); err == nil {
+		} else if src, err := c.findMateSource(); err == nil && src != nil {
+			// 0.2.62：删除应用只更新「已存在的」源；源被用户从 Moo 删掉后不得因删应用又建回来。
 			_, _ = c.moo.syncSource(src.ID)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"deleted": deleted,
+		"purged":  purged,
 		"message": fmt.Sprintf("已删除 %d 个应用", deleted),
 	})
 }
@@ -979,6 +1035,13 @@ func (c *companion) handleHost(w http.ResponseWriter, r *http.Request) {
 	// 兼容 /moo/{app}.json（加源 url 形态）与 /moo/{app} 两种访问；
 	// 应用名本身不会含「.json」。
 	appname := strings.TrimSuffix(strings.TrimSpace(r.PathValue("appname")), ".json")
+	// 0.2.62：Moo 的候选链里还有 <基址>/ICON.PNG、<基址>/ICON_256.PNG 这类
+	// 根路径探测——不可能是应用名，这里直接 404（逐应用图标见 handleHostedIcon），
+	// 免得拿图标文件名去查索引。
+	if looksLikeIconFile(appname) {
+		writeErr(w, http.StatusNotFound, "根路径不提供图标")
+		return
+	}
 	if appname == "mate" {
 		raw := c.aggregateRaw()
 		if raw == nil {
@@ -995,7 +1058,7 @@ func (c *companion) handleHost(w http.ResponseWriter, r *http.Request) {
 	c.mu.RUnlock()
 	if raw == nil {
 		if ia := c.idx.get(appname); ia != nil {
-			if b, err := buildMooJSON(appname, ia.Publisher, ia.Source, map[string]*indexedApp{appname: ia}); err == nil {
+			if b, err := buildMooJSON(appname, ia.Publisher, ia.Source, c.base, map[string]*indexedApp{appname: ia}); err == nil {
 				c.mu.Lock()
 				c.hosted[appname] = b
 				c.mu.Unlock()
@@ -1057,7 +1120,7 @@ func (c *companion) handleListIndex(w http.ResponseWriter, r *http.Request) {
 // 磁盘缓存 → 内存缓存 → icon_url（索引自带）→ 仓库根常见路径
 // （ICON.PNG / <appname>/ICON.PNG 等）→ FPK 包内抽图兜底。
 // 命中即落盘（<PKGVAR>/icons/，进程重启不丢）；全部失败回 404，前端回退首字母占位。
-// 部分图标指向 Gitee raw（带 Referer 会 403 防盗链），本机 client 不带 Referer。
+// 部分图床对 Referer 敏感，本机 client 不带 Referer。
 func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 	appname := strings.TrimSpace(r.PathValue("appname"))
 	if appname == "" {
@@ -1110,7 +1173,7 @@ func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// ④ 仓库根常见路径（GitHub/Gitee raw；命中率高的固定布局）
+	// ④ 仓库根常见路径（GitHub raw；命中率高的固定布局）
 	{
 		ctx, cancel := timeoutCtx(r.Context(), 6*time.Second)
 		for _, u := range mateIconCandidates(appname, ia.Source) {
@@ -1139,6 +1202,41 @@ func (c *companion) handleIcon(w http.ResponseWriter, r *http.Request) {
 	}
 	markMateIconFailed(appname)
 	writeErr(w, http.StatusNotFound, "未找到应用图标")
+}
+
+// hostedIconNames Moo 探测外部源图标时使用的文件名（含大小写变体）。
+// 来源：Moo internal/api 的图标候选链（<源基址>/<app>/ICON_256.PNG、
+// <app>/ICON.PNG、<app>/icon.png 以及根路径 /ICON.PNG）。
+var hostedIconNames = map[string]bool{
+	"ICON.PNG": true, "ICON.png": true, "icon.PNG": true, "icon.png": true,
+	"ICON_256.PNG": true, "ICON_256.png": true, "icon_256.png": true, "icon-256.png": true,
+	"ICON_512.PNG": true, "ICON_512.png": true, "icon_512.png": true,
+	"ICON.jpg": true, "icon.jpg": true,
+}
+
+// looksLikeIconFile 判断路径段是否像图片文件名（Moo 根路径探测用）。
+func looksLikeIconFile(name string) bool {
+	if hostedIconNames[name] {
+		return true
+	}
+	l := strings.ToLower(name)
+	for _, ext := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif"} {
+		if strings.HasSuffix(l, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleHostedIcon GET /moo/{appname}/{file}：按 Moo 的仓库布局出应用图标。
+// 复用 handleIcon 的全部解析链（磁盘缓存 → 内存 → icon_url → 仓库候选 → 包内抽图），
+// 因此命中一次就落盘，后续请求零网络成本。
+func (c *companion) handleHostedIcon(w http.ResponseWriter, r *http.Request) {
+	if !hostedIconNames[strings.TrimSpace(r.PathValue("file"))] {
+		writeErr(w, http.StatusNotFound, "不支持的图标文件名")
+		return
+	}
+	c.handleIcon(w, r)
 }
 
 // handleConfigGet GET /api/config：透出 GitHub token 状态（是否可用 + 来源，
@@ -1187,6 +1285,14 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "配置存储未初始化")
 		return
 	}
+	if c.cfg == nil {
+		writeErr(w, http.StatusInternalServerError, "配置未初始化")
+		return
+	}
+	// 0.2.71：记下请求前的内容。全部字段都没变就不落盘——前端打开设置页回填齿轮
+	// 选择器时会派发 scroll 事件（旧版因此每次都 PUT 一次相同值），后端旧实现无条件
+	// save，属无意义写盘。这里做幂等兜底，也兼容其他客户端。
+	before := *c.cfg
 	if body.SyncInterval != nil {
 		v := strings.TrimSpace(*body.SyncInterval)
 		if !validSyncInterval(v) {
@@ -1237,6 +1343,11 @@ func (c *companion) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		}
 		c.cfg.LogLines = *body.LogLines
 	}
+	if *c.cfg == before {
+		// 值没变：不写盘、不唤醒同步循环，仍回 200（幂等）。
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "unchanged": true})
+		return
+	}
 	if err := c.cfg.save(c.cfgPath); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1274,7 +1385,7 @@ func (c *companion) aggregateApps() map[string]*indexedApp {
 // rebuildAggregate 重建聚合 moo.json（全部 synced 应用）并缓存，返回字节。
 func (c *companion) rebuildAggregate() ([]byte, error) {
 	apps := c.aggregateApps()
-	raw, err := buildMooJSON(mateSourceName, "Blue-Mink", "https://github.com/Blue-Mink/moo", apps)
+	raw, err := buildMooJSON(mateSourceName, "Blue-Mink", "https://github.com/Blue-Mink/moo", c.base, apps)
 	if err != nil {
 		return nil, err
 	}
@@ -1337,10 +1448,12 @@ func findDuplicateSource(u string, srcs []sourceInfo) *sourceInfo {
 
 // updateCheckResult 单个应用上游检查结果。
 type updateCheckResult struct {
-	updated bool
-	from    string // 旧版本
-	to      string // 新版本（未更新时为上游最新版）
-	message string // 用户可读消息（无更新场景）
+	updated  bool
+	from     string // 旧版本
+	to       string // 新版本（未更新时为上游最新版）
+	message  string // 用户可读消息（无更新场景）
+	prev     string // 本次更新前的版本（空 = 本次没有更新，界面据此熄灭红点）
+	checkErr string // 「无法确认是否有更新」的原因（上游无包/应用已不存在/版本不可比）
 }
 
 // checkAppUpdateCore 检查单个应用上游是否有新版本：重新扫描上游仓库，
@@ -1355,6 +1468,16 @@ func (c *companion) checkAppUpdateCore(ctx context.Context, ia *indexedApp) (*up
 // 避免 100 个应用共享一个仓库时把 release/文件树接口打 100 遍（也省 GitHub 限流额度）。
 // cache 为 nil 时每次现扫。
 func (c *companion) checkAppUpdateCoreCached(ctx context.Context, ia *indexedApp, cache map[string][]discoveredApp) (*updateCheckResult, error) {
+	return c.checkAppUpdateCoreCachedGen(ctx, ia, cache, c.idx.generation())
+}
+
+// checkAppUpdateCoreCachedGen 同上，但「索引代次」由调用方传入。
+//
+// 为什么必须由调用方给：整轮同步（runFullSync）要在开头取一次代次并全程沿用。
+// 若逐应用现取，用户在同步进行中点了「清除同步索引」，**clear 之后才轮到检查**的应用
+// 会拿到清除后的新代次，于是写回成功 —— 清除依旧不彻底。0.2.61-test2 的实机强构造
+// 验证（motrix 置 0.0.1 → 同步中 clear）正是这样 FAIL 的：apps 由 0 变 1、motrix 2.0.5 被写回。
+func (c *companion) checkAppUpdateCoreCachedGen(ctx context.Context, ia *indexedApp, cache map[string][]discoveredApp, gen uint64) (*updateCheckResult, error) {
 	src := strings.TrimSpace(ia.Source)
 	if src == "" {
 		return nil, fmt.Errorf("该应用无来源仓库，无法检查更新")
@@ -1377,7 +1500,8 @@ func (c *companion) checkAppUpdateCoreCached(ctx context.Context, ia *indexedApp
 		}
 	}
 	if len(discovered) == 0 {
-		return &updateCheckResult{updated: false, message: "上游 release 与仓库文件都没有 .fpk"}, nil
+		return &updateCheckResult{updated: false, message: "上游 release 与仓库文件都没有 .fpk",
+			checkErr: "上游 release 与仓库文件都没有 .fpk"}, nil
 	}
 	// 单应用更新检查没必要下载整个仓库的包：文件名能对上 appname 的优先，
 	// 一个都对不上（文件名不含应用名）才回落到全量扫描。大仓库从这里省下大量流量。
@@ -1385,10 +1509,12 @@ func (c *companion) checkAppUpdateCoreCached(ctx context.Context, ia *indexedApp
 	accs, _ := c.discoverAccs(ctx, discovered, ia.Source, repoOwner(ia.Source), nil)
 	acc := accs[ia.Appname]
 	if acc == nil {
-		return &updateCheckResult{updated: false, message: "上游已不存在该应用"}, nil
+		return &updateCheckResult{updated: false, message: "上游已不存在该应用",
+			checkErr: "上游仓库里已找不到该应用（可能改名或删库）"}, nil
 	}
 	if acc.version == "" || ia.Version == "" {
-		return &updateCheckResult{updated: false, message: "版本不可比"}, nil
+		return &updateCheckResult{updated: false, message: "版本不可比",
+			checkErr: "版本号无法比较（上游或本地版本为空/格式异常）"}, nil
 	}
 	if !versionGreater(acc.version, ia.Version) {
 		return &updateCheckResult{updated: false, from: ia.Version, to: acc.version, message: "已是最新"}, nil
@@ -1396,10 +1522,44 @@ func (c *companion) checkAppUpdateCoreCached(ctx context.Context, ia *indexedApp
 	// 更高版本：更新索引（保留 synced 状态）。
 	acc.ia.Synced = ia.Synced
 	acc.ia.SyncedName = ia.SyncedName
-	if err := c.idx.upsert(acc.ia); err != nil {
+	wrote, err := c.idx.upsertIfGen(acc.ia, gen)
+	if err != nil {
 		return nil, err
 	}
-	return &updateCheckResult{updated: true, from: ia.Version, to: acc.version, message: "已更新"}, nil
+	if !wrote {
+		// 0.2.63（A5）：写不进索引就绝不能把「上游最新版本」回传给状态写入方 ——
+		// 否则 latest_version 被写成新版、version 仍是旧版，界面「有更新」会永久红，
+		// 且该分支没有任何过期机制（真·永久红路径）。这里降级成可解释的「暂时无法确认」，
+		// 由 applyCheckResults 记 last_check_err（琥珀），下一轮同步自愈。
+		return &updateCheckResult{updated: false, from: ia.Version,
+			message:  "索引已变更，稍后重试",
+			checkErr: "索引在检查期间被重建/清除，结果未能写入（稍后自动重试）"}, nil
+	}
+	return &updateCheckResult{updated: true, from: ia.Version, to: acc.version, prev: ia.Version,
+		message: "已更新"}, nil
+}
+
+// handleAckUpdates POST /api/ack-updates {appnames:[...]}：把「已更新」红点标记为已读。
+// appnames 省略/为空 = 全部已读（前端「全部已读」按钮）。返回 acked = 实际标记数量。
+// 为什么需要落盘：0.2.62 的红点靠 24h TTL 自然过期，用户既没法手动消除，
+// 又会在反复发版时被无限续期；已读状态必须跟索引一起持久化，重启后仍然有效。
+func (c *companion) handleAckUpdates(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Appnames []string `json:"appnames"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, "请求体解析失败："+err.Error())
+			return
+		}
+	}
+	gen := c.idx.generation()
+	n, err := c.idx.ackUpdates(body.Appnames, gen)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "acked": n})
 }
 
 // handleCheckUpdate POST /api/check-update {appname}：重新扫描该应用的上游仓库，
@@ -1420,14 +1580,20 @@ func (c *companion) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := timeoutCtx(r.Context(), 3*time.Minute)
 	defer cancel()
-	res, err := c.checkAppUpdateCore(ctx, ia)
+	// 单应用检查同样记录状态：成功后界面显示「已最新 / 有更新」，失败显示感叹号。
+	gen := c.idx.generation()
+	res, err := c.checkAppUpdateCoreCachedGen(ctx, ia, nil, gen)
 	if err != nil {
+		_, _ = c.idx.applyCheckResults([]checkOutcome{{Appname: appname, ErrMsg: err.Error()}}, gen)
 		if strings.Contains(err.Error(), "无来源仓库") {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if res != nil {
+		_, _ = c.idx.applyCheckResults([]checkOutcome{{Appname: appname, Latest: res.to, Prev: res.prev, ErrMsg: res.checkErr}}, gen)
 	}
 	if !res.updated {
 		msg := res.message
@@ -1442,7 +1608,7 @@ func (c *companion) handleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	synced := false
 	if ia.Synced && c.moo.ping() == nil {
 		if _, err := c.rebuildAggregate(); err == nil {
-			if src, err := c.ensureMateSource(); err == nil {
+			if src, err := c.findMateSource(); err == nil && src != nil {
 				if _, serr := c.moo.syncSource(src.ID); serr == nil {
 					synced = true
 				}

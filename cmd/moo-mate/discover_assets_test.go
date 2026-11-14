@@ -87,51 +87,6 @@ func TestScanRepoFilesGitHubPrivate(t *testing.T) {
 	}
 }
 
-// 0.2.58：Gitee 仓库文件树 + release 合并；同版本目录版优先（release 多为停更旧包）。
-func TestDiscoverRepoFilesGitee(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/repos/o/r":
-			_, _ = w.Write([]byte(`{"default_branch":"master"}`))
-		case "/repos/o/r/releases":
-			_, _ = w.Write([]byte(`[{"tag_name":"v2.0.0","assets":[
-				{"name":"same.fpk","browser_download_url":"https://gitee.com/o/r/releases/download/v2.0.0/same.fpk"}]}]`))
-		case "/repos/o/r/git/trees/master":
-			_, _ = w.Write([]byte(`{"tree":[
-				{"path":"server-data/apps/same.fpk","type":"blob","size":5},
-				{"path":"server-data/apps/x-1.0.0.fpk","type":"blob","size":6},
-				{"path":"docs/a.md","type":"blob","size":1}]}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	old := giteeAPIBase
-	giteeAPIBase = srv.URL
-	defer func() { giteeAPIBase = old }()
-
-	apps, err := discoverFromRepo(context.Background(), "https://gitee.com/o/r", "", srv.Client())
-	if err != nil {
-		t.Fatalf("discoverFromRepo: %v", err)
-	}
-	if len(apps) != 2 {
-		t.Fatalf("候选数 = %d, want 2: %+v", len(apps), apps)
-	}
-	byName := map[string]discoveredApp{}
-	for _, a := range apps {
-		byName[a.Name] = a
-	}
-	same := byName["same.fpk"]
-	if !strings.Contains(same.DownloadURL, "/raw/master/server-data/apps/same.fpk") {
-		t.Fatalf("同版本应优先仓库文件，得到 %q", same.DownloadURL)
-	}
-	if x := byName["x-1.0.0.fpk"]; x.Version != "1.0.0" {
-		t.Fatalf("文件名版本解析 = %q, want 1.0.0", x.Version)
-	}
-}
-
 // 0.2.58：按应用键剔除历史版本，只留最高版（多架构同版都保留）。
 func TestPruneByAppKey(t *testing.T) {
 	items := []releaseFPK{
@@ -196,18 +151,15 @@ func TestOrderByAppBreadth(t *testing.T) {
 	}
 }
 
-// 0.2.58：合并规则——高版本优先；同版本按来源偏好（GitHub release / Gitee 仓库文件）。
+// 0.2.58：合并规则——高版本优先；同版本 release 资产优先。
 func TestMergeFPKsPreference(t *testing.T) {
 	rel := []releaseFPK{{name: "a.fpk", ver: "1.0.0", url: "release"}}
 	repo := []releaseFPK{{name: "a.fpk", ver: "1.0.0", url: "repo", fromRepo: true}}
-	if got := mergeFPKs(rel, repo, false); len(got) != 1 || got[0].url != "release" {
+	if got := mergeFPKs(rel, repo); len(got) != 1 || got[0].url != "release" {
 		t.Fatalf("GitHub 同版本应偏好 release，得到 %+v", got)
 	}
-	if got := mergeFPKs(rel, repo, true); len(got) != 1 || got[0].url != "repo" {
-		t.Fatalf("Gitee 同版本应偏好仓库文件，得到 %+v", got)
-	}
 	repoNew := []releaseFPK{{name: "a.fpk", ver: "1.1.0", url: "repo", fromRepo: true}}
-	if got := mergeFPKs(rel, repoNew, false); len(got) != 1 || got[0].url != "repo" {
+	if got := mergeFPKs(rel, repoNew); len(got) != 1 || got[0].url != "repo" {
 		t.Fatalf("更高版本应胜出，得到 %+v", got)
 	}
 }

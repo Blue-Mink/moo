@@ -303,7 +303,17 @@ func (c *companion) handleBackupWrite(w http.ResponseWriter, r *http.Request) {
 // 保留配置（token/间隔等），不动 Moo 里已加的源；空索引 → 空聚合
 // moo.json → Moo 下次同步 moo-mate 源时内容随之清空（属预期，UI 二次确认已提示）。
 func (c *companion) handleClearData(w http.ResponseWriter, r *http.Request) {
-	if err := c.idx.clear(); err != nil {
+	// 0.2.61：留标记 —— 启动时的「空索引补默认清单」看到标记就跳过，否则用户
+	// 清了索引、重启又被塞回 5 个默认应用，「清除同步索引」就失去意义。
+	// 用户之后一旦新增应用（upsert），标记自动清除。
+	if err := c.idx.markClearedByUser(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "清除失败: "+err.Error())
+		return
+	}
+	// 0.2.62：clearByUserAll = 清空 + 把出厂默认清单的 key 一并记入排除名单。
+	// 只清 Apps 不记排除，会让「同步更新」补全 / 重启兜底把应用又加回来。
+	if err := c.idx.clearByUserAll(); err != nil {
+		c.idx.clearUserClearedFlag()
 		writeErr(w, http.StatusInternalServerError, "清除失败: "+err.Error())
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -254,7 +255,14 @@ func archKeys(pkgs map[string]*appPackage) []string {
 // buildMooJSON 把应用条目打包成 moo.json（V2 包裹格式）。
 // 多架构（Packages 内 >1 个架构）时补 releases.<version>.packages.<arch>，
 // 顶层 download_url 保留为便捷链接（Moo 0.6.352 起会按本机架构覆盖选包）。
-func buildMooJSON(name, distributor, homepage string, apps map[string]*indexedApp) ([]byte, error) {
+//
+// iconBase（0.2.62）：Mate 自己的对外基址。非空时给每条应用补 icon_url =
+// <iconBase>/api/icon/<appname>。原因：Moo 对「外部源」卡片的图标第一层候选是
+// 按仓库布局拼 <源基址>/<app>/ICON.PNG，Mate 只提供 /api/icon/<app>，于是全部
+// 404；且 Moo 的「下包抽图」兜底要求 icon_url 非空，缺失时不会启动 → 未安装的
+// 应用只能显示首字母占位。补上 icon_url 后 Moo 第一层直接命中（图标本机已缓存）。
+func buildMooJSON(name, distributor, homepage, iconBase string, apps map[string]*indexedApp) ([]byte, error) {
+	iconBase = strings.TrimRight(strings.TrimSpace(iconBase), "/")
 	appDocs := make(map[string]any, len(apps))
 	for appname, ia := range apps {
 		// 扁平条目（含 omitempty）先 marshal 回 map，再按需补 releases。
@@ -265,6 +273,11 @@ func buildMooJSON(name, distributor, homepage string, apps map[string]*indexedAp
 		var em map[string]any
 		if err := json.Unmarshal(raw, &em); err != nil {
 			return nil, err
+		}
+		if iconBase != "" {
+			if v, ok := em["icon_url"]; !ok || v == nil || v == "" {
+				em["icon_url"] = iconBase + "/api/icon/" + url.PathEscape(appname)
+			}
 		}
 		if len(ia.Packages) > 1 && ia.Version != "" {
 			pkgs := make(map[string]any, len(ia.Packages))

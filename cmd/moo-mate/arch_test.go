@@ -56,7 +56,7 @@ func TestBuildMooJSONMultiArch(t *testing.T) {
 			"arm": {DownloadURL: "https://github.com/RockerHX/motrix-fnos/releases/download/v1.9.8/motrix_1.9.8_arm.fpk", Sha256: "armsha", SizeBytes: 7800000},
 		},
 	}
-	raw, err := buildMooJSON("motrix", "motrix-fnos", "https://github.com/RockerHX/motrix-fnos", map[string]*indexedApp{"motrix": ia})
+	raw, err := buildMooJSON("motrix", "motrix-fnos", "https://github.com/RockerHX/motrix-fnos", "", map[string]*indexedApp{"motrix": ia})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestBuildMooJSONSingleArchFlat(t *testing.T) {
 		Publisher: "fnos-fan-control",
 		Source:    "https://github.com/AriesOxO/fnos-fan-control",
 	}
-	raw, err := buildMooJSON("fan-control", "fnos-fan-control", "https://github.com/AriesOxO/fnos-fan-control", map[string]*indexedApp{"fan-control": ia})
+	raw, err := buildMooJSON("fan-control", "fnos-fan-control", "https://github.com/AriesOxO/fnos-fan-control", "", map[string]*indexedApp{"fan-control": ia})
 	if err != nil {
 		t.Fatal(err)
 	}

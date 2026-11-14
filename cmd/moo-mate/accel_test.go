@@ -18,7 +18,7 @@ func TestIsMateAccelHost(t *testing.T) {
 			t.Fatalf("%q 应走加速", h)
 		}
 	}
-	no := []string{"", "gitee.com", "fndepot.example.com", "127.0.0.1", "mygithub.com.example.org"}
+	no := []string{"", "gitlab.example.com", "fndepot.example.com", "127.0.0.1", "mygithub.com.example.org"}
 	for _, h := range no {
 		if isMateAccelHost(h) {
 			t.Fatalf("%q 不该走加速", h)

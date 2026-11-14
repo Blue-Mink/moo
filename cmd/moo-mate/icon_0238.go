@@ -3,7 +3,7 @@ package main
 // 0.2.38：应用图标补齐。
 // 背景（用户实报「应用源列表里只有部分应用有图标，其他都获取不了」）：
 //   - 历史遗留索引条目自带 icon 字段 → 索引里有 icon_url → 有图；
-//   - 所有 GitHub/Gitee release 扫描路径**从不产生 icon_url**；
+//   - 所有 GitHub release 扫描路径**从不产生 icon_url**；
 //   - 更早生成的索引条目同样没有图标。
 // 方案（三层，成本从低到高）：
 //  1. 构建索引时从 FPK 包内抽图标（下载 FPK 本来就为了解析 manifest，零额外流量）；
@@ -155,20 +155,6 @@ func mateIconCandidates(appname, source string) []string {
 			base := "https://raw.githubusercontent.com/" + owner + "/" + repo + "/" + br + "/"
 			out = append(out,
 				base+appname+"/fnos/ICON_256.PNG",
-				base+appname+"/ICON_256.PNG",
-				base+appname+"/ICON.PNG",
-				base+appname+"/icon.png",
-				base+"ICON.PNG",
-				base+"ICON_256.PNG",
-			)
-		}
-		return out
-	}
-	if owner, repo, ok := parseGiteeRepo(source); ok {
-		var out []string
-		for _, br := range []string{"master", "main"} {
-			base := "https://gitee.com/" + owner + "/" + repo + "/raw/" + br + "/"
-			out = append(out,
 				base+appname+"/ICON_256.PNG",
 				base+appname+"/ICON.PNG",
 				base+appname+"/icon.png",

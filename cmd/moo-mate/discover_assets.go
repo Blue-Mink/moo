@@ -178,101 +178,15 @@ func scanRepoFilesGitHub(ctx context.Context, owner, repo, token string, httpc *
 	return out, nil
 }
 
-// giteeAPIGet 匿名 GET Gitee OpenAPI（v5），返回响应体与状态码。
-func giteeAPIGet(ctx context.Context, u string, httpc *http.Client) ([]byte, int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	req.Header.Set("User-Agent", "moo-mate")
-	resp, err := httpc.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	data, rerr := io.ReadAll(io.LimitReader(resp.Body, maxGhTreeBytes))
-	if rerr != nil {
-		return nil, resp.StatusCode, rerr
-	}
-	return data, resp.StatusCode, nil
-}
-
-// scanRepoFilesGitee 扫描 Gitee 仓库文件树里的 .fpk。
-// tree 接口不可用时返回错误，由调用方回落到 server-data/apps 目录扫描。
-func scanRepoFilesGitee(ctx context.Context, owner, repo string, httpc *http.Client, logf func(string, string)) ([]releaseFPK, error) {
-	log := func(l, m string) {
-		if logf != nil {
-			logf(l, m)
-		}
-	}
-	branch := "master"
-	if data, code, err := giteeAPIGet(ctx, fmt.Sprintf("%s/repos/%s/%s", giteeAPIBase, owner, repo), httpc); err == nil && code == http.StatusOK {
-		var m struct {
-			DefaultBranch string `json:"default_branch"`
-		}
-		if json.Unmarshal(data, &m) == nil && strings.TrimSpace(m.DefaultBranch) != "" {
-			branch = strings.TrimSpace(m.DefaultBranch)
-		}
-	}
-	log("info", "仓库文件：分支 "+branch+"，读取文件树…")
-	data, code, err := giteeAPIGet(ctx, fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1&per_page=100", giteeAPIBase, owner, repo, escapeRef(branch)), httpc)
-	if err != nil {
-		return nil, err
-	}
-	if code == http.StatusNotFound {
-		return nil, fmt.Errorf("仓库文件树接口 404（分支 %s）", branch)
-	}
-	if code != http.StatusOK {
-		return nil, fmt.Errorf("仓库 API HTTP %d", code)
-	}
-	var t ghTreeResp
-	if err := json.Unmarshal(data, &t); err != nil {
-		return nil, err
-	}
-	var out []releaseFPK
-	for _, e := range t.Tree {
-		if e.Type != "" && e.Type != "blob" {
-			continue
-		}
-		if !strings.HasSuffix(strings.ToLower(e.Path), ".fpk") || e.Size > maxRepoFPKSize {
-			continue
-		}
-		base := pathBase(e.Path)
-		out = append(out, releaseFPK{
-			name:     base,
-			url:      fmt.Sprintf("https://gitee.com/%s/%s/raw/%s/%s", owner, repo, escapeRef(branch), escapePathSegments(e.Path)),
-			size:     e.Size,
-			ver:      versionFromFilename(base),
-			fromRepo: true,
-		})
-		if len(out) >= maxRepoFPKs {
-			log("warn", fmt.Sprintf("仓库文件：候选超过 %d 个，只取前 %d 个", maxRepoFPKs, maxRepoFPKs))
-			break
-		}
-	}
-	if len(out) == 0 {
-		log("info", "仓库文件：未发现 .fpk")
-	}
-	return out, nil
-}
-
-// mergeFPKs 合并 release 与仓库文件两组候选：同名取更高版本；同版本按来源优先
-// （GitHub 优先 release 资产；Gitee 的包直接放 git 目录，优先仓库文件）。
+// mergeFPKs 合并 release 与仓库文件两组候选：同名取更高版本；同版本 release 资产优先。
 // 输出按文件名排序，保证进度日志顺序可复现。
-func mergeFPKs(release, repo []releaseFPK, preferRepo bool) []releaseFPK {
+func mergeFPKs(release, repo []releaseFPK) []releaseFPK {
 	best := map[string]releaseFPK{}
 	put := func(it releaseFPK) {
 		key := strings.ToLower(it.name)
 		cur, ok := best[key]
 		if !ok {
 			best[key] = it
-			return
-		}
-		if preferRepo {
-			// Gitee：目录版是当前分发形态，同名一律以仓库文件为准（release 多为停更旧包）。
-			if it.fromRepo && !cur.fromRepo {
-				best[key] = it
-			}
 			return
 		}
 		// GitHub：高版本优先；同版本 release 资产优先（发布产物比源码树里的包稳定）。

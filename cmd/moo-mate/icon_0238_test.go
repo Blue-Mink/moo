@@ -126,10 +126,6 @@ func TestMateIconCandidates_0238(t *testing.T) {
 			t.Errorf("缺少候选 %s\n实际:\n%s", want, joined)
 		}
 	}
-	gt := mateIconCandidates("demo", "https://gitee.com/hhxs2025/fn-appstores")
-	if len(gt) == 0 || !strings.Contains(strings.Join(gt, "\n"), "https://gitee.com/hhxs2025/fn-appstores/raw/master/demo/ICON.PNG") {
-		t.Errorf("Gitee 候选不符: %v", gt)
-	}
 	if got := mateIconCandidates("demo", "http://nas.example.lan:5660"); len(got) != 0 {
 		t.Errorf("非仓库地址不应产生候选: %v", got)
 	}

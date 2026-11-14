@@ -4,6 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Moo Mate</title>
+<script>
+/* 主题首屏预置（放在 CSS 之前）：①存过值就立即按值上色，消除首帧闪白；
+   ②从未存过则跟随系统 prefers-color-scheme；③storage 被禁也不能抛错中断解析。
+   与下方 applyTheme/themeGet 共用键 moo-mate-theme，取值 dark|light。 */
+(function () {
+  var v = null;
+  try { v = localStorage.getItem('moo-mate-theme'); } catch (e) { v = null; }
+  var dark;
+  if (v === 'dark' || v === 'light') {
+    dark = v === 'dark';
+  } else {
+    try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
+    catch (e) { dark = false; }
+  }
+  if (dark) document.documentElement.classList.add('dark');
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+})();
+</script>
 <style>
 :root {
   color-scheme: light;
@@ -112,7 +130,7 @@ body {
 .collapsible.collapsed .collapse-body { display:none; }
 .collapsible.collapsed .head-arrow svg { transform: rotate(-90deg); }
 .collapsible.collapsed { margin-bottom:16px; }
-/* 折叠态：标题行不再留底部空档（数据与备份卡 / 备份与恢复子块同为整行开关） */
+/* 折叠态：标题行不再留底部空档（数据卡 / 备份卡同为整行开关） */
 .collapsible.collapsed > .card-head,
 .collapsible.collapsed > .mrg-sub { margin-bottom:0; }
 .collapsible .mrg-sub[data-collapse] { cursor:pointer; user-select:none; }
@@ -201,6 +219,13 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 
 .head-actions { margin-left:auto; display:flex; gap:8px; flex:none; }
 .head-btn { margin-left:auto; flex:none; }
+/* 0.2.63b：「全部已读」= 卡片右上角的小图标（打开的信封 = 已读）+ 未读数，不占按钮行 */
+#idxCard { position:relative; }
+#idxCard .card-head { padding-right:52px; }
+.ack-btn { position:absolute; top:19px; right:16px; z-index:2; display:inline-flex; align-items:center; gap:3px; height:20px; padding:0 6px 0 5px; border-radius:999px; border:1px solid hsl(142 71% 45% / .45); background:hsl(142 71% 45% / .12); color:hsl(142 71% 38%); font-size:11px; font-weight:700; line-height:1; cursor:pointer; }
+.ack-btn:hover { background:hsl(142 71% 45% / .24); }
+.ack-btn:disabled { opacity:.6; cursor:default; }
+.ack-btn svg { width:12px; height:12px; }
 
 /* 批量操作条：进入批量推送/删除模式后显示（全选 / 已选 N / 取消 / 执行） */
 .batch-bar { display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border:1px dashed hsl(var(--primary) / 0.4); border-radius:12px; background:hsl(var(--primary) / 0.06); }
@@ -251,7 +276,29 @@ button:disabled { opacity:.5; cursor:not-allowed; }
 .idx-list { display:flex; flex-direction:column; gap:10px; }
 .src-group { border:1px solid hsl(var(--border)); border-radius:12px; overflow:hidden; } /* 对齐 Moo rounded-md 语言 */
 .src-head { display:flex; align-items:center; gap:8px; padding:7px 12px; background:hsl(var(--muted) / 0.5); border-bottom:1px solid hsl(var(--border)); font-size:12.5px; font-weight:600; cursor:pointer; user-select:none; }
-.src-head .dot { width:6px; height:6px; border-radius:50%; background:hsl(var(--primary)); flex:none; }
+/* 源状态：一个源下可能有多个应用，组头显示「汇总状态」，单应用状态在行内单独标。
+   update=红点有更新 / fail=琥珀感叹号检查失败 / ok=蓝点正常 / idle=灰点没检查过 */
+.src-head .src-state { width:14px; height:14px; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+.src-head .src-state .sd { width:7px; height:7px; border-radius:50%; background:hsl(var(--primary)); }
+.src-head .src-state[data-st="update"] .sd { background:#ef4444; box-shadow:0 0 0 3px rgba(239, 68, 68, .18); }
+.src-head .src-state[data-st="idle"] .sd { background:hsl(var(--muted-foreground) / 0.45); }
+.src-head .src-state[data-st="warn"] svg { width:14px; height:14px; color:#f59e0b; }
+.src-head .src-state[data-st="busy"] .sd { background:hsl(var(--primary)); animation:srcPulse 1.1s ease-in-out infinite; }
+@keyframes srcPulse { 0%,100% { opacity:.35; transform:scale(.85); } 50% { opacity:1; transform:scale(1); } }
+.app-state { display:inline-flex; align-items:center; gap:3px; margin-left:6px; padding:0 6px; border-radius:999px; font-size:10.5px; line-height:17px; vertical-align:1px; flex:none; }
+.app-state svg { width:11px; height:11px; }
+.app-state[data-st="update"] { background:rgba(239, 68, 68, .12); color:#dc2626; font-weight:600; }
+.app-state[data-st="warn"] { background:rgba(245, 158, 11, .16); color:#b45309; cursor:pointer; }
+.app-state[data-st="warn"]:hover { background:rgba(245, 158, 11, .28); }
+/* 0.2.63：已完成升级 = 绿色成功态（不再与「有更新」共用告警红）；点一下即已读 */
+.app-state[data-st="updated"] { background:rgba(34, 197, 94, .14); color:#16a34a; font-weight:600; cursor:pointer; }
+.app-state[data-st="updated"]:hover { background:rgba(34, 197, 94, .28); }
+/* 「有更新」超过 7 天未处理 → 琥珀「重新检查」，避免任何漏写路径造成永久红 */
+.app-state[data-st="stale"] { background:rgba(245, 158, 11, .16); color:#b45309; cursor:pointer; }
+.app-state[data-st="stale"]:hover { background:rgba(245, 158, 11, .28); }
+.src-head .src-state[data-st="updated"] .sd { background:#22c55e; box-shadow:0 0 0 3px rgba(34, 197, 94, .16); }
+.app-item.has-update { background:rgba(239, 68, 68, .04); }
+.app-item.has-updated { background:rgba(34, 197, 94, .05); }
 .src-head .srcname { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto; }
 .src-head .src-count { color:hsl(var(--muted-foreground)); font-weight:400; font-size:11px; flex:none; }
 .src-head .srcurl { color:hsl(var(--muted-foreground)); font-weight:400; font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:0 1 auto; }
@@ -285,6 +332,8 @@ button.plain {
 button.plain:hover { background:hsl(var(--accent) / 0.6); border-color:hsl(var(--muted-foreground) / 0.4); color:hsl(var(--foreground)); }
 button.plain svg { width:12px; height:12px; }
 button.plain.confirm { border-color:hsl(var(--destructive) / 0.4); background:hsl(var(--destructive) / 0.08); color:hsl(var(--destructive)); }
+.bk-op.armed { background:hsl(var(--destructive) / 0.16); color:hsl(var(--destructive)); }
+.bk-op.armed:hover { background:hsl(var(--destructive) / 0.22); color:hsl(var(--destructive)); }
 /* 已推送 = 选中态（对齐 Moo default 按钮：蓝字 + 蓝边框 + 浅蓝底） */
 button.plain.on { border-color: hsl(var(--primary) / 0.4); color: hsl(var(--primary)); background: hsl(var(--primary) / 0.12); }
 button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(--primary)); background: hsl(var(--primary) / 0.2); }
@@ -310,7 +359,7 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
   max-width: 420px; width:100%; box-shadow: 0 24px 48px -12px hsl(var(--foreground) / 0.25);
 }
 .modal-title { font-size:15px; font-weight:700; margin:0 0 10px; }
-.modal-text { color:hsl(var(--muted-foreground)); font-size:13px; margin:0 0 18px; line-height:1.6; word-break:break-all; }
+.modal-text { color:hsl(var(--muted-foreground)); font-size:13px; margin:0 0 18px; line-height:1.6; word-break:break-all; white-space:pre-line; }
 /* 0.2.37：版本药丸弹窗的更新日志（只显示最新一段，区内滚动，对齐 Moo 弹窗） */
 .modal-changelog { display:none; max-height:180px; overflow:auto; margin:-6px 0 16px; padding:10px 12px; border:1px solid hsl(var(--border)); border-radius:12px; background:hsl(var(--muted) / 0.35); color:hsl(var(--muted-foreground)); font-size:12px; line-height:1.65; white-space:pre-wrap; word-break:break-word; text-align:left; }
 .modal-changelog.show { display:block; }
@@ -409,6 +458,24 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
 
 
 .mrg-sec { margin-top:4px; padding-top:14px; border-top:1px solid hsl(var(--border) / .55); }
+.sec-title { margin: 16px 0 8px; font-size: 12px; font-weight: 600; letter-spacing:.02em;
+  color: hsl(var(--muted-foreground)); display:flex; align-items:center; gap:8px; }
+.sec-title::after { content:''; flex:1; height:1px; background: hsl(var(--border) / .5); }
+.cache-stat { margin: 2px 0 10px; font-size: 12.5px; color: hsl(var(--muted-foreground)); }
+.cache-ops { display:flex; gap:8px; flex-wrap:wrap; }
+.cache-ops .ghost { flex:1 1 140px; border:1px solid hsl(var(--border) / .7); border-radius:10px;
+  padding:9px 12px; font-size:13px; background:hsl(var(--card) / .6); }
+.cache-ops .ghost:hover { border-color:hsl(var(--primary) / .45); }
+/* 0.2.70：清理按钮合并为一个，默认中性、点一次变红确认（复用 button.danger.confirm） */
+.cache-ops .danger { flex:1 1 140px; border:1px solid hsl(var(--border) / .7); border-radius:10px;
+  padding:9px 12px; font-size:13px; background:hsl(var(--card) / .6); }
+.bk-now .ghost, .restore-row .ghost { border:1px solid hsl(var(--border) / .7); border-radius:10px;
+  padding:7px 12px; font-size:13px; background:hsl(var(--card) / .6); }
+.bk-now .ghost:hover, .restore-row .ghost:hover { border-color:hsl(var(--primary) / .45); }
+.restore-row { display:flex; flex-direction:column; align-items:stretch; gap:8px; }
+.restore-row .field-hint { flex:0 0 auto; }
+/* 0.2.71（用户令）：上传恢复按钮与上方「备份列表」等宽（整行一个）。 */
+.restore-row #restorePickFile { width:100%; }
 .mrg-sub { display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600; margin-bottom:10px; }
 .mrg-sub .hi { width:14px; height:14px; color:hsl(var(--muted-foreground)); flex:none; }
 .field { margin-bottom:14px; }
@@ -428,7 +495,10 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
   /* 卡头在窄屏换行：标题/计数保持横排，按钮组（同步更新/批量推送/批量删除）整体落到第二行，
      否则三个 flex:none 按钮把「应用索引列表」标题挤成一字一行竖排 */
   .card-head { flex-wrap:wrap; }
-  .head-actions { width:100%; margin-left:0; margin-top:8px; justify-content:stretch; gap:10px; }
+  /* 0.2.66：移动端标题行右侧不再为「全部已读」图标让位（图标浮在标题行右上，按钮在第二行），
+     让按钮行能真正占满卡片宽度 */
+  #idxCard .card-head { padding-right:0; }
+  .head-actions { width:100%; margin-left:0; margin-top:10px; justify-content:stretch; gap:14px; }
   .head-actions button { flex:1 1 0; justify-content:center; }
   /* 移动端隐藏源地址（长 URL word-break 竖排），只显示源名 + 应用数目 */
   .src-head .srcurl { display:none; }
@@ -449,6 +519,10 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
 .switch input:checked + .slider::after { transform:translateX(20px); }
 .bk-now { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
 .bk-collapse { display:flex; width:100%; align-items:center; justify-content:space-between; margin-top:12px; padding:8px 12px; border-radius:10px; background:hsl(var(--muted) / .35); border:none; color:hsl(var(--foreground)); font-size:13px; font-weight:500; cursor:pointer; height:auto; }
+/* 0.2.71（用户令）：点「备份列表」不再变深蓝选中色——用中性灰 hover/press，
+   覆盖全局 button:hover 的 primary 蓝（移动端点完 hover 会残留，看着像被选中）。 */
+.bk-collapse:hover, .bk-collapse:active, .bk-collapse:focus-visible { background:hsl(var(--muted) / .55); color:hsl(var(--foreground)); }
+.bk-collapse:focus { outline:none; }
 .bk-collapse .chev { width:15px; height:15px; color:hsl(var(--muted-foreground)); transition:transform .18s; }
 .bk-collapse.closed .chev { transform:rotate(-90deg); }
 .bk-count { font-size:11px; font-weight:400; color:hsl(var(--muted-foreground)); margin-left:4px; }
@@ -575,7 +649,8 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="idxCard">
+    <button id="ackAll" class="ack-btn" style="display:none" title="全部已读" aria-label="全部已读"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0l8 6Z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/></svg><span id="ackCount">0</span></button>
     <div class="card-head"><span class="step-badge">2</span> 应用索引列表 <span class="count" id="idxCount"></span><span class="head-actions"><button id="syncNow" class="plain" title="立即同步上游更新"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>同步更新</button><button id="batchPushBtn" class="plain">批量推送</button><button id="batchDelBtn" class="plain">批量删除</button></span></div>
     <div class="batch-bar" id="batchBar" style="display:none;">
       <button class="plain" id="batchSelectAll">全选</button>
@@ -618,7 +693,7 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
         </div>
       </section>
       <section class="card collapsible">
-        <div class="card-head" data-collapse data-collapse-key="mate-card-databk-collapsed"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>数据与备份 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <div class="card-head" data-collapse data-collapse-key="mate-card-data-collapsed"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>数据 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
         <div class="collapse-body">
         <div class="field">
           <label class="field-label">数据路径</label>
@@ -628,6 +703,17 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
           </button>
           <div class="field-hint" id="dataDirHint"></div>
         </div>
+        <div class="sec-title">清理</div>
+        <p class="cache-stat" id="cacheStat">统计中…</p>
+        <div class="cache-ops">
+          <button type="button" class="danger" id="cleanCacheBtn" title="清理图标缓存与临时残留（点一次先变红确认）">清理缓存</button>
+        </div>
+        <div class="field-hint">一键清理 Moo Mate 自身缓存（应用图标 + 下载 / 写盘临时残留），不影响应用索引、配置与备份。已删除应用请用「批量删除」，它会连带清掉该应用的图标与本地配置。</div>
+        </div><!-- /collapse-body -->
+      </section>
+      <section class="card collapsible">
+        <div class="card-head" data-collapse data-collapse-key="mate-card-backup-collapsed"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>备份 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <div class="collapse-body">
         <div class="field">
           <label class="field-label">备份目录</label>
           <button type="button" class="path-pick" id="pickBackupDir">
@@ -636,10 +722,6 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
           </button>
           <div class="field-hint">点击路径选择目录（空 = 数据目录下 backups/）</div>
         </div>
-        <div class="mrg-sec collapsible">
-        <div class="mrg-sub" data-collapse data-collapse-key="mate-bksec-collapsed"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>备份与恢复 <span class="head-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
-        <div class="collapse-body">
-        <div class="field-hint" style="margin:0 0 12px;">备份 = 数据目录的完整快照（应用索引 + 配置）。同一目录保留最近 20 份，更早的自动淘汰。</div>
         <div class="bk-row">
           <div>
             <label class="field-label" for="backupDays">备份周期</label>
@@ -658,24 +740,20 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
           <button id="backupNowBtn" class="ghost">立即备份</button>
         </div>
         <div class="field-hint" id="backupResult"></div>
+        <div class="field-hint">同一目录保留最近 20 份备份，更早的自动淘汰。</div>
         <button type="button" class="bk-collapse" id="bkToggle" aria-expanded="true">
           <span>备份列表<span class="bk-count" id="bkCount"></span></span>
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <div class="bk-list" id="bkList"></div>
-        <input type="file" id="restoreFile" accept=".tar.gz,.tgz,application/gzip" style="display:none;">
-        <button type="button" class="ghost" id="restorePickFile" style="width:100%;margin-top:10px;">从手机 / 电脑上传备份文件恢复</button>
-        </div><!-- /bk-sec collapse-body -->
-        </div><!-- /mrg-sec -->
-        </div><!-- /card collapse-body -->
-      </section>
-      <section class="card">
-        <div class="card-head"><svg class="hi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清理</div>
-        <div class="field">
-          <label class="field-label">清除同步索引</label>
-          <div class="field-hint">清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）</div>
-          <button id="clearDataBtn" class="ghost danger">清除同步索引</button>
+
+        <div class="sec-title">恢复</div>
+        <div class="restore-row">
+          <div class="field-hint" style="margin:0;">备份文件存在你自己的手机 / 电脑上时，从这里选择文件上传恢复；会覆盖当前应用索引与配置，恢复前自动留一份当前快照。</div>
+          <button type="button" class="ghost" id="restorePickFile">从手机 / 电脑上传备份文件恢复</button>
         </div>
+        <input type="file" id="restoreFile" accept=".tar.gz,.tgz,application/gzip" style="display:none;">
+        </div><!-- /collapse-body -->
       </section>
       <section class="card">
         <div class="log-head">
@@ -831,9 +909,29 @@ const ICON_UPLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
+// 主题取值与存储兜底（C）：localStorage 在无痕/沙箱 iframe/部分 WebView 会直接抛
+// SecurityError；旧写法 getItem 裸调且位于 body 末尾，一抛错后面全部脚本不执行
+// → 整个页面「能打开但按什么都不动」。这里统一 try/catch + 内存变量兜底。
+const themeSysDark = () => {
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
+  catch (e) { return false; }
+};
+let themeMem = null;               // storage 不可用时的会话内兜底值
+const themeGet = () => {
+  let v = null;
+  try { v = localStorage.getItem(themeKey); } catch (e) { v = null; }
+  if (v === 'dark' || v === 'light') return v;
+  if (themeMem === 'dark' || themeMem === 'light') return themeMem;
+  return themeSysDark() ? 'dark' : 'light';   // 与 head 预置脚本同口径
+};
+const themeSet = v => {
+  themeMem = v;
+  try { localStorage.setItem(themeKey, v); } catch (e) {}
+};
 const applyTheme = mode => {
   const dark = mode === 'dark';
   document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
   $('themeToggle').innerHTML = dark ? ICON_SUN : ICON_MOON;
   $('themeToggle').title = dark ? '切换到亮色' : '切换到暗色';
   $('themeToggle').setAttribute('aria-label', dark ? '切换到亮色' : '切换到暗色');
@@ -848,7 +946,7 @@ const toggleTheme = () => {
   themeLock = now;
   const prevBg = getComputedStyle(document.body).backgroundColor;
   const dark = !document.documentElement.classList.contains('dark');
-  localStorage.setItem(themeKey, dark ? 'dark' : 'light');
+  themeSet(dark ? 'dark' : 'light');
   applyTheme(dark ? 'dark' : 'light');
   const m = document.createElement('div');
   m.setAttribute('aria-hidden', 'true');
@@ -860,7 +958,7 @@ const toggleTheme = () => {
   }, 60);
 };
 $('themeToggle').onclick = toggleTheme;
-applyTheme(localStorage.getItem(themeKey) === 'dark' ? 'dark' : 'light');
+applyTheme(themeGet());
 
 // 弹窗（promise 化）
 let modalResolve = null;
@@ -1222,14 +1320,70 @@ $('taskCopy').onclick = async () => {
   }
 };
 
-// 手动「同步更新」：立即唤醒同步循环，按钮忙 2 秒给反馈
+// 手动「同步更新」= 双重同步（0.2.62 用户令合并成一个按钮）：
+//   ① 补远端默认应用清单（只补索引里没有的，绝不覆盖用户自己加的）
+//   ② 检查各应用上游仓库作者是否发了新版本
+// 后端 ① 同步返回结果，② 异步跑；这里轮询 /api/status 的 last_sync 变化，跑完自动刷新列表。
+// 0.2.63：「全部已读」= 一次把当前所有未读绿点标记为已读（落盘，重启不复活）。
+$('ackAll').onclick = async () => {
+  const btn = $('ackAll');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const r = await post('/api/ack-updates', {appnames: []});
+    await loadIndex();
+    if (r && r.acked) msg('已标记 ' + r.acked + ' 个应用为已读', 'ok');
+  } catch(e) {
+    msg('标记失败：' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
 $('syncNow').onclick = async () => {
   const btn = $('syncNow');
-  if (btn.disabled) return;
+  if (btn.disabled || syncing) return;
+  syncing = true;
+  renderIndex(); // 源组头切成忙碌脉冲
   const restore = busy(btn, '同步中…');
-  try { await post('/api/sync-now', {}); msg('已触发同步', 'ok'); }
-  catch(e) { msg('触发同步失败：' + e.message, 'err'); }
-  setTimeout(restore, 2000);
+  try {
+    const r = await post('/api/sync-now', {});
+    const added = (r && r.default_added) || 0;
+    const srcLabel = r && r.default_source === 'remote' ? '远端清单'
+      : r && r.default_source === 'embedded' ? '内置清单'
+      : r && r.default_source === 'skipped-user-cleared' ? '已清除，跳过' : '';
+    if (r && r.default_error) {
+      msg('默认清单拉取失败：' + r.default_error + '；正在检查上游版本…', 'warn');
+    } else if (added > 0) {
+      msg('已补充 ' + added + ' 个默认应用（' + srcLabel + '），正在检查上游版本…', 'ok');
+    } else {
+      msg('默认清单无新增，正在检查上游版本…', 'info');
+    }
+    pollSyncDone(restore);
+  } catch (e) {
+    restore();
+    syncing = false; renderIndex();
+    msg('触发同步失败：' + e.message, 'err');
+  }
+};
+
+// 轮询同步完成：last_sync 变化即认为这轮跑完，刷新列表并恢复源点状态
+const pollSyncDone = async (restore) => {
+  const done = () => { if (typeof restore === 'function') restore(); };
+  let base = null;
+  try { const s = await getJSON('/api/status'); base = s.last_sync || ''; } catch (e) {}
+  let tries = 0;
+  const finish = async () => { syncing = false; await loadIndex(); renderIndex(); done(); };
+  const tick = async () => {
+    tries++;
+    try {
+      const s = await getJSON('/api/status');
+      if (s.last_sync && s.last_sync !== base) { await finish(); return; }
+    } catch (e) {}
+    if (tries >= 40) { await finish(); return; } // 最多约 4 分钟
+    setTimeout(tick, 6000);
+  };
+  setTimeout(tick, 4000);
 };
 $('url').addEventListener('input', updateStartLabel);
 $('url').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); start(); } });
@@ -1241,7 +1395,8 @@ const paintDelButtons = () => {
   document.querySelectorAll('[data-op="delete"]').forEach(x => {
     const confirming = x.dataset.app === confirmDel;
     x.classList.toggle('confirm', confirming);
-    x.innerHTML = ICON_TRASH + (confirming ? '再点删除' : '删除');
+    x.innerHTML = ICON_TRASH + (confirming ? '确认删除' : '删除');
+    x.title = confirming ? '再点一次确认删除（3 秒内有效）' : '删除该应用（点一次先变红确认）';
   });
 };
 const clearConfirmDel = () => {
@@ -1291,6 +1446,94 @@ const paintGroupHead = () => {
   });
 };
 
+// —— 应用/源状态推导（0.2.62）——
+// 后端每次「同步更新」后把 latest_version / last_check / last_check_err 写进索引，
+// 这里据此给每个应用定状态，再汇总成源组头的状态（一源多应用）。
+const ICON_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+const vparts = v => String(v || '').replace(/^v/i, '').split(/[.+-]/).map(x => parseInt(x, 10) || 0);
+const verGreater = (a, b) => {
+  const x = vparts(a), y = vparts(b), n = Math.max(x.length, y.length);
+  for (let i = 0; i < n; i++) { const p = x[i] || 0, q = y[i] || 0; if (p !== q) return p > q; }
+  return false;
+};
+// —— 应用/源状态推导（0.2.63 重做）——
+// 后端每次「同步更新」后把 latest_version / prev_version / updated_at /
+// updated_seen_at / latest_seen_at / last_check / last_check_err 写进索引。
+// 语义：
+//   updated = 刚升级完成且用户还没看过（绿；点一下即已读）
+//   update  = 上游有新版、索引仍是旧版（红；唯一告警色）
+//   stale   = 有新版但 7 天没处理（琥珀，点一下重新检查；给红点一个尽头）
+//   warn    = 无法确认（琥珀感叹号，点一下重试）
+//   ok      = 已最新 / idle = 从没检查过
+const LATEST_STALE_TTL = 7 * 86400;
+const appState = a => {
+  // 未读的「已升级」：updated_at 晚于用户上次已读时间。
+  // 反复发版只会刷新 updated_at（生成新的未读），已读过的旧版本不会被重新点亮。
+  const upgraded = !!(a.prev_version && a.version && verGreater(a.version, a.prev_version));
+  if (upgraded && a.updated_at && a.updated_at > (a.updated_seen_at || 0)) return 'updated';
+  if (a.latest_version && a.version && verGreater(a.latest_version, a.version)) {
+    const since = a.latest_seen_at || 0;
+    if (since && (Date.now() / 1000 - since) > LATEST_STALE_TTL) return 'stale';
+    return 'update';
+  }
+  // 0.2.63：warn 后置 —— 一次网络抖动不该盖掉「确实有更新 / 刚升级完」的判断。
+  if (a.last_check_err) return 'warn';
+  if (!a.last_check) return 'idle';
+  return 'ok';
+};
+const agoText = ts => {
+  if (!ts) return '刚刚';
+  const d = Date.now() / 1000 - ts;
+  if (d < 60) return '刚刚';
+  if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+  if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+  return Math.floor(d / 86400) + ' 天前';
+};
+const appStateTitle = a => {
+  switch (appState(a)) {
+    case 'warn': return '无法确认是否有新版：' + a.last_check_err + '（点击重试）';
+    case 'updated': return '已更新：v' + a.prev_version + ' → v' + a.version + '（' + agoText(a.updated_at) + '，点击标记已读）';
+    case 'update': return '上游有新版 v' + a.latest_version + '，当前索引仍是 v' + a.version;
+    case 'stale': return '上游有新版 v' + a.latest_version + '，已 ' + agoText(a.latest_seen_at) + '未处理（点击重新检查）';
+    case 'ok': return '已是最新 v' + (a.latest_version || a.version);
+    default: return '尚未检查上游版本';
+  }
+};
+const groupState = list => {
+  const st = list.map(appState);
+  if (st.includes('update')) return 'update';
+  if (st.includes('warn') || st.includes('stale')) return 'warn';
+  if (st.includes('updated')) return 'updated';
+  if (st.every(s => s === 'idle')) return 'idle';
+  return 'ok';
+};
+const groupStateTitle = list => {
+  const done = list.filter(a => appState(a) === 'updated').length;
+  const up = list.filter(a => appState(a) === 'update').length;
+  const bad = list.filter(a => appState(a) === 'warn' || appState(a) === 'stale').length;
+  const ok = list.filter(a => appState(a) === 'ok').length;
+  const idle = list.filter(a => appState(a) === 'idle').length;
+  const p = [];
+  if (done) p.push(done + ' 个刚更新（待查看）');
+  if (up) p.push(up + ' 个有新版本');
+  if (bad) p.push(bad + ' 个无法确认');
+  if (ok) p.push(ok + ' 个已最新');
+  if (idle) p.push(idle + ' 个未检查');
+  return p.join('，') || '暂无状态';
+};
+let syncing = false; // 「同步更新」进行中：源组头显示忙碌脉冲
+
+// 0.2.63：「全部已读」小图标只在真有未读绿点时出现（标题后、不占按钮行）。
+const paintAckAll = () => {
+  const b = $('ackAll');
+  if (!b) return;
+  const n = lastApps.filter(a => appState(a) === 'updated').length;
+  b.style.display = n ? '' : 'none';
+  const c = $('ackCount');
+  if (c) c.textContent = n;
+  b.title = n ? ('把 ' + n + ' 个「已更新」标记为已读') : '全部已读';
+};
+
 // 索引列表（按发布者分组）
 const loadIndex = async () => {
   try {
@@ -1307,6 +1550,7 @@ const renderIndex = () => {
   if (!apps.length) {
     $('idxList').innerHTML = '<div class="empty">还没有索引。粘贴仓库链接后，发现的应用会出现在这里。</div>';
     updateBatchUI();
+    paintAckAll();
     return;
   }
   const groups = {};
@@ -1327,7 +1571,12 @@ const renderIndex = () => {
     const collapsed = batchMode ? false : !expandedGroups.has(pub);
     // 批量模式：组头换成整组选择框（点源名一次选中该源下全部应用），
     // 折叠箭头隐藏——批量模式本就强制展开，留着会误导成「点它折叠」。
-    const headLead = batchMode ? '<span class="sel-dot" data-gsel></span>' : '<span class="dot"></span>';
+    const headLead = batchMode ? '<span class="sel-dot" data-gsel></span>' : (() => {
+      const gs = syncing ? 'busy' : groupState(list);
+      const gIcon = gs === 'warn' ? ICON_WARN : '<span class="sd"></span>';
+      const tip = syncing ? '正在同步默认清单与上游版本…' : groupStateTitle(list);
+      return '<span class="src-state" data-st="' + gs + '" title="' + esc(tip) + '">' + gIcon + '</span>';
+    })();
     const headTail = batchMode ? '' : '<span class="collapse-arrow">' + ICON_CHEVRON + '</span>';
     h += '<div class="src-group' + (collapsed ? ' collapsed' : '') + '" data-group="' + esc(pub) + '"><div class="src-head" data-collapse' + (batchMode ? ' title="点一下选中该源下全部应用，再点取消"' : '') + '>' + headLead + '<span class="srcname">' + esc(pub) + '</span><span class="src-count">' + list.length + '</span>' + srcCtrl + headTail + '</div>';
     for (const a of list) h += appRow(a);
@@ -1335,9 +1584,31 @@ const renderIndex = () => {
   }
   $('idxList').innerHTML = h;
   updateBatchUI();
+  paintAckAll();
 };
 
 // 批量条 UI 刷新：已选计数、全选/取消全选文案、执行按钮禁用态
+// 批量删除两段式确认（对齐 Moo 0.6.524：第一下按钮变红「确认删除（N）」，3s 内再点才执行）
+let batchArmed = false, batchArmTimer = null;
+const paintBatchArm = () => {
+  const b = $('batchApply');
+  if (batchMode !== 'delete') { b.classList.remove('confirm'); b.removeAttribute('title'); return; }
+  b.classList.toggle('confirm', batchArmed);
+  b.textContent = batchArmed ? ('确认删除（' + selectedApps.size + '）') : '删除';
+  b.title = batchArmed ? '再点一次确认删除（3 秒内有效）'
+                       : ('删除选中的 ' + selectedApps.size + ' 个应用（点一次先变红确认）');
+  const all = selectedApps.size === (lastApps || []).length && (lastApps || []).length > 0;
+  if (batchArmed && all) $('batchCount').textContent = '已选 ' + selectedApps.size + ' 个（全部）· 删除后不会再自动补回出厂默认应用';
+};
+const disarmBatch = () => {
+  if (batchArmTimer) clearTimeout(batchArmTimer);
+  batchArmTimer = null;
+  if (!batchArmed) return;
+  batchArmed = false;
+  paintBatchArm();
+  updateBatchUI();
+};
+
 const updateBatchUI = () => {
   if (!batchMode) return;
   const selectable = selectableApps();
@@ -1350,6 +1621,7 @@ const updateBatchUI = () => {
   $('batchSelectAll').textContent = allSel ? '取消全选' : '全选';
   $('batchSelectAll').disabled = none;
   $('batchApply').disabled = selectedApps.size === 0;
+  paintBatchArm();
   paintGroupHead();
 };
 
@@ -1362,7 +1634,9 @@ const enterBatch = mode => {
   $('batchApply').classList.toggle('danger', mode === 'delete');
   $('batchPushBtn').classList.toggle('on', mode === 'push');
   $('batchDelBtn').classList.toggle('on', mode === 'delete');
+  batchArmed = false;
   renderIndex();
+  paintBatchArm();
 };
 const exitBatch = () => {
   batchMode = null;
@@ -1370,6 +1644,9 @@ const exitBatch = () => {
   $('batchBar').style.display = 'none';
   $('batchPushBtn').classList.remove('on');
   $('batchDelBtn').classList.remove('on');
+  if (batchArmTimer) clearTimeout(batchArmTimer);
+  batchArmTimer = null;
+  batchArmed = false;
   renderIndex();
 };
 
@@ -1399,7 +1676,7 @@ const selectAll = () => {
   updateBatchUI();
 };
 
-// 执行批量操作：推送（无确认） / 删除（弹窗确认）
+// 执行批量操作：推送（无确认） / 删除（两段式确认）
 const applyBatch = async () => {
   const names = [...selectedApps];
   if (!names.length) return;
@@ -1415,8 +1692,15 @@ const applyBatch = async () => {
     } catch(e) { msg('批量推送失败：' + e.message, 'err'); }
     finally { done(); }
   } else {
-    const yes = await ask('批量删除', '确定删除选中的 ' + names.length + ' 个应用？此操作不可撤销。', '删除');
-    if (!yes) return;
+    // 第一下 → 变红「确认删除（N）」；3s 内再点 → 真删（对齐 Moo，不弹窗）
+    if (!batchArmed) {
+      batchArmed = true;
+      if (batchArmTimer) clearTimeout(batchArmTimer);
+      batchArmTimer = setTimeout(disarmBatch, 3000);
+      paintBatchArm();
+      return;
+    }
+    disarmBatch();
     const done = busy($('batchApply'), '删除中…');
     try {
       const d = await post('/api/batch-delete', { appnames: names });
@@ -1452,6 +1736,17 @@ const appRow = a => {
   const iconHtml = '<img class="app-icon-img" src="api/icon/' + encodeURIComponent(a.appname) + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">'
     + '<div class="app-icon" style="display:none">' + letter + '</div>';
   const metaParts = [esc(a.appname || ''), ver ? 'v' + esc(ver) : '', arch, size].filter(Boolean);
+  // 0.2.63 单应用状态：已升级未读=绿色胶囊（点一下已读）；有更新=红色胶囊；失败/过期=琥珀。
+  const st = appState(a);
+  const stateHtml = st === 'updated'
+    ? '<span class="app-state" data-st="updated" data-op="ack-update" data-app="' + esc(a.appname) + '" title="' + esc(appStateTitle(a)) + '">已更新 v' + esc(a.prev_version || '?') + '→v' + esc(a.version || '?') + '</span>'
+    : st === 'update'
+      ? '<span class="app-state" data-st="update" title="' + esc(appStateTitle(a)) + '">有更新 v' + esc(a.version || '?') + '→v' + esc(a.latest_version || '?') + '</span>'
+      : st === 'stale'
+        ? '<span class="app-state" data-st="stale" data-op="check-update" data-app="' + esc(a.appname) + '" title="' + esc(appStateTitle(a)) + '">' + ICON_WARN + '重新检查</span>'
+        : st === 'warn'
+          ? '<span class="app-state" data-st="warn" data-op="check-update" data-app="' + esc(a.appname) + '" title="' + esc(appStateTitle(a)) + '">' + ICON_WARN + '未确认</span>'
+          : '';
   // 批量模式：行首加圆圈选择框（推送模式下已推送应用禁用），隐藏行内操作按钮
   const disabled = batchMode === 'push' && synced;
   const sel = selectedApps.has(a.appname);
@@ -1464,10 +1759,10 @@ const appRow = a => {
     + '<button class="plain" data-op="check-update" data-app="' + esc(a.appname) + '">' + ICON_REFRESH + '同步上游更新</button>'
     + pushBtn
     + '<button class="plain" data-op="delete" data-app="' + esc(a.appname) + '">' + ICON_TRASH + '删除</button></div>';
-  return '<div class="app-item' + (batchMode ? ' batch' : '') + '" data-app="' + esc(a.appname) + '">'
+  return '<div class="app-item' + (batchMode ? ' batch' : '') + (st === 'update' ? ' has-update' : '') + (st === 'updated' ? ' has-updated' : '') + '" data-app="' + esc(a.appname) + '">'
     + selHtml
     + iconHtml
-    + '<div class="app-main"><span class="app-name">' + esc(name) + '</span>'
+    + '<div class="app-main"><span class="app-name">' + esc(name) + '</span>' + stateHtml
     + (metaParts.length ? ' <span class="app-meta">' + metaParts.join(' · ') + '</span>' : '')
     + '</div>'
     + opsHtml
@@ -1488,6 +1783,12 @@ const opApp = async (op, appname) => {
   }
   if (op === 'check-update') msg('正在检查上游更新（可能需数十秒）…', 'info');
   try {
+    if (op === 'ack-update') {
+      // 0.2.63：点绿点 = 已读。静默处理（点一次弹一次 toast 反而吵）。
+      await post('/api/ack-updates', {appnames: [appname]});
+      await loadIndex();
+      return;
+    }
     let d;
     if (op === 'sync') d = await post('/api/sync-app', {appname});
     else if (op === 'unsync') d = await post('/api/unsync-app', {appname});
@@ -1501,6 +1802,7 @@ const opApp = async (op, appname) => {
 // 齿轮时间选择（对齐 Moo GearTimePicker：时 0-23 / 分 0-59，滚轮吸附）
 const GEAR_ITEM_H = 24;
 let gearH = 0, gearM = 0, gearReady = false;
+let gearSaved = null; // 0.2.71：与后端一致的值；没变就不写，避免打开设置页产生多余 PUT
 let gearSaveTimer = null;
 const durFmt = (h, m) => (h === 0 && m === 0) ? 'manual' : ((h ? h + 'h' : '') + (m ? m + 'm' : ''));
 const durParse = s => {
@@ -1543,8 +1845,13 @@ function buildGearCol(scrollEl, max, getVal, setVal) {
 function scheduleGearSave() {
   if (gearSaveTimer) clearTimeout(gearSaveTimer);
   gearSaveTimer = setTimeout(async () => {
+    const v = durFmt(gearH, gearM);
+    // 0.2.71：值没变化就不写。loadConfig 回填 gearH/gearM 时也会派发 scroll 事件，
+    // 旧实现因此每次打开设置页都 PUT 一次相同值（后端还会落盘一次）。
+    if (v === gearSaved) return;
     try {
-      await fetch('api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sync_interval: durFmt(gearH, gearM) }) });
+      await fetch('api/config', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ sync_interval: v }) });
+      gearSaved = v;
     } catch(e) { /* ignore */ }
   }, 800);
 }
@@ -1559,10 +1866,13 @@ const loadConfig = async () => {
   try {
     const c = await getJSON('/api/config');
     const { h, m } = durParse(c.sync_interval);
+    gearReady = false;              // 0.2.71：回填期间不许触发保存
     gearH = h; gearM = m;
+    gearSaved = durFmt(h, m);       // 记下与服务端一致的值
     $('gearHoursScroll').scrollTop = gearH * GEAR_ITEM_H;
     $('gearMinutesScroll').scrollTop = gearM * GEAR_ITEM_H;
-    gearReady = true;
+    // scroll 事件是异步派发的，必须等它跑完再放行，否则会被当成用户滚动
+    requestAnimationFrame(() => { gearReady = true; });
   } catch(e) { gearReady = true; }
 };
 
@@ -1818,6 +2128,23 @@ const BKI = {
   restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
 };
+// 备份删除两段式确认（对齐 Moo 0.6.532：点一次变红进入确认态，3s 内再点才真删；不弹窗）
+let bkConfirmDel = null, bkConfirmTimer = null;
+const paintBkDel = () => {
+  document.querySelectorAll('#bkList .bk-op[data-op="del"]').forEach(x => {
+    const on = x.dataset.name === bkConfirmDel;
+    x.classList.toggle('armed', on);
+    x.title = on ? '再点一次确认删除（3 秒内有效）' : '删除此备份（点一次先变红确认）';
+    x.setAttribute('aria-label', (on ? '确认删除备份 ' : '删除备份 ') + x.dataset.name);
+  });
+};
+const clearBkConfirm = () => {
+  if (bkConfirmTimer) clearTimeout(bkConfirmTimer);
+  bkConfirmTimer = null;
+  bkConfirmDel = null;
+  paintBkDel();
+};
+
 const renderBackups = items => {
   const list = $('bkList');
   $('bkCount').textContent = items.length ? ' · ' + items.length + ' 份' : '';
@@ -1829,8 +2156,9 @@ const renderBackups = items => {
       + '<span class="bk-size">' + esc(size) + '</span>'
       + '<button type="button" class="bk-op" data-op="down" data-name="' + esc(it.name) + '" title="下载到手机 / 电脑" aria-label="下载备份">' + BKI.down + '</button>'
       + '<button type="button" class="bk-op" data-op="restore" data-name="' + esc(it.name) + '" title="用此备份恢复" aria-label="恢复备份">' + BKI.restore + '</button>'
-      + '<button type="button" class="bk-op danger" data-op="del" data-name="' + esc(it.name) + '" title="删除此备份" aria-label="删除备份">' + BKI.trash + '</button></div>';
+      + '<button type="button" class="bk-op danger" data-op="del" data-name="' + esc(it.name) + '" title="删除此备份（点一次先变红确认）" aria-label="删除备份">' + BKI.trash + '</button></div>';
   }).join('');
+  paintBkDel();
 };
 const loadBackupPanel = async () => {
   try {
@@ -1878,8 +2206,15 @@ $('bkList').addEventListener('click', async e => {
   const name = btn.dataset.name, op = btn.dataset.op;
   if (op === 'down') { window.location.href = 'api/backup/download?name=' + encodeURIComponent(name); return; }
   if (op === 'del') {
-    const yes = await ask('删除备份', '将删除「' + name + '」，不可撤销。继续？', '删除');
-    if (!yes) return;
+    // 第一下 → 变红确认态；3s 内再点 → 真删（对齐 Moo，不弹窗）
+    if (bkConfirmDel !== name) {
+      bkConfirmDel = name;
+      if (bkConfirmTimer) clearTimeout(bkConfirmTimer);
+      bkConfirmTimer = setTimeout(clearBkConfirm, 3000);
+      paintBkDel();
+      return;
+    }
+    clearBkConfirm();
     try {
       const r = await fetch('api/backup?name=' + encodeURIComponent(name), { method:'DELETE' });
       const d = await r.json().catch(() => ({}));
@@ -1903,7 +2238,7 @@ $('restorePickFile').onclick = () => $('restoreFile').click();
 $('restoreFile').onchange = async () => {
   const f = $('restoreFile').files[0];
   if (!f) return;
-  const yes = await ask('恢复备份', '将用本机上传的「' + f.name + '」覆盖当前应用索引数据，恢复后立即生效。继续？', '恢复');
+  const yes = await ask('恢复备份', '将用你从手机 / 电脑选择的「' + f.name + '」覆盖当前应用索引数据，恢复后立即生效。继续？', '恢复');
   if (!yes) { $('restoreFile').value = ''; return; }
   try {
     const fd = new FormData();
@@ -1916,6 +2251,53 @@ $('restoreFile').onchange = async () => {
   } catch(e) { msg('恢复失败：' + e.message, 'err'); }
   finally { $('restoreFile').value = ''; }
 };
+
+const loadCacheStats = async () => {
+  try {
+    const d = await getJSON('/api/cache-stats');
+    const ic = d.icons || {}; const fail = d.failed || 0;
+    $('cacheStat').textContent = '图标缓存 ' + (ic.count||0) + ' 个 · ' + (fmtSize(ic.bytes)||'0 KB')
+      + (ic.tmp ? ' · 临时残留 ' + ic.tmp + ' 个' : '')
+      + (fail ? ' · 失败缓存 ' + fail + ' 条' : '');
+  } catch(e) { $('cacheStat').textContent = '缓存统计读取失败：' + e.message; }
+};
+// 清理缓存（0.2.70）：两个按钮合并为一个「清理缓存」，并改内联两段式确认——
+// 点一次变红「确认清理？」（3s 后自动还原、不发请求），再点一次才真清；
+// 不再弹 ask() 弹窗。scope=all 由后端一并删图标文件与 *.tmp 残留。
+let cleanArmed = false, cleanArmTimer = null;
+const paintCleanArm = () => {
+  const b = $('cleanCacheBtn');
+  if (!b) return;
+  b.classList.toggle('confirm', cleanArmed);
+  b.textContent = cleanArmed ? '确认清理？' : '清理缓存';
+  b.title = cleanArmed ? '再点一次确认清理（3 秒内有效）'
+                       : '清理图标缓存与临时残留（点一次先变红确认）';
+};
+const disarmClean = () => {
+  if (cleanArmTimer) clearTimeout(cleanArmTimer);
+  cleanArmTimer = null;
+  if (!cleanArmed) return;
+  cleanArmed = false;
+  paintCleanArm();
+};
+const cleanCache = async () => {
+  const btn = $('cleanCacheBtn');
+  if (!cleanArmed) {
+    cleanArmed = true;
+    paintCleanArm();
+    cleanArmTimer = setTimeout(disarmClean, 3000);
+    return;
+  }
+  disarmClean();
+  const done = busy(btn, '清理中…');
+  try {
+    const d = await post('/api/cache/clean', { scope: 'all' });
+    msg('✅ 已清理 ' + (d.removed||0) + ' 个文件，释放 ' + (fmtSize(d.freed) || '0 KB'), 'ok');
+    await loadCacheStats();
+  } catch(e) { msg('清理失败：' + e.message, 'err'); }
+  finally { done(); }
+};
+$('cleanCacheBtn').onclick = cleanCache;
 
 // —— 目录选择器（数据路径 / 备份目录共用）——
 let dirCur = '/';
@@ -2115,7 +2497,7 @@ const loadLogPanel = async () => {
   paintLogLines();
   loadLogs();
 };
-const loadSettings = async () => { loadDataDir(); loadBackupPanel(); loadLogPanel(); };
+const loadSettings = async () => { loadDataDir(); loadBackupPanel(); loadCacheStats(); loadLogPanel(); };
 
 // 日志卡片交互：行数持久化 / 刷新 / 搜索 / 级别筛选（再点一次取消）/ 行展开 / 复制
 $('logLinesBtn').onclick = e => {
@@ -2219,19 +2601,6 @@ $('logCleanOk').onclick = async () => {
     $('logCleanModal').classList.remove('show');
     await loadLogs();
   } catch(e) { msg('清理失败：' + e.message, 'err'); }
-  finally { done(); }
-};
-
-// —— 清除同步索引（二次确认，防误触）——
-$('clearDataBtn').onclick = async () => {
-  const yes = await ask('清除同步索引', '将清空应用索引列表（应用归零，保留配置；Moo 里的 moo-mate 源将在下次同步时随之清空）。此操作不可撤销，确认清除？', '清除');
-  if (!yes) return;
-  const done = busy($('clearDataBtn'), '清除中…');
-  try {
-    await post('/api/clear-data', {});
-    msg('✅ 应用数据已清除', 'ok');
-    await loadIndex();
-  } catch(e) { msg('清除失败：' + e.message, 'err'); }
   finally { done(); }
 };
 

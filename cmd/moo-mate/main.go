@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"flag"
 	"io/fs"
 	"log"
@@ -110,12 +111,14 @@ func main() {
 	}
 	c := newCompanion(mooBaseVal, selfBaseVal, tokenVal, web, newIndex(dataVal))
 	c.bootDir = bootDir
-	// 一次性历史清理：旧索引里 publisher=="softstore" 的条目所属分发形态已整体移除，
-	// 这里备份 index.json 后删除这些条目（幂等，失败只记日志、不阻断启动）。
-	if n, bak, nerr := c.idx.purgeSoftstoreEntries(); nerr != nil {
-		log.Printf("清理历史软仓条目失败（继续启动）: %v", nerr)
+	// 0.2.61：空索引兜底。历史版本可能把索引清成空文件，
+	// bootstrapDefaultIndex 因 index.json 已存在而不再执行 → 列表永远为空且无处恢复。
+	// 这里补一次：远端清单优先，失败回落内置快照；用户主动「清除同步索引」留了
+	// 标记则跳过（保持清除语义）。已有条目一律不动。
+	if n, src, serr := c.idx.seedDefaultIfEmpty(cfg.defaultIndexURL(), bootClient); serr != nil {
+		log.Printf("补写默认应用列表失败（继续空索引启动）：%v", serr)
 	} else if n > 0 {
-		log.Printf("已清理历史软仓条目 %d 条（备份 %s）", n, bak)
+		log.Printf("已补写默认应用列表 %d 条（来源=%s）", n, src)
 	}
 	// 0.2.35：自更新下载复用 Moo 的 GitHub 加速镜像表（GET /api/mate/mirrors）。
 	mateMirrorProvider = c.mateMirrorPrefixes
@@ -132,6 +135,10 @@ func main() {
 	// .json 后缀在 handleHost 里剥（appHostURL 写进加源 url 的形态带 .json，
 	// 让 Moo buildCandidates 走直链单候选，不当仓库根展开）。
 	mux.HandleFunc("GET /moo/{appname}", c.handleHost)
+	// 0.2.62：按 Moo 的仓库布局托管图标（/moo/<app>/ICON_256.PNG 等）——
+	// Moo 对「外部源」卡片的图标候选就是这样拼的，Mate 此前只提供
+	// /api/icon/<app>，于是全部 404、卡片只剩首字母占位。
+	mux.HandleFunc("GET /moo/{appname}/{file}", c.handleHostedIcon)
 	mux.HandleFunc("GET /api/icon/{appname}", c.handleIcon)
 	mux.HandleFunc("GET /api/status", c.handleStatus)
 	mux.HandleFunc("GET /api/update-check", c.handleUpdateCheck)
@@ -154,6 +161,7 @@ func main() {
 	mux.HandleFunc("POST /api/batch-sync", c.handleBatchSync)
 	mux.HandleFunc("POST /api/batch-delete", c.handleBatchDelete)
 	mux.HandleFunc("POST /api/check-update", c.handleCheckUpdate)
+	mux.HandleFunc("POST /api/ack-updates", c.handleAckUpdates)
 	mux.HandleFunc("POST /api/sync-now", c.handleSyncNow)
 	mux.HandleFunc("DELETE /api/index/{appname}", c.handleDeleteApp)
 	// 数据备份
@@ -168,6 +176,8 @@ func main() {
 	mux.HandleFunc("POST /api/backup/restore", c.handleBackupRestore)
 	mux.HandleFunc("POST /api/backup/restore-upload", c.handleBackupRestoreUpload)
 	mux.HandleFunc("POST /api/clear-data", c.handleClearData)
+	mux.HandleFunc("GET /api/cache-stats", c.handleCacheStats)
+	mux.HandleFunc("POST /api/cache/clean", c.handleCacheClean)
 	// 非 API 路径回退到 embed 的静态文件（FileServer 自动提供 index.html）。
 	mux.HandleFunc("/", web.ServeHTTP)
 
@@ -273,6 +283,10 @@ func (c *companion) wakeSync() {
 // trySyncLog 跑一次完整同步（索引里全部应用的上游检查）并记日志（定时循环与唤醒共用）。
 func (c *companion) trySyncLog() {
 	checked, updated, err := c.runFullSync()
+	if errors.Is(err, errSyncBusy) {
+		log.Printf("同步进行中，跳过本轮唤醒")
+		return
+	}
 	if err != nil {
 		log.Printf("同步失败: %v", err)
 		return
@@ -303,6 +317,9 @@ func (c *companion) syncLoop() {
 				default:
 				}
 			}
+			// 0.2.62：唤醒必须真的跑一轮同步。此前这里只停掉定时器就回到循环开头，
+			// 「同步更新」按钮等于没生效（实测点完 13 分钟无同步日志、Moo 源 app_count 不刷新）。
+			c.trySyncLog()
 		}
 	}
 }

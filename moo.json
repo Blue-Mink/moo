@@ -94,6 +94,24 @@
    "bug_report_url": "https://github.com/Blue-Mink/moo/issues",
    "license": "MIT",
    "releases": {
+    "0.2.71": {
+     "updated_at": "2026-11-14T17:43:54+08:00",
+     "changelog": "界面：设置页拆成「数据」与「备份」两张卡——数据路径下方直接跟清理（缓存统计 + 一键清理），备份目录 / 周期 / 自动备份 / 立即备份 / 列表 / 恢复归入备份卡；「清理图标缓存」「清理临时文件」合并为一个「清理缓存」；进入设置页不再重复保存一次相同设置\n界面：应用行、备份列表、批量删除三处删除统一为变红二段确认（点一次变红、3 秒内再点才执行），不再弹确认框；备份列表点击不再残留深蓝选中色，「从手机 / 电脑上传备份文件恢复」按钮与之等宽\n界面：记住深浅色并让首屏不闪；从未设置过时跟随系统；浏览器存储被禁时不再异常。移动端标题行的同步更新 / 批量推送 / 批量删除三按钮等宽平分；「全部已读」收成标题右上角信封图标并显示未读数\n状态：更新提示改为「未读」模型——升级成功显示绿色胶囊、点一下即已读；检查失败或网络抖动不再覆盖「有更新 / 刚升级完」的判断；同一应用的检查与定时同步不再并发互相覆盖\n数据：清除同步索引后不会再被进行中的同步写回，重启也不会自动补回默认应用（新增应用后标记自动解除）；「同步更新」按钮此前只停定时器不真同步，现在点即跑一轮\n移除：不再支持 Gitee 仓库地址（只认 GitHub，粘贴 Gitee 链接会明确提示），软仓相关的历史清理代码与文案一并删除；应用图标改按 Moo 的仓库目录布局托管，Moo 侧未安装应用的卡片不再只显示首字母",
+     "packages": {
+      "x86": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.71/moo-mate_0.2.71_x86.fpk",
+       "sha256": "eb900b754ddb3ba0c2335ff127bae8fe328e36e69a2060fab8cf91d75deb9061",
+       "size": 4046478,
+       "size_mb": 3.86
+      },
+      "arm": {
+       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.71/moo-mate_0.2.71_arm.fpk",
+       "sha256": "1af1c5fe204b07c58d47f36ec54fdd590c748bd0a58b22fc0c95890c82adf42c",
+       "size": 3664907,
+       "size_mb": 3.5
+      }
+     }
+    },
     "0.2.60": {
      "packages": {
       "x86": {
@@ -109,41 +127,23 @@
        "size_mb": 3.48
       }
      },
-     "changelog": "界面：批量模式点源名整组选中该源下应用；任务弹窗可关闭、点遮罩关闭、运行中收成右下角胶囊；输入框新增清空；数据与备份、备份与恢复支持整行折叠\n生成：新增任务进度弹窗，逐条显示处理结果、阶段、耗时与实时日志，可复制日志、可取消\n扫描：新增仓库内 FPK 文件发现（文件树与仓库文件双通道），同名取高版本、按应用聚合去旧版；大仓库按预算处理，私有仓库跳过\n移除：不再内置第三方软仓源与相关平台提示（粘贴该平台链接仍可扫描）；启动时清理历史条目（先备份），默认清单精简到 5 条并改为优先读远端清单\n修复：经面板网关访问时写操作误判跨源 403；版本弹窗对齐 Moo（正文一句话、日志单一来源、超过 5 条分页）",
+     "changelog": "界面：批量模式点源名整组选中该源下应用；任务弹窗可关闭、点遮罩关闭、运行中收成右下角胶囊；输入框新增清空；数据与备份、备份与恢复支持整行折叠\n生成：新增任务进度弹窗，逐条显示处理结果、阶段、耗时与实时日志，可复制日志、可取消\n扫描：新增仓库内 FPK 文件发现（文件树与仓库文件双通道），同名取高版本、按应用聚合去旧版；大仓库按预算处理，私有仓库跳过\n移除：不再内置第三方应用源与相关平台提示；启动时清理历史条目（先备份），默认清单精简到 5 条并改为优先读远端清单\n修复：经面板网关访问时写操作误判跨源 403；版本弹窗对齐 Moo（正文一句话、日志单一来源、超过 5 条分页）",
      "updated_at": "2026-11-09T13:24:37+08:00"
-    },
-    "0.2.55": {
-     "updated_at": "2026-11-05T09:04:03+08:00",
-     "changelog": "修复：/api/index 应用列表固定按名称排序，响应字节可复现（客户端缓存与内容比对恢复有效）\n修复：并发备份改为独占创建，同名冲突自动顺延到下一秒，不再互相覆盖\n修复：索引文件损坏时先隔离为 index.json.bad-时间戳 再回落空索引，状态接口暴露 last_index_error 便于排查",
-     "packages": {
-      "x86": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_x86.fpk",
-       "sha256": "fe1efb8b2e0f9ef42b9b2f5b6c901f11bc99dba03fe17e9b3edbe3fcf76a58e6",
-       "size": 4141091,
-       "size_mb": 3.95
-      },
-      "arm": {
-       "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.55/moo-mate_0.2.55_arm.fpk",
-       "sha256": "e6490663b8ca118eca000bd6eaf24f630abaa060369e6a4cefe0cb8188ee241c",
-       "size": 3763390,
-       "size_mb": 3.59
-      }
-     }
     }
    },
-   "sha256": "808003ab322523977c7e254d7f5763c8856262e0569d4b0990256927ac7ce87c",
+   "sha256": "eb900b754ddb3ba0c2335ff127bae8fe328e36e69a2060fab8cf91d75deb9061",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos-mate/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/cmd/moo-mate/README.md",
    "labels": "系统工具",
    "install_type": "系统空间",
    "download_count": 0,
    "first_release_at": "2026-10-28T09:29:16+08:00",
-   "updated_at": "2026-11-09T13:24:37+08:00",
-   "version": "0.2.60",
-   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.60/moo-mate_0.2.60_x86.fpk",
-   "size": 4028646,
+   "updated_at": "2026-11-14T17:43:54+08:00",
+   "version": "0.2.71",
+   "download_url": "https://github.com/Blue-Mink/moo/releases/download/mate-v0.2.71/moo-mate_0.2.71_x86.fpk",
+   "size": 4046478,
    "service_port": "38108",
-   "size_mb": 3.84,
+   "size_mb": 3.86,
    "preview_urls": [
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-list-0260.png",
     "https://raw.githubusercontent.com/Blue-Mink/moo/main/docs/mate-pc-apps-0260.png",

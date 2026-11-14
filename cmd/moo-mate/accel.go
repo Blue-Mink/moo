@@ -7,7 +7,7 @@ package main
 // 直连 GitHub 的请求（release 资产、raw 索引、api）在国内经常 0 字节。
 //
 // 这里给 Mate 的外部请求加一条「本机代理通道」：
-//   - 只对 GitHub 系域名走代理，其它域名（FnDepot、Gitee、自建源）保持直连，
+//   - 只对 GitHub 系域名走代理，其它域名（FnDepot、自建源）保持直连，
 //     不给用户的环境增加未知跳数；
 //   - 回环地址一律直连（Moo API、appcenter socket 不能被代理）；
 //   - 探测结果缓存 5 分钟：Dog-dev 没装/没运行/装了没开代理时行为与旧版一致；
