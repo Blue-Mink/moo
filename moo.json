@@ -29,14 +29,14 @@
      "packages": {
       "x86": {
        "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.552/moo_0.6.552_x86.fpk",
-       "sha256": "4e40e50cfbd633cab4d4dce73133e3c2abf9f5738c0ddcd470e7dd40000c4b84",
-       "size": 5410830,
+       "sha256": "f28b63002dc4e3fb5cf93c2cd08c9e8d0d531674ba32ca6bb4f75ead72c00238",
+       "size": 5410810,
        "size_mb": 5.16
       },
       "arm": {
        "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.552/moo_0.6.552_arm.fpk",
-       "sha256": "4783fc5409ba5b42d13e32f3a48bf5007989d298001979c218f68aaf9ecfb543",
-       "size": 4902550,
+       "sha256": "01cc4452077680fe510003c748704e830bdb555dd80276e6eb09cb097269ff7e",
+       "size": 4902596,
        "size_mb": 4.68
       }
      }
@@ -60,7 +60,7 @@
      }
     }
    },
-   "sha256": "4e40e50cfbd633cab4d4dce73133e3c2abf9f5738c0ddcd470e7dd40000c4b84",
+   "sha256": "f28b63002dc4e3fb5cf93c2cd08c9e8d0d531674ba32ca6bb4f75ead72c00238",
    "icon_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/fnos/ICON.PNG",
    "readme_url": "https://raw.githubusercontent.com/Blue-Mink/moo/main/README.md",
    "labels": "系统工具",
@@ -75,7 +75,7 @@
    "updated_at": "2026-11-14T09:20:48+08:00",
    "version": "0.6.552",
    "download_url": "https://github.com/Blue-Mink/moo/releases/download/v0.6.552/moo_0.6.552_x86.fpk",
-   "size": 5410830,
+   "size": 5410810,
    "service_port": "38100",
    "size_mb": 5.16,
    "changelog": ""

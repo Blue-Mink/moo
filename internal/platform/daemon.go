@@ -686,7 +686,7 @@ func DependentApps(ctx context.Context, appname string) (deps []DepBlocker, isDe
 // 社区 FPK 通道此前没有依赖预检：升级被依赖的运行时（nodejs_v22/v24）时，
 // 平台先下载整包再以 16006 拒绝，前端只看到裸错误、弹不出「停用并重试」。
 // checked=false 表示「未安装」或「预检失败」——调用方一律忽略，不阻断升级
-//（不因 daemon 抖动误伤正常安装）。
+// （不因 daemon 抖动误伤正常安装）。
 func RunningDependentsForInstalled(ctx context.Context, appName string) (deps []DepBlocker, checked bool) {
 	list, err := ListInstalled(ctx)
 	if err != nil {

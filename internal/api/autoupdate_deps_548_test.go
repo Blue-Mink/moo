@@ -196,7 +196,7 @@ func TestShouldCacheDepBlocked(t *testing.T) {
 		{depPolicySkip, false, true},
 		{depPolicySkip, true, true},
 		{depPolicyNotify, false, true},
-		{depPolicyStop, true, true},  // 时段内仍被占用：值得静默 2h
+		{depPolicyStop, true, true},   // 时段内仍被占用：值得静默 2h
 		{depPolicyStop, false, false}, // 时段外：不能写，否则挡住整窗
 	}
 	for _, c := range cases {

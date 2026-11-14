@@ -2105,15 +2105,15 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	depWinStart, depWinEnd := autoUpdateDepWindowOf(s.Cfg.AutoUpdateWindowStart, s.Cfg.AutoUpdateWindowEnd)
 	set := Settings{
-		CheckIntervalHours:  interval,
+		CheckIntervalHours: interval,
 		// 0.6.548：依赖策略/白名单/自动停用时段（默认值也要下发，否则前端恒空）。
 		AutoUpdateDepPolicy:   autoUpdateDepPolicyOf(s.Cfg.AutoUpdateDepPolicy),
 		AutoUpdateDepAllow:    append([]string{}, s.Cfg.AutoUpdateDepAllow...),
 		AutoUpdateWindowStart: depWinStart,
 		AutoUpdateWindowEnd:   depWinEnd,
-		Mirror:              s.Cfg.Mirror,
-		MirrorIncludeDirect: s.Cfg.MirrorIncludeDirect,
-		DockerMirror:        s.Cfg.DockerMirror,
+		Mirror:                s.Cfg.Mirror,
+		MirrorIncludeDirect:   s.Cfg.MirrorIncludeDirect,
+		DockerMirror:          s.Cfg.DockerMirror,
 		// 0.6.325 H1(F2)：自定义镜像必须随 GET 透出——PUT 能写但 GET
 		// 不下发时，设置页水合恒空串，下次全量保存把 config 里的
 		// 自定义镜像静默抹掉（数据丢失级）。
