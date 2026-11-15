@@ -6,7 +6,6 @@
 fnos-apps-store@fnos-store aurora-6
 fndepot@Blue-Mink aurora-9
 fn-knock@kci-lnk aurora-8
-opencode@CrRinko aurora-2
 fnmedia-ext@yujian0815 aurora-5
 fnmusic-ext@javycoder aurora-7
 wb2api@shuangji66 aurora-10
