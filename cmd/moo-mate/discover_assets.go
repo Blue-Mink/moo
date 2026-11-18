@@ -330,6 +330,8 @@ func dedupMerged(items []releaseFPK, logf func(string, string)) []discoveredApp 
 			logf(l, m)
 		}
 	}
+	// 0.2.73：prune 会剔除旧版本，历史节点必须在这之前挑出来。
+	prev := prevByAppKey(items)
 	if pruned := pruneByAppKey(items); len(pruned) < len(items) {
 		log("ok", fmt.Sprintf("按应用聚合：%d → %d 个候选（剔除旧版本）", len(items), len(pruned)))
 		items = pruned
@@ -356,7 +358,14 @@ func dedupMerged(items []releaseFPK, logf func(string, string)) []discoveredApp 
 			break
 		}
 		total += it.size
-		out = append(out, discoveredApp{Name: it.name, Version: it.ver, DownloadURL: it.url, Size: it.size})
+		app := discoveredApp{
+			Name: it.name, Version: it.ver, DownloadURL: it.url, Size: it.size,
+			Changelog: it.changelog, UpdatedAt: it.updatedAt, Sha256: it.sha256,
+		}
+		if pl, ok := prev[appKeyFromFilename(it.name)]; ok {
+			app.PrevVer, app.PrevAt, app.PrevNotes, app.PrevPkgs = prevFields(pl)
+		}
+		out = append(out, app)
 	}
 	return out
 }

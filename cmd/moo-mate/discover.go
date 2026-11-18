@@ -16,15 +16,18 @@ import (
 
 // ghReleaseAsset GitHub release 里的单个资产（只取需要的字段）。
 type ghReleaseAsset struct {
-	Name string `json:"name"`
-	URL  string `json:"browser_download_url"`
-	Size int64  `json:"size"`
+	Name   string `json:"name"`
+	URL    string `json:"browser_download_url"`
+	Size   int64  `json:"size"`
+	Digest string `json:"digest"` // 0.2.73：形如 "sha256:abcd…"，旧接口可能为空
 }
 
 // ghRelease GitHub release（只取需要的字段）。
 type ghRelease struct {
-	TagName string           `json:"tag_name"`
-	Assets  []ghReleaseAsset `json:"assets"`
+	TagName     string           `json:"tag_name"`
+	Body        string           `json:"body"`         // 0.2.73：release notes，供更新日志展示
+	PublishedAt string           `json:"published_at"` // 0.2.73：RFC3339
+	Assets      []ghReleaseAsset `json:"assets"`
 }
 
 // discoveredApp 发现结果：一个应用的下载直链（后续下载解析 manifest 补全）。
@@ -33,6 +36,16 @@ type discoveredApp struct {
 	Version     string // 从 tag_name 推导
 	DownloadURL string
 	Size        int64
+
+	// 0.2.73：上游 release 元数据，用于补全 moo.json 协议字段（README / 更新日志 / 历史版本）。
+	// 非 GitHub release 通道（仓库文件、Gitee）留空，行为与旧版一致。
+	Changelog string
+	UpdatedAt string // RFC3339
+	Sha256    string
+	PrevVer   string // 次高版本号（历史版本，只留 1 个）
+	PrevAt    string
+	PrevNotes string
+	PrevPkgs  map[string]*appPackage // 历史版本按架构的下载信息
 }
 
 var ghRepoRe = regexp.MustCompile(`^(?:https?://)?(?:www\.)?github\.com/([^/]+)/([^/]+)/?`)
@@ -148,10 +161,19 @@ func versionFromTag(tag string) string {
 	tag = strings.TrimPrefix(tag, "v")
 	// 只认以数字开头的版本串（含 x.y.z-N 构建号）。
 	if tag == "" || (tag[0] < '0' || tag[0] > '9') {
+		// 0.2.73：兼容带应用前缀的 tag（mate-v0.2.71 / release-1.2.3）——
+		// 以前一律返回空，导致 Moo Mate 自己的 release 拿不到版本号、更新日志与历史版本。
+		if m := reTagVersionSuffix.FindStringSubmatch(tag); m != nil {
+			return m[1]
+		}
 		return ""
 	}
 	return tag
 }
+
+// reTagVersionSuffix 只接受「前缀-vX.Y.Z」形态（mate-v0.2.71）。
+// 刻意不认 release-2026.1.1 这类无 v 的日期前缀标签：版本不可比，宁可留空。
+var reTagVersionSuffix = regexp.MustCompile(`(?i)(?:^|[-_/])v(\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.\-]+)?)$`)
 
 // releaseFPK release 里一条 .fpk 资产（GitHub 统一中间形态）。
 type releaseFPK struct {
@@ -160,6 +182,11 @@ type releaseFPK struct {
 	size     int64
 	ver      string // 从 tag / 文件名推导的版本（可能为空）
 	fromRepo bool   // true = 仓库文件树里的包，false = release 资产
+
+	// 0.2.73：仅 release 通道有值（仓库文件树/Gitee 为空）。
+	changelog string
+	updatedAt string
+	sha256    string
 }
 
 // dedupFPKs 按资产文件名去重，同名只留最高版，返回 discoveredApp 列表。
@@ -184,6 +211,9 @@ func dedupFPKs(items []releaseFPK) []discoveredApp {
 			Version:     it.ver,
 			DownloadURL: it.url,
 			Size:        it.size,
+			Changelog:   it.changelog,
+			UpdatedAt:   it.updatedAt,
+			Sha256:      it.sha256,
 		}
 		bestVer[it.name] = it.ver
 	}
@@ -222,13 +252,17 @@ func discoverFromRepoLog(ctx context.Context, rawURL, token string, httpc *http.
 			assets, fpks := 0, 0
 			for _, rel := range rels {
 				ver := versionFromTag(rel.TagName)
+				notes := cleanReleaseNotes(rel.Body)
 				for _, a := range rel.Assets {
 					assets++
 					if !strings.HasSuffix(strings.ToLower(a.Name), ".fpk") {
 						continue
 					}
 					fpks++
-					relItems = append(relItems, releaseFPK{name: a.Name, url: a.URL, size: a.Size, ver: ver})
+					relItems = append(relItems, releaseFPK{
+						name: a.Name, url: a.URL, size: a.Size, ver: ver,
+						changelog: notes, updatedAt: rel.PublishedAt, sha256: shaFromDigest(a.Digest),
+					})
 				}
 			}
 			log("ok", fmt.Sprintf("release：%d 个资产，%d 个 .fpk", assets, fpks))

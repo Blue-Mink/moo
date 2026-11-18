@@ -253,6 +253,14 @@ func (c *companion) handleDiscover(w http.ResponseWriter, r *http.Request) {
 type buildAcc struct {
 	ia      *indexedApp
 	version string
+
+	// 0.2.73：上游 release 元数据（当前版本 + 上一版），收尾时转成 moo.json 协议字段。
+	notes     string
+	at        string
+	prevVer   string
+	prevAt    string
+	prevNotes string
+	prevPkgs  map[string]*appPackage
 }
 
 // accProgress 解析阶段进度/结果回调（nil 安全）。
@@ -282,6 +290,9 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 	accs := map[string]*buildAcc{}
 	var skipped []string
 	total := len(discovered)
+	// 0.2.73：README 每轮只从上游拉一次，随后复制给该源下的每个应用。
+	readmeTried := false
+	readmePaths, readmeRoot := map[string]string{}, ""
 	for i, d := range discovered {
 		if err := ctx.Err(); err != nil {
 			skipped = append(skipped, "任务已取消，剩余未解析")
@@ -310,9 +321,19 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 			e.Version = d.Version
 		}
 		arch := archForFPK(meta.Manifest, d.Name)
+		if !readmeTried {
+			readmeTried = true
+			if byApp, root := c.repoReadmePaths(ctx, raw); len(byApp) > 0 || root != "" {
+				readmePaths, readmeRoot = byApp, root
+			}
+		}
 		acc := accs[appname]
 		if acc == nil {
-			acc = &buildAcc{ia: &indexedApp{appEntry: *e, Appname: appname, Source: raw, Publisher: owner}, version: e.Version}
+			acc = &buildAcc{
+				ia: &indexedApp{appEntry: *e, Appname: appname, Source: raw, Publisher: owner}, version: e.Version,
+				notes: d.Changelog, at: d.UpdatedAt,
+				prevVer: d.PrevVer, prevAt: d.PrevAt, prevNotes: d.PrevNotes, prevPkgs: d.PrevPkgs,
+			}
 			accs[appname] = acc
 		}
 		if e.Version != "" && acc.version != "" && versionGreater(e.Version, acc.version) {
@@ -320,6 +341,7 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 			acc.ia.appEntry = *e
 			acc.version = e.Version
 			acc.ia.Packages = nil
+			acc.notes, acc.at = d.Changelog, d.UpdatedAt
 		} else if e.Version != "" && acc.version != "" && e.Version != acc.version {
 			err := fmt.Errorf("低于最高版 %s", acc.version)
 			skipped = append(skipped, fmt.Sprintf("%s@%s: %v", appname, e.Version, err))
@@ -348,6 +370,28 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 		}
 		if len(acc.ia.Packages) > 0 {
 			acc.ia.appEntry.Platform = archKeys(acc.ia.Packages)
+		}
+		// 0.2.73：更新日志 / 历史版本 / README 自托管地址。
+		if acc.notes != "" {
+			acc.ia.appEntry.Changelog = acc.notes
+		}
+		rels := map[string]*appRelease{}
+		if acc.version != "" && len(acc.ia.Packages) > 0 {
+			rels[acc.version] = &appRelease{Changelog: acc.notes, UpdatedAt: acc.at, Packages: acc.ia.Packages}
+		}
+		if acc.prevVer != "" && acc.prevVer != acc.version {
+			rels[acc.prevVer] = &appRelease{Changelog: acc.prevNotes, UpdatedAt: acc.prevAt, Packages: acc.prevPkgs}
+		}
+		if len(rels) > 0 {
+			acc.ia.appEntry.Releases = rels
+		}
+		// README 按应用分别取（同仓多应用各取自己的子目录 README，绝不互相覆盖）。
+		rp := readmePaths[strings.ToLower(acc.ia.Appname)]
+		if rp == "" {
+			rp = readmeRoot
+		}
+		if c.ensureReadme(ctx, acc.ia.Appname, acc.ia.Source, rp) {
+			acc.ia.appEntry.ReadmeURL = c.base + "/moo/" + url.PathEscape(acc.ia.Appname) + "/README.md"
 		}
 	}
 	return accs, skipped
@@ -1232,6 +1276,11 @@ func looksLikeIconFile(name string) bool {
 // 复用 handleIcon 的全部解析链（磁盘缓存 → 内存 → icon_url → 仓库候选 → 包内抽图），
 // 因此命中一次就落盘，后续请求零网络成本。
 func (c *companion) handleHostedIcon(w http.ResponseWriter, r *http.Request) {
+	// 0.2.73：/moo/<app>/README.md 由本机自托管（详情页 README 不再依赖上游可达性）。
+	if strings.EqualFold(strings.TrimSpace(r.PathValue("file")), "README.md") {
+		c.serveReadme(w, r, strings.TrimSpace(r.PathValue("appname")))
+		return
+	}
 	if !hostedIconNames[strings.TrimSpace(r.PathValue("file"))] {
 		writeErr(w, http.StatusNotFound, "不支持的图标文件名")
 		return

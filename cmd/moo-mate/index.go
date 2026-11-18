@@ -283,6 +283,17 @@ func (ix *index) put(a *indexedApp) error {
 		if a.LastCheckErr == "" {
 			a.LastCheckErr = prev.LastCheckErr
 		}
+		// 0.2.72：默认清单跟版三字段同样要保真。同步链路（discover → upsert）构造的
+		// indexedApp 不带这三项，不在这里兜住就会把脚本/清单写进去的值整体抹掉。
+		if len(a.Releases) == 0 {
+			a.Releases = prev.Releases
+		}
+		if a.ReadmeURL == "" {
+			a.ReadmeURL = prev.ReadmeURL
+		}
+		if a.Changelog == "" {
+			a.Changelog = prev.Changelog
+		}
 	}
 	ix.doc.Apps[a.Appname] = a
 	return ix.save()
@@ -297,6 +308,26 @@ func (ix *index) upsert(a *indexedApp) error {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	return ix.put(a)
+}
+
+// updateFields 在**写锁内**对指定应用做字段级更新：fn 返回 true 表示有改动，只有改动才落盘。
+//
+// 0.2.73-fix（B-1）：协议字段回填跑在后台 goroutine（main.go 启动 +60s、每轮同步后），
+// 不能用 list() 快照整体 put —— put 要求调用方已持写锁（见其注释），无锁调用会与 HTTP 侧
+// list()/get() 的 map 遍历并发，而 Go 的「并发 map 读写」是 fatal error（进程直接崩溃，
+// 不可 recover）；此外陈旧快照会覆盖期间写入的检查状态（脏写）。这里在锁内直接改活条目，
+// 只由 fn 决定改哪些字段。
+func (ix *index) updateFields(appname string, fn func(a *indexedApp) bool) (bool, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	a := ix.doc.Apps[appname]
+	if a == nil {
+		return false, nil
+	}
+	if !fn(a) {
+		return false, nil
+	}
+	return true, ix.save()
 }
 
 // generation 返回当前索引代次。用户「清除同步索引」会推进一代，

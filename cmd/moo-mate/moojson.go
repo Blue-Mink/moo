@@ -35,6 +35,21 @@ type appEntry struct {
 	Homepage    string   `json:"homepage,omitempty"`
 	BugReport   string   `json:"bug_report_url,omitempty"`
 	Labels      string   `json:"labels,omitempty"`
+	// 0.2.72：默认清单跟版所需的三项协议字段。此前 indexedApp 是结构体且无自定义
+	// Unmarshal，同步时整体覆盖 → releases / readme_url / changelog 被静默丢弃，
+	// 脚本只能改版本号、改不了历史版本与 README 链接（等于假自动化）。
+	// 三者都是 omitempty：现有同步链路不填 = 输出与旧版逐字节一致，零行为变更。
+	Releases  map[string]*appRelease `json:"releases,omitempty"`   // 历史版本节点（协议 apps.<key>.releases）
+	ReadmeURL string                 `json:"readme_url,omitempty"` // 详情页 README（http(s) 直链或相对路径）
+	Changelog string                 `json:"changelog,omitempty"`  // 最新版更新日志（协议 apps.<key>.changelog）
+}
+
+// appRelease moo.json 的 releases.<version> 节点（历史版本记录）。
+// 字段口径与 docs/Moo应用源协议.md 一致；未知字段不保留（协议只认这三项）。
+type appRelease struct {
+	Changelog string                 `json:"changelog,omitempty"`
+	UpdatedAt string                 `json:"updated_at,omitempty"`
+	Packages  map[string]*appPackage `json:"packages,omitempty"`
 }
 
 // fpkMeta 从一份 FPK 字节流解析出的元数据（复用 gen-moo-json 同口径）。
@@ -283,15 +298,29 @@ func buildMooJSON(name, distributor, homepage, iconBase string, apps map[string]
 			pkgs := make(map[string]any, len(ia.Packages))
 			for _, arch := range archKeys(ia.Packages) {
 				p := ia.Packages[arch]
+				if p == nil {
+					continue
+				}
 				pkgs[arch] = map[string]any{
 					"download_url": p.DownloadURL,
 					"sha256":       p.Sha256,
 					"size":         p.SizeBytes,
 				}
 			}
-			em["releases"] = map[string]any{
-				ia.Version: map[string]any{"packages": pkgs},
+			// 0.2.72：与 appEntry 带来的历史 releases **合并**，不能整块覆盖。
+			// 覆盖会让默认清单/上游同步写入的旧版本节点（changelog + updated_at +
+			// 各自 packages）在每次生成 mate.json 时被抹掉，用户看不到「上一版」。
+			rels, _ := em["releases"].(map[string]any)
+			if rels == nil {
+				rels = make(map[string]any, 2)
 			}
+			node, _ := rels[ia.Version].(map[string]any)
+			if node == nil {
+				node = make(map[string]any, 1)
+			}
+			node["packages"] = pkgs
+			rels[ia.Version] = node
+			em["releases"] = rels
 		}
 		appDocs[appname] = em
 	}

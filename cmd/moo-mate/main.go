@@ -190,6 +190,13 @@ func main() {
 
 	// 定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
 	go c.syncLoop()
+	// 0.2.73：启动 60 秒后补跑一次回填，避免与首轮同步/目录重建抢上游配额。
+	go func() {
+		time.Sleep(60 * time.Second)
+		if n := c.backfillOnce(context.Background(), backfillPerRound); n > 0 {
+			log.Printf("启动回填: %d 个应用", n)
+		}
+	}()
 
 	// 0.2.38：日志轮转（5MB 阈值 × 5 份归档，10 分钟检查一次；与清理串行）。
 	go c.StartLogRotator(context.Background())
@@ -292,6 +299,10 @@ func (c *companion) trySyncLog() {
 		return
 	}
 	log.Printf("同步完成: 上游检查 %d / 更新 %d", checked, updated)
+	// 0.2.73：每轮同步后回填存量条目的协议字段（README / 更新日志 / 历史版本）。
+	if n := c.backfillOnce(context.Background(), backfillPerRound); n > 0 {
+		log.Printf("协议字段回填: %d 个应用", n)
+	}
 }
 
 // syncLoop 定时同步循环：首次启动稍作延迟后立即同步一次，之后按配置间隔；
