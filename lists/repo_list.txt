@@ -108,3 +108,6 @@ https://github.com/narrator-z/FnDepot
 https://github.com/frankluise5220/FnDepot
 https://github.com/tingwensuojian/FnDepot
 https://github.com/melchior-voidwolf/ofterm
+
+# 2026-11-20 追加：issue #22 收录申请 —— aiNVR（作者仓库根自带 moo.json，x86，v2.3.0）
+https://github.com/zsunny6658/ai-nvr
