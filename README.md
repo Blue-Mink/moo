@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.552-2563eb?style=flat-square"></a>
+  <a href="releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.566-2563eb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-single_binary-00add8?style=flat-square&logo=go&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64_%7C_arm64-7c3aed?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -40,7 +40,7 @@
 <p align="center">
   <img src="docs/readme-pc-home.png" width="100%" alt="桌面端主页"/><br/>
   <b>桌面端 · 主页</b><br/>
-  14 个领域分类 chip · 应用网格 · 批量操作与拖拽排序
+  13 个领域分类 chip · 应用网格 · 批量操作与拖拽排序
 </p>
 
 <table>
@@ -58,7 +58,7 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](releases/latest) | 当前 `0.6.552` · x86 `f28b63002dc4e3fb5cf93c2cd08c9e8d0d531674ba32ca6bb4f75ead72c00238`（5.16MB） / arm `01cc4452077680fe510003c748704e830bdb555dd80276e6eb09cb097269ff7e`（4.68MB） |
+| 1 | [下载 FPK](releases/latest) | 当前 `0.6.566` · x86 `63bba70b196b581f231f743c8128ac7aef32ef46ced5ccc2fe366f50973f68ac`（5.22MB） / arm `8a00c22e1e72072869799e766816f6ff33869b9588d4e5e1168cf65bd818865a`（4.73MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
@@ -85,7 +85,7 @@
 | 能力 | 说明 |
 | --- | --- |
 | 三源同步 | 飞牛官方应用中心 · FnDepot（V1/V2）· fnos-apps；内置官方精选源清单（一键同步官源清单 / 清理旧清单 / 恢复），去重 / 重命名 / 拖拽排序 |
-| 智能归类 | 14 个领域分类：精选表优先 → 标签映射 → 关键词兜底，官方口径对齐 |
+| 智能归类 | 13 个领域分类：精选表优先 → 标签映射 → 关键词兜底，官方口径对齐 |
 | 通知体系 | 30+ 事件 × 7 外部渠道，内容三档 × 形式按渠道可选；应用内通知恒开、永不漏记 |
 | GitHub 加速 | 多镜像测速自动优选，自更新 / FPK 下载 / 源同步全链路走加速；全挂告警 + 恢复通知 |
 | 应用内自更新 | 平台升级通道就地更新，`@appdata` 数据保留；版本号红点 + 确认框 |
@@ -132,6 +132,9 @@
 | 升级向导与时段校验 | 官方应用升级前先预检缺必填项 / 许可协议 / 依赖占用，社区源升级缺必填项直接弹向导填完继续；自动停用时段写错（相同或不足 1 小时）当场红字拦住保存，合法时显示总时长并标注跨零点（0.6.540→551） |
 | 稳定性 | 需人工确认向导的应用 12 小时内不再重试（同版本换新包自动重新探测）；连点「更新」不再重复提交；分片加载失败可一键重试、不再白屏；修复依赖方停不掉 / 网络失败 / 关窗后一直停着不恢复（0.6.540→552） |
 | 界面细节 | 详情页「安装位置」只显示 `vol1` / `vol2`；关于页更新日志与详情页说明框的底色与卡片一致（详情页保留圆角描边）（0.6.550→552） |
+| 恢复与对账 | 操作状态落盘，重启后仍能看到上次安装 / 更新 / 卸载的结果（中断的标「重启中断」）；页面断线自动续传，续不上按操作 ID 轮询；自更新重启后自动对账，未生效 / 未知会提示（0.6.553→566） |
+| 提示与下架 | 异常与「需手动处理」提示收敛到「有更新」页；新增需手动处理清单，12 分钟超时的应用 6 小时内不再反复重试；下架名单强制验签 + 按包指纹拦截，命中保留卡片标「已下架」，手机行列表角标移到右上角（0.6.553→566） |
+| 下载与稳定性 | 429 限流感知与线路归因、同 host 不重复撞、加速源 19→14；断线漏结算改幂等、「应用中心正忙」自动退避、黑名单误判修正（0.6.553→566） |
 
 ## 工作原理
 
@@ -139,7 +142,7 @@
 flowchart LR
     A["应用中心安装 FPK"] --> B["wizard 选 Web 端口<br/>默认 38100"]
     B --> C["moo-server 仅监听回环<br/>唯一入口：面板网关 /app/moo/"]
-    C --> D["三源同步 + 内置官源清单<br/>14 类智能归类"]
+    C --> D["三源同步 + 内置官源清单<br/>13 类智能归类"]
     D --> E["更新监测 + GitHub 加速<br/>镜像测速自动优选"]
     E --> F["30+ 事件 × 7 渠道<br/>内容三档推送"]
 ```
@@ -193,7 +196,7 @@ go test ./...     # 单元测试
 |---|---|---|
 | [应用介绍（图文）](应用介绍.md) | 面向用户的完整图文手册：逐页功能讲解（Dock 五键 / 七 tab 设置 / 详情 / 向导）+ moo.json 源协议 + FAQ，全部截图为应用内真实界面 | [zip](downloads/moo-doc-intro.zip) |
 | [API 文档](docs/API.md) | 全部 HTTP 端点、请求/响应字段、SSE 事件、鉴权与错误码 | [zip](downloads/moo-doc-api.zip) |
-| [应用源协议](docs/Moo应用源协议.md) | `moo.json` 完整规范：字段全表、14 项固定分类、多版本与 `packages`、版本比较规则、7 份带注释示例、FAQ | [zip](downloads/moo-doc-protocol.zip) |
+| [应用源协议](docs/Moo应用源协议.md) | `moo.json` 完整规范：字段全表、13 项固定分类、多版本与 `packages`、版本比较规则、7 份带注释示例、FAQ | [zip](downloads/moo-doc-protocol.zip) |
 | [邀请新源工具](tools/moo_invite.py) | 邀请上游作者把项目做成 Moo 应用源：`--repo OWNER/REPO` 一条命令搞定——自动读 Release 与包内 `manifest`（appname / 版本 / 架构 / sha256 / 字节数 / 图标 / README 全部自动），产出可直接提交的 `moo.json`、**一键新建预填链接**（新建时作者点开 → Commit 即完成，无需 fork/PR；已有 `moo.json` 则只补版本节点）、邀请 issue 正文与一键开 issue 脚本；Release 不在 GitHub 时用 `--fpk-url` 手工模式 | — |
 | [仓库手册 AGENTS.md](docs/AGENTS.md) | 面向在仓库内工作的 Agent 与维护者：项目速览与目录地图、构建与提交前本地门、部署到 fnOS 的四铁律与回滚、发布顺序、脱敏硬规则、反复踩过的坑 | [zip](downloads/moo-doc-agents.zip) |
 | [使用与诊断技能](skills/moo/) | Agent Skill：四平面核心模型、完整 API 镜像、安装与热替换、安全规则、排障 | [zip](downloads/moo-skill-usage.zip) |
@@ -227,7 +230,7 @@ go test ./...     # 单元测试
 
 - **Moo 商店**：Moo 里添加源 `https://raw.githubusercontent.com/Blue-Mink/moo/main/moo.json`，搜「Moo Mate」安装
 - **FnDepot 源**：添加源 `https://raw.githubusercontent.com/Blue-Mink/FnDepot/main/fnpack.json`，在列表中找到 Moo Mate
-- **手动**：下载 `moo-mate_0.2.73_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
+- **手动**：下载 `moo-mate_0.2.76_x86.fpk`（或 `_arm.fpk`），校验同名 `.sha256` 后在应用中心手动安装
 
 用法三步：粘贴仓库链接 → 确认发现的应用并生成索引 → 一键加源到本机 Moo。
 

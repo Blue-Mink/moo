@@ -41,7 +41,7 @@ name: fpk-build-to-moo
 | **构建 amd64 / arm64 / 双架构**（交叉编译、overlay、`--arch`、`packages.x86/arm`） | [references/fpk-build.md](references/fpk-build.md) §3.14 |
 | **图标糊 / 商店卡片图标不是 512** | 本文件 §2.5 + 姊妹技能 `fn-fpk-builder` 的 `references/official-contract.md`「图标清晰度」 |
 | **操作流程**（每步的"做完判据" / 多应用仓库维护 / 发布新版） | [references/publish-workflow.md](references/publish-workflow.md) |
-| 协议全文（字段表 / 14 项固定分类 / 7 份带注释示例 / 错误与缓存 / FAQ） | [docs/Moo应用源协议.md](../../docs/Moo应用源协议.md) |
+| 协议全文（字段表 / 13 项固定分类 / 7 份带注释示例 / 错误与缓存 / FAQ） | [docs/Moo应用源协议.md](../../docs/Moo应用源协议.md) |
 | `moo.json` 字段速查（bug_report_url / min_fnos / desc_html / size_bytes / 源级 wizard） | [references/moo-json-fields.md](references/moo-json-fields.md) |
 | 安装/卸载/配置/升级向导、数据删除边界、190s 回调看门狗、标准四步 | [references/wizard-lifecycle.md](references/wizard-lifecycle.md) |
 | 自更新 minisign 三件套、资产矩阵、tag、索引顺序、兜底通道 | [references/self-update-signing.md](references/self-update-signing.md) |
@@ -168,7 +168,7 @@ python3 "$UPD" --check --version 1.2.3 \
 
 完整字段表、单位、示例与生成器能力边界见 [references/moo-json-fields.md](references/moo-json-fields.md)。
 
-> **别把 FnDepot 的字段直接抄过来**：Moo 是 14 类、条目 `size`=MB；FnDepot 是 9 类、`packages.size`=字节；Moo `install_type` 自适应，FnDepot 用 `run_as`+`install_type`；`manifest.platform` 两边都是字符串。
+> **别把 FnDepot 的字段直接抄过来**：Moo 是 13 类、条目 `size`=MB；FnDepot 是 9 类、`packages.size`=字节；Moo `install_type` 自适应，FnDepot 用 `run_as`+`install_type`；`manifest.platform` 两边都是字符串。
 
 ### 2.7 源级安装向导 `wizard`
 

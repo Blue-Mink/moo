@@ -1,8 +1,8 @@
 # Moo HTTP API 全量文档
 
-> 版本基线：0.6.539（2026-11-08）· 适用架构：fnOS x86_64 / arm64（Go 后端 + React 前端单二进制服务）
+> 版本基线：0.6.566（2026-11-23）· 适用架构：fnOS x86_64 / arm64（Go 后端 + React 前端单二进制服务）
 >
-> 本文档覆盖 Moo 对外提供的全部 111 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
+> 本文档覆盖 Moo 对外提供的全部 115 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
 
 ---
 
@@ -23,15 +23,15 @@
 13. [FPK 下载缓存](#13-fpk-下载缓存)
 14. [后台任务](#14-后台任务)
 15. [加速源（镜像）](#15-加速源镜像)
-16. [面板账号](#16-面板账号)
+16. [官方应用中心连接（OAuth）](#16-官方应用中心连接oauth)
 17. [通知系统](#17-通知系统)
 18. [Moo 自更新](#18-moo-自更新)
 19. [错误处理](#19-错误处理)
 20. [安全模型](#20-安全模型)
 21. [构建与部署全流程](#21-构建与部署全流程)
-
----
-- [22. 官方应用中心](#22-官方应用中心)
+22. [官方应用中心](#22-官方应用中心apiofficial)
+23. [fnOS 系统更新](#23-fnos-系统更新apisysupdate)
+24. [下架黑名单](#24-下架黑名单blacklistjson)
 
 ## 1. 总则与约定
 
@@ -52,28 +52,28 @@
 - `Content-Type: application/json`（POST/PUT 必须）；响应 `Accept-Encoding: gzip` 时 JSON 透明压缩（SSE 与二进制直通不压缩）。
 - 列表类大响应（如 `GET /api/apps`）带 **ETag**，支持 `If-None-Match` → `304` 协商缓存。
 
-### 1.3 端点统计（2026-11-14 按代码重算，共 111 条）
+### 1.3 端点统计（2026-11-23 按代码重算，共 115 条）
 
 | 域 | 数量 |
 |---|---|
 | 系统与状态 | 8 |
 | 应用目录 | 6 |
 | 发现页推荐 | 2 |
-| 安装/更新/卸载/下载（SSE） | 9 |
+| 安装/更新/卸载/下载（SSE） | 11 |
 | 应用控制与信息 | 11 |
 | 应用源管理 | 13 |
 | 收藏 | 2 |
 | 设置 | 8 |
 | 备份与缓存 | 6 |
 | FPK 下载缓存 | 6 |
-| 后台任务 | 3 |
+| 后台任务 | 4 |
 | 加速源 | 6 |
 | 面板与 Mate 协作 | 2 |
 | 通知系统 | 14 |
-| Moo 自更新 | 2 |
+| Moo 自更新 | 3 |
 | 官方应用中心 | 11 |
 | KSpeeder 独立应用 | 2 |
-| **合计** | **111** |
+| **合计** | **115** |
 
 ### 1.4 上限与超时（2026-10-01 API 审计）
 
@@ -250,6 +250,7 @@ data: {"step":"install","progress":42,"message":"下载中…"}
 约定：
 - **终态唯一**：流以 `done` 或 `error` 之一结束；客户端不得把「连接断开」当成功。
 - 客户端断开后**操作在后台继续**（进度可经 `GET /api/operations` / `GET /api/tasks` 轮询恢复）。
+- 事件带 `"id": <opID>`：断流后可用 `GET /api/operations/{id}/events` 续传（见 §5.6）。
 - 轮询恢复路径的可靠性：终态按操作 ID 从 history 取回（防 running→error 窗口误报完成）。
 - 自更新 SSE 另有阶段词：`downloading` → `verifying` → `installing` → `done`/`error`（§18）。
 
@@ -316,10 +317,55 @@ appcenter daemon（fnOS 应用中心 RPC，本机 unix socket）是否可达。�
 **上限**：`history` 固定保留**最近 20 条**（超出丢弃最旧，见 `internal/operation/queue.go`），
 因此单次响应体有界；`current` 至多 1 条。需要更长的操作留痕请走应用日志。
 
-### 5.6 `GET /api/installed`（requireAdmin）
+### 5.6 `GET /api/operations/{id}/events`（公开，SSE）
+按操作 ID **跟随一个已有操作**（断线续传，SSE_RESUME）：立即推一条当前状态事件，
+之后 700ms 轮询到终态为止；事件格式与安装/更新 SSE 完全一致（`step=queued` /
+操作名 / `done` / `error`），且每条事件都带 `"id": <opID>`。
+
+```json
+data: {"step":"update","progress":42,"message":"安装中…","id":"3f2a9c1d8b7e4a50"}
+
+data: {"step":"done","progress":100,"message":"更新完成","id":"3f2a9c1d8b7e4a50"}
+```
+
+- `id` 不存在 / 已过期（`history` 只留最近 20 条）→ `404` `{"error":"操作不存在或已过期"}`；
+  客户端据此退回 `GET /api/operations` 按 `kind`+`target` 兜底匹配。
+- 客户端断开 → 连接结束，操作在后台继续；重连后仍能跟随到终态。
+- 终态副作用（目录缓存失效、本机安装计数）按 opID **幂等**：多个连接跟随同一操作不会重复执行。
+
+### 5.6b `GET /api/operations/{id}`（公开，JSON）
+按操作 ID 查**单条状态**（P0-1 终态轮询兜底）：SSE 与续传都被网关持续掐断时，
+客户端每 3~12 秒查一次本端点，直到 `done` / `error`。
+```json
+{"id":"3f2a9c1d8b7e4a50","kind":"update","target":"fnmonitor","state":"running","msg":"安装中…","progress":42}
+```
+- `id` 不存在 / 已过期 → `404` `{"error":"操作不存在或已过期"}`（客户端据此退化为后台提示）。
+- 终态（`done`/`error`）查询会执行一次**幂等**的终态副作用（目录缓存失效 / 本机安装计数），
+  因此即使客户端全程没连上 SSE，轮询到 done 后列表也能立即刷新。
+- 默认最多跟随 30 分钟（大包弱网），连续 3 次查不到即放弃。
+
+### 5.6c `GET /api/updates/manual`（requireAdmin，P1-1）
+自动更新「需人工处理」队列：聚合 `auto_update_skips.json` 的 wizard / blocked /
+unknown 三类条目，供前端显示数量徽章与清单。
+```json
+{"count":1,"items":[{"app":"trim.openclaw","version":"2026.8.35-6","reason":"unknown","reason_label":"平台任务结果未知（可能仍在执行）","until":"2026-11-22T16:00:00+08:00"}]}
+```
+- 只读；不触发更新、不改变静默期。
+- `until` 到期后条目自动消失（读取时过滤过期项）。
+
+### 5.6d `GET /api/self-update/last`（requireAdmin，P1-2）
+上次自更新的对账结果（Moo 启动时对 `self_update_state.json` 求值）：
+```json
+{"schema_version":1,"from_version":"0.6.556","to_version":"0.6.557","submitted_at":"2026-11-22T08:00:00+08:00","status":"confirmed"}
+```
+- `status`：`none`（无记录）/ `submitted`（新进程尚未启动）/ `confirmed`（当前版本 == 目标）/
+  `failed`（仍是升级前版本，升级未生效）/ `unknown`（两者都不是，需人工核对）。
+- 只读；不触发更新，也不自动降级（FPK 升级没有可换回的旧二进制）。
+
+### 5.7 `GET /api/installed`（requireAdmin）
 平台视角的已安装应用列表（appcenter 原始数据）。
 
-### 5.7 `GET /api/icons/version`（公开）
+### 5.8 `GET /api/icons/version`（公开）
 图标缓存代次（前端判断是否需刷新图标映射）。
 
 ---
@@ -962,3 +1008,99 @@ curl -s http://127.0.0.1:38100/api/version    # 验证版本
   "checked_at": "2026-11-14T01:20:00+08:00"
 }
 ```
+
+## 24. 下架黑名单（`blacklist.json`）
+
+远端维护的「停止分发」清单：改文件即生效，不用发版。清单由发布者用 **minisign**
+签名（与自更新共用同一把公钥，`.minisig` 缺失或验签失败该候选作废），Moo 每
+10 分钟刷新一次（多镜像候选 + last-known-good；**从未成功拉取过 → fail-open**，
+空清单绝不误杀）。
+
+### 24.1 清单结构
+
+```json
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-22",
+  "entries": [
+    {"app": "openclaw", "source": "*", "reason": "malware", "notice": "内置脚本会执行未知程序", "since": "2026-11-22", "ref": "issue#123"},
+    {"app": "badapp", "sha256": "<64位hex>", "reason": "policy", "until": "2026-12-31"},
+    {"sha256": "<64位hex>", "reason": "malware"}
+  ]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `app` | 应用名，大小写不敏感。**允许为空**，当且仅当 `sha256` 合法（按包指纹拦，不看名字）。`"*"` 被拒绝（一行写错会隐藏整个商店）。 |
+| `source` | 空 或 `*` = 全源；否则按源名限定（大小写不敏感）。 |
+| `sha256` | 包指纹，64 位 hex，忽略大小写与空白。空 = 不按指纹。不是 64 位 hex → **该条被丢弃并记一条告警**（其余条目照常生效）。 |
+| `reason` | `malware` / `fraud` / `copyright` / `security` / `policy` / `author`，未知码原样回显。 |
+| `notice` | 展示用说明，**只做展示、不参与判定**（判定仍只看 `app`/`source`/`sha256`/`until`）。上限 **60 字（按 rune 计）**：超长按 60 字截断并记一条告警——**条目不丢、清单不作废**。为空时前端副行回落「moo 已停止提供下载与更新」；卡面标题始终使用 `reason` 短句。 |
+| `since` / `until` / `ref` | 生效日 / 到期日（`YYYY-MM-DD` 或 RFC3339，到期即失效）/ 追溯链接。 |
+
+### 24.2 命中语义（AND）
+
+一条命中一张卡，需要**同时**满足：
+
+1. **名称**：`app` 空 → 跳过；否则 `EqualFold(app, 卡的应用名)`；
+2. **源**：`source` 空或 `*` → 任意；否则 `EqualFold`；
+3. **指纹**：`sha256` 空 → 不约束；否则**要求调用方包指纹已知且相等**；
+4. **有效期**：`until` 未到期。
+
+> ⚠️ 第 3 条的「指纹未知 → 不命中」是刻意的：sha 是版本级标识，拿不到就无从
+> 判断这批包是不是被下架的那批，按旧指纹硬拦会把刚修好的新版本一起挡掉。
+
+一张卡同时命中多条时，**展示字段按「最具体」取一条**（判定不受影响：命中任一条即命中）：
+
+```
+指纹 + 源  >  指纹  >  应用 + 源  >  应用
+（同级取清单中靠前的一条）
+```
+
+> 这么挑是为了不让泛化的「违反社区规范」盖掉更严重的「检测到恶意行为」。
+> 每条条目各带自己的 `notice`，多张卡不会串文案。
+
+### 24.3 闸门（全部带包指纹）
+
+| 闸门 | 位置 | 名称来源 | 指纹来源 |
+|---|---|---|---|
+| 目录打标（**保留卡**，不删） | `annotateBlacklisted` | `AppInfo.AppName`（**不用 DisplayName**） | `AppInfo.Sha256` |
+| 详情 404（带原因，仅 key 已不在目录时兜底） | `blacklistHitByKey` | `resolveKey` 的 `App.Name` | 同一次 resolve 的 `a.Sha256` |
+| 向导 | `appWizard` | `a.Name` | `a.Sha256` |
+| 安装 / 暂存 / 更新（SSE） | `blacklistGuardSSE` | `a.Name` | `a.Sha256` |
+| 后台下载 | `blacklistGuardSSE` | `a.Name` | `a.Sha256` |
+| 自动更新跳过 | `autoUpdatePass` | `AppName`（含 `UpdateFromSource`） | `AppInfo.Sha256` |
+| 手动更新队列 | `listManualUpdates` | `manualUpdateItem.App` | `manualUpdateItem.Sha` |
+| 本地包安装（上传/KSpeeder/下载中心） | `installFpkFileSSE` | `staged.AppName` | 实算 `sha256File(staged.Path → 原 path)`，算不出传 `""` |
+
+> **目录层语义（P1-4，2026-11-22 定稿）**：命中条目的卡**保留在列表里并打标**——已装卡与未装卡都不删除
+> （「已下架」= 停止分发，不是已卸载；Moo 不做远程卸载，已装副本仍可打开，可由用户在卡上或飞牛应用中心卸载）。
+> 命中卡额外下发 `blacklisted=true` / `blacklist_reason` / `blacklist_notice` / `blacklist_since`，
+> 并把该卡的 `has_update` / `update_ignored` / `update_ignored_pending` **清零**（下架卡不能更新）。
+> 前端据此显示「已下架」角标 + 原因浮层、隐藏安装/更新入口；**后端动作闸照旧拦截**（纵深防御——
+> 前端只是不给必败的按钮）。详情页因此正常 **200**（不再 404）；仅在 key 已不在目录（旧缓存/深链）时
+> 才回落到「404 带原因」。
+>
+> 新增下发字段（`AppInfo`，均 `omitempty`，只在命中时出现）：
+>
+> | 字段 | 说明 |
+> |---|---|
+> | `blacklisted` | `true` = 该卡命中黑名单（停止分发）。前端用它灰卡 + 角标。 |
+> | `blacklist_reason` | 原因码原样小写（`malware`/`fraud`/`copyright`/`security`/`policy`/`author`；未知码也原样透出）。卡面不显示码，前端映射短句。 |
+> | `blacklist_notice` | 清单 `notice`（≤60 字，已截断）。为空时前端副行回落「moo 已停止提供下载与更新」；卡面标题始终使用 `reason` 短句。 |
+> | `blacklist_since` | 清单 `since` 原样透出（生效日）。 |
+>
+> 黑名单清单本身是远端文件，从未拉取成功时 fail-open（空清单），并把最近一次验签通过的清单落盘为 `blacklist_last.json`（0600）供重启/断网兜底。
+
+文案（定稿，勿改）：动作拦截 = `该应用存在恶意行为，已被停止分发，无法下载`
+（`reason=malware`）/ 其余 `该应用违反社区规范，已被停止分发，无法下载`；
+详情 404 = `该应用已被停止分发（原因：<原因文案>）`。
+
+### 24.4 误伤防护
+
+- `app + sha256` 条目在调用方指纹未知时**不拦**（新版本不受旧指纹影响）；
+- 目录与详情只认 `AppName`，`DisplayName` 与条目同名**不构成命中**；
+- 名称匹配大小写不敏感（daemon `Gitea` vs feed `gitea`）；
+- 单条坏数据（非法 sha）只丢该条，不作废整份清单；
+- 清单从未拉取成功 → 空清单（fail-open），既不打标也不隐藏任何应用。
