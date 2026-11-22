@@ -35,13 +35,24 @@ type Server struct {
 	Version   string
 	StartedAt time.Time // 服务启动时刻（关于页运行时长用）
 	Cfg       *config.Config
-	Src       *source.Manager
-	Tasks     *task.Manager
-	Ops       *operation.Queue
-	Pipe      *pipeline.Pipeline
-	WebFS     fs.FS
-	Mirrors   *mirrorMonitor
-	Panel     *Panel
+	// cfgPtr 保存运行期生效配置（备份恢复热替换的唯一写点）。
+	// 运行期读一律走 s.cfg()：旧实现 `*s.Cfg = newCfg` 整结构体写入与无锁
+	// 读者构成数据竞争，改成原子指针交换后读写均无锁且一致。
+	// Cfg 保留为构造期 / 测试注入的只读回退（cfgPtr 为空时生效）。
+	cfgPtr atomic.Pointer[config.Config]
+	Src    *source.Manager
+	Tasks  *task.Manager
+	Ops    *operation.Queue
+	// BlacklistLKGPath 下架黑名单的 last-known-good 落盘路径（空 = <data>/blacklist_last.json）。
+	// 只为单测注入临时目录；生产恒为空。
+	BlacklistLKGPath string
+	// opFinalized 记录已执行过终态副作用（目录失效 / 本机安装计数）的操作 ID：
+	// 断线续传后可能有多个 SSE 连接跟随同一操作，副作用必须幂等（SSE_RESUME）。
+	opFinalized sync.Map
+	Pipe        *pipeline.Pipeline
+	WebFS       fs.FS
+	Mirrors     *mirrorMonitor
+	Panel       *Panel
 	// SysUpdate fnOS 系统更新采集（只提示不安装，12h 缓存）
 	SysUpdate *sysupdate.Collector
 	// GHStats GitHub Release 资产下载量同步（第三方源目录不统计下载量的补数通道）
@@ -177,6 +188,28 @@ const (
 	ghStatsIdleGap     = 120 * time.Minute // 不活跃时 GHStats 最多每 120min 一轮（活跃=30min tick）
 	mirrorProbeIdleGap = 15 * time.Minute  // 不活跃时镜像探针最多每 15min 一次（活跃=配置间隔）
 )
+
+// cfg 返回当前生效的配置指针；nil 接收者与未注入配置都返回 nil。
+// 优先运行期热替换写入的 cfgPtr，否则回退构造期 / 测试注入的 Cfg。
+// 所有运行期读配置都必须走它——直接读 s.Cfg 会在备份恢复热替换时竞争。
+func (s *Server) cfg() *config.Config {
+	if s == nil {
+		return nil
+	}
+	if c := s.cfgPtr.Load(); c != nil {
+		return c
+	}
+	return s.Cfg
+}
+
+// setCfg 原子替换运行期配置（备份恢复热替换的唯一写点）。
+// 绝不整体改写 s.Cfg：那个字段是构造期快照，运行期只读。
+func (s *Server) setCfg(c *config.Config) {
+	if s == nil {
+		return
+	}
+	s.cfgPtr.Store(c)
+}
 
 // touchUI 0.6.312 B3/F6：更新最近一次 UI 请求时间戳（每请求一次，原子写）。
 func (s *Server) touchUI() {
@@ -343,6 +376,10 @@ func (s *Server) Handler(trust bool) http.Handler {
 
 	// 0.6.549：允许自动停用弹窗的「应用 → 依赖的运行时」映射（反查 daemon stop/check，缓存 10 分钟）。
 	mux.HandleFunc("GET /api/auto-update/dep-map", s.requireAdmin(s.autoUpdateDepMap))
+	// P1-2：上次自更新的对账结果（submitted 不进结果；confirmed/failed/unknown 可查）。
+	mux.HandleFunc("GET /api/self-update/last", s.requireAdmin(s.lastSelfUpdate))
+	// P1-1：需人工处理的应用清单（wizard / blocked / unknown 负缓存聚合）。
+	mux.HandleFunc("GET /api/updates/manual", s.requireAdmin(s.listManualUpdates))
 	mux.HandleFunc("GET /api/settings", s.requireAdmin(s.getSettings))
 	mux.HandleFunc("PUT /api/settings", s.requireAdmin(s.putSettings))
 	// 0.6.354：Moo Mate 读取 Moo 的 GitHub token（伴侣专用，见 mate.go）
@@ -399,6 +436,10 @@ func (s *Server) Handler(trust bool) http.Handler {
 	mux.HandleFunc("GET /api/operations", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"current": s.Ops.Current(), "history": s.Ops.History()})
 	})
+	// SSE_RESUME：按 id 跟随已有操作（断线续传；只读，不需要 admin）。
+	mux.HandleFunc("GET /api/operations/{id}/events", s.followOperationSSE)
+	// P0-1：按 id 查单条操作状态（JSON，终态轮询兜底；终态时幂等结算副作用）。
+	mux.HandleFunc("GET /api/operations/{id}", s.getOperationJSON)
 	mux.HandleFunc("GET /api/installed", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		list, err := platform.ListInstalled(r.Context())
 		if err != nil {
@@ -495,7 +536,7 @@ func (s *Server) langMiddleware(next http.Handler) http.Handler {
 
 // langForRequest 解析单请求的目录语言（显式配置 > Accept-Language > 默认）。
 func (s *Server) langForRequest(r *http.Request) string {
-	if v := s.Cfg.CatalogLanguage; v != "" && v != "auto" && lang.Supported[v] {
+	if v := s.cfg().CatalogLanguage; v != "" && v != "auto" && lang.Supported[v] {
 		return v
 	}
 	return lang.FromAcceptLanguage(r.Header.Get("Accept-Language"))
@@ -503,7 +544,7 @@ func (s *Server) langForRequest(r *http.Request) string {
 
 // bgLang 后台协程的目录语言（无请求上下文）。
 func (s *Server) bgLang() string {
-	if v := s.Cfg.CatalogLanguage; v != "" && v != "auto" && lang.Supported[v] {
+	if v := s.cfg().CatalogLanguage; v != "" && v != "auto" && lang.Supported[v] {
 		return v
 	}
 	return lang.Default
@@ -526,11 +567,11 @@ func (s *Server) SetupNetguard() {
 			}
 			hosts = append(hosts, u.Hostname())
 		}
-		for _, sr := range s.Cfg.Sources {
+		for _, sr := range s.cfg().Sources {
 			add(sr.URL)
 		}
-		add(s.Cfg.CustomGitHubMirror)
-		add(s.Cfg.SourceListURL)
+		add(s.cfg().CustomGitHubMirror)
+		add(s.cfg().SourceListURL)
 		return hosts
 	})
 }

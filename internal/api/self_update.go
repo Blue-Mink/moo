@@ -299,8 +299,8 @@ func (s *Server) githubAPIRequest(url string) (*http.Request, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	if s != nil && s.Cfg != nil {
-		if tok := strings.TrimSpace(s.Cfg.GithubToken); tok != "" &&
+	if s != nil && s.cfg() != nil {
+		if tok := strings.TrimSpace(s.cfg().GithubToken); tok != "" &&
 			strings.HasPrefix(url, selfUpdateTokenHost) {
 			req.Header.Set("Authorization", "token "+tok)
 		}
@@ -993,6 +993,9 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// P1-2：提交前记 journal（新进程启动时对账 confirmed/failed/unknown）。
+	s.recordSelfUpdateSubmitted(cur, staged.Version)
+
 	// daemon 会在升级过程中杀掉本进程：先发事件并等 SSE 字节到达客户端
 	// （conversun 实测 750ms 足够；之后由前端 pollForRestart 接管）。
 	sseSend(w, f, map[string]any{"step": "self_update", "message": "商店正在重启…"})
@@ -1015,11 +1018,13 @@ func (s *Server) storeUpdateSSE(w http.ResponseWriter, r *http.Request) {
 		"language":         lang.From(ctx),
 	}, &task)
 	if err != nil {
+		s.markSelfUpdateSubmitFailed("提交升级失败: " + err.Error())
 		failNotify("提交升级", err.Error())
 		sseSend(w, f, map[string]any{"step": "error", "error": "提交升级失败: " + err.Error()})
 		return
 	}
 	if task.TaskID == "" {
+		s.markSelfUpdateSubmitFailed("应用中心未返回任务 ID")
 		failNotify("提交升级", "应用中心未返回任务 ID")
 		sseSend(w, f, map[string]any{"step": "error", "error": "升级失败: 应用中心未返回任务 ID"})
 		return

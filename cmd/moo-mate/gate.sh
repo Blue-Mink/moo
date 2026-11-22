@@ -63,7 +63,7 @@ fi
 echo "=== 门 3: go test ==="
 export MOO_DATA="$(mktemp -d)"
 trap 'rm -rf "$MOO_DATA" 2>/dev/null' EXIT
-if go test ./cmd/moo-mate/... ./internal/source/... ./internal/secret/... ./internal/config/... ./internal/netx/...; then
+if go test -race ./cmd/moo-mate/... ./internal/source/... ./internal/secret/... ./internal/config/... ./internal/netx/...; then
   echo "go test PASS"
 else
   echo "go test FAIL"

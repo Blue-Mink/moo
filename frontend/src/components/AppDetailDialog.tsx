@@ -24,6 +24,9 @@ import AppIcon from "./AppIcon";
 import MoreMenuButton from "./MoreMenu";
 import WizardDialog from "./WizardDialog";
 import { auroraFor } from "./ViewModeGrids";
+// P1-4 已下架：详情红条 + 强制忽略 aurora 底板 + 主操作位语义
+import DelistBanner from './DelistBanner';
+import { delistAuroraClass, delistPrimary } from '@/lib/delist';
 import {
   Package,
   Globe,
@@ -499,7 +502,9 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 极光模式（0.6.297，用户定稿「只是底板用这种渐变，页面其他元素不用」）：
   // 面板底 = 该应用极光卡同款渐变（同应用恒同色）；内容元素一律不改样式，
   // 靠一层 bg-background/65+blur 玻璃遮罩把渐变压成可读底色染色。
-  const aBg = aurora && app ? auroraFor(app.appname || app.display_name) : '';
+  // P1-4：下架应用**强制忽略 aurora**（aBg=''）——标准/极简/极光进入详情完全一致（白玻璃 + 红条），
+  // 避免同一应用在极光模式下面板变色（DESIGN §5）。
+  const aBg = delistAuroraClass(app, aurora, auroraFor);
   // 0.6.303（用户实抓）：移动端极光渐变此前铺满全屏对话框，内卡四周露出
   // 渐变「溢出一圈」——与网页端（渐变=对话框底板、四周是页面背景）观感
   // 不一致。移动端改法：渐变只给 12px 内缩的玻璃层面板（圆角收边），
@@ -968,7 +973,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
   // 「下载 fpk」条显示条件：有可下载 FPK 安装包的应用——
   // 社区源（镜像链下载）+ 官方应用（daemon cloud 通道免登录下载：FPK 型
   // 直接落盘，TPK 型目录重打包为标准 FPK——0.6.261 起官方全类型可用）。
-  const downloadFpkVisible = !!app && !noSource;
+  // P1-4：下架应用不再提供下载（后端闸仍兜底）
+  const downloadFpkVisible = !!app && !noSource && !app.blacklisted;
   // 0.6.325 C9：首次本地缓存派生未完成 → 按钮显示「检查中…」并禁用（不响应点击）。
   // 下载中/暂停/安装中优先级更高，不落此态。
   const fpkChecking = downloadFpkVisible && !localFpkChecked && !dlBusy && !dlPaused && !localInstalling;
@@ -1017,7 +1023,10 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
 
   const isInstalled = app.installed;
   // 0.6.363（用户定稿）：主操作/更新徽章只认「有效更新」（未忽略），与 ⋯ 菜单口径一致
-  const canUpdate = hasActiveUpdate(app);
+  // P1-4：下架应用停止分发 → 不显示更新（即使后端仍报 has_update）
+  const canUpdate = hasActiveUpdate(app) && !app.blacklisted;
+  // P1-4：主操作位语义（未装下架 = blocked「已停止分发」；已装下架 = 保留打开）
+  const primaryKind = delistPrimary(app);
   // 面板详情可用范围：官方应用 + 无源已装应用（installed-detail 补全）
   const hasPanelInfo = isOfficial || noSource;
   // 预览图源：官方卡优先面板 poster（CDN 直链；平台只给 25 个自研
@@ -1093,7 +1102,8 @@ const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, o
       onClick: () => onIgnoreUpdate(app),
     });
   }
-  if (app.update_ignored && onUnignoreUpdate) {
+  // P1-4：下架应用抑制一切更新类条目
+  if (app.update_ignored && !app.blacklisted && onUnignoreUpdate) {
     moreItems.push({
       key: 'unignore',
       icon: <Bell className="h-3.5 w-3.5" />,
@@ -1318,6 +1328,17 @@ mdsSim && "mds-sim")}>
                 <span className="truncate">{operation.message || '处理中'}</span>
                 <span className="shrink-0 tabular-nums">{Math.round(operation.progress)}%</span>
               </div>
+            ) : primaryKind === 'blocked' ? (
+              /* P1-4：未装的已下架应用 —— 主操作位显示**不可点**的「已停止分发」，
+                 绝不出现安装按钮（避免点了才被后端闸拦住；原因见下方红条）。 */
+              <div
+                data-testid="delist-blocked"
+                aria-disabled="true"
+                title="Moo 已停止分发该应用"
+                className={cn(headerPillCls, "px-5 bg-muted/50 text-muted-foreground border border-border/50 cursor-not-allowed")}
+              >
+                已停止分发
+              </div>
             ) : !isInstalled ? (
               // 0.6.319F（用户定稿）：安装/打开/下载 FPK 三胶囊去箭头图标，只留文字（网页端同款）
               /* 0.6.364（用户定稿）：安装/打开胶囊去蓝底 → 中性胶囊（与底部主操作行同语言） */
@@ -1456,7 +1477,8 @@ mdsSim && "mds-sim")}>
                   有更新
                 </Badge>
               )}
-              {app.update_ignored && (
+              {/* P1-4：下架应用抑制「已忽略更新」等更新类徽章 */}
+              {app.update_ignored && !app.blacklisted && (
                 <Badge variant="secondary" className="bg-muted text-muted-foreground border-0 font-medium px-1.5 h-5 text-[11px] rounded-full gap-0.5">
                   <BellOff className="h-2.5 w-2.5" />
                   已忽略更新
@@ -1466,6 +1488,10 @@ mdsSim && "mds-sim")}>
           </div>
           </DialogHeader>
         </div>
+        {/* P1-4 已下架红条：夹在头部与内容之间（DESIGN §5）。下架应用不再 404，
+            这里是「为什么不能装 / 已装会不会被删」的唯一权威解释入口。
+            与视图无关：标准 / 极简 / 极光进入都是同一套白玻璃 + 红条（aBg 已被强制置空）。 */}
+        <DelistBanner app={app} className="mx-3 mt-2 shrink-0 sm:mx-5" />
         {/* 内容区：独立滚动区（描述 / 预览 / 信息 / 更新说明 / README / 操作）。
             0.6.319g：滚动框延伸到对话框最底（底部动作区不再占 flex 段），
             paddingBottom=动作区实测高度——文字可滚到胶囊下方穿过（胶囊浅蓝
@@ -2046,7 +2072,7 @@ mdsSim && "mds-sim")}>
               <div className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
                 <FileText className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">更新日志</span>
-                {app.has_update && (
+                {app.has_update && !app.blacklisted && (
                   <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal shrink-0">
                     可更新至 v{availableVersionLabel(app)}
                     {/* 0.6.332 F3（全量测试 P2-3）：原用 app.latest_version——
@@ -2063,7 +2089,7 @@ mdsSim && "mds-sim")}>
                   长列表框内独立滚动（overscroll-contain 防滚动链外泄），两框外观与行为完全一致。
                   0.6.552（用户令）：框内底色与主卡片一致（去掉浅底分层）。 */}
               <div className="my-2 max-h-[24rem] sm:max-h-[28rem] overflow-y-auto overscroll-contain no-scrollbar rounded-xl border border-border/50 px-4 py-3">
-                <ChangelogList entries={entries} highlightLatest={app.has_update} />
+                <ChangelogList entries={entries} highlightLatest={app.has_update && !app.blacklisted} />
               </div>
             </>
           );

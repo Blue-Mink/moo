@@ -187,6 +187,12 @@ func (s *Server) appWizard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
+	// 远端下架黑名单（2026-11-22）：向导是把安装包**完整下载**到缓存目录的
+	// 一步，必须与下载/安装同口径拦截（否则「先暂存再装」绕过动作闸）。
+	if s.isBlacklisted(a.Name, srcName, a.Sha256) {
+		writeJSON(w, map[string]any{"appname": a.Name, "has_wizard": false, "error": s.blacklistBlockMessage(a.Name, srcName, a.Sha256)})
+		return
+	}
 	staged, err := s.Pipe.StageOnly(r.Context(), srcName, a.Name, nil)
 	if err != nil {
 		writeJSON(w, map[string]any{"appname": a.Name, "has_wizard": false, "error": err.Error()})
@@ -217,6 +223,10 @@ func (s *Server) appInstallSSE(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
+	// 远端下架黑名单（2026-11-22）：安装动作拦截（SSE step=error）。
+	if s.blacklistGuardSSE(w, a.Name, srcName, a.Sha256) {
+		return
+	}
 	wparams, werr := parseWizardQuery(r)
 	if werr != nil {
 		writeErr(w, http.StatusBadRequest, errors.New("wizard 参数解析失败: "+werr.Error()))
@@ -241,6 +251,10 @@ func (s *Server) appStageSSE(w http.ResponseWriter, r *http.Request) {
 	srcName, a, err := s.resolveKey(r.PathValue("key"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	// 远端下架黑名单（2026-11-22）：暂存（先下载后弹向导）同样拦截。
+	if s.blacklistGuardSSE(w, a.Name, srcName, a.Sha256) {
 		return
 	}
 	f := sseStart(w)
@@ -327,6 +341,10 @@ func (s *Server) appUpdateSSE(w http.ResponseWriter, r *http.Request) {
 	srcName, a, err = s.resolveInstallEntry(r.PathValue("key"), srcName, a)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err)
+		return
+	}
+	// 远端下架黑名单（2026-11-22）：更新动作拦截（含跨源同宗更新目标）。
+	if s.blacklistGuardSSE(w, a.Name, srcName, a.Sha256) {
 		return
 	}
 	installed, _ := platform.ListInstalled(r.Context())
@@ -425,14 +443,19 @@ func (s *Server) appDownloadTaskSSE(w http.ResponseWriter, r *http.Request) {
 		s.sseRunOp(r, w, f, "download", ai.AppName, sseRunOpDownload)
 		return
 	}
-	_, a, err := s.resolveKey(r.PathValue("key"))
+	srcName, a, err := s.resolveKey(r.PathValue("key"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
 	// 0.6.272：跨源同宗更新下载同宗源的包（DownloadURL/大小/sha 跟随）
-	if _, a, err = s.resolveInstallEntry(r.PathValue("key"), a.Source, a); err != nil {
+	if srcName, a, err = s.resolveInstallEntry(r.PathValue("key"), srcName, a); err != nil {
 		writeErr(w, http.StatusConflict, err)
+		return
+	}
+	// 远端下架黑名单（2026-11-22）：后台下载到缓存目录也是分发通道，同样拦截
+	// （否则「先下载任务、再从 FPK 目录直接安装」可绕过安装闸）。
+	if s.blacklistGuardSSE(w, a.Name, srcName, a.Sha256) {
 		return
 	}
 	if a.DownloadURL == "" {
@@ -514,9 +537,15 @@ func (s *Server) FpkCandidates(a *source.App) []string {
 	if base == "" {
 		return nil
 	}
-	u, err := url.Parse(base)
-	if err != nil || u.Host != "github.com" {
-		return []string{base}
+	// 2026-11-21（FnDepot#24）：不再以「host != github.com」一刀切。
+	// 下载地址可能已被镜像前缀固化（https://cdn.gh-proxy.org/https://raw...），
+	// 或本身就是 raw.githubusercontent.com 直链 —— 两者都应展开多候选。
+	if !isAccelerableURL(mirrorInner(base)) {
+		return buildFPKCandidates(base, nil)
+	}
+	if s.cfg() != nil && s.cfg().Mirror == "direct" {
+		// 强制直连：不展开镜像，也不触达镜像清单（省掉一次无谓的清单刷新）。
+		return buildFPKCandidates(base, nil)
 	}
 	s.applyMirrorProbeFlags()
 	s.Mirrors.ensureFresh(false)
@@ -531,8 +560,8 @@ func (s *Server) FpkCandidates(a *source.App) []string {
 			break
 		}
 		if k == "custom" {
-			if s.Cfg.CustomGitHubMirror != "" {
-				prefixes = append(prefixes, ensureTrailingSlash(s.Cfg.CustomGitHubMirror))
+			if s.cfg().CustomGitHubMirror != "" {
+				prefixes = append(prefixes, ensureTrailingSlash(s.cfg().CustomGitHubMirror))
 			}
 			continue
 		}
@@ -540,12 +569,173 @@ func (s *Server) FpkCandidates(a *source.App) []string {
 			prefixes = append(prefixes, p)
 		}
 	}
-	out := make([]string, 0, len(prefixes)+1)
-	for _, p := range prefixes {
-		out = append(out, p+base)
+	// 选中的 key 可能已被下架（2026-11-22 清理死源），而冷启动尚无测速数据时
+	// ghOrderedKeys 会返回空 —— 绝不能因此退化成「只有一条直连候选」。
+	// 按清单健康序补足前 3 个镜像（buildFPKCandidates 内部会去重）。
+	prefixes = fillMirrorPrefixes(prefixes, 3)
+	out := buildFPKCandidates(base, prefixes)
+	// P0-1（2026-11-21 FnDepot#24）：可加速地址在非「强制直连」时必须有镜像覆盖，
+	// 只有一条候选意味着展开失效（历史上必然 100% 失败）。运行期留一条聚合告警，
+	// 让下次回归在日志里现身，而不是等用户报障。
+	forceDirect := s.cfg() != nil && s.cfg().Mirror == "direct"
+	if mirrorCoverageGap(len(prefixes), len(out), isAccelerableURL(mirrorInner(base)), forceDirect) {
+		logagg.Default.Record("dl", "fpkcand", "候选覆盖不足 [%s] %s: prefixes=%d out=%d", a.Name, base, len(prefixes), len(out))
 	}
-	out = append(out, base)
 	return out
+}
+
+// mirrorCoverageGap 判断候选覆盖是否不足（纯函数，便于单测）。
+func mirrorCoverageGap(prefixes, out int, accelerable, forceDirect bool) bool {
+	if !accelerable || forceDirect {
+		return false
+	}
+	return prefixes == 0 || out < 2
+}
+
+// fillMirrorPrefixes 在候选前缀不足时按清单健康序补位（最多 limit 个）。
+// 2026-11-22（FnDepot#24 回归加固）：下架某个手选源后，老配置里的 mirror key
+// 会失效；冷启动无测速数据时 ghOrderedKeys 为空，旧实现只剩单条直连候选。
+// 2026-11-22 批次⑤（P2-2）：有测速数据时按健康准入补位——
+// fail/limited 的源不补，从未测过的源最多补 1 个（避免把一堆未验证的源塞进候选）。
+// fail-open：过滤后一个都没补上（全新装机 / 健康数据异常 / 全部 fail）时按原逻辑
+// 再补一轮，绝不退化成「只有直连候选」（P0-1 教训）。
+func fillMirrorPrefixes(prefixes []string, limit int) []string {
+	if len(prefixes) >= limit {
+		return prefixes
+	}
+	if !config.GHMirrorHealthKnown() {
+		return appendMirrorPrefixes(prefixes, limit, nil)
+	}
+	before := len(prefixes)
+	untested := 0
+	filled := appendMirrorPrefixes(prefixes, limit, func(opt config.MirrorOption) bool {
+		switch config.GHMirrorHealth(opt.Key) {
+		case "ok":
+			return true
+		case "":
+			// 从未测过：最多补 1 个，其后不再补未测源。
+			if untested >= 1 {
+				return false
+			}
+			untested++
+			return true
+		default: // fail / limited
+			return false
+		}
+	})
+	if len(filled) == before {
+		// fail-open：健康数据不可用或全部不达标，退回不过滤的清单补位。
+		return appendMirrorPrefixes(prefixes, limit, nil)
+	}
+	return filled
+}
+
+// appendMirrorPrefixes 按清单健康序把镜像前缀补到 limit（自动去重）。
+// allow 为 nil 表示不做健康准入。
+func appendMirrorPrefixes(prefixes []string, limit int, allow func(config.MirrorOption) bool) []string {
+	for _, opt := range config.GitHubMirrorOptionsHealthy() {
+		if len(prefixes) >= limit {
+			break
+		}
+		if opt.URL == "" {
+			continue
+		}
+		dup := false
+		for _, p := range prefixes {
+			if p == opt.URL {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		if allow != nil && !allow(opt) {
+			continue
+		}
+		prefixes = append(prefixes, opt.URL)
+	}
+	return prefixes
+}
+
+// buildFPKCandidates 把下载地址展开成候选列表（纯函数，便于单测）。
+// 2026-11-21（FnDepot#24）：
+//  1. 先脱镜像壳（<mirror>/<https://github.com|raw…> → 内层），否则死镜像会把
+//     地址固化成只有一条候选，镜像一挂就 100% 失败；
+//  2. 内层是可加速的 GitHub 主机时，按 prefixes 展开镜像候选，再追加内层直连；
+//  3. 原地址（可能是仍存活的镜像壳）排最后兜底；全程去重。
+func buildFPKCandidates(base string, prefixes []string) []string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return nil
+	}
+	inner := mirrorInner(base)
+	out := make([]string, 0, len(prefixes)+2)
+	if isAccelerableURL(inner) {
+		for _, p := range prefixes {
+			if p == "" {
+				continue
+			}
+			out = appendCandUnique(out, p+inner)
+		}
+	}
+	out = appendCandUnique(out, inner)
+	out = appendCandUnique(out, base)
+	return out
+}
+
+// mirrorInner 剥掉镜像前缀取内层地址；无壳时原样返回。
+// 2026-11-21（FnDepot#24 实例测试发现的盲点）：不能只复用 unwrapMirrorURL——
+// 那个函数白名单只认 raw.githubusercontent.com / github.com / jsDelivr（用于
+// icon/readme 防误判）。下载地址的镜像壳内层可以是任意绝对 URL（例如第三方
+// CDN），只认白名单会漏脱壳、又退化成单条候选。
+func mirrorInner(base string) string {
+	base = strings.TrimSpace(base)
+	low := strings.ToLower(base)
+	var rest string
+	switch {
+	case strings.HasPrefix(low, "https://"):
+		rest = base[len("https://"):]
+	case strings.HasPrefix(low, "http://"):
+		rest = base[len("http://"):]
+	default:
+		return base
+	}
+	rl := strings.ToLower(rest)
+	for _, marker := range []string{"/https://", "/http://"} {
+		i := strings.Index(rl, marker)
+		if i <= 0 {
+			continue
+		}
+		inner := rest[i+1:]
+		if u, err := url.Parse(inner); err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https") {
+			return inner
+		}
+	}
+	return base
+}
+
+// isAccelerableURL 判断地址是否属于可被 GitHub 加速前缀代理的主机。
+func isAccelerableURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch strings.ToLower(u.Host) {
+	case "github.com", "raw.githubusercontent.com", "objects.githubusercontent.com", "codeload.github.com":
+		return true
+	}
+	return false
+}
+
+// appendCandUnique 追加候选并去重（保持顺序）。
+func appendCandUnique(list []string, u string) []string {
+	for _, x := range list {
+		if x == u {
+			return list
+		}
+	}
+	return append(list, u)
 }
 
 // ensureTrailingSlash 保证前缀以 / 结尾。
@@ -644,9 +834,9 @@ func (s *Server) ignoreUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	add := r.Method == http.MethodPut
-	ignored := s.Cfg.UpdateIgnored[:0:0] // 重建切片，避免 alias 原底层数组
+	ignored := s.cfg().UpdateIgnored[:0:0] // 重建切片，避免 alias 原底层数组
 	found := false
-	for _, n := range s.Cfg.UpdateIgnored {
+	for _, n := range s.cfg().UpdateIgnored {
 		if n == appName {
 			found = true
 			if add {
@@ -666,8 +856,8 @@ func (s *Server) ignoreUpdate(w http.ResponseWriter, r *http.Request) {
 	if ignored == nil {
 		ignored = []string{}
 	}
-	s.Cfg.UpdateIgnored = ignored
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().UpdateIgnored = ignored
+	_ = s.cfg().Save(dataDirOf(s))
 	s.invalidateCatalog() // 忽略态影响更新判定，旧缓存立即作废
 	writeJSON(w, map[string]any{"ok": true, "ignored": ignored})
 }
@@ -691,9 +881,9 @@ func (s *Server) hideApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	add := r.Method == http.MethodPut
-	hidden := s.Cfg.HiddenApps[:0:0] // 重建切片，避免 alias 原底层数组
+	hidden := s.cfg().HiddenApps[:0:0] // 重建切片，避免 alias 原底层数组
 	found := false
-	for _, k := range s.Cfg.HiddenApps {
+	for _, k := range s.cfg().HiddenApps {
 		if k == key {
 			found = true
 			if add {
@@ -713,8 +903,8 @@ func (s *Server) hideApp(w http.ResponseWriter, r *http.Request) {
 	if hidden == nil {
 		hidden = []string{}
 	}
-	s.Cfg.HiddenApps = hidden
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().HiddenApps = hidden
+	_ = s.cfg().Save(dataDirOf(s))
 	s.invalidateCatalog() // 隐藏态影响列表下发，旧缓存立即作废
 	writeJSON(w, map[string]any{"ok": true, "hidden": hidden})
 }
@@ -2619,8 +2809,8 @@ func (s *Server) mirrorVariants(cands []string, n int) []string {
 		prefix, ok := urlByKey[key]
 		if key == "custom" {
 			prefix, ok = "", false
-			if s.Cfg != nil {
-				prefix, ok = ensureTrailingSlash(s.Cfg.CustomGitHubMirror), s.Cfg.CustomGitHubMirror != ""
+			if s.cfg() != nil {
+				prefix, ok = ensureTrailingSlash(s.cfg().CustomGitHubMirror), s.cfg().CustomGitHubMirror != ""
 			}
 		}
 		if !ok || prefix == "" {
@@ -2831,10 +3021,10 @@ func normalizeGitHubURL(rawURL string) string {
 
 // sourceBaseURL 按源名查配置里的源地址。
 func (s *Server) sourceBaseURL(name string) string {
-	if s == nil || s.Cfg == nil {
+	if s == nil || s.cfg() == nil {
 		return ""
 	}
-	for _, sr := range s.Cfg.Sources {
+	for _, sr := range s.cfg().Sources {
 		if sr.Name == name {
 			return strings.TrimRight(sr.URL, "/")
 		}
@@ -3021,77 +3211,29 @@ func (s *Server) bumpLocalInstalls(appName string) {
 	if appName == "" {
 		return
 	}
-	if s.Cfg.LocalInstalls == nil {
-		s.Cfg.LocalInstalls = make(map[string]int)
+	if s.cfg().LocalInstalls == nil {
+		s.cfg().LocalInstalls = make(map[string]int)
 	}
-	s.Cfg.LocalInstalls[appName]++
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().LocalInstalls[appName]++
+	_ = s.cfg().Save(dataDirOf(s))
 }
 
-// sseRunOp 启动长操作并轮询其进度，以 SSE 事件流式回报（前端 ProgressOverlay 消费）。
+// sseRunOp 启动长操作并以 SSE 事件流式回报进度（前端 ProgressOverlay 消费）。
 // 终态必须按操作 ID 从 history 取回：操作结束时「清空 current + 入 history」
 // 是同一把锁内的原子动作，700ms 轮询可能恰好错过 running→error 的窗口，
 // 只看 Current()==nil 会把失败误报成「完成」（2026-09-25 实锤：kspeeder
 // 升级失败、fnlogpush 下载失败，SSE 却都发了 done）。
+//
+// SSE_RESUME（2026-11-21，B 方案）：首条事件改在 Ops.Start 之后发，并带上
+// "id": <opID>——移动端断流后客户端凭它 GET /api/operations/{id}/events 续传；
+// 轮询循环抽成 sseFollowOp，与续传端点共用同一套事件格式与幂等终态副作用。
 func (s *Server) sseRunOp(r *http.Request, w http.ResponseWriter, f http.Flusher, kind, target string, fn func(ctx context.Context, progress func(string, float64)) error) {
-	sseSend(w, f, map[string]any{"step": kind, "progress": 0, "message": "启动…"})
 	view, err := s.Ops.Start(kind, target, fn)
 	if err != nil {
 		sseSend(w, f, map[string]any{"step": "error", "error": err.Error()})
 		return
 	}
-	myID := view.ID
-	lastMsg, lastPct := "", -1
-	for {
-		select {
-		case <-r.Context().Done():
-			return // 客户端断开，操作在后台继续
-		case <-time.After(700 * time.Millisecond):
-		}
-		// 0.6.346：按 ID 取状态（当前/排队/历史三态），并发提交时不会被
-		// 别的应用的操作视图顶掉；排队中如实回报排位而非假装在跑。
-		st := s.Ops.Status(myID)
-		if st == nil {
-			continue // 刚入队 / 刚入 history 的极短窗口，等下一轮
-		}
-		switch st.State {
-		case operation.StateQueued:
-			msg := "排队中…"
-			if pos := s.Ops.Position(myID); pos > 0 {
-				msg = fmt.Sprintf("排队中（前面还有 %d 个任务）", pos)
-			}
-			if msg != lastMsg {
-				sseSend(w, f, map[string]any{"step": "queued", "progress": 0, "message": msg})
-				lastMsg = msg
-			}
-		case operation.StateRunning:
-			// running：进度/消息变化才推送（避免刷屏）
-			pct := int(st.Progress / 2)
-			if st.Msg != lastMsg || pct != lastPct {
-				sseSend(w, f, map[string]any{"step": kind, "progress": st.Progress, "message": st.Msg})
-				lastMsg, lastPct = st.Msg, pct
-			}
-		case operation.StateDone:
-			s.invalidateCatalog() // 安装/更新/卸载/启停都改变目录内容
-			// 安装/更新成功累计本机次数（第三方源应用无全局下载量，列表回退展示）
-			if kind == "install" || kind == "update" {
-				s.bumpLocalInstalls(st.Target)
-			}
-			sseSend(w, f, map[string]any{"step": "done", "progress": 100, "message": st.Msg})
-			return
-		case operation.StateError:
-			msg := st.Err
-			if msg == "" {
-				msg = "操作失败"
-			}
-			ev := map[string]any{"step": "error", "error": msg}
-			// 0.6.5xx：失败原因的结构化补充（升级向导缺项 / 阻塞依赖）。
-			// 前端凭 detail.kind 决定是弹向导、还是只提示，无需二次探测。
-			if len(st.Detail) > 0 {
-				ev["detail"] = st.Detail
-			}
-			sseSend(w, f, ev)
-			return
-		}
-	}
+	sseSend(w, f, opEvent(view.ID, map[string]any{"step": kind, "progress": 0, "message": "启动…"}))
+	// announce=false：首条事件上面已发，循环内不再补发当前状态。
+	s.sseFollowOp(r.Context(), w, f, view.ID, false)
 }

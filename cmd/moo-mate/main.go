@@ -74,9 +74,9 @@ func main() {
 	// 确需开放必须显式 MOO_MATE_ALLOW_REMOTE=1（B4：此时打 WARN，不静默）。
 	if fatalMsg, warnMsg := listenGuard(listenVal, envOr("MOO_MATE_ALLOW_REMOTE", "") != ""); fatalMsg != "" || warnMsg != "" {
 		if fatalMsg != "" {
-			log.Fatalf("拒绝启动：%s", fatalMsg)
+			log.Fatalf(catBoot+" 拒绝启动：%s", fatalMsg)
 		}
-		log.Printf("警告：%s", warnMsg)
+		catLogf(catBoot, "警告：%s", warnMsg)
 	}
 	mooBaseVal := envOr("MOO_MATE_MOO_BASE", *mooBase)
 	selfBaseVal := envOr("MOO_MATE_SELF_BASE", *selfBase)
@@ -93,7 +93,7 @@ func main() {
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
-		log.Fatalf("embed web 失败: %v", err)
+		log.Fatalf(catBoot+" embed web 失败: %v", err)
 	}
 	web := http.FileServer(http.FS(sub))
 
@@ -105,9 +105,9 @@ func main() {
 	cfg, _ := loadMateConfig(cfgPath)
 	bootClient := &http.Client{Timeout: 25 * time.Second}
 	if n, src, err := bootstrapDefaultIndex(dataVal, cfg.defaultIndexURL(), bootClient); err != nil {
-		logf("默认应用列表写入失败（继续空索引启动）：%v", err)
+		catLogf(catBoot, "默认应用列表写入失败（继续空索引启动）：%v", err)
 	} else if n > 0 {
-		logf("已写入默认应用列表 %d 条（首次启动，来源=%s）", n, src)
+		catLogf(catBoot, "已写入默认应用列表 %d 条（首次启动，来源=%s）", n, src)
 	}
 	c := newCompanion(mooBaseVal, selfBaseVal, tokenVal, web, newIndex(dataVal))
 	c.bootDir = bootDir
@@ -116,16 +116,16 @@ func main() {
 	// 这里补一次：远端清单优先，失败回落内置快照；用户主动「清除同步索引」留了
 	// 标记则跳过（保持清除语义）。已有条目一律不动。
 	if n, src, serr := c.idx.seedDefaultIfEmpty(cfg.defaultIndexURL(), bootClient); serr != nil {
-		log.Printf("补写默认应用列表失败（继续空索引启动）：%v", serr)
+		catLogf(catBoot, "补写默认应用列表失败（继续空索引启动）：%v", serr)
 	} else if n > 0 {
-		log.Printf("已补写默认应用列表 %d 条（来源=%s）", n, src)
+		catLogf(catBoot, "已补写默认应用列表 %d 条（来源=%s）", n, src)
 	}
 	// 0.2.35：自更新下载复用 Moo 的 GitHub 加速镜像表（GET /api/mate/mirrors）。
 	mateMirrorProvider = c.mateMirrorPrefixes
 	// 配置 + 加解密器：GitHub token 落盘 enc:v1（密钥文件 .moo-secret.key 在数据目录）。
 	sealer, serr := secret.LoadOrCreate(dataDir)
 	if serr != nil {
-		log.Printf("凭据加解密器不可用（token 将拒绝存储）: %v", serr)
+		catLogf(catCfg, "凭据加解密器不可用（token 将拒绝存储）: %v", serr)
 	}
 	c.setConfig(cfgPath, cfg, sealer)
 
@@ -184,9 +184,9 @@ func main() {
 	// MM-02（0.2.52）：非安全方法统一过 CSRF 防线（Origin/Sec-Fetch-Site/
 	// Content-Type + TCP 通道 Host 白名单）。TCP 与面板网关各用一套策略。
 	tcpPolicy, gwPolicy := newCSRFPolicies(listenVal, c.base)
-	log.Printf("CSRF 防护：host 白名单=%v（TCP loopbackOnly=%v）", tcpPolicy.allowedHosts, tcpPolicy.loopbackOnly)
+	catLogf(catBoot, "CSRF 防护：host 白名单=%v（TCP loopbackOnly=%v）", tcpPolicy.allowedHosts, tcpPolicy.loopbackOnly)
 
-	log.Printf("Moo Mate 启动：%s（Moo base=%s，索引=%s）", listenVal, mooBaseVal, dataVal)
+	catLogf(catBoot, "Moo Mate 启动：%s（Moo base=%s，索引=%s）", listenVal, mooBaseVal, dataVal)
 
 	// 定时同步循环（首次启动稍作延迟后立即同步一次，之后按配置间隔）。
 	go c.syncLoop()
@@ -194,7 +194,7 @@ func main() {
 	go func() {
 		time.Sleep(60 * time.Second)
 		if n := c.backfillOnce(context.Background(), backfillPerRound); n > 0 {
-			log.Printf("启动回填: %d 个应用", n)
+			catLogf(catIndex, "启动回填: %d 个应用", n)
 		}
 	}()
 
@@ -208,11 +208,13 @@ func main() {
 			time.Sleep(d)
 			fixed, err := c.reconcileSourceURLs()
 			if err != nil {
-				log.Printf("源地址校验失败（稍后重试）: %v", err)
+				cfgFail.Fail("srcfix", catCfg, "源地址校验失败（稍后重试）: %v", err)
 				continue
 			}
+			// 恢复行只在「此前真的连续失败过」时出现，正常启动零噪音。
+			cfgFail.OK("srcfix", catCfg, "源地址校验已恢复")
 			if fixed > 0 {
-				log.Printf("已把 %d 个 Moo Mate 源地址更新到当前端口（%s）", fixed, c.base)
+				catLogf(catCfg, "已把 %d 个 Moo Mate 源地址更新到当前端口（%s）", fixed, c.base)
 			}
 			return
 		}
@@ -244,15 +246,15 @@ func main() {
 		_ = os.Remove(sock) // 清掉上次残留
 		uln, uerr := net.Listen("unix", sock)
 		if uerr != nil {
-			log.Printf("unix socket 监听失败（网关入口不可用，继续 TCP）: %v", uerr)
+			catLogf(catBoot, "unix socket 监听失败（网关入口不可用，继续 TCP）: %v", uerr)
 		} else {
 			_ = os.Chmod(sock, 0o700)
-			log.Printf("unix socket 监听: %s（网关前缀 %s）", sock, gwPrefix)
+			catLogf(catBoot, "unix socket 监听: %s（网关前缀 %s）", sock, gwPrefix)
 			gw := http.StripPrefix(gwPrefix, csrfGuard(mux, gwPolicy))
 			gwSrv := newHTTPServer(gw)
 			go func() {
 				if err := gwSrv.Serve(uln); err != nil {
-					log.Printf("unix socket 服务异常: %v", err)
+					catLogf(catBoot, "unix socket 服务异常: %v", err)
 				}
 			}()
 		}
@@ -262,7 +264,7 @@ func main() {
 	tcpSrv := newHTTPServer(csrfGuard(mux, tcpPolicy))
 	tcpSrv.Addr = listenVal
 	if err := tcpSrv.ListenAndServe(); err != nil {
-		log.Fatalf("服务启动失败: %v", err)
+		log.Fatalf(catBoot+" 服务启动失败: %v", err)
 	}
 }
 
@@ -291,17 +293,28 @@ func (c *companion) wakeSync() {
 func (c *companion) trySyncLog() {
 	checked, updated, err := c.runFullSync()
 	if errors.Is(err, errSyncBusy) {
-		log.Printf("同步进行中，跳过本轮唤醒")
+		// 1h 折叠：上一轮未跑完时的重复唤醒不刷屏。
+		syncThrottle.Logf("busy", catSync, "同步进行中，跳过本轮唤醒")
 		return
 	}
 	if err != nil {
-		log.Printf("同步失败: %v", err)
+		// 连续失败只打第 1、10、20… 次，恢复时补一行。
+		syncFail.Fail("sync", catSync, "同步失败: %v", err)
 		return
 	}
-	log.Printf("同步完成: 上游检查 %d / 更新 %d", checked, updated)
+	syncFail.OK("sync", catSync, "同步已恢复")
+	// 有更新立即打；无更新每 6h 留一条心跳；其余静默（原实现每小时一条「更新 0」）。
+	switch syncLogMode(updated, syncLogSince()) {
+	case "changed":
+		catLogf(catSync, "同步完成: 上游检查 %d / 更新 %d", checked, updated)
+		markSyncLogged()
+	case "heartbeat":
+		catLogf(catSync, "同步完成: 上游检查 %d / 更新 %d（6h 心跳）", checked, updated)
+		markSyncLogged()
+	}
 	// 0.2.73：每轮同步后回填存量条目的协议字段（README / 更新日志 / 历史版本）。
 	if n := c.backfillOnce(context.Background(), backfillPerRound); n > 0 {
-		log.Printf("协议字段回填: %d 个应用", n)
+		catLogf(catIndex, "协议字段回填: %d 个应用", n)
 	}
 }
 

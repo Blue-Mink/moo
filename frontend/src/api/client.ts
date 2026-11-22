@@ -54,6 +54,18 @@ export interface AppInfo {
   /** 已忽略且确有被压住的更新（0.6.197：dock「有更新」列表含它） */
   update_ignored_pending?: boolean;
   /**
+   * P1-4 已下架：命中远端 blacklist.json（= 停止分发，不是已卸载）。
+   * 命中的卡**仍留在列表里**（旧行为是直接剔除，连已装卡一起消失）：
+   * 卡面灰化 + 「已下架」角标 + 原因浮层；安装/更新被后端闸拦住，前端也不再渲染。
+   */
+  blacklisted?: boolean;
+  /** 下架原因码（malware / fraud / copyright / security / policy / author；未知码由前端回落短句）。 */
+  blacklist_reason?: string;
+  /** 下架说明（≤60 字，展示用；不参与判定）。为空时前端回落「moo 已停止提供下载与更新」。 */
+  blacklist_notice?: string;
+  /** 下架生效时间（YYYY-MM-DD），详情红条展示。 */
+  blacklist_since?: string;
+  /**
    * 0.6.326 应用溯源：用户手动禁用的应用（列表/搜索/推荐视图隐藏；「已安装」
    * tab 与详情仍可见，保证可恢复）。后端置位，按卡片 key 持久化。
    */
@@ -460,15 +472,341 @@ export interface SSEHandle {
   cancel: () => void;
 }
 
+/** 断线续传彻底失败时抛出的错误：操作很可能仍在后台继续（UI 据此改为提示+刷新）。 */
+export interface SSEBackgroundError extends Error {
+  background?: boolean;
+  opId?: string;
+  /** 底层原因（供 console/上报，不直接给用户看）。 */
+  detail?: string;
+}
+
+/** 流所属操作的标识：没有 opID 时按 kind+target 兜底匹配（续传用）。 */
+export interface OpStreamContext {
+  kind: string;
+  target: string;
+}
+
+/** 服务端 GET /api/operations 返回条目的最小形状。 */
+interface OpViewLike {
+  id?: string;
+  kind?: string;
+  target?: string;
+  state?: string;
+  started_at?: string;
+}
+
+/** 续传重试退避：最多 3 次（1s / 2s / 4s）。 */
+const SSE_RESUME_BACKOFF_MS = [1000, 2000, 4000];
+/** P0-1 终态轮询退避：续传也失败后按 opID 查状态，逐步放缓（最长 12s 一次）。 */
+const SSE_POLL_BACKOFF_MS = [3000, 5000, 8000, 12000];
+/** 轮询总时长上限（30 分钟）：大包弱网下载可能很久，够覆盖正常场景。 */
+const SSE_POLL_TIMEOUT_MS = 30 * 60 * 1000;
+/** 连续查不到该操作（history 只留最近 20 条）多少次后放弃轮询。 */
+const SSE_POLL_MAX_MISSES = 3;
+/**
+ * 测试钩子：用例把退避改小，避免真等几十秒。
+ * 生产代码只读这里，不写；未设置时用上面的默认值。
+ */
+export const __sseTimingForTests: {
+  resumeBackoff?: number[];
+  pollBackoff?: number[];
+  pollTimeoutMs?: number;
+  pollMaxMisses?: number;
+} = {};
+
+const sseResumeBackoff = (): number[] => __sseTimingForTests.resumeBackoff ?? SSE_RESUME_BACKOFF_MS;
+const ssePollBackoff = (): number[] => __sseTimingForTests.pollBackoff ?? SSE_POLL_BACKOFF_MS;
+const ssePollTimeout = (): number => __sseTimingForTests.pollTimeoutMs ?? SSE_POLL_TIMEOUT_MS;
+const ssePollMaxMisses = (): number => __sseTimingForTests.pollMaxMisses ?? SSE_POLL_MAX_MISSES;
+/** 兜底匹配窗口：开始时间距今超过 5 分钟的操作不属于本次点击。 */
+const SSE_FOLLOW_WINDOW_MS = 5 * 60 * 1000;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => { setTimeout(resolve, ms); });
+
+function isAbort(e: unknown): boolean {
+  return (e as { name?: string } | null)?.name === 'AbortError';
+}
+
+interface SSEStreamState {
+  /** 最后一条事件带的 opID（续传凭据；旧服务端事件没有该字段）。 */
+  lastId: string | null;
+  /** 最后一条事件里的进度：断流推 reconnecting 时沿用，避免进度条被打回 0。 */
+  lastProgress: number | null;
+  terminal: { kind: 'done' } | { kind: 'error'; err: Error } | null;
+}
+
+/**
+ * 读一条 SSE 响应直到终态或 EOF。读流阶段的异常原样抛出，由调用方决定是否续传。
+ * 事件里的 opID 记进 state.lastId —— 断流后客户端凭它 GET /api/operations/{id}/events。
+ */
+async function consumeSSE(response: Response, onEvent: SSECallback, st: SSEStreamState): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('No response body');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let pendingData = '';
+
+  const dispatchPending = () => {
+    if (!pendingData) return;
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(pendingData);
+    } catch (e) {
+      // Don't silently drop terminal events ('done' / 'error') -- log so
+      // we can debug a UI stuck in a spinner. Truncate the raw payload to
+      // avoid leaking large/sensitive data into the browser console.
+      const preview = pendingData.length > 200
+        ? pendingData.slice(0, 200) + `...(+${pendingData.length - 200} chars)`
+        : pendingData;
+      console.warn('streamSSE: failed to parse event payload', e, 'preview:', preview);
+    }
+    pendingData = '';
+    if (parsed == null) return;
+    const ev = parsed as { step?: string; error?: string; id?: string; progress?: number };
+    if (typeof ev.id === 'string' && ev.id) st.lastId = ev.id;
+    if (typeof ev.progress === 'number' && Number.isFinite(ev.progress)) st.lastProgress = ev.progress;
+    onEvent(parsed as UpdateProgress);
+    if (ev.step === 'done') {
+      st.terminal = { kind: 'done' };
+    } else if (ev.step === 'error' || ev.error) {
+      st.terminal = {
+        kind: 'error',
+        err: new Error(typeof ev.error === 'string' && ev.error ? ev.error : '操作失败'),
+      };
+    }
+  };
+
+  try {
+    while (true) {
+      if (st.terminal) break;
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const rawLine of lines) {
+        // Trim trailing CR so CRLF-style streams (some proxies/servers) parse correctly.
+        const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+        if (line.startsWith('data: ')) {
+          // SSE spec: multiple consecutive data: lines are joined with newline.
+          pendingData += (pendingData ? '\n' : '') + line.slice(6);
+        } else if (line === '' && pendingData) {
+          dispatchPending();
+          if (st.terminal) break;
+        }
+      }
+    }
+    // EOF flush: if the stream ends after a 'data:' line but BEFORE the
+    // blank-line terminator (e.g. server killed mid-event), dispatch what
+    // we have. Without this, the final 'done' / 'error' event can be lost,
+    // leaving the UI stuck on a spinner.
+    buffer += decoder.decode();
+    if (buffer) {
+      const tail = buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer;
+      if (tail.startsWith('data: ')) {
+        pendingData += (pendingData ? '\n' : '') + tail.slice(6);
+      }
+    }
+    dispatchPending();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * GET /api/operations：按 kind+target 且 5 分钟内开始匹配操作 id。
+ * 没有 opID 时（旧服务端事件不带 id / 首条事件就断了）靠它找到要跟随的操作。
+ */
+async function matchOperationId(ctx: OpStreamContext, signal: AbortSignal, notBeforeMs: number): Promise<string | null> {
+  try {
+    const r = await apiFetch(apiUrl('/api/operations'), { signal });
+    if (!r.ok) return null;
+    const body = (await r.json()) as { current?: OpViewLike | null; history?: OpViewLike[] };
+    const all: OpViewLike[] = [];
+    if (body?.current) all.push(body.current);
+    if (Array.isArray(body?.history)) all.push(...body.history);
+    // 审计 D1：窗口下界必须取「本次请求发出时刻」，不能只取「现在-5min」——
+    // 否则会把同一 kind+target 的上一次终态操作当成本次结果（假成功/假失败）。
+    // 留 5s 容差吸收客户端/服务端时钟差。
+    const cutoff = Math.max(notBeforeMs - 5000, Date.now() - SSE_FOLLOW_WINDOW_MS);
+    const matches = all
+      .filter((op) => {
+        if (!op || op.kind !== ctx.kind || op.target !== ctx.target || !op.id) return false;
+        const started = Date.parse(op.started_at || '');
+        return Number.isFinite(started) && started >= cutoff;
+      })
+      .sort((a, b) => Date.parse(b.started_at || '') - Date.parse(a.started_at || ''));
+    // 优先跟随仍在排队/执行的操作；都已是终态时取最近一条（很可能就是刚跑完的那次）。
+    const live = matches.find((op) => op.state !== 'done' && op.state !== 'error');
+    return (live ?? matches[0])?.id ?? null;
+  } catch (e) {
+    if (isAbort(e)) throw e;
+    return null;
+  }
+}
+
+/** GET /api/operations/{id}/events 跟随已有操作；404 = id 过期或服务端没有该端点。 */
+async function followOperationStream(
+  id: string,
+  onEvent: SSECallback,
+  st: SSEStreamState,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const resp = await apiFetch(apiUrl(`/api/operations/${encodeURIComponent(id)}/events`), { signal });
+  if (resp.status === 404) return false;
+  if (!resp.ok) throw new Error(`续传失败：HTTP ${resp.status}`);
+  await consumeSSE(resp, onEvent, st);
+  return true;
+}
+
+/** 服务端 GET /api/operations/{id} 的完整形状（只取轮询用到的字段）。 */
+interface OpStatusView extends OpViewLike {
+  msg?: string;
+  progress?: number;
+  error?: string;
+}
+
+/** GET /api/operations/{id}；404 = 操作已过期/不存在（history 只留 20 条）。 */
+async function fetchOperationStatus(id: string, signal: AbortSignal): Promise<OpStatusView | null> {
+  const r = await apiFetch(apiUrl(`/api/operations/${encodeURIComponent(id)}`), { signal });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`查询操作状态失败：HTTP ${r.status}`);
+  return (await r.json()) as OpStatusView;
+}
+
+/**
+ * P0-1 终态轮询兜底：SSE 与续传都断了之后，按 opID 定时查
+ * GET /api/operations/{id}，直到 done/error、连续 3 次查不到，或超过 30 分钟。
+ *
+ * 为什么需要它：移动端/网关持续掐长连接时，续传 3 次都可能失败，而操作仍在
+ * 后台跑（用户实测「提示失败、实际成功」）。短轮询没有长连接，弱网下更可靠。
+ * 该端点在终态时执行一次幂等的目录失效 → 轮询到 done 后列表能立刻刷新。
+ */
+async function pollOperationUntilTerminal(
+  id: string,
+  onEvent: SSECallback,
+  st: SSEStreamState,
+  signal: AbortSignal,
+): Promise<void> {
+  const backoff = ssePollBackoff();
+  const timeoutMs = ssePollTimeout();
+  const maxMisses = ssePollMaxMisses();
+  const startedMs = Date.now();
+  let misses = 0;
+  let attempt = 0;
+  while (!st.terminal) {
+    if (Date.now() - startedMs > timeoutMs) return;
+    await sleep(backoff[Math.min(attempt, backoff.length - 1)]);
+    attempt += 1;
+    if (st.terminal) return;
+    let view: OpStatusView | null;
+    try {
+      view = await fetchOperationStatus(id, signal);
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      continue; // 网络仍不通：退避后重试，直到超时
+    }
+    if (!view) {
+      misses += 1;
+      if (misses >= maxMisses) return; // 操作记录已被回收，无法继续跟随
+      continue;
+    }
+    misses = 0;
+    const state = view.state || '';
+    if (state === 'done') {
+      const msg = view.msg || '操作已完成';
+      onEvent({ step: 'done', progress: 100, message: msg });
+      st.terminal = { kind: 'done' };
+      return;
+    }
+    if (state === 'error') {
+      const msg = view.error || view.msg || '操作失败';
+      onEvent({ step: 'error', error: msg, message: msg });
+      st.terminal = { kind: 'error', err: new Error(msg) };
+      return;
+    }
+    // queued / running：把服务端进度同步给 UI（message 明确是「状态同步」而非重连中）
+    const progress = typeof view.progress === 'number' && Number.isFinite(view.progress)
+      ? view.progress
+      : (st.lastProgress ?? 0);
+    if (typeof view.progress === 'number' && Number.isFinite(view.progress)) st.lastProgress = view.progress;
+    const detail = view.msg ? `（${view.msg}）` : '';
+    onEvent({ step: 'reconnecting', progress, message: `连接中断，正在同步后台进度…${detail}` });
+  }
+}
+
+/**
+ * 断流后续传：按已知 opID 跟随；404 或无 id 时用 kind+target 兜底匹配，
+ * 最多 3 次（退避 1s/2s/4s）。终态写进 st.terminal，彻底失败则静默返回。
+ */
+async function resumeAfterBreak(
+  opCtx: OpStreamContext | undefined,
+  onEvent: SSECallback,
+  st: SSEStreamState,
+  signal: AbortSignal,
+  requestStartedMs: number,
+): Promise<void> {
+  let id = st.lastId;
+  const backoff = sseResumeBackoff();
+  for (let attempt = 0; attempt < backoff.length; attempt += 1) {
+    await sleep(backoff[attempt]);
+    if (st.terminal) return;
+    try {
+      if (!id) {
+        // 旧服务端（事件不带 id）或首条事件就断了：按 kind+target 兜底匹配一次。
+        if (!opCtx) return;
+        id = await matchOperationId(opCtx, signal, requestStartedMs);
+        if (!id) return; // 找不到可跟随的操作，无法续传
+      }
+      const followed = await followOperationStream(id, onEvent, st, signal);
+      if (st.terminal) return;
+      if (followed) return;
+      // 404：id 已过期或服务端没有该端点 → 重新按 kind+target 匹配一次
+      const alt = opCtx ? await matchOperationId(opCtx, signal, requestStartedMs) : null;
+      if (!alt || alt === id) return;
+      id = alt;
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      // 网络层再次失败：退避后重试
+    }
+  }
+}
+
+/** 续传全部失败：操作可能仍在后台继续（UI 据此提示并刷新目录）。 */
+function backgroundError(opId: string | null, detail: string): SSEBackgroundError {
+  const err = new Error('连接可能已中断，操作仍在后台继续，请稍后查看已安装列表。') as SSEBackgroundError;
+  err.background = true;
+  err.detail = detail;
+  if (opId) err.opId = opId;
+  return err;
+}
+
 /**
  * Stream a POST endpoint's SSE body.
  *
  * `url` must already be mount-point resolved by the caller (`apiUrl(...)`).
  * Resolving it a second time here would double-apply the prefix and produce
  * `/store/store/api/...` behind a sub-path proxy.
+ *
+ * SSE_RESUME（2026-11-21）：移动端 WebKit 在首块事件之后断流（读流阶段抛
+ * `TypeError: Load failed`），而服务端操作仍在后台跑完——旧实现把该异常原样
+ * 上抛，用户看到「提示失败、实际成功」。现在：事件带 opID，读流中断（读流
+ * 异常、或网关把流「干净关闭」却没送终态）后先推一条
+ * `reconnecting`，再按 `GET /api/operations/{id}/events` 续传（最多 3 次，
+ * 退避 1s/2s/4s）；无 id/404 时按 `opCtx.kind + opCtx.target` + 5 分钟窗口
+ * 兜底匹配。续传仍失败则按 opID 短轮询 `GET /api/operations/{id}`（3s 起，
+ * 最长 12s 一次、30 分钟上限），直到 done/error ——长连接被网关持续掐断时
+ * 也能把真实结果送回 UI。只有轮询也查不到（记录被回收）才抛错，且带上
+ * `background=true` + `opId`（UI 提示「操作仍在后台继续」并刷新目录）。
  */
-function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
+function streamSSE(url: string, onEvent: SSECallback, opCtx?: OpStreamContext): SSEHandle {
   const controller = new AbortController();
+  const requestStartedMs = Date.now();
 
   const promise = (async () => {
     // 0.6.504（B2）：网络层异常（断网 / 网关断流 / WebView 的 TypeError）此前会原样
@@ -477,7 +815,7 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
     try {
       response = await apiFetch(url, { method: 'POST', signal: controller.signal });
     } catch (e) {
-      if ((e as { name?: string } | null)?.name === 'AbortError') throw e;
+      if (isAbort(e)) throw e;
       const raw = e instanceof Error ? e.message : String(e);
       throw new Error(`无法连接 Moo 服务：${raw}（请检查面板网关/网络后重试）`);
     }
@@ -491,90 +829,62 @@ function streamSSE(url: string, onEvent: SSECallback): SSEHandle {
       throw new Error(detail);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No response body');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let pendingData = '';
     // 0.6.261：终态事件（done/error）= 操作结束，promise 立即结算——
     // 面板网关（nginx→unix socket）在上游关闭后可能继续持有下游连接，
     // 只等流 EOF 会让 UI 永远卡在「安装中…」蓝条（已安装状态永不翻转）。
-    // error 事件同时让 promise 拒绝（此前 error 后 EOF 仍走 resolve，
-    // 消费方会误报「安装成功」）。
-    // ref 对象承载：闭包内赋值不会触发外层控制流收窄成 never。
-    const terminalRef: { current: { kind: 'done' } | { kind: 'error'; err: Error } | null } = { current: null };
-
-    const dispatchPending = () => {
-      if (!pendingData) return;
-      let parsed: unknown = null;
-      try {
-        parsed = JSON.parse(pendingData);
-      } catch (e) {
-        // Don't silently drop terminal events ('done' / 'error') -- log so
-        // we can debug a UI stuck in a spinner. Truncate the raw payload to
-        // avoid leaking large/sensitive data into the browser console.
-        const preview = pendingData.length > 200
-          ? pendingData.slice(0, 200) + `...(+${pendingData.length - 200} chars)`
-          : pendingData;
-        console.warn('streamSSE: failed to parse event payload', e, 'preview:', preview);
-      }
-      pendingData = '';
-      if (parsed == null) return;
-      onEvent(parsed as UpdateProgress);
-      const ev = parsed as { step?: string; error?: string };
-      if (ev.step === 'done') {
-        terminalRef.current = { kind: 'done' };
-      } else if (ev.step === 'error' || ev.error) {
-        terminalRef.current = { kind: 'error', err: new Error(typeof ev.error === 'string' && ev.error ? ev.error : '操作失败') };
-      }
-    };
-
+    const st: SSEStreamState = { lastId: null, lastProgress: null, terminal: null };
+    let readErr: unknown = null;
     try {
-      while (true) {
-        if (terminalRef.current) break;
-        const { done, value } = await reader.read();
-        if (done) break;
+      await consumeSSE(response, onEvent, st);
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      readErr = e;
+    }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const rawLine of lines) {
-          // Trim trailing CR so CRLF-style streams (some proxies/servers) parse correctly.
-          const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-          if (line.startsWith('data: ')) {
-            // SSE spec: multiple consecutive data: lines are joined with newline.
-            pendingData += (pendingData ? '\n' : '') + line.slice(6);
-          } else if (line === '' && pendingData) {
-            dispatchPending();
-            if (terminalRef.current) break;
+    // 读流中断：有操作上下文（或已知 opID）才续传。审计 E4：/api/apps/reload、
+    // /api/store-update 这类“没有操作”的流不能走续传，否则会被误报成
+    // 「操作仍在后台继续」——它们断流就是断流，让调用方按普通错误重试。
+    const canResume = Boolean(opCtx || st.lastId);
+    // P1-2（2026-11-22）：干净 EOF（reader 读到 done）与读流异常同属「断流」。
+    // 此前只看 readErr，网关正常关闭流时会跳过续传/轮询——opID 明明已到手，
+    // 真实的 done/error（含失败原因）却永远送不回来。旧服务端（事件不带 id）
+    // 的干净 EOF 仍按既有语义 resolve：没有 opID 就无从续传。
+    const interrupted = Boolean(readErr) || Boolean(st.lastId);
+    if (!st.terminal && canResume && interrupted) {
+      // 带上最后已知进度：App.tsx 的通用分支会用 progress||0 覆盖进度条。
+      onEvent({ step: 'reconnecting', message: '连接中断，正在恢复…', progress: st.lastProgress ?? 0 });
+      await resumeAfterBreak(opCtx, onEvent, st, controller.signal, requestStartedMs);
+      // P0-1：续传 3 次仍没拿到终态（网关持续掐长连接）→ 退化为按 opID 短轮询，
+      // 直到 done/error。此前这里直接放弃（只提示「操作仍在后台继续」），
+      // 用户看不到「其实已经成功」，列表也要手动刷新才更新。
+      if (!st.terminal) {
+        let id = st.lastId;
+        if (!id && opCtx) {
+          try {
+            id = await matchOperationId(opCtx, controller.signal, requestStartedMs);
+          } catch (e) {
+            if (isAbort(e)) throw e;
           }
         }
+        if (id) await pollOperationUntilTerminal(id, onEvent, st, controller.signal);
       }
-      // EOF flush: if the stream ends after a 'data:' line but BEFORE the
-      // blank-line terminator (e.g. server killed mid-event), dispatch what
-      // we have. Without this, the final 'done' / 'error' event can be lost,
-      // leaving the UI stuck on a spinner.
-      buffer += decoder.decode();
-      if (buffer) {
-        const tail = buffer.endsWith('\r') ? buffer.slice(0, -1) : buffer;
-        if (tail.startsWith('data: ')) {
-          pendingData += (pendingData ? '\n' : '') + tail.slice(6);
-        }
-      }
-      dispatchPending();
-    } finally {
-      reader.releaseLock();
     }
-    const terminal = terminalRef.current;
+
+    const terminal = st.terminal;
     if (terminal) {
       // 终态已送达：主动断开连接（网关可能继续持有），再按语义结算。
       controller.abort();
       if (terminal.kind === 'error') throw terminal.err;
+      return;
     }
+    // 旧服务端（事件不带 id）干净 EOF：保持既有行为（resolve，不误报失败）。
+    if (!readErr && !st.lastId) return;
+    const raw = readErr instanceof Error ? readErr.message : readErr ? String(readErr) : '连接已中断';
+    if (!canResume) {
+      // 非操作流（刷新源/商店更新检查等）：中文包装后按普通错误上抛，由调用方重试。
+      throw new Error(`连接中断：${raw}（请重试）`);
+    }
+    throw backgroundError(st.lastId, raw);
   })();
 
   return { promise, cancel: () => controller.abort() };
@@ -630,13 +940,13 @@ export const installApp = (appname: string, onEvent: SSECallback, wizard?: Wizar
   if (wizard && wizard.length) params.set('wizard', JSON.stringify(wizard));
   if (panel) params.set('panel', JSON.stringify(panel));
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return streamSSE(apiUrl(`/api/apps/${appname}/install${qs}`), onEvent);
+  return streamSSE(apiUrl(`/api/apps/${appname}/install${qs}`), onEvent, { kind: 'install', target: appname });
 };
 
 // 0.6.321r6 方案2：仅下载+暂存 FPK（SSE 进度）——「先下载、后弹安装向导」的下载阶段；
 // 完成后 GET /wizard 因包已落缓存而毫秒级返回。
 export const stageApp = (appname: string, onEvent: SSECallback): SSEHandle =>
-  streamSSE(apiUrl(`/api/apps/${appname}/stage`), onEvent);
+  streamSSE(apiUrl(`/api/apps/${appname}/stage`), onEvent, { kind: 'stage', target: appname });
 
 /** 0.6.524（用户令）：KSpeeder 安装包信息改为读远端清单 lists/kspeeder.txt。 */
 export interface KspeederLatest {
@@ -761,11 +1071,11 @@ export const updateApp = (
   if (wizard && wizard.length) params.set('wizard', JSON.stringify(wizard));
   if (stopDeps) params.set('stop_deps', '1');
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return streamSSE(apiUrl(`/api/apps/${appname}/update${qs}`), onEvent);
+  return streamSSE(apiUrl(`/api/apps/${appname}/update${qs}`), onEvent, { kind: 'update', target: appname });
 };
 
 export const uninstallApp = (appname: string, onEvent: SSECallback): SSEHandle => {
-  return streamSSE(apiUrl(`/api/apps/${appname}/uninstall`), onEvent);
+  return streamSSE(apiUrl(`/api/apps/${appname}/uninstall`), onEvent, { kind: 'uninstall', target: appname });
 };
 
 // 启动 / 停用已安装应用（与 fnOS 应用中心同步）
@@ -1956,6 +2266,82 @@ export const fetchStoreUpdate = async (force = false): Promise<StoreUpdateInfo> 
 
 export const triggerStoreUpdate = (onEvent: SSECallback): SSEHandle => {
   return streamSSE(apiUrl('/api/store-update'), onEvent);
+};
+
+// ---------- 手动更新队列（P1-1） ----------
+
+/**
+ * P1-1：自动更新「需人工处理」队列条目。
+ * 来源 = 后端 auto_update_skips.json（wizard / blocked / unknown 三类静默期），
+ * 只读聚合，真正更新仍走原有手动链路。
+ */
+export interface ManualUpdateItem {
+  app: string;
+  version?: string;
+  sha?: string;
+  /** wizard | blocked | unknown（后端枚举，未知值也要能显示） */
+  reason: string;
+  reason_label?: string;
+  /** RFC3339；到期后条目自行消失，前端只负责本地化展示 */
+  until?: string;
+  missing?: string;
+}
+
+export interface ManualUpdatesResponse {
+  count: number;
+  items: ManualUpdateItem[];
+}
+
+/**
+ * 规整后端载荷：字段缺失 / 类型不对的条目直接丢弃，避免渲染期炸掉整页。
+ * 纯函数（无 IO），单测覆盖 manual_updates.test.ts。
+ */
+export const normalizeManualUpdates = (raw: unknown): ManualUpdatesResponse => {
+  const src = (raw && typeof raw === 'object' ? (raw as { items?: unknown }).items : null);
+  const items: ManualUpdateItem[] = [];
+  if (Array.isArray(src)) {
+    for (const e of src) {
+      if (!e || typeof e !== 'object') continue;
+      const r = e as Record<string, unknown>;
+      if (typeof r.app !== 'string' || r.app === '') continue;
+      const str = (v: unknown) => (typeof v === 'string' ? v : '');
+      items.push({
+        app: r.app,
+        version: str(r.version) || undefined,
+        sha: str(r.sha) || undefined,
+        reason: str(r.reason) || 'unknown',
+        reason_label: str(r.reason_label) || undefined,
+        until: str(r.until) || undefined,
+        missing: str(r.missing) || undefined,
+      });
+    }
+  }
+  return { count: items.length, items };
+};
+
+/** 上次自更新的对账结果（P1-2，requireAdmin）。 */
+export interface SelfUpdateLast {
+  status: 'none' | 'submitted' | 'confirmed' | 'failed' | 'unknown' | string;
+  from_version?: string;
+  to_version?: string;
+  detail?: string;
+  submitted_at?: string;
+}
+
+/** GET /api/self-update/last；失败由调用方静默处理（403/旧后端）。 */
+export const fetchSelfUpdateLast = async (): Promise<SelfUpdateLast> => {
+  const r = await apiFetch(apiUrl('/api/self-update/last'));
+  if (!r.ok) throw new Error(`Failed to fetch self-update state: ${r.statusText}`);
+  return (await r.json()) as SelfUpdateLast;
+};
+
+/** 手动更新队列（requireAdmin）。失败由调用方静默处理（403/旧版本无此端点）。 */
+export const fetchManualUpdates = async (): Promise<ManualUpdatesResponse> => {
+  const response = await apiFetch(apiUrl('/api/updates/manual'));
+  if (!response.ok) {
+    throw new Error(`Failed to fetch manual updates: ${response.statusText}`);
+  }
+  return normalizeManualUpdates(await response.json());
 };
 
 // ---------- 应用收藏 ----------

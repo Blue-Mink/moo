@@ -374,6 +374,11 @@ const DefaultAboutListsURL = "https://raw.githubusercontent.com/Blue-Mink/moo/ma
 // 的客户端把根路径写死在代码里，文件一搬走它们就 404。
 const DefaultListBaseURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/lists"
 
+// DefaultBlacklistURL 2026-11-22：远端「下架黑名单」（开发者维护的 JSON）。
+// 主地址 = DefaultListBaseURL + "blacklist.json"（lists/ 目录），本常量是
+// 根目录兼容副本（与 mirrors / 推荐清单同款回落）。改文件即生效、不发版。
+const DefaultBlacklistURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/blacklist.json"
+
 // ListFileURLs 返回某份清单的候选地址：基址新路径优先，legacy 旧地址兜底。
 // legacy 传空表示没有历史地址（例如两份镜像清单只有新路径）。
 func ListFileURLs(base, name, legacy string) []string {

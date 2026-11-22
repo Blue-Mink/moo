@@ -131,10 +131,10 @@ func parseRecommendList(body string) []recommendEntry {
 // recommendListURLs 生效的清单地址候选：自定义地址优先；否则 lists/ 新路径
 // → 根目录旧地址（0.6.512 清单目录化，兼容旧文件与回滚）。
 func (s *Server) recommendListURLs() []string {
-	if u := strings.TrimSpace(s.Cfg.RecommendListURL); u != "" {
+	if u := strings.TrimSpace(s.cfg().RecommendListURL); u != "" {
 		return []string{u}
 	}
-	return config.ListFileURLs(s.Cfg.ListBaseURL, "recommend_list.txt", config.DefaultRecommendListURL)
+	return config.ListFileURLs(s.cfg().ListBaseURL, "recommend_list.txt", config.DefaultRecommendListURL)
 }
 
 // recommendListURL 主清单地址（缓存键用第一个候选）。
@@ -213,7 +213,7 @@ func (s *Server) fetchRecommendListOne(ctx context.Context, listURL string) (str
 	// 不会驱动二次抓取。为防配置被误改/被指向本机或云元数据端点当代打通道，
 	// 这里仍按源列表同一口径过 netguard：默认只允许公共地址，
 	// 需要指向内网时用既有开关 `SourceListAllowPrivate` 显式放开。
-	if !s.Cfg.SourceListAllowPrivate {
+	if !s.cfg().SourceListAllowPrivate {
 		if host, gerr := netguard.Public(listURL); gerr != nil {
 			return "", fmt.Errorf("推荐清单地址被安全策略拒绝（%s）: %w", host, gerr)
 		}

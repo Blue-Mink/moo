@@ -100,6 +100,14 @@ if [ "$QUICK" -eq 1 ]; then
   echo "[gate] --skip go test（--quick）"
 elif go test $PKGS; then ok "go test"; else bad "go test"; fi
 
+# ── 5b go test -race（方案 A，2026-11-23）───────────────────────────────
+# 并发敏感包：配置热替换 / 操作队列 / 下载限流 / Mate 日志折叠。
+# 只跑这四个包，避免全仓 -race 把 CI 时间翻倍；全量 -race 仍建议发布前手动跑一次。
+RACE_PKGS="./internal/api ./internal/operation ./internal/task ./cmd/moo-mate"
+if [ "$QUICK" -eq 1 ]; then
+  echo "[gate] --skip go test -race（--quick）"
+elif go test -race $RACE_PKGS; then ok "go test -race"; else bad "go test -race"; fi
+
 # ── 6 版本契约（按需；P2）────────────────────────────────────────────────
 if [ -n "$TAG" ]; then
   step "release contract (phase=$PHASE tag=$TAG)"

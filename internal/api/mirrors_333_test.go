@@ -73,8 +73,12 @@ func withGhAssets(t *testing.T, assets []string) {
 }
 
 // ── 0.6.333 F2：429 → limited（httptest 伪造） ─────────────────────────────
+// 2026-11-22 P2-1：带 Retry-After 时要把「等多久 / 等到何时」一并暴露。
+// 反向验证：去掉 429 分支里的 parseRetryAfterHeader 调用 → 本用例 FAIL。
 func TestProbeGhOne429IsLimited(t *testing.T) {
+	before := time.Now()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "90")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
@@ -90,6 +94,44 @@ func TestProbeGhOne429IsLimited(t *testing.T) {
 	}
 	if st.ConsecFails != 0 {
 		t.Errorf("探测本身不写计数, got %d", st.ConsecFails)
+	}
+	// P2-1：Retry-After: 90 → 秒数 / 解除时刻 / 文案三处都要对
+	if st.RetryAfterS != 90 {
+		t.Errorf("RetryAfterS 应为 90, got %d", st.RetryAfterS)
+	}
+	if !strings.Contains(st.Error, "90s") {
+		t.Errorf("Error 应含「90s」: %q", st.Error)
+	}
+	until, perr := time.Parse(time.RFC3339, st.LimitedUntil)
+	if perr != nil {
+		t.Fatalf("LimitedUntil 应为 RFC3339: %q (%v)", st.LimitedUntil, perr)
+	}
+	if !until.After(before.Add(80 * time.Second)) {
+		t.Errorf("LimitedUntil 应在 ~90s 后, got %v", until)
+	}
+	if until.After(before.Add(2 * time.Minute)) {
+		t.Errorf("LimitedUntil 超出预期窗口, got %v", until)
+	}
+}
+
+// 无 Retry-After 头 → 保持原提示，不编造时长（旧前端契约不变）。
+func TestProbeGhOne429NoRetryAfterHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	withGhAssets(t, []string{"github.com/o/r/releases/download/v1/x.fpk"})
+
+	m := NewMirrorMonitor()
+	st := m.probeGhOne(context.Background(), config.MirrorOption{Key: "mirror-y", Label: "M", URL: srv.URL + "/"})
+	if st.Status != "limited" {
+		t.Fatalf("429 应判 limited, got %q (%s)", st.Status, st.Error)
+	}
+	if st.RetryAfterS != 0 || st.LimitedUntil != "" {
+		t.Errorf("无头时不应带等待时长: %d / %q", st.RetryAfterS, st.LimitedUntil)
+	}
+	if st.Error != "429 限流（临时）" {
+		t.Errorf("无头时文案应保持原样, got %q", st.Error)
 	}
 }
 
@@ -247,5 +289,28 @@ func TestEvaluateMirrorKeepsLimitedManual(t *testing.T) {
 	active, reason = s.evaluateMirror("b", "gh", m.gh())
 	if active != "a" || !strings.Contains(reason, "失效") {
 		t.Fatalf("fail 应切到 a 并给失效原因, got %q / %q", active, reason)
+	}
+}
+
+// ── P2-1：Retry-After 解析（与 internal/task 同名逻辑行为一致） ─────────────
+func TestParseRetryAfterHeader(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		in   string
+		want int64
+	}{
+		{"90", 90},
+		{"0", 0},
+		{"-3", 0},
+		{"", 0},
+		{"later", 0},
+		{"7200", 3600}, // 超上限截断
+		{now.Add(45 * time.Second).Format(http.TimeFormat), 45},
+		{now.Add(-time.Second).Format(http.TimeFormat), 0},
+	}
+	for _, c := range cases {
+		if got := parseRetryAfterHeader(c.in, now); got != c.want {
+			t.Errorf("parseRetryAfterHeader(%q) = %d, want %d", c.in, got, c.want)
+		}
 	}
 }

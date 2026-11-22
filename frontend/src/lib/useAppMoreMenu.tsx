@@ -28,12 +28,15 @@ interface Opts {
   onInstalled?: () => void;
   /** 需要向导参数时转详情页 */
   onNeedDetail?: (app: AppInfo) => void;
+  /** P1-4 已下架：只留启停 / 卸载，不再提供「更新 / 忽略更新 / 下载·安装本地包」 */
+  delisted?: boolean;
 }
 
 export function useAppMoreMenu(opts: Opts): { items: MoreMenuItem[]; dangerItems: MoreMenuItem[]; fpkBusy: boolean } {
   const {
     app, operation, isInstalled, canUpdate, controlBusy, controlling,
     onUpdate, onControl, onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstalled, onNeedDetail,
+    delisted = false,
   } = opts;
 
   /* FPK 本地缓存清单（模块级 60s 缓存 + 单飞，一屏卡/行只发一次请求） */
@@ -87,17 +90,18 @@ export function useAppMoreMenu(opts: Opts): { items: MoreMenuItem[]; dangerItems
   };
 
   const items: MoreMenuItem[] = [];
-  if (isInstalled && canUpdate && !app.update_ignored && onUpdate) {
+  // P1-4：已下架 = 停止分发 → 不更新、不忽略、不下载；只留启停与卸载（已装仍可继续用）
+  if (isInstalled && canUpdate && !delisted && !app.update_ignored && onUpdate) {
     items.push({
       key: 'update', icon: <RefreshCw className="h-3.5 w-3.5" />, label: '更新',
       hint: availableVersionLabel(app) ? `v${availableVersionLabel(app)}` : undefined,
       onClick: () => onUpdate(app),
     });
   }
-  if (canUpdate && !app.update_ignored && onIgnoreUpdate) {
+  if (canUpdate && !delisted && !app.update_ignored && onIgnoreUpdate) {
     items.push({ key: 'ignore', icon: <BellOff className="h-3.5 w-3.5" />, label: '忽略更新', onClick: () => onIgnoreUpdate(app) });
   }
-  if (app.update_ignored && onUnignoreUpdate) {
+  if (app.update_ignored && !delisted && onUnignoreUpdate) {
     items.push({ key: 'unignore', icon: <Bell className="h-3.5 w-3.5" />, label: '取消忽略更新', onClick: () => onUnignoreUpdate(app) });
   }
   const canToggle = isInstalled && (app.start_stop ?? true) && app.status !== 'nostart' && !controlBusy && !!onControl;
@@ -111,7 +115,7 @@ export function useAppMoreMenu(opts: Opts): { items: MoreMenuItem[]; dangerItems
       onClick: () => onControl?.(app, running ? 'stop' : 'start'),
     });
   }
-  if (hasSource) {
+  if (hasSource && !delisted) {
     items.push({
       key: 'fpk',
       icon: fpkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />,

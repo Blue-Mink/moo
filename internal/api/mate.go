@@ -26,7 +26,7 @@ func (s *Server) mateGithubToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, errors.New("缺少 X-Moo-Mate 请求头（该端点为 Moo Mate 专用）"))
 		return
 	}
-	tok := strings.TrimSpace(s.Cfg.GithubToken)
+	tok := strings.TrimSpace(s.cfg().GithubToken)
 	writeJSON(w, map[string]any{
 		"github_token_set": tok != "",
 		"github_token":     tok,

@@ -137,7 +137,7 @@ func newIconStore(dir string) *iconStore {
 func (s *Server) iconStore() *iconStore {
 	s.iconStoreOnce.Do(func() {
 		dir := ""
-		if s.Cfg != nil {
+		if s.cfg() != nil {
 			dir = filepath.Join(dataDirOf(s), "cache", "icons")
 		}
 		s.iconStoreV = newIconStore(dir)

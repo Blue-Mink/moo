@@ -78,7 +78,7 @@ func newDetailStore(dir string) *detailStore {
 func (s *Server) detailStore() *detailStore {
 	s.detailStoreOnce.Do(func() {
 		dir := ""
-		if s.Cfg != nil {
+		if s.cfg() != nil {
 			dir = filepath.Join(dataDirOf(s), "cache", "details")
 		}
 		s.detailStoreV = newDetailStore(dir)

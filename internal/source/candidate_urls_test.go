@@ -14,13 +14,16 @@ func TestCandidateURLsGitHubMirrors(t *testing.T) {
 	if len(cands) == 0 {
 		t.Fatal("无候选")
 	}
+	// 2026-11-21：判据从「必须出现 gh-proxy 字样」放宽为「必须出现镜像前缀形态」。
+	// 原断言隐含依赖清单前两条是 hk/cdn.gh-proxy.org；两个域名停服下线后，
+	// 前 N 个镜像可能是 gh-tbap / ghproxy-cxkpro，语义（有镜像变体）不变。
+	const rawPath = "https://raw.githubusercontent.com/Wyf841015/FnDepot/master/fnpack.json"
 	var hasRaw, hasMirror, hasJsDelivr bool
 	for _, c := range cands {
-		if strings.Contains(c, "raw.githubusercontent.com/Wyf841015/FnDepot/master/fnpack.json") &&
-			!strings.Contains(c, "gh-proxy") {
+		if c == rawPath {
 			hasRaw = true
 		}
-		if strings.Contains(c, "gh-proxy") && strings.Contains(c, "FnDepot/master/fnpack.json") {
+		if c != rawPath && strings.HasSuffix(c, rawPath) {
 			hasMirror = true
 		}
 		if strings.Contains(c, "cdn.jsdelivr.net/gh/Wyf841015/FnDepot") {
@@ -39,7 +42,7 @@ func TestCandidateURLsGitHubMirrors(t *testing.T) {
 	// 直连 .json 源不加镜像
 	g := NewFnDepot("s", "https://fndepot.example.com/fnpack.json")
 	for _, c := range g.candidateURLs() {
-		if strings.Contains(c, "gh-proxy") {
+		if strings.Contains(c, "/https://") {
 			t.Error("非 GitHub 源不应出现镜像候选: " + c)
 		}
 	}

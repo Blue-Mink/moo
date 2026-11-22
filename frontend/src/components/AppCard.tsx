@@ -23,9 +23,14 @@ import {
   Loader2,
   Check,
   Star,
+  Ban,
+  Info,
+  Trash2,
 } from 'lucide-react';
 // 0.6.342：已停止 → 置灰「启动」按钮（与行列表/桌面卡同一口径）
 import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRunState';
+// P1-4 已下架：卡面灰度 + 「已下架」角标 + 原因浮层（文案与判定口径见 lib/delist）
+import { DELIST_BADGE, delistNotice, delistReasonShort, isDelisted } from '@/lib/delist';
 import MoreMenuButton from './MoreMenu';
 import { useAppMoreMenu } from '@/lib/useAppMoreMenu';
 
@@ -68,11 +73,15 @@ interface AppCardProps {
 
 const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, onDetail, onCancelOp, upgradeAllowed = true, onSourceFilter, onAuthorFilter, onDistributorFilter, onOpenApp, activeTerms, isFavorite, onToggleFavorite, clickMode = 'double', onControl, controlling, onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstallDone }) => {
   const isInstalled = app.installed;
+  // P1-4：命中下架清单 → 灰卡 + 角标 + 原因浮层；不再渲染安装/更新（后端仍兜底拦截）
+  const hit = isDelisted(app);
   // 0.6.319F：细指针的「头部区/简介区 → 详情」打开方式受习惯开关控制；触屏恒单击
   const singleOpen = useCoarsePointer() || clickMode === 'single';
   // 0.6.363（用户定稿）：只认「有效更新」（未忽略），与卡面/详情页 ⋯ 口径一致
-  const canUpdate = hasActiveUpdate(app);
-  const downloadLabel = appDownloadLabel(app);
+  // P1-4：下架应用即使后端仍报 has_update 也一律不显示更新入口
+  const canUpdate = hasActiveUpdate(app) && !hit;
+  // P1-4：下架卡不展示下载体积（卡面只留「已下架 + 原因」）
+  const downloadLabel = hit ? '' : appDownloadLabel(app);
   // "打开"目标：daemon appServiceInfo；无 Web 入口的应用不渲染按钮
   const openUrl = isInstalled ? appWebUrl(app) : null;
   // "打开"药丸：运行中且有 Web 入口；或处于可启动状态
@@ -89,7 +98,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
   const { items: moreItems, dangerItems: moreDangerItems, fpkBusy } = useAppMoreMenu({
     app, operation, isInstalled, canUpdate, controlBusy, controlling,
     onUpdate, onControl, onUninstall, onIgnoreUpdate, onUnignoreUpdate,
-    onInstalled: onInstallDone, onNeedDetail: onDetail,
+    onInstalled: onInstallDone, onNeedDetail: onDetail, delisted: hit,
   });
 
   const getStepText = (step: string): string => {
@@ -109,13 +118,25 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
     <Card className={cn(
       // 0.6.284：移动端卡片与 Dock 统一毛玻璃材质（布局不变）
       "relative overflow-hidden border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore rounded-[18px] transition-all duration-200 hover:shadow-appstore-hover hover:-translate-y-0.5",
-      operation && "border-primary/50"
+      operation && "border-primary/50",
+      // P1-4：命中下架清单 → 中性灰底（图标/标题/徽章另由 grayscale 去饱和）
+      hit && "border-border/40 bg-gradient-to-b from-muted/70 to-muted/50 shadow-none hover:shadow-appstore hover:translate-y-0",
     )}>
       <div className="p-4 flex flex-col h-full gap-3">
+        {/* P1-4：右上角「已下架」角标 —— 只表示「停止分发」，不是「已卸载」（Moo 不做远程卸载） */}
+        {hit && (
+          <span
+            data-testid="delist-badge"
+            className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full border border-destructive/35 bg-destructive/10 px-2 py-[3px] text-[11px] font-bold leading-none text-destructive shadow-sm backdrop-blur-md"
+          >
+            <Ban className="h-3 w-3" />
+            {DELIST_BADGE}
+          </span>
+        )}
 
         {/* 0.6.319F：头部区（图标+名称）打开详情=单击/双击受习惯开关控制 */}
         <div
-          className="flex items-start gap-3 cursor-pointer touch-manipulation"
+          className={cn("flex items-start gap-3 cursor-pointer touch-manipulation", hit && "grayscale opacity-55")}
           onClick={singleOpen ? () => onDetail?.(app) : undefined}
           onDoubleClick={singleOpen ? undefined : () => onDetail?.(app)}
         >
@@ -141,7 +162,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
           )}
 
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-            <div className="flex items-center justify-between gap-2">
+            <div className={cn("flex items-center justify-between gap-2", hit && "pr-14")}>
               <div className="flex items-center gap-1.5 min-w-0">
                 <h3 className="font-semibold text-[15px] leading-tight text-foreground truncate" title={app.display_name}>
                   {app.display_name}
@@ -152,7 +173,8 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                 )}
               </div>
               {/* 0.6.290（用户定稿）：「有更新」徽章撤下（同移动行/网页卡），名字优先完整显示 */}
-              {app.update_ignored && (
+              {/* P1-4：下架卡抑制一切更新类徽章（「已忽略」等） */}
+              {app.update_ignored && !hit && (
                 <Badge variant="secondary" className="bg-muted text-muted-foreground border-0 font-medium px-1.5 h-5 text-xs shrink-0 rounded-full gap-0.5">
                   <BellOff className="h-2.5 w-2.5" />
                   已忽略
@@ -263,8 +285,9 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
         </div>
 
         {/* 简介行恒占位（两行高）：无简介的应用卡高与有简介的一致（网格行对齐） */}
-        <div className="min-h-10">
-          {app.description && (
+        {/* P1-4：下架卡的简介让位给下方原因浮层（DESIGN §1「空间让给原因」） */}
+        <div className={hit ? "min-h-0" : "min-h-10"}>
+          {!hit && app.description && (
             // 0.6.319e（用户定稿）：16px 太大影响整体风格，回 14px 常规 + foreground/70
             <p
               className="text-sm text-foreground/70 line-clamp-2 leading-relaxed cursor-pointer"
@@ -279,6 +302,27 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
         </div>
 
         <div className="flex-1" />
+
+        {/* P1-4：原因浮层 —— 卡下半部、操作栏上方；浅红底 + 毛玻璃 + 红描边。
+            标题=原因短句（卡面不显示原因码），副行=notice（≤2 行，无则回落缺省句）。 */}
+        {hit && (
+          <div
+            data-testid="delist-reason"
+            className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/[0.07] px-2.5 py-2 backdrop-blur-md"
+          >
+            <span className="mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-destructive/30 bg-destructive/10 text-destructive">
+              <Ban className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-bold leading-tight text-destructive">
+                {delistReasonShort(app.blacklist_reason)}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground line-clamp-2">
+                {delistNotice(app)}
+              </p>
+            </div>
+          </div>
+        )}
 
         {operation ? (
           <div className="pt-2 border-t border-border/20 space-y-2">
@@ -311,6 +355,46 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
             </div>
           </div>
         ) : (() => {
+          /* P1-4 已下架（DESIGN §1）：已装保留「打开」+「卸载」（可继续用、可自行卸载）；
+             未装只给「查看说明」——不渲染安装按钮，避免点了才被后端闸拦住。 */
+          if (hit) {
+            return (
+              <div data-testid="delist-actions" className="pt-2 border-t border-border/20 flex items-center gap-2">
+                {isInstalled ? (
+                  <>
+                    <Button
+                      onClick={() => onOpenApp?.(app)}
+                      disabled={!onOpenApp}
+                      aria-label={`打开 ${app.display_name}`}
+                      title={onOpenApp ? undefined : '该应用没有可用的 Web 入口'}
+                      className="pill flex-1 h-8 px-4 text-[13px] font-semibold border border-border/50 bg-muted/60 text-muted-foreground hover:bg-muted disabled:opacity-60"
+                    >
+                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                      打开
+                    </Button>
+                    {onUninstall && (
+                      <Button
+                        onClick={() => onUninstall(app)}
+                        className="pill flex-1 h-8 px-4 text-[13px] font-semibold border border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15"
+                      >
+                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                        卸载
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <Button
+                    onClick={() => onDetail?.(app)}
+                    title={`${delistReasonShort(app.blacklist_reason)} · ${delistNotice(app)}`}
+                    className="pill flex-1 h-8 px-4 text-[13px] font-semibold border border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15"
+                  >
+                    <Info className="mr-1 h-3.5 w-3.5" />
+                    查看说明
+                  </Button>
+                )}
+              </div>
+            );
+          }
           /* 0.6.366（用户令）：「我的收藏」卡底栏 = 主操作 + ⋯（与列表卡同一套菜单） */
           const hasPrimary = !isInstalled || canUpdate || controlBusy || canStart || canOpen;
           const hasMore = moreItems.length > 0 || moreDangerItems.length > 0;

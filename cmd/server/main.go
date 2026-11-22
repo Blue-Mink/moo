@@ -228,6 +228,15 @@ func main() {
 	// 0.6.347：最多 3 个操作并行（安装包下载可并行）；真正的平台操作
 	// （暂存/安装/升级/卸载/启停）由 gate 串行化。
 	ops.SetLimit(3)
+	// P0-2：操作状态落盘。重启后恢复最近 20 条历史；上次未结束的
+	// running/queued 会被如实标成「服务重启，操作已中断」，不再凭空消失。
+	opsFile := dataDir + "/operations.json"
+	if restored, interrupted := api.RestoreOperations(ops, opsFile); restored > 0 {
+		log.Printf("操作历史已恢复: %d 条（其中 %d 条标记为重启中断）", restored, interrupted)
+	}
+	opsPersist := api.NewOpsPersister(opsFile)
+	ops.SetOnChange(opsPersist.Save)
+	opsPersist.Save(ops.Snapshot()) // 清掉刚被改写的 running 残留
 	gate := operation.NewGate()
 	pipe := pipeline.New(srcMgr, dataDir+"/staging", dlDir)
 	pipe.Engine = eng
@@ -248,6 +257,8 @@ func main() {
 		Official:  official.NewManager(dataDir),
 	}
 	pipe.FPKCandidates = srv.FpkCandidates
+	// 2026-11-21（FnDepot#24）：索引拉取改用镜像健康序，fail 的源不进前 N 个。
+	config.SetGHMirrorHealth(srv.GHMirrorHealth)
 	// 0.6.512：清单目录化——本机屏蔽的加速源生效，并后台预热远端清单
 	// （lists/github_mirrors.txt / docker_mirrors.txt；失败静默回落内置清单）。
 	config.SetHiddenMirrors(cfg.HiddenMirrors)
@@ -260,6 +271,10 @@ func main() {
 
 	// 官方应用中心：加载持久化 OAuth 会话（token 未过期则免重新授权）
 	srv.Official.LoadSession()
+	// P1-2：上次自更新对账（版本 == 目标 → confirmed；仍是旧版 → failed；其它 → unknown）。
+	if j, changed := srv.ReconcileSelfUpdateJournal(); j != nil && changed {
+		log.Printf("[self-update] 上次升级 v%s → v%s 对账: %s", j.FromVersion, j.ToVersion, j.Status)
+	}
 
 	// 0.6.253：OAuth 免登录通道接线（有效会话优先，失败回退面板通道）
 	api.WireOfficialOAuth(srv)

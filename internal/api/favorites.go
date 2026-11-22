@@ -15,7 +15,7 @@ const maxFavorites = 500
 
 // favoritesList GET /api/favorites → {"favorites": [...]}（空 = 空数组）。
 func (s *Server) favoritesList(w http.ResponseWriter, _ *http.Request) {
-	favs := s.Cfg.Favorites
+	favs := s.cfg().Favorites
 	if favs == nil {
 		favs = []string{}
 	}
@@ -49,8 +49,8 @@ func (s *Server) favoriteToggle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	found := false
-	favs := s.Cfg.Favorites[:0:0] // 重建切片，避免 alias 原底层数组
-	for _, k := range s.Cfg.Favorites {
+	favs := s.cfg().Favorites[:0:0] // 重建切片，避免 alias 原底层数组
+	for _, k := range s.cfg().Favorites {
 		if k == key {
 			found = true
 			continue
@@ -72,7 +72,7 @@ func (s *Server) favoriteToggle(w http.ResponseWriter, r *http.Request) {
 	if favs == nil {
 		favs = []string{}
 	}
-	s.Cfg.Favorites = favs
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().Favorites = favs
+	_ = s.cfg().Save(dataDirOf(s))
 	writeJSON(w, map[string]any{"favorited": favorited, "favorites": favs})
 }

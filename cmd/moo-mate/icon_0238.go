@@ -436,8 +436,14 @@ func extractFpkIconStream(r io.Reader) ([]byte, string, bool) {
 }
 
 // fetchIconFromFPKStream 依次尝试镜像候选 + 直连，流式解析抢图标。
+// 批次⑤（P2-2）：镜像前缀优先取 Moo 健康表（c.mateMirrorPrefixes()，带 10min 缓存），
+// Moo 不可达/未配置返回空时回落静态表 githubMirrorPrefixes，与自更新下载同源。
 func (c *companion) fetchIconFromFPKStream(ctx context.Context, raw string) ([]byte, string, bool) {
-	for _, u := range mirrorCandidates(raw) {
+	cands := mirrorCandidatesWith(c.mateMirrorPrefixes(), raw)
+	if !hasMirrorPrefix(cands, raw) {
+		cands = mirrorCandidates(raw)
+	}
+	for _, u := range cands {
 		if ctx.Err() != nil {
 			return nil, "", false
 		}

@@ -223,8 +223,8 @@ func (s *Server) fetchReleaseBytes(ctx context.Context, rawURL string, max int64
 		pref := ""
 		if p := mirrorURLByKey(k); p != "" {
 			pref = p
-		} else if k == "custom" && s != nil && s.Cfg != nil && s.Cfg.CustomGitHubMirror != "" {
-			pref = s.Cfg.CustomGitHubMirror
+		} else if k == "custom" && s != nil && s.cfg() != nil && s.cfg().CustomGitHubMirror != "" {
+			pref = s.cfg().CustomGitHubMirror
 		}
 		if pref == "" {
 			continue

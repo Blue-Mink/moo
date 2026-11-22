@@ -5,11 +5,13 @@ import { cn, formatSpeed, formatProgress } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
-  Download, Package, X, BellOff, Globe, User, Check, Star,
+  Download, Package, X, BellOff, Globe, User, Check, Star, Ban,
 } from 'lucide-react';
 import { CheckCircle2, RefreshCw as UpdateIcon, Search } from 'lucide-react';
 // 0.6.342：已停止/启动中 的列表口径（与桌面卡、极简/极光网格共用）
 import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRunState';
+// P1-4 已下架：行模式同语义（名称旁小徽章 + 一行原因；已装打开/卸载，未装查看说明）
+import { DELIST_BADGE, delistNotice, delistReasonShort } from '@/lib/delist';
 import { centerAppRow } from '@/lib/jumpToApp';
 import AppIcon from './AppIcon';
 import { DockerIcon } from './DockerIcon';
@@ -133,8 +135,10 @@ const AppRowList: React.FC<AppRowListProps> = ({
       {shown.map((app, i) => {
         const operation = appOperations?.get(app.appname);
         const isInstalled = app.installed;
-        // 0.6.363（用户定稿）：只认「有效更新」（未忽略）
-        const canUpdate = hasActiveUpdate(app);
+        // P1-4：命中下架清单的行仍留在列表里，只打标 + 不提供安装/更新
+        const hit = !!app.blacklisted;
+        // 0.6.363（用户定稿）：只认「有效更新」（未忽略）；下架应用一律不显示更新
+        const canUpdate = hasActiveUpdate(app) && !hit;
         const downloadLabel = appDownloadLabel(app);
         // "打开"目标：daemon appServiceInfo；无 Web 入口的应用不渲染按钮
         const openUrl = isInstalled ? appWebUrl(app) : null;
@@ -159,7 +163,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
             style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 96px' }}
             className={cn(
               // 0.6.301：touch-manipulation = iOS 在卡面不消费双击缩放手势
-              "flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50 touch-manipulation",
+              "relative flex items-center gap-3.5 p-4 cursor-pointer transition-colors hover:bg-muted/30 active:bg-muted/50 touch-manipulation",
               // 0.6.368：右侧动作列内容高 104（收藏 24 + gap 12 + 主操作 28 +
               // gap 12 + 更多 28），短行（无简介/无徽章，实测 129px）内容区只有
               // 97 → 三钮被挤压、上下各溢出 3~4px，星标与相邻行不在同一水平线。
@@ -171,8 +175,20 @@ const AppRowList: React.FC<AppRowListProps> = ({
             )}
             onClick={() => onDetail(app)}
           >
-            {/* 图标 */}
-            <AppIcon app={app} className="w-14 h-14 shrink-0" />
+            {/* P1-4（2026-11-23 用户令）：右下架角标与极光/标准卡一致，钉在行右上角；
+                此前挂在应用名后面会把长名称挤成「全…」。动作列命中时下移 pt-8 让位。 */}
+            {hit && (
+              <span
+                data-testid="delist-badge"
+                className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full border border-destructive/35 bg-destructive/10 px-2 py-[3px] text-[11px] font-bold leading-none text-destructive shadow-sm backdrop-blur-md"
+              >
+                <Ban className="h-3 w-3" />
+                {DELIST_BADGE}
+              </span>
+            )}
+
+            {/* 图标（P1-4：下架行去饱和） */}
+            <AppIcon app={app} className={cn("w-14 h-14 shrink-0", hit && "grayscale opacity-55")} />
 
             {/* 中部信息 */}
             <div className="flex-1 min-w-0">
@@ -187,7 +203,8 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 )}
                 {/* 0.6.290（用户定稿）：应用名旁「有更新」徽章撤下——名字被挤截断，
                     且更新信息已有两处（下方版本行 v旧→v新 + 右侧「更新」胶囊），三重标注冗余 */}
-                {app.update_ignored && (
+                {/* P1-4：下架角标已移至行右上角（见行首），名称行保持干净不截断 */}
+                {app.update_ignored && !hit && (
                   <Badge variant="secondary" className="bg-muted text-muted-foreground border-0 font-medium px-1.5 h-5 text-[11px] shrink-0 rounded-full gap-0.5">
                     <BellOff className="h-2.5 w-2.5" />已忽略
                   </Badge>
@@ -204,7 +221,13 @@ const AppRowList: React.FC<AppRowListProps> = ({
               {/* 简介行恒占位（两行高）：无简介的已装应用行高与有简介的应用一致，
                   「已安装/未安装」状态到图标的距离统一，不再贴图标 */}
               <div className="min-h-9">
-                {app.description && (
+                {/* P1-4：下架行用「原因短句 · notice」替换简介（一行，完整说明在详情页） */}
+                {hit ? (
+                  <p data-testid="delist-reason" className="mt-0.5 text-[13px] leading-relaxed truncate">
+                    <span className="font-semibold text-destructive">{delistReasonShort(app.blacklist_reason)}</span>
+                    <span className="text-muted-foreground"> · {delistNotice(app)}</span>
+                  </p>
+                ) : app.description && (
                   // 0.6.319e（用户定稿）：16px 太大影响整体风格，回 14px 常规，
                   // 颜色 foreground/70=比原 muted 灰提一点点亮色、不到应用名那么深
                   <p className="text-sm text-foreground/70 leading-relaxed line-clamp-2 mt-0.5">
@@ -344,7 +367,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 0.6.367（用户令）：收藏星标不再 absolute 贴顶/贴右——交给
                 AppRowActions 与「主操作 / ⋯」排成同一竖列、三处间距一致，
                 无主操作（工具类）的行星标不再比有「打开」的行右移 18px。 */}
-            <div className="shrink-0 self-stretch flex items-center" onClick={e => e.stopPropagation()}>
+            <div className={cn("shrink-0 self-stretch flex items-center", hit && "pt-8")} onClick={e => e.stopPropagation()}>
               {/* 0.6.365（用户令）：移动端行右侧动作列 = 主操作 + ⋯（次要动作/下载），
                   无主操作时 ⋯ 顶到「打开」按钮的位置（与桌面卡面同一规则） */}
               <AppRowActions
@@ -366,6 +389,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
                 operation={operation}
                 isInstalled={isInstalled}
                 canUpdate={canUpdate}
+                delisted={hit}
                 canOpen={canOpen}
                 canStart={canStart}
                 controlBusy={controlBusy}

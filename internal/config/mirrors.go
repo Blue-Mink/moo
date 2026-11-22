@@ -196,6 +196,105 @@ func GitHubMirrorOptions() []MirrorOption {
 	return injectCustomMirrors(effectiveMirrors(remote, builtinGitHubMirrorOptions), customs)
 }
 
+// ghHealthFn 镜像健康查询（由 api 层注入；nil = 未注入，保持清单原序）。
+var (
+	ghHealthMu sync.RWMutex
+	ghHealthFn func(key string) string
+)
+
+// SetGHMirrorHealth 注入 GitHub 加速源健康查询（"ok"/"limited"/"fail"/""）。
+// 传 nil 取消注入（测试收尾用）。
+func SetGHMirrorHealth(fn func(key string) string) {
+	ghHealthMu.Lock()
+	ghHealthFn = fn
+	ghHealthMu.Unlock()
+}
+
+// GHMirrorHealth 读取单个 GitHub 加速源的最近健康状态
+// （"ok" / "limited" / "fail" / ""=从未测过）。未注入查询函数或 key 为空时返回 ""。
+// 用途：候选补位按健康准入（fail/limited 不补、未测源有限补），见 api.fillMirrorPrefixes。
+func GHMirrorHealth(key string) string {
+	ghHealthMu.RLock()
+	fn := ghHealthFn
+	ghHealthMu.RUnlock()
+	if fn == nil || key == "" {
+		return ""
+	}
+	return fn(key)
+}
+
+// GHMirrorHealthKnown 是否已有可用测速数据：已注入查询函数，且至少一个带 URL 的源
+// 状态非空。调用方据此决定要不要做健康准入过滤（无数据 = 保持清单原序，行为不变）。
+func GHMirrorHealthKnown() bool {
+	ghHealthMu.RLock()
+	fn := ghHealthFn
+	ghHealthMu.RUnlock()
+	if fn == nil {
+		return false
+	}
+	for _, o := range GitHubMirrorOptions() {
+		if o.URL == "" {
+			continue
+		}
+		if fn(o.Key) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// GitHubMirrorOptionsHealthy 按健康度重排清单：fail 的源移到末尾，其余保持
+// 原有相对顺序（auto/custom/direct 无 URL，始终留在最前）。
+// 2026-11-21（FnDepot#24 / BACKLOG P0-3）：ghVariants 原来静态取前 N 个，
+// 死镜像排在最前时，每次索引拉取都先撞墙。
+func GitHubMirrorOptionsHealthy() []MirrorOption {
+	opts := GitHubMirrorOptions()
+	ghHealthMu.RLock()
+	fn := ghHealthFn
+	ghHealthMu.RUnlock()
+	if fn == nil {
+		return opts
+	}
+	// 只重排「带 URL 的镜像项」，auto/custom/direct（URL 空）保持原下标不动，
+	// 避免把它们挤到列表前部。带 URL 的槽位里：非 fail 在前、fail 在后
+	// （两组各自保持原相对顺序）。
+	out := make([]MirrorOption, len(opts))
+	copy(out, opts)
+	var okIdx, failIdx []int
+	for i, o := range out {
+		if o.URL == "" {
+			continue
+		}
+		if fn(o.Key) == "fail" {
+			failIdx = append(failIdx, i)
+			continue
+		}
+		okIdx = append(okIdx, i)
+	}
+	if len(failIdx) == 0 {
+		return out
+	}
+	// slots = 所有「带 URL 的槽位」按升序；vals = 非 fail 项（原序）+ fail 项（原序）。
+	// 两者对齐填充后，fail 项占据靠后的槽位。
+	var slots []int
+	for i, o := range out {
+		if o.URL != "" {
+			slots = append(slots, i)
+		}
+	}
+	vals := make([]MirrorOption, 0, len(slots))
+	for _, i := range okIdx {
+		vals = append(vals, out[i])
+	}
+	for _, i := range failIdx {
+		vals = append(vals, out[i])
+	}
+	for k, i := range slots {
+		out[i] = vals[k]
+	}
+	return out
+}
+
 // DockerMirrorOptions Docker 镜像加速源（M4 接入 docker 拉取管线前仅展示/探测）。
 func DockerMirrorOptions() []MirrorOption {
 	mirrorMu.RLock()
@@ -209,32 +308,23 @@ func DockerMirrorOptions() []MirrorOption {
 func builtinGitHubMirrorOptions() []MirrorOption {
 	return []MirrorOption{
 		{Key: "auto", Label: "智能 · 自动选最快", Description: "系统周期性测速各源，自动选用最快且稳定的加速源"},
-		{Key: "gh-proxy-hk", Label: "GH-Proxy HK", URL: "https://hk.gh-proxy.org/", Description: "HK 节点，实测最快（419ms）"},
-		{Key: "cdn-ghproxy", Label: "CDN GHProxy", URL: "https://cdn.gh-proxy.org/", Description: "CDN 节点 GitHub 加速（450ms）"},
-		// 2026-10-31：从 FnDepot 服务端下发的加速源里复测挑选（顺序 curl + 6 路并发×3轮）。
-		// gh-tbap：release 1MB 1.5s（577-696KB/s，本批最快），但会时段性抖动
-		// （同日 12:5x 曾 44% 超时 / HTTP 500）→ 由 auto 的健康降权与下载看门狗兜底。
-		// 真机测速（0.6.381，/api/mirrors/check）：372ms / 2527KB/s，列表第一。
-		{Key: "gh-tbap", Label: "GH TBAP", URL: "https://github.tbap.top/", Description: "社区 GitHub 加速（实测 1.5s/1MB，偶有抖动）"},
-		// 2026-10-31 未采纳 fndepot1.36337681.xyz：其 HTTPS 证书是腾讯云 CDN 泛域名
-		// CN=*.cdn.myqcloud.com，SAN 不含该域名（openssl verify error 62 / Go x509 校验失败），
-		// 严格 TLS 客户端一律拒绝；HTTP 虽可用但明文索引（moo.json/fnpack.json 无签名）
-		// 可被中间人替换并指向任意 FPK，用户明确否决 → 不加入。
-		{Key: "ghproxy-cxkpro", Label: "GHProxy CXK", URL: "https://ghproxy.cxkpro.top/", Description: "社区 GitHub 加速（实测 534ms）"},
-		{Key: "yylx", Label: "YYLX Git", URL: "https://git.yylx.win/", Description: "社区 GitHub 加速（实测 535ms）"},
-		{Key: "gh-proxy", Label: "GH-Proxy", URL: "https://gh-proxy.com/", Description: "公共 GitHub 文件代理，长期稳定运营（552ms）"},
-		{Key: "gitproxy-mrhjx", Label: "GitProxy MRHJX", URL: "https://gitproxy.mrhjx.cn/", Description: "社区 GitHub 加速（实测 559ms）"},
-		{Key: "gh-proxy-org", Label: "GH-Proxy.ORG", URL: "https://gh-proxy.org/", Description: "社区 GitHub 加速（实测 563ms）"},
-		{Key: "felicity", Label: "GH Felicity", URL: "https://gh.felicity.ac.cn/", Description: "社区 GitHub 加速（实测 584ms）"},
-		{Key: "wget-la", Label: "WGET.LA", URL: "https://wget.la/", Description: "GitHub 下载加速（实测 606ms）"},
-		{Key: "dpik", Label: "GitHub DPIK", URL: "https://github.dpik.top/", Description: "社区 GitHub 加速（实测 664ms）"},
-		{Key: "ghproxy-net", Label: "GHProxy.net", URL: "https://ghproxy.net/", Description: "社区维护的 GitHub 加速代理（769ms）"},
-		{Key: "cors-isteed", Label: "Cors Proxy", URL: "https://cors.isteed.cc/", Description: "Cloudflare Workers GitHub 代理（804ms）"},
-		{Key: "gh-dpik", Label: "GH DPIK", URL: "https://gh.dpik.top/", Description: "社区 GitHub 加速（实测 880ms）"},
-		{Key: "memory-echoes", Label: "GHProxy ME", URL: "https://github-proxy.memory-echoes.cn/", Description: "Z 图床公益 GitHub 加速（实测 1020ms）"},
-		{Key: "ghfast", Label: "GHFast", URL: "https://ghfast.top/", Description: "高速 GitHub 文件加速（1171ms）"},
+		// 2026-11-22 实测重排（报告 MIRROR_SCENARIO_20261122.md）：按「正常 / 弱网 0.8Mbps /
+		// 6s 预算 / IPv4+IPv6 / HTTP1.1+2 / 16 并发 / HTTP 代理 / 高延迟 / aria2 -x16」矩阵筛选。
+		// 移除：gh-proxy-hk（全球 500）、cors-isteed（全球 403 挑战页）、wget-la（约 25KB/s）以及
+		// felicity / memory-echoes / github.dpik.top / gitproxy-mrhjx / ghproxy-cxkpro / gh-ddlc
+		// （全球 429/1027）；gh.llkk.cc（522）/ gh.b52m.cn（NXDOMAIN）不收录。
+		// 保留 ghfast / yylx 但排尾：海外 200、本机线路常不可达，由健康降权与下载看门狗兜底。
+		{Key: "gh-proxy", Label: "GH-Proxy", URL: "https://gh-proxy.com/", Description: "公共 GitHub 文件代理（1.4s，16 并发 2.49MB/s）"},
+		{Key: "gh-tbap", Label: "GH TBAP", URL: "https://github.tbap.top/", Description: "社区 GitHub 加速（1.3s，16 并发 2.03MB/s）"},
+		{Key: "edgeone-ghproxy", Label: "EdgeOne GHProxy", URL: "https://edgeone.gh-proxy.org/", Description: "gh-proxy.org 的 EdgeOne 节点（1.29s，16 并发 2.03MB/s）"},
+		{Key: "cdn-ghproxy", Label: "CDN GHProxy", URL: "https://cdn.gh-proxy.org/", Description: "CDN 节点 GitHub 加速（11-22 恢复：1.4s，16 并发 2.06MB/s）"},
+		{Key: "gh-proxy-org", Label: "GH-Proxy.ORG", URL: "https://gh-proxy.org/", Description: "社区 GitHub 加速（1.7s，海外全 200）"},
+		{Key: "gh-dpik", Label: "GH DPIK", URL: "https://gh.dpik.top/", Description: "社区 GitHub 加速（1.4s，支持 IPv6）"},
+		{Key: "cdn-gh-proxy-com", Label: "CDN GHProxy.com", URL: "https://cdn.gh-proxy.com/", Description: "302 跳转 cdn.gh-proxy.org（多一跳，作兜底）"},
+		{Key: "ghproxy-net", Label: "GHProxy.net", URL: "https://ghproxy.net/", Description: "社区维护的 GitHub 加速代理（单连快，连续请求会短时限流）"},
+		{Key: "ghfast", Label: "GHFast", URL: "https://ghfast.top/", Description: "高速 GitHub 文件加速（海外快，本机线路常不可达）"},
+		{Key: "yylx", Label: "YYLX Git", URL: "https://git.yylx.win/", Description: "社区 GitHub 加速（海外快，本机线路常不可达）"},
 		{Key: "conversun", Label: "Conversun Hub", URL: "https://hub.conversun.com/", Description: "Conversun 自建 GitHub 加速，仅代理 conversun 仓库"},
-		{Key: "gh-ddlc", Label: "GH DDLC", URL: "https://gh.ddlc.top/", Description: "GitHub 文件下载加速（当前限流 429，智能监测会自动降权）"},
 		{Key: "custom", Label: "自定义", Description: "使用自定义加速地址"},
 		{Key: "direct", Label: "直连 GitHub", Description: "直接从 GitHub 下载，适合有代理的用户"},
 	}

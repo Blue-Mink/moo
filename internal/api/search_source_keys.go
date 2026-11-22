@@ -19,7 +19,7 @@ func (s *Server) searchSourceKeys(w http.ResponseWriter, r *http.Request) {
 		Names []string `json:"names"`
 	}
 	m := make(map[string][]string)
-	for _, sr := range s.Cfg.Sources {
+	for _, sr := range s.cfg().Sources {
 		k := source.SourceURLKey(sr.URL)
 		if k == "" {
 			continue

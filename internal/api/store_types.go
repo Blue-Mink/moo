@@ -156,6 +156,20 @@ type AppInfo struct {
 	SameNameCount int `json:"same_name_count,omitempty"`
 	// SameName：同名组全部卡片（仅详情下发；列表瘦身时剥离）。
 	SameName []SameNameEntry `json:"same_name,omitempty"`
+	// ── 远端下架黑名单（P1-4，2026-11-22）──
+	// Blacklisted 该卡命中远端 blacklist.json：**卡片仍保留在目录**（已装 + 未装
+	// 都不删），前端据此显示「已下架」角标 + 原因浮层，隐藏安装/更新入口
+	// （动作闸在后端照旧拦截，前端只是不给必败的按钮）。
+	// 语义 = 停止分发，不是已卸载：已装副本仍可打开/自行卸载。
+	Blacklisted bool `json:"blacklisted,omitempty"`
+	// BlacklistReason 原因码原样小写透出（malware/fraud/copyright/security/
+	// policy/author，未知码也原样）；卡面不直接显示码，前端映射短句。
+	BlacklistReason string `json:"blacklist_reason,omitempty"`
+	// BlacklistNotice 展示用说明（清单 notice，≤60 字，已按 rune 截断）。
+	// **只做展示、不参与判定**；为空时前端回落 blacklist_reason 的短句。
+	BlacklistNotice string `json:"blacklist_notice,omitempty"`
+	// BlacklistSince 清单的生效日（YYYY-MM-DD 或 RFC3339，原样透出）。
+	BlacklistSince string `json:"blacklist_since,omitempty"`
 	// InstallConflict（0.6.312 B2）：详情卡与已装卡的安装冲突分支——
 	// ""=无冲突 / same=同源同版本 / lineage=可验证同宗 / different=不同源构建 /
 	// official=已装卡为官方平台应用。仅详情下发（组>1 且本卡未装时非空）。

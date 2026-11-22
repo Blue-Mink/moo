@@ -346,22 +346,23 @@ func hostFromURL(raw string) string {
 // githubMirrorPrefixes GitHub 加速镜像前缀（与 Moo config.GitHubMirrorOptions 对齐，
 // 排除 conversun（仅代理 conversun 仓）与 auto/custom/direct 特殊项）。
 // 本机直连 objects.githubusercontent.com 常 0B/s（15s 只下 207KB），必须走镜像。
+//
+// 单一真源 = lists/github_mirrors.txt，本表顺序必须与它逐条一致（守护测试
+// cmd/moo-mate/mirror_sync_test.go）。清单于 2026-11-22 按 16 场景实测重排
+// （报告 MIRROR_SCENARIO_20261122.md）：下架 8 个失效源（hk.gh-proxy.org 500、
+// cors.isteed.cc 403、wget.la ~25KB/s、felicity / memory-echoes / github.dpik.top /
+// gitproxy.mrhjx / ghproxy.cxkpro 429），新增 edgeone，ghfast / yylx 排尾。
 var githubMirrorPrefixes = []string{
-	"https://hk.gh-proxy.org/",
-	"https://cdn.gh-proxy.org/",
-	"https://ghproxy.cxkpro.top/",
-	"https://git.yylx.win/",
 	"https://gh-proxy.com/",
-	"https://gitproxy.mrhjx.cn/",
+	"https://github.tbap.top/",
+	"https://edgeone.gh-proxy.org/",
+	"https://cdn.gh-proxy.org/",
 	"https://gh-proxy.org/",
-	"https://gh.felicity.ac.cn/",
-	"https://wget.la/",
-	"https://github.dpik.top/",
-	"https://ghproxy.net/",
-	"https://cors.isteed.cc/",
 	"https://gh.dpik.top/",
-	"https://github-proxy.memory-echoes.cn/",
+	"https://cdn.gh-proxy.com/",
+	"https://ghproxy.net/",
 	"https://ghfast.top/",
+	"https://git.yylx.win/",
 }
 
 // mirrorCandidates 把 GitHub release 资产 URL 展开成「镜像前缀 + 原 URL」候选。
@@ -376,6 +377,43 @@ func mirrorCandidates(raw string) []string {
 	}
 	out = append(out, raw)
 	return out
+}
+
+// mirrorCandidatesWith 用给定前缀列表展开候选（供 mate 图标下载复用 Moo 健康表）：
+// 去重、前缀候选在前（自动补/去尾斜杠）、原地址直连始终最后。
+// 非 GitHub 地址不加前缀（镜像代理不了，语义与 mirrorCandidates 一致）。
+func mirrorCandidatesWith(prefixes []string, raw string) []string {
+	out := make([]string, 0, len(prefixes)+1)
+	seen := make(map[string]bool, len(prefixes)+1)
+	add := func(u string) {
+		if u == "" || seen[u] {
+			return
+		}
+		seen[u] = true
+		out = append(out, u)
+	}
+	if strings.Contains(raw, "github.com/") {
+		for _, p := range prefixes {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			add(strings.TrimSuffix(p, "/") + "/" + raw)
+		}
+	}
+	add(raw)
+	return out
+}
+
+// hasMirrorPrefix 判断候选列表里除直连原地址外是否还有镜像通道。
+// mate 的 Moo 健康表 provider 为空时返回 false，调用方回落静态表。
+func hasMirrorPrefix(cands []string, raw string) bool {
+	for _, u := range cands {
+		if u != raw {
+			return true
+		}
+	}
+	return false
 }
 
 // timeoutCtx 短超时上下文（发现/下载预算）。

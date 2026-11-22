@@ -1,6 +1,8 @@
 import React from 'react';
 import { Compass, LayoutGrid, CheckCircle2, RefreshCw, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
+// 批次①（用户令 2026-11-22）：更新提示收敛到「有更新」页后，入口用圆点兜底。
+import type { UpdateBadgeKind } from '@/lib/updatePrompts';
 
 // 0.6.325 C6（用户令）：「下载」移出 Dock=顶栏钮+主页上方弹窗；「设置」从顶栏
 // 齿轮移入 Dock 末位（两者换位）。settings 不参与「Dock 栏排序」（固定末位，
@@ -19,6 +21,14 @@ interface MobileDockProps {
   active: MobileTabKey;
   onSelect: (key: MobileTabKey) => void;
   updateCount: number;
+  /**
+   * 批次①：「有更新」入口圆点语义 —— red = 有应用可更新（沿用红色计数角标），
+   * amber = 无应用可更新但有「需人工处理」项（琥珀点，见 lib/updatePrompts.ts）。
+   * 缺省由 updateCount 推导，保持旧调用点行为不变。
+   */
+  updateBadge?: UpdateBadgeKind;
+  /** 「有更新」入口需处理项数（手动队列 + 自更新异常），用于无障碍标题。 */
+  updateIssues?: number;
   /** 商店（Moo 自身）有可用更新 → 「设置」图标右上角红点（原顶栏齿轮同款）。 */
   storeHasUpdate?: boolean;
   /** 用户自定义顺序（系统设置「Dock 栏排序」；缺省 = TABS 默认序）。 */
@@ -54,7 +64,7 @@ function orderTabs(order?: string[]): typeof TABS {
  * 距底 10px + 刘海屏安全区。激活 = iOS 蓝图标+文字+浅色底，未激活 = 灰色；
  * 「有更新」带红色角标。
  */
-const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, storeHasUpdate = false, order, bottomOffset = 0 }) => {
+const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, updateBadge = updateCount > 0 ? 'red' : 'none', updateIssues = 0, storeHasUpdate = false, order, bottomOffset = 0 }) => {
   const tabs = orderTabs(order);
   return (
   <nav
@@ -92,11 +102,12 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
               "transition-[background-color,color,transform] duration-100 active:scale-90",
               isActive ? 'bg-primary/15 text-primary' : 'text-muted-foreground'
             )}
+            aria-label={t.key === 'update_available' && updateIssues > 0 ? `${t.label}，${updateIssues} 项需处理` : undefined}
             aria-current={isActive ? 'page' : undefined}
           >
             <span className="relative">
               <Icon className="h-6 w-6" strokeWidth={isActive ? 2.2 : 1.8} />
-              {t.key === 'update_available' && updateCount > 0 && (
+              {t.key === 'update_available' && updateBadge === 'red' && updateCount > 0 && (
                 <span
                   className={cn(
                     "absolute -top-1 -right-2.5 min-w-[17px] h-[17px] px-1 rounded-full text-[10px] font-semibold flex items-center justify-center",
@@ -105,6 +116,10 @@ const MobileDock: React.FC<MobileDockProps> = ({ active, onSelect, updateCount, 
                 >
                   {updateCount > 99 ? '99+' : updateCount}
                 </span>
+              )}
+              {/* 批次①：无应用可更新、但有需人工处理项 → 琥珀点（不显示「0」） */}
+              {t.key === 'update_available' && updateBadge === 'amber' && (
+                <span className="absolute -top-1 -right-2.5 h-2 w-2 rounded-full bg-amber-500" />
               )}
               {/* 0.6.325 C6：商店更新红点（原移动端顶栏设置齿轮同款，随「设置」入 Dock） */}
               {t.key === 'settings' && storeHasUpdate && (

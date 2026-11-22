@@ -129,13 +129,13 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	}
 
 	// D2 源同步恢复（上轮失败 → 本轮成功）
-	if s.Cfg.NotifyPrevFailed != nil && len(s.Cfg.NotifyPrevFailed) > 0 {
+	if s.cfg().NotifyPrevFailed != nil && len(s.cfg().NotifyPrevFailed) > 0 {
 		failedNow := make(map[string]bool, len(failed))
 		for _, f := range failed {
 			failedNow[f.name] = true
 		}
 		var recovered []string
-		for n := range s.Cfg.NotifyPrevFailed {
+		for n := range s.cfg().NotifyPrevFailed {
 			// 0.6.312 B3/F5：须本轮真的刷新过且成功（未被预算排到的源不算）
 			if refreshed[n] && !failedNow[n] {
 				recovered = append(recovered, n)
@@ -161,7 +161,7 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 
 	// E1 目录数量异常下跌（>20%）——0.6.312 B3/F5：用全目录总数（本轮刷新源
 	// 之和只是部分，预算轮下会恒假触发）
-	prevTotal := s.Cfg.NotifyPrevTotal
+	prevTotal := s.cfg().NotifyPrevTotal
 	if prevTotal > 100 && fullTotal > 0 && fullTotal < prevTotal*4/5 {
 		s.notifyEvent("catalog_drop", "目录数量异常下跌",
 			fmt.Sprintf("目录条目 %d → %d（跌幅 %d%%），上游源数据可能异常",
@@ -174,7 +174,7 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	// 并在此清除；失败 → 继续留在失败集。
 	notifyMu.Lock()
 	nextFailed := make(map[string]bool, len(failed))
-	for n := range s.Cfg.NotifyPrevFailed {
+	for n := range s.cfg().NotifyPrevFailed {
 		if !refreshed[n] {
 			nextFailed[n] = true
 		}
@@ -182,9 +182,9 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 	for _, f := range failed {
 		nextFailed[f.name] = true
 	}
-	s.Cfg.NotifyPrevFailed = nextFailed
-	s.Cfg.NotifyPrevTotal = fullTotal
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().NotifyPrevFailed = nextFailed
+	s.cfg().NotifyPrevTotal = fullTotal
+	_ = s.cfg().Save(dataDirOf(s))
 	notifyMu.Unlock()
 
 	// B 收藏应用有更新（目录已刷新，同步构建一次拿版本信息）
@@ -207,8 +207,8 @@ func (s *Server) sourceRoundNotify(sts []source.SourceStatus) {
 // 应用数）。供源同步摘要的逐源明细用——与「本轮实际刷了几源」解耦，
 // 预算轮下指纹跨轮稳定（数据不变不重推）。
 func (s *Server) enabledSourceStates() []source.SourceStatus {
-	enabled := make(map[string]bool, len(s.Cfg.Sources))
-	for _, sr := range s.Cfg.Sources {
+	enabled := make(map[string]bool, len(s.cfg().Sources))
+	for _, sr := range s.cfg().Sources {
 		if sr.IsEnabled() {
 			enabled[sr.Name] = true
 		}
@@ -327,15 +327,15 @@ func (s *Server) sourceSummaryPass(sts []source.SourceStatus, total int) {
 	if !s.IsNotifyEventOn("source_sync_summary") {
 		return
 	}
-	favN := len(s.Cfg.Favorites)
-	favSrcN := len(s.Cfg.FavoriteSources)
+	favN := len(s.cfg().Favorites)
+	favSrcN := len(s.cfg().FavoriteSources)
 	all := s.enabledSourceStates()
 	compact, fullC := buildSourceSummary(sts, all, total, favN, favSrcN)
 	notifyMu.Lock()
-	changed := s.Cfg.NotifyPrevSummaryFP != fullC
+	changed := s.cfg().NotifyPrevSummaryFP != fullC
 	if changed {
-		s.Cfg.NotifyPrevSummaryFP = fullC
-		_ = s.Cfg.Save(dataDirOf(s))
+		s.cfg().NotifyPrevSummaryFP = fullC
+		_ = s.cfg().Save(dataDirOf(s))
 	}
 	notifyMu.Unlock()
 	if !changed {
@@ -367,7 +367,7 @@ func (s *Server) sourceSummaryPass(sts []source.SourceStatus, total int) {
 	msg.ConciseSub = fmt.Sprintf("%d 源成功 / %d 源失败", okN, failedN)
 	msg.ContentFull = fullC
 	msg.TableFull, msg.RowsFull = buildSourceSummaryTableFull(sts, all, total, favN, favSrcN)
-	writeNotifyLog(s.Cfg, msg, s.fanoutIfExternalOn(msg, "source_sync_summary"))
+	writeNotifyLog(s.cfg(), msg, s.fanoutIfExternalOn(msg, "source_sync_summary"))
 }
 
 // buildSourceSummaryTableFull 完整详细模式（0.6.175）的 markdown_v2 表格 +
@@ -461,7 +461,7 @@ func buildSourceSummaryTable(sts, all []source.SourceStatus, total, favN, favSrc
 // favoriteSourcePass 关注源新增应用通知（0.6.143）：每个关注源比对当前目录
 // 应用集与已见基线，只推新增（源×应用只推一次）；首次关注记基线不推。
 func (s *Server) favoriteSourcePass() {
-	if len(s.Cfg.FavoriteSources) == 0 {
+	if len(s.cfg().FavoriteSources) == 0 {
 		return
 	}
 	catalog := s.cachedCatalog(s.bgLang())
@@ -477,13 +477,13 @@ func (s *Server) favoriteSourcePass() {
 	}
 	var hits []hit
 	notifyMu.Lock()
-	if s.Cfg.NotifyFavSourceSeen == nil {
-		s.Cfg.NotifyFavSourceSeen = make(map[string]map[string]bool)
+	if s.cfg().NotifyFavSourceSeen == nil {
+		s.cfg().NotifyFavSourceSeen = make(map[string]map[string]bool)
 	}
-	seen := s.Cfg.NotifyFavSourceSeen
+	seen := s.cfg().NotifyFavSourceSeen
 	saved := false
-	valid := make(map[string]bool, len(s.Cfg.Sources)+1)
-	for _, sr := range s.Cfg.Sources {
+	valid := make(map[string]bool, len(s.cfg().Sources)+1)
+	for _, sr := range s.cfg().Sources {
 		valid[sr.Name] = true
 	}
 	valid[OfficialSourceID] = true
@@ -493,7 +493,7 @@ func (s *Server) favoriteSourcePass() {
 			saved = true
 		}
 	}
-	for _, name := range s.Cfg.FavoriteSources {
+	for _, name := range s.cfg().FavoriteSources {
 		apps := bySrc[name]
 		cur := make(map[string]bool, len(apps))
 		for _, a := range apps {
@@ -526,9 +526,9 @@ func (s *Server) favoriteSourcePass() {
 			hits = append(hits, hit{name, added})
 		}
 	}
-	s.Cfg.NotifyFavSourceSeen = seen
+	s.cfg().NotifyFavSourceSeen = seen
 	if saved {
-		_ = s.Cfg.Save(dataDirOf(s))
+		_ = s.cfg().Save(dataDirOf(s))
 	}
 	notifyMu.Unlock()
 	if len(hits) == 0 {
@@ -629,7 +629,7 @@ func favAppLabelVer(a AppInfo) (label, ver string) {
 // 与 favorite_source_apps 独立开关（用户 2026-09-28 需求：「应用源有多少个
 // 应用、有哪些应用、新增加了哪些应用」）。
 func (s *Server) favoriteSourceReportPass() {
-	if len(s.Cfg.FavoriteSources) == 0 {
+	if len(s.cfg().FavoriteSources) == 0 {
 		return
 	}
 	catalog := s.cachedCatalog(s.bgLang())
@@ -639,21 +639,21 @@ func (s *Server) favoriteSourceReportPass() {
 			bySrc[a.Source] = append(bySrc[a.Source], a)
 		}
 	}
-	urlOf := make(map[string]string, len(s.Cfg.Sources))
-	for _, sr := range s.Cfg.Sources {
+	urlOf := make(map[string]string, len(s.cfg().Sources))
+	for _, sr := range s.cfg().Sources {
 		urlOf[sr.Name] = sr.URL
 	}
 
 	var reps []favSrcRep
 
 	notifyMu.Lock()
-	if s.Cfg.NotifyFavSourcePrev == nil {
-		s.Cfg.NotifyFavSourcePrev = make(map[string]map[string]string)
+	if s.cfg().NotifyFavSourcePrev == nil {
+		s.cfg().NotifyFavSourcePrev = make(map[string]map[string]string)
 	}
-	prev := s.Cfg.NotifyFavSourcePrev
+	prev := s.cfg().NotifyFavSourcePrev
 	saved := false
-	valid := make(map[string]bool, len(s.Cfg.Sources)+1)
-	for _, sr := range s.Cfg.Sources {
+	valid := make(map[string]bool, len(s.cfg().Sources)+1)
+	for _, sr := range s.cfg().Sources {
 		valid[sr.Name] = true
 	}
 	valid[OfficialSourceID] = true
@@ -663,7 +663,7 @@ func (s *Server) favoriteSourceReportPass() {
 			saved = true
 		}
 	}
-	for _, name := range s.Cfg.FavoriteSources {
+	for _, name := range s.cfg().FavoriteSources {
 		apps := bySrc[name]
 		// 展示名排序（报表清单稳定可读）
 		sort.Slice(apps, func(i, j int) bool {
@@ -708,9 +708,9 @@ func (s *Server) favoriteSourceReportPass() {
 		saved = true
 		reps = append(reps, favSrcRep{name: name, url: urlOf[name], cur: apps, added: added, removed: removed})
 	}
-	s.Cfg.NotifyFavSourcePrev = prev
+	s.cfg().NotifyFavSourcePrev = prev
 	if saved {
-		_ = s.Cfg.Save(dataDirOf(s))
+		_ = s.cfg().Save(dataDirOf(s))
 	}
 	notifyMu.Unlock()
 
@@ -897,10 +897,10 @@ func (s *Server) updatesAvailablePass() {
 	sort.Strings(fps)
 	fp := strings.Join(fps, ",")
 	notifyMu.Lock()
-	changed := s.Cfg.NotifyPrevUpdatesFP != fp
+	changed := s.cfg().NotifyPrevUpdatesFP != fp
 	if changed {
-		s.Cfg.NotifyPrevUpdatesFP = fp
-		_ = s.Cfg.Save(dataDirOf(s))
+		s.cfg().NotifyPrevUpdatesFP = fp
+		_ = s.cfg().Save(dataDirOf(s))
 	}
 	notifyMu.Unlock()
 	if !changed || len(upds) == 0 {
@@ -982,7 +982,7 @@ func mdCell(s string) string {
 
 // favoriteUpdatePass 收藏应用版本比对（按 app key × 版本去重，每版只推一次）。
 func (s *Server) favoriteUpdatePass() {
-	if len(s.Cfg.Favorites) == 0 {
+	if len(s.cfg().Favorites) == 0 {
 		return
 	}
 	catalog := s.cachedCatalog(s.bgLang())
@@ -993,12 +993,12 @@ func (s *Server) favoriteUpdatePass() {
 	type hit struct{ label, old, new, src string }
 	var hits []hit
 	notifyMu.Lock()
-	if s.Cfg.NotifyFavNotified == nil {
-		s.Cfg.NotifyFavNotified = make(map[string]string)
+	if s.cfg().NotifyFavNotified == nil {
+		s.cfg().NotifyFavNotified = make(map[string]string)
 	}
-	notified := s.Cfg.NotifyFavNotified
+	notified := s.cfg().NotifyFavNotified
 	notifyMu.Unlock()
-	for _, key := range s.Cfg.Favorites {
+	for _, key := range s.cfg().Favorites {
 		// 0.6.209：收藏可能存的是旧规范卡 key（裸 appname，如 "Gitea"），官方
 		// 条目出现后规范卡 key 变带 @源名 后缀（"Gitea@fnos-official"）——精确
 		// 未命中会让收藏静默失效。回退按裸名（@ 前部分）匹配，已装卡优先、
@@ -1076,8 +1076,8 @@ func (s *Server) favoriteUpdatePass() {
 		notified[key] = latest
 	}
 	notifyMu.Lock()
-	s.Cfg.NotifyFavNotified = notified
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().NotifyFavNotified = notified
+	_ = s.cfg().Save(dataDirOf(s))
 	notifyMu.Unlock()
 	if len(hits) == 0 {
 		return
@@ -1246,8 +1246,8 @@ func (s *Server) selfMonitorResources() {
 	if mb <= 0 {
 		return
 	}
-	memThresh := orDefaultInt(s.Cfg.NotifyMemAlertMB, 256)
-	cpuThresh := orDefaultInt(s.Cfg.NotifyCPUPctAlert, 80)
+	memThresh := orDefaultInt(s.cfg().NotifyMemAlertMB, 256)
+	cpuThresh := orDefaultInt(s.cfg().NotifyCPUPctAlert, 80)
 
 	// 内存
 	if mb > memThresh {

@@ -70,7 +70,7 @@ type BackupSnapshot struct {
 
 // backupDirOf 生效的备份目录（未配置 = 应用数据目录下 backups/）。
 func (s *Server) backupDirOf() string {
-	d := strings.TrimSpace(s.Cfg.BackupDir)
+	d := strings.TrimSpace(s.cfg().BackupDir)
 	if d == "" {
 		return filepath.Join(dataDirOf(s), "backups")
 	}
@@ -79,7 +79,7 @@ func (s *Server) backupDirOf() string {
 
 // backupIntervalDaysOf 生效的自动备份周期（天；未配置 = 7 天）。
 func (s *Server) backupIntervalDaysOf() int {
-	d := s.Cfg.BackupIntervalDays
+	d := s.cfg().BackupIntervalDays
 	if d <= 0 {
 		d = 7
 	}
@@ -94,15 +94,15 @@ func (s *Server) backupIntervalDaysOf() int {
 // 面板口令置空、通知渠道敏感参数（webhook key 等）脱敏。
 // 恢复此类备份后渠道 Webhook 需重新填写（面板账号同样需在设置页重填）。
 func (s *Server) maskedConfigForBackup() config.Config {
-	snap := *s.Cfg
+	snap := *s.cfg()
 	snap.PanelPassword = ""
 	// 0.6.215 修复（潜伏自 0.6.144 的别名 bug）：snap := *s.Cfg 的 NotifyChannels
 	// 与 live 共享底层数组，直接在 snap 上写掩码值会把 live 内存中的渠道凭据
 	// 就地改成 **** 掩码——之后任何一次 config 落盘都会把掩码写进磁盘，
 	// 企微/钉钉等推送渠道随即静默失效（0.6.215 测试机实锤复现）。
 	// 先整体拷贝切片再掩码，切断别名。
-	snap.NotifyChannels = make([]config.NotifyChannel, len(s.Cfg.NotifyChannels))
-	copy(snap.NotifyChannels, s.Cfg.NotifyChannels)
+	snap.NotifyChannels = make([]config.NotifyChannel, len(s.cfg().NotifyChannels))
+	copy(snap.NotifyChannels, s.cfg().NotifyChannels)
 	for i := range snap.NotifyChannels {
 		snap.NotifyChannels[i] = notify.Masked(snap.NotifyChannels[i])
 	}
@@ -214,7 +214,7 @@ func (s *Server) lastBackupAtOf() string {
 
 // cacheCleanEveryDaysOf 清理周期（天；未配置 = 每天）。
 func (s *Server) cacheCleanEveryDaysOf() int {
-	d := s.Cfg.CacheCleanEveryDays
+	d := s.cfg().CacheCleanEveryDays
 	if d <= 0 {
 		d = 1
 	}
@@ -234,7 +234,7 @@ func (s *Server) appCacheDir() string {
 func (s *Server) appCacheStatsOf() AppCacheStats {
 	dir := s.appCacheDir()
 	st := AppCacheStats{Dir: dir}
-	days := s.Cfg.CacheCleanDays
+	days := s.cfg().CacheCleanDays
 	cutoff := time.Time{}
 	if days > 0 {
 		cutoff = time.Now().AddDate(0, 0, -days)
@@ -261,7 +261,7 @@ func (s *Server) appCacheStatsOf() AppCacheStats {
 // cleanAppCache 删除应用缓存中超过配置保留天数的文件（自动清理用）。
 // 只动 <DataDir>/cache；已下载 FPK、已装应用、配置均不受影响。
 func (s *Server) cleanAppCache() (int, int64, error) {
-	days := s.Cfg.CacheCleanDays
+	days := s.cfg().CacheCleanDays
 	if days <= 0 {
 		return 0, 0, errors.New("未启用自动清理")
 	}
@@ -323,12 +323,12 @@ func (s *Server) cleanAppCacheWithDays(days int) (int, int64, error) {
 func (s *Server) getBackups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, BackupsResponse{
 		Dir:                 s.backupDirOf(),
-		Auto:                s.Cfg.BackupAuto,
+		Auto:                s.cfg().BackupAuto,
 		IntervalDays:        s.backupIntervalDaysOf(),
 		LastBackupAt:        s.lastBackupAtOf(),
 		Files:               s.listBackups(),
 		AppCache:            s.appCacheStatsOf(),
-		CacheCleanDays:      s.Cfg.CacheCleanDays,
+		CacheCleanDays:      s.cfg().CacheCleanDays,
 		CacheCleanEveryDays: s.cacheCleanEveryDaysOf(),
 	})
 }
@@ -375,7 +375,7 @@ func (s *Server) cleanCacheHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	days := in.Days
 	if days <= 0 {
-		days = s.Cfg.CacheCleanDays
+		days = s.cfg().CacheCleanDays
 	}
 	if days <= 0 {
 		writeErr(w, http.StatusBadRequest, errors.New("请先填写保留天数"))
@@ -423,14 +423,14 @@ func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request) {
 //
 // 只改掩码位，不触碰备份里的其他配置值。
 func (s *Server) reinstateSecrets(restored *config.Config) {
-	if restored.PanelPassword == "" && s.Cfg.PanelPassword != "" {
-		restored.PanelPassword = s.Cfg.PanelPassword
+	if restored.PanelPassword == "" && s.cfg().PanelPassword != "" {
+		restored.PanelPassword = s.cfg().PanelPassword
 	}
 	if len(restored.NotifyChannels) == 0 {
 		return
 	}
-	liveByID := make(map[string]config.NotifyChannel, len(s.Cfg.NotifyChannels))
-	for _, c := range s.Cfg.NotifyChannels {
+	liveByID := make(map[string]config.NotifyChannel, len(s.cfg().NotifyChannels))
+	for _, c := range s.cfg().NotifyChannels {
 		liveByID[c.ID] = c
 	}
 	for i := range restored.NotifyChannels {
@@ -488,12 +488,12 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	// 原子落盘 + 热替换内存配置
 	newCfg := restored
-	newCfg.WebPort = s.Cfg.WebPort // 端口跟随当前部署，不被备份覆盖
+	newCfg.WebPort = s.cfg().WebPort // 端口跟随当前部署，不被备份覆盖
 	if err := newCfg.Save(dataDirOf(s)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	*s.Cfg = newCfg
+	s.setCfg(&newCfg)
 	s.invalidateCatalog()
 	log.Printf("[backup] 已用 %s 恢复配置", name)
 
@@ -541,7 +541,7 @@ func (s *Server) StartBackupLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if s.Cfg.BackupAuto {
+		if s.cfg().BackupAuto {
 			last := s.lastBackupAtOf()
 			due := true
 			if last != "" {
@@ -558,7 +558,7 @@ func (s *Server) StartBackupLoop(ctx context.Context) {
 				}
 			}
 		}
-		if s.Cfg.CacheCleanDays > 0 && (lastClean.IsZero() ||
+		if s.cfg().CacheCleanDays > 0 && (lastClean.IsZero() ||
 			time.Since(lastClean) >= time.Duration(s.cacheCleanEveryDaysOf())*24*time.Hour) {
 			lastClean = time.Now()
 			if removed, bytes, err := s.cleanAppCache(); err == nil && removed > 0 {

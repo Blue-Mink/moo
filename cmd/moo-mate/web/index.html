@@ -464,11 +464,11 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
 .cache-stat { margin: 2px 0 10px; font-size: 12.5px; color: hsl(var(--muted-foreground)); }
 .cache-ops { display:flex; gap:8px; flex-wrap:wrap; }
 .cache-ops .ghost { flex:1 1 140px; border:1px solid hsl(var(--border) / .7); border-radius:10px;
-  padding:9px 12px; font-size:13px; background:hsl(var(--card) / .6); }
+  padding:7px 12px; font-size:13px; background:hsl(var(--card) / .6); }
 .cache-ops .ghost:hover { border-color:hsl(var(--primary) / .45); }
-/* 0.2.70：清理按钮合并为一个，默认中性、点一次变红确认（复用 button.danger.confirm） */
-.cache-ops .danger { flex:1 1 140px; border:1px solid hsl(var(--border) / .7); border-radius:10px;
-  padding:9px 12px; font-size:13px; background:hsl(var(--card) / .6); }
+/* 清理缓存：默认与「立即备份 / 从手机电脑上传恢复」完全同款（ghost 前景色 + 同内边距），
+   点一次才进入红色确认态（0.2.70 的两段式确认行为不变） */
+.cache-ops .ghost.confirm { border-color:hsl(var(--destructive) / 0.4); background:hsl(var(--destructive) / 0.1); color:hsl(var(--destructive)); }
 .bk-now .ghost, .restore-row .ghost { border:1px solid hsl(var(--border) / .7); border-radius:10px;
   padding:7px 12px; font-size:13px; background:hsl(var(--card) / .6); }
 .bk-now .ghost:hover, .restore-row .ghost:hover { border-color:hsl(var(--primary) / .45); }
@@ -706,7 +706,7 @@ button.plain.on:hover { border-color: hsl(var(--primary) / 0.4); color: hsl(var(
         <div class="sec-title">清理</div>
         <p class="cache-stat" id="cacheStat">统计中…</p>
         <div class="cache-ops">
-          <button type="button" class="danger" id="cleanCacheBtn" title="清理图标缓存与临时残留（点一次先变红确认）">清理缓存</button>
+          <button type="button" class="ghost" id="cleanCacheBtn" title="清理图标缓存与临时残留（点一次先变红确认）">清理缓存</button>
         </div>
         <div class="field-hint">一键清理 Moo Mate 自身缓存（应用图标 + 下载 / 写盘临时残留），不影响应用索引、配置与备份。已删除应用请用「批量删除」，它会连带清掉该应用的图标与本地配置。</div>
         </div><!-- /collapse-body -->

@@ -415,8 +415,8 @@ func (s *Server) applySourceLineage(out []AppInfo) {
 	}
 	// 源名 → enabled（配置层单一事实源；缺省启用）。
 	enabledBySource := map[string]bool{}
-	if s.Cfg != nil {
-		for _, st := range s.Cfg.Sources {
+	if s.cfg() != nil {
+		for _, st := range s.cfg().Sources {
 			enabledBySource[st.Name] = st.IsEnabled()
 		}
 	}

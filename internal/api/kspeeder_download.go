@@ -122,7 +122,7 @@ func (s *Server) ksDownloadEntry(ctx context.Context, force bool) (ksEntry, erro
 		return pickKS(ksDefaultEntries)
 	}
 	var lastErr error
-	for _, u := range config.ListFileURLs(s.Cfg.ListBaseURL, "kspeeder.txt", "") {
+	for _, u := range config.ListFileURLs(s.cfg().ListBaseURL, "kspeeder.txt", "") {
 		body, err := s.fetchListURL(ctx, u)
 		if err != nil {
 			lastErr = err

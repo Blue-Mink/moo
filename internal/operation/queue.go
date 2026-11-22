@@ -156,10 +156,91 @@ type Queue struct {
 	detached map[string]bool // 已让出并发额度的运行中操作（等闸门中）
 	pending  []pendingOp
 	history  []View
+	// onChange 在「历史/队列成员变化」后回调（P0-2 持久化用）。
+	// 在锁外调用，传入快照；nil = 不持久化（测试/未配置）。
+	onChange func([]View)
+	// notifyMu 串行化「取快照 + 回调」：并发完成的两个操作若各自取快照再
+	// 乱序落盘，旧的 running 快照会覆盖新的 done 快照。加这把锁后，回调
+	// 按获取顺序执行，每次快照都不比前一次旧。
+	notifyMu sync.Mutex
 }
 
 func NewQueue() *Queue {
 	return &Queue{limit: 1, detached: make(map[string]bool)}
+}
+
+// SetOnChange 注册快照变更回调（P0-2：把操作状态落盘，重启后可恢复）。
+// 回调在队列锁之外执行，参数是只读副本；同一时刻最多一个回调在跑由调用方保证
+// （api 层用互斥的 persister）。
+func (q *Queue) SetOnChange(fn func([]View)) {
+	q.mu.Lock()
+	q.onChange = fn
+	q.mu.Unlock()
+}
+
+// Snapshot 返回「运行中 + 排队中 + 历史」的完整视图快照（持久化用）。
+// 顺序：先运行中，再排队（提交顺序），最后历史（最新在前）。
+func (q *Queue) Snapshot() []View {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.snapshotLocked()
+}
+
+func (q *Queue) snapshotLocked() []View {
+	out := make([]View, 0, len(q.running)+len(q.pending)+len(q.history))
+	for _, op := range q.running {
+		out = append(out, op.View())
+	}
+	for _, item := range q.pending {
+		out = append(out, item.op.View())
+	}
+	out = append(out, q.history...)
+	return out
+}
+
+func (q *Queue) notify() {
+	q.notifyMu.Lock()
+	defer q.notifyMu.Unlock()
+	q.mu.Lock()
+	fn := q.onChange
+	var vs []View
+	if fn != nil {
+		vs = q.snapshotLocked()
+	}
+	q.mu.Unlock()
+	if fn != nil {
+		fn(vs)
+	}
+}
+
+// RestoreHistory 在启动时恢复上次运行留下的快照（P0-2）。
+//
+// 服务重启后，上一次的 running/queued 已不可能继续执行：这里把它们改为
+// error（原因写明「服务重启中断」），而不是从 UI 里凭空消失——用户能看到
+// 「那次到底有没有成功」，避免把「进程被杀」误当成「已完成」。
+// 已是终态的条目原样保留（按开始时间倒序，最多 20 条）。
+// 返回被标记为中断的条数。
+func (q *Queue) RestoreHistory(vs []View) int {
+	now := time.Now()
+	interrupted := 0
+	kept := make([]View, 0, len(vs))
+	for _, v := range vs {
+		switch v.State {
+		case StateQueued, StateRunning:
+			v.State = StateError
+			v.Err = "Moo 服务重启，操作已中断（请重新发起）"
+			v.FinishedAt = now
+			interrupted++
+		}
+		kept = append(kept, v)
+	}
+	if len(kept) > 20 {
+		kept = kept[:20]
+	}
+	q.mu.Lock()
+	q.history = kept
+	q.mu.Unlock()
+	return interrupted
 }
 
 // SetLimit 调整并行额度（<1 视为 1）。调大后立即从队列里补位开跑。
@@ -194,6 +275,7 @@ func (q *Queue) Start(kind, target string, fn RunFn) (View, error) {
 	q.pending = append(q.pending, pendingOp{op: op, fn: fn})
 	q.mu.Unlock()
 	q.pump()
+	q.notify()
 	return op.View(), nil
 }
 
@@ -276,6 +358,7 @@ func (q *Queue) run(op *Op, fn RunFn) {
 	}
 	q.mu.Unlock()
 	q.pump()
+	q.notify() // 终态入 history：落盘（P0-2）
 }
 
 // StartSync 是 Start 的同步版（0.6.312 B1/F1）：提交并等待本操作到终态，
@@ -291,6 +374,7 @@ func (q *Queue) StartSync(ctx context.Context, kind, target string, fn RunFn) (V
 	q.pending = append(q.pending, pendingOp{op: op, fn: fn})
 	q.mu.Unlock()
 	q.pump()
+	q.notify()
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -345,6 +429,7 @@ func (q *Queue) removeQueued(id string) bool {
 		q.history = q.history[:20]
 	}
 	q.mu.Unlock()
+	q.notify()
 	return true
 }
 
@@ -440,22 +525,29 @@ func (q *Queue) Remove(id string) (bool, error) {
 		return true, nil
 	}
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	for _, op := range q.running {
 		if op.id == id {
+			q.mu.Unlock()
 			return false, fmt.Errorf("操作正在进行，无法删除: %s", id)
 		}
 	}
+	removed := false
 	for i := range q.history {
 		if q.history[i].ID == id {
 			if q.history[i].State == StateRunning {
+				q.mu.Unlock()
 				return false, fmt.Errorf("操作正在进行，无法删除: %s", id)
 			}
 			q.history = append(q.history[:i], q.history[i+1:]...)
-			return true, nil
+			removed = true
+			break
 		}
 	}
-	return false, nil
+	q.mu.Unlock()
+	if removed {
+		q.notify()
+	}
+	return removed, nil
 }
 
 // Find 按 ID 查历史操作视图（最近 20 条内；未找到返回 nil）。

@@ -31,11 +31,17 @@ const (
 	autoUpdateSkipTTLWizard = 12 * time.Hour
 	// autoUpdateSkipTTLBlocked 平台标记「自动更新失败」的静默时长（短，避免挡住刚修好的窗口）。
 	autoUpdateSkipTTLBlocked = 2 * time.Hour
+	// autoUpdateSkipTTLUnknown 「任务结果未知」（超预算/状态查不到但平台可能仍在跑）
+	// 的静默时长。openclaw 事故（2026-11-20）：大应用升级要 rsync 16+ 分钟，
+	// 12 分钟预算先超时；旧逻辑每小时重来一次 → 反复 12 分钟轮询 + 重复拷贝，
+	// 后台 CPU/IO 持续偏高。6 小时内不再自动重试，交给手动处理。
+	autoUpdateSkipTTLUnknown = 6 * time.Hour
 	// autoUpdateSkipMaxEntries 缓存条目上限（防御异常增长；正常远小于此值）。
 	autoUpdateSkipMaxEntries = 200
 
 	autoUpdateSkipReasonWizard  = "wizard"
 	autoUpdateSkipReasonBlocked = "blocked"
+	autoUpdateSkipReasonUnknown = "unknown"
 
 	// 文件从 0.6.543 的 auto_update_wizard_skip.json 改名而来：现在也存
 	// blocked 判定，旧名字会误导。读取时自动迁移（写新→删旧）。
@@ -144,7 +150,8 @@ func (s *Server) autoUpdateSkips() map[string]autoUpdateSkipEntry {
 // 既刷日志又白占 200 条上限。
 func autoUpdateSkipHitAny(skips map[string]autoUpdateSkipEntry, app, version, sha string) bool {
 	return autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonWizard) ||
-		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonBlocked)
+		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonBlocked) ||
+		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonUnknown)
 }
 
 func autoUpdateSkipHit(m map[string]autoUpdateSkipEntry, app, version, sha, reason string) bool {
@@ -198,8 +205,11 @@ func (s *Server) markAutoUpdateSkip(app, version, sha, reason string, missing []
 		reason = autoUpdateSkipReasonWizard
 	}
 	ttl := autoUpdateSkipTTLWizard
-	if reason == autoUpdateSkipReasonBlocked {
+	switch reason {
+	case autoUpdateSkipReasonBlocked:
 		ttl = autoUpdateSkipTTLBlocked
+	case autoUpdateSkipReasonUnknown:
+		ttl = autoUpdateSkipTTLUnknown
 	}
 	m := s.autoUpdateSkips()
 	m[autoUpdateSkipKey(app, version, sha, reason)] = autoUpdateSkipEntry{

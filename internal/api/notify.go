@@ -106,8 +106,8 @@ var (
 
 // IsNotifyEventOn 单事件开关（key 缺失 = 目录缺省；仅显式 false 为关）。
 func (s *Server) IsNotifyEventOn(key string) bool {
-	if s.Cfg.NotifyEvents != nil {
-		if on, ok := s.Cfg.NotifyEvents[key]; ok {
+	if s.cfg().NotifyEvents != nil {
+		if on, ok := s.cfg().NotifyEvents[key]; ok {
 			return on
 		}
 	}
@@ -169,15 +169,15 @@ func newNotifyMsg(key, title, content string, ok bool) *notify.Message {
 // 「外部渠道通知」总开关（NotifyEnabled）+ 该事件开关都开才推送。
 // 应用内顶部通知栏始终开，不受这两个开关（及任何开关）控制。
 func (s *Server) fanoutIfExternalOn(msg *notify.Message, key string) map[string]string {
-	if !s.Cfg.IsNotifyEnabled() || !s.IsNotifyEventOn(key) {
+	if !s.cfg().IsNotifyEnabled() || !s.IsNotifyEventOn(key) {
 		return nil
 	}
 	// 0.6.144：卡片形式需要详情页跳转链接（NotifyViewBase 未配置时为空 →
 	// 发送侧自动降级默认 markdown）。
-	if base := strings.TrimRight(strings.TrimSpace(s.Cfg.NotifyViewBase), "/"); base != "" {
+	if base := strings.TrimRight(strings.TrimSpace(s.cfg().NotifyViewBase), "/"); base != "" {
 		msg.ViewURL = base + "/api/notify-view/" + msg.ViewID + "?t=" + msg.ViewToken
 	}
-	errs := notify.Fanout(context.Background(), s.Cfg.NotifyChannels, msg)
+	errs := notify.Fanout(context.Background(), s.cfg().NotifyChannels, msg)
 	// 0.6.326 通知批次：渠道健康跟踪（连续 ≥3 次失败 + 1h 冷却 → 渠道推送失败
 	// 告警）。notify_channel_error 自身的 fan-out 与 welcome（欢迎语/用户主动
 	// 测试）不计入 streak —— 防自激、防把人工测试当故障（见
@@ -201,7 +201,7 @@ func (s *Server) notifyEventFull(key, title, content, fullContent string, ok boo
 	}
 	msg := newNotifyMsg(key, title, content, ok)
 	msg.Full = fullContent
-	writeNotifyLog(s.Cfg, msg, s.fanoutIfExternalOn(msg, key))
+	writeNotifyLog(s.cfg(), msg, s.fanoutIfExternalOn(msg, key))
 }
 
 // notifyEventTable 同 notifyEvent，但附 markdown_v2 表格正文（0.6.144）：
@@ -237,7 +237,7 @@ func (s *Server) notifyEventRichV(key, title, content, table string, rows []noti
 		msg.ConciseSub = v.ConciseSub
 		msg.RowsFull = v.RowsFull
 	}
-	writeNotifyLog(s.Cfg, msg, s.fanoutIfExternalOn(msg, key))
+	writeNotifyLog(s.cfg(), msg, s.fanoutIfExternalOn(msg, key))
 }
 
 // notifyEventApp 前端应用内事件上报（0.6.126）：应用内顶部通知栏已弹、
@@ -245,7 +245,7 @@ func (s *Server) notifyEventRichV(key, title, content, table string, rows []noti
 // 外部渠道 fan-out 受总开关 + 事件开关控制。
 func (s *Server) notifyEventApp(key, title, content string, ok bool) {
 	msg := newNotifyMsg(key, title, content, ok)
-	writeNotifyLog(s.Cfg, msg, s.fanoutIfExternalOn(msg, key))
+	writeNotifyLog(s.cfg(), msg, s.fanoutIfExternalOn(msg, key))
 }
 
 // logNotify 后端侧记录一条通知（自动备份等无前端在场的后台事件）。
@@ -330,18 +330,18 @@ func (s *Server) fireWelcome() {
 		return
 	}
 	msg := welcomeMessage("welcome")
-	writeNotifyLog(s.Cfg, msg, s.fanoutIfExternalOn(msg, "welcome"))
+	writeNotifyLog(s.cfg(), msg, s.fanoutIfExternalOn(msg, "welcome"))
 }
 
 // maybeFireWelcomeOnce 首启判定（单飞）：WelcomeSentAt 为 0 才置位并返回 true。
 func (s *Server) maybeFireWelcomeOnce() bool {
 	notifyMu.Lock()
 	defer notifyMu.Unlock()
-	if s.Cfg.WelcomeSentAt != 0 {
+	if s.cfg().WelcomeSentAt != 0 {
 		return false
 	}
-	s.Cfg.WelcomeSentAt = time.Now().Unix()
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().WelcomeSentAt = time.Now().Unix()
+	_ = s.cfg().Save(dataDirOf(s))
 	return true
 }
 
@@ -420,12 +420,12 @@ func (s *Server) notifySettingsGet(w http.ResponseWriter, _ *http.Request) {
 		events[e.Key] = s.IsNotifyEventOn(e.Key)
 	}
 	writeJSON(w, map[string]any{
-		"enabled":       s.Cfg.IsNotifyEnabled(),
+		"enabled":       s.cfg().IsNotifyEnabled(),
 		"events":        events,
 		"catalog":       notifyEventCatalog,
-		"mem_alert_mb":  orDefaultInt(s.Cfg.NotifyMemAlertMB, 256),
-		"cpu_alert_pct": orDefaultInt(s.Cfg.NotifyCPUPctAlert, 80),
-		"view_base":     s.Cfg.NotifyViewBase,
+		"mem_alert_mb":  orDefaultInt(s.cfg().NotifyMemAlertMB, 256),
+		"cpu_alert_pct": orDefaultInt(s.cfg().NotifyCPUPctAlert, 80),
+		"view_base":     s.cfg().NotifyViewBase,
 	})
 }
 
@@ -450,12 +450,12 @@ func (s *Server) notifySettingsPut(w http.ResponseWriter, r *http.Request) {
 	changed := false
 	notifyMu.Lock()
 	if in.Enabled != nil {
-		s.Cfg.NotifyEnabled = in.Enabled
+		s.cfg().NotifyEnabled = in.Enabled
 		changed = true
 	}
 	if len(in.Events) > 0 {
-		if s.Cfg.NotifyEvents == nil {
-			s.Cfg.NotifyEvents = make(map[string]bool)
+		if s.cfg().NotifyEvents == nil {
+			s.cfg().NotifyEvents = make(map[string]bool)
 		}
 		for k, v := range in.Events {
 			if !notifyEventKeys[k] {
@@ -463,16 +463,16 @@ func (s *Server) notifySettingsPut(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusBadRequest, errors.New("未知事件: "+k))
 				return
 			}
-			s.Cfg.NotifyEvents[k] = v
+			s.cfg().NotifyEvents[k] = v
 		}
 		changed = true
 	}
 	if in.MemAlertMB != nil && *in.MemAlertMB >= 16 && *in.MemAlertMB <= 8192 {
-		s.Cfg.NotifyMemAlertMB = *in.MemAlertMB
+		s.cfg().NotifyMemAlertMB = *in.MemAlertMB
 		changed = true
 	}
 	if in.CPUAlertPct != nil && *in.CPUAlertPct >= 10 && *in.CPUAlertPct <= 100 {
-		s.Cfg.NotifyCPUPctAlert = *in.CPUAlertPct
+		s.cfg().NotifyCPUPctAlert = *in.CPUAlertPct
 		changed = true
 	}
 	if in.ViewBase != nil {
@@ -487,13 +487,13 @@ func (s *Server) notifySettingsPut(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, errors.New("详情页地址过长（≤255 字符）"))
 			return
 		}
-		s.Cfg.NotifyViewBase = vb
+		s.cfg().NotifyViewBase = vb
 		changed = true
 	}
 	if changed {
-		_ = s.Cfg.Save(dataDirOf(s))
+		_ = s.cfg().Save(dataDirOf(s))
 	}
-	enabledAfter := s.Cfg.IsNotifyEnabled()
+	enabledAfter := s.cfg().IsNotifyEnabled()
 	eventsAfter := make(map[string]bool, len(notifyEventCatalog))
 	for _, e := range notifyEventCatalog {
 		eventsAfter[e.Key] = s.IsNotifyEventOn(e.Key)
@@ -517,9 +517,9 @@ func (s *Server) notifySettingsPut(w http.ResponseWriter, r *http.Request) {
 //	{channels: [脱敏副本], definitions: [渠道定义]}
 func (s *Server) notifyChannelsGet(w http.ResponseWriter, _ *http.Request) {
 	notifyMu.Lock()
-	chs := make([]config.NotifyChannel, len(s.Cfg.NotifyChannels))
-	for i := range s.Cfg.NotifyChannels {
-		chs[i] = notify.Masked(s.Cfg.NotifyChannels[i])
+	chs := make([]config.NotifyChannel, len(s.cfg().NotifyChannels))
+	for i := range s.cfg().NotifyChannels {
+		chs[i] = notify.Masked(s.cfg().NotifyChannels[i])
 	}
 	notifyMu.Unlock()
 	writeJSON(w, map[string]any{"channels": chs, "definitions": notify.ChannelDefs})
@@ -536,11 +536,11 @@ func (s *Server) notifyChannelsPost(w http.ResponseWriter, r *http.Request) {
 	in.ID = ""
 	if testID != "" {
 		notifyMu.Lock()
-		for i := range s.Cfg.NotifyChannels {
-			if s.Cfg.NotifyChannels[i].ID == testID {
+		for i := range s.cfg().NotifyChannels {
+			if s.cfg().NotifyChannels[i].ID == testID {
 				for k, v := range in.Params {
 					if strings.HasPrefix(v, "****") {
-						if sv, ok := s.Cfg.NotifyChannels[i].Params[k]; ok {
+						if sv, ok := s.cfg().NotifyChannels[i].Params[k]; ok {
 							in.Params[k] = sv
 						}
 					}
@@ -558,12 +558,12 @@ func (s *Server) notifyChannelsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notifyMu.Lock()
-	if len(s.Cfg.NotifyChannels) >= 10 {
+	if len(s.cfg().NotifyChannels) >= 10 {
 		notifyMu.Unlock()
 		writeErr(w, http.StatusBadRequest, errors.New("渠道数量上限 10 个"))
 		return
 	}
-	for _, c := range s.Cfg.NotifyChannels {
+	for _, c := range s.cfg().NotifyChannels {
 		if c.Name == in.Name {
 			notifyMu.Unlock()
 			writeErr(w, http.StatusBadRequest, errors.New("渠道名称已存在: "+in.Name))
@@ -571,8 +571,8 @@ func (s *Server) notifyChannelsPost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	in.ID = "ch_" + time.Now().Format("20060102150405") + randShort(4)
-	s.Cfg.NotifyChannels = append(s.Cfg.NotifyChannels, in)
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().NotifyChannels = append(s.cfg().NotifyChannels, in)
+	_ = s.cfg().Save(dataDirOf(s))
 	saved := in
 	notifyMu.Unlock()
 	writeJSON(w, map[string]any{"ok": true, "channel": notify.Masked(saved)})
@@ -589,8 +589,8 @@ func (s *Server) notifyChannelPut(w http.ResponseWriter, r *http.Request) {
 	}
 	notifyMu.Lock()
 	idx := -1
-	for i := range s.Cfg.NotifyChannels {
-		if s.Cfg.NotifyChannels[i].ID == id {
+	for i := range s.cfg().NotifyChannels {
+		if s.cfg().NotifyChannels[i].ID == id {
 			idx = i
 			break
 		}
@@ -600,7 +600,7 @@ func (s *Server) notifyChannelPut(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("渠道不存在"))
 		return
 	}
-	cur := s.Cfg.NotifyChannels[idx]
+	cur := s.cfg().NotifyChannels[idx]
 	merged := cur
 	merged.Name = orEmpty(in.Name, cur.Name)
 	merged.Enabled = in.Enabled     // 表单总是显式提交开关状态
@@ -625,8 +625,8 @@ func (s *Server) notifyChannelPut(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New(strings.Join(errList, "；")))
 		return
 	}
-	s.Cfg.NotifyChannels[idx] = merged
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().NotifyChannels[idx] = merged
+	_ = s.cfg().Save(dataDirOf(s))
 	saved := merged
 	notifyMu.Unlock()
 	writeJSON(w, map[string]any{"ok": true, "channel": notify.Masked(saved)})
@@ -636,18 +636,18 @@ func (s *Server) notifyChannelPut(w http.ResponseWriter, r *http.Request) {
 func (s *Server) notifyChannelDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	notifyMu.Lock()
-	out := s.Cfg.NotifyChannels[:0]
+	out := s.cfg().NotifyChannels[:0]
 	removed := false
-	for _, c := range s.Cfg.NotifyChannels {
+	for _, c := range s.cfg().NotifyChannels {
 		if c.ID == id {
 			removed = true
 			continue
 		}
 		out = append(out, c)
 	}
-	s.Cfg.NotifyChannels = out
+	s.cfg().NotifyChannels = out
 	if removed {
-		_ = s.Cfg.Save(dataDirOf(s))
+		_ = s.cfg().Save(dataDirOf(s))
 	}
 	notifyMu.Unlock()
 	if !removed {
@@ -664,7 +664,7 @@ func (s *Server) notifyChannelDelete(w http.ResponseWriter, r *http.Request) {
 // 未配置 NotifyViewBase 时企微卡片自动降级默认 markdown。
 func (s *Server) welcomeTestMessage() *notify.Message {
 	msg := welcomeMessage("channel_test")
-	if base := strings.TrimRight(strings.TrimSpace(s.Cfg.NotifyViewBase), "/"); base != "" {
+	if base := strings.TrimRight(strings.TrimSpace(s.cfg().NotifyViewBase), "/"); base != "" {
 		msg.ViewURL = base + "/api/notify-view/0000test"
 	}
 	return msg
@@ -675,9 +675,9 @@ func (s *Server) notifyChannelTest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	notifyMu.Lock()
 	var target *config.NotifyChannel
-	for i := range s.Cfg.NotifyChannels {
-		if s.Cfg.NotifyChannels[i].ID == id {
-			c := s.Cfg.NotifyChannels[i]
+	for i := range s.cfg().NotifyChannels {
+		if s.cfg().NotifyChannels[i].ID == id {
+			c := s.cfg().NotifyChannels[i]
 			target = &c
 			break
 		}
@@ -708,11 +708,11 @@ func (s *Server) notifyChannelTestDraft(w http.ResponseWriter, r *http.Request) 
 	in.ID = ""
 	if testID != "" {
 		notifyMu.Lock()
-		for i := range s.Cfg.NotifyChannels {
-			if s.Cfg.NotifyChannels[i].ID == testID {
+		for i := range s.cfg().NotifyChannels {
+			if s.cfg().NotifyChannels[i].ID == testID {
 				for k, v := range in.Params {
 					if strings.HasPrefix(v, "****") {
-						if sv, ok := s.Cfg.NotifyChannels[i].Params[k]; ok {
+						if sv, ok := s.cfg().NotifyChannels[i].Params[k]; ok {
 							in.Params[k] = sv
 						}
 					}
@@ -762,9 +762,9 @@ func (s *Server) notifyViewGet(w http.ResponseWriter, r *http.Request) {
 	tok := r.URL.Query().Get("t")
 	notifyMu.Lock()
 	var entry *config.NotifyLogEntry
-	for i := range s.Cfg.NotifyLog {
-		if s.Cfg.NotifyLog[i].ID == id {
-			entry = &s.Cfg.NotifyLog[i]
+	for i := range s.cfg().NotifyLog {
+		if s.cfg().NotifyLog[i].ID == id {
+			entry = &s.cfg().NotifyLog[i]
 			break
 		}
 	}
@@ -864,7 +864,7 @@ func orViewContent(e config.NotifyLogEntry) string {
 // notifyLogGet GET /api/notify-log → {"entries": [新→旧]}
 func (s *Server) notifyLogGet(w http.ResponseWriter, _ *http.Request) {
 	notifyMu.Lock()
-	log := s.Cfg.NotifyLog
+	log := s.cfg().NotifyLog
 	notifyMu.Unlock()
 	out := make([]config.NotifyLogEntry, 0, len(log))
 	for i := len(log) - 1; i >= 0; i-- {
@@ -898,8 +898,8 @@ func (s *Server) notifyLogPost(w http.ResponseWriter, r *http.Request) {
 // notifyLogClear POST /api/notify-log/clear：清空通知记录。
 func (s *Server) notifyLogClear(w http.ResponseWriter, _ *http.Request) {
 	notifyMu.Lock()
-	s.Cfg.NotifyLog = nil
-	_ = s.Cfg.Save(dataDirOf(s))
+	s.cfg().NotifyLog = nil
+	_ = s.cfg().Save(dataDirOf(s))
 	notifyMu.Unlock()
 	writeJSON(w, map[string]any{"ok": true})
 }
@@ -952,7 +952,7 @@ func (s *Server) aboutGet(w http.ResponseWriter, r *http.Request) {
 		"platform":          "fnos",
 		"arch":              runtime.GOARCH,
 		"go_version":        runtime.Version(),
-		"port":              s.Cfg.WebPort,
+		"port":              s.cfg().WebPort,
 		"started_at":        startedAt.Unix(),
 		"uptime_s":          int(time.Since(startedAt).Seconds()),
 		"app": map[string]any{

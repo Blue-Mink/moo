@@ -489,8 +489,8 @@ func (s *Server) panelApp(appName string) (*panel.PanelApp, error) {
 
 // panelDefaultVolume cloud 安装建议卷。
 func (s *Server) panelDefaultVolume() int {
-	if s.Cfg.InstallVolume > 0 {
-		return s.Cfg.InstallVolume
+	if s.cfg().InstallVolume > 0 {
+		return s.cfg().InstallVolume
 	}
 	return 1
 }

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -42,9 +43,14 @@ type MirrorStat struct {
 	// 429 限流（临时）/ 403 拒绝 / HTTP 5xx / 慢（低于吞吐门槛）/ 连接被拒 /
 	// DNS 解析失败 / 探测资产 404。Status=fail 或 limited 时有值；
 	// 可选字段，旧前端忽略。
-	Error       string `json:"error,omitempty"`
-	LastCheck   string `json:"last_check"`
-	ConsecFails int    `json:"consec_fails"`
+	Error string `json:"error,omitempty"`
+	// RetryAfterS / LimitedUntil（2026-11-22 P2-1）：429 响应带 Retry-After 时
+	// 把「等多久」「等到什么时候」一并下发——前端只显示「429 限流（临时）」
+	// 时用户不知道是等 5 秒还是等 10 分钟。可选字段，旧前端忽略。
+	RetryAfterS  int64  `json:"retry_after_s,omitempty"`
+	LimitedUntil string `json:"limited_until,omitempty"` // RFC3339
+	LastCheck    string `json:"last_check"`
+	ConsecFails  int    `json:"consec_fails"`
 	// ResumeOK 深测（续传能力）结论（2026-11-04，PR #14 纯收益部分）：
 	// true=通过 / false=深测失败 / 未下发=尚未深测。同速优选时优先 true。
 	ResumeOK *bool `json:"resume_ok,omitempty"`
@@ -235,7 +241,16 @@ func (m *mirrorMonitor) probeGhOne(ctx context.Context, opt config.MirrorOption)
 		}
 		switch resp.StatusCode {
 		case http.StatusTooManyRequests:
+			// 2026-11-22 P2-1：解析 Retry-After，把等待时长与解除时刻带给前端
+			// （没有头时保持原提示，不编造时长）。
+			secs := parseRetryAfterHeader(resp.Header.Get("Retry-After"), time.Now())
 			resp.Body.Close()
+			if secs > 0 {
+				st := limited(fmt.Sprintf("429 限流（临时；Retry-After %ds）", secs))
+				st.RetryAfterS = secs
+				st.LimitedUntil = time.Now().Add(time.Duration(secs) * time.Second).UTC().Format(time.RFC3339)
+				return st
+			}
 			return limited("429 限流（临时）")
 		case http.StatusForbidden:
 			resp.Body.Close()
@@ -284,6 +299,45 @@ func (m *mirrorMonitor) probeGhOne(ctx context.Context, opt config.MirrorOption)
 		return st
 	}
 	return fail("探测资产 404（资产下线或未代理）")
+}
+
+// maxRetryAfterS 单次限流窗口上限（秒）：防止源返回离谱的 Retry-After
+// 让前端/用户以为要等一整天。
+const maxRetryAfterS = 3600
+
+// parseRetryAfterHeader 解析 Retry-After（秒数或 HTTP-date，RFC 7231 §7.1.3），
+// 返回秒数：非法 / 过去 / 空 → 0；超过 maxRetryAfterS → 截断。
+// 与 internal/task 的同名逻辑保持一致（两处行为要相同，但不跨包导出私货）。
+func parseRetryAfterHeader(v string, now time.Time) int64 {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		switch {
+		case n <= 0:
+			return 0
+		case n > maxRetryAfterS:
+			return maxRetryAfterS
+		}
+		return n
+	}
+	for _, layout := range []string{http.TimeFormat, time.RFC1123, time.RFC1123Z, time.RFC850, time.ANSIC} {
+		t, err := time.Parse(layout, v)
+		if err != nil {
+			continue
+		}
+		d := t.Sub(now)
+		switch {
+		case d <= 0:
+			return 0
+		case d > time.Duration(maxRetryAfterS)*time.Second:
+			return maxRetryAfterS
+		default:
+			return int64(d / time.Second)
+		}
+	}
+	return 0
 }
 
 // bumpGhFail 单源连败计数（0.6.333 F2 三态语义，调用方须持有 m.mu）：
@@ -757,8 +811,8 @@ func (s *Server) StartMirrorProbeLoop(ctx context.Context) {
 func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 	for {
 		mins := config.DefaultProbeIntervalMinutes
-		if s.Cfg != nil {
-			mins = s.Cfg.GhProbeIntervalMinutes()
+		if s.cfg() != nil {
+			mins = s.cfg().GhProbeIntervalMinutes()
 		}
 		select {
 		case <-ctx.Done():
@@ -786,8 +840,8 @@ func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 func (s *Server) mirrorProbeLoopDk(ctx context.Context) {
 	for {
 		mins := config.DefaultProbeIntervalMinutes
-		if s.Cfg != nil {
-			mins = s.Cfg.DkProbeIntervalMinutes()
+		if s.cfg() != nil {
+			mins = s.cfg().DkProbeIntervalMinutes()
 		}
 		select {
 		case <-ctx.Done():
@@ -809,23 +863,23 @@ func (s *Server) mirrorProbeLoopDk(ctx context.Context) {
 
 // cfgMirror/cfgDockerMirror 读当前选中的加速源（nil 配置安全）。
 func cfgMirror(s *Server) string {
-	if s.Cfg == nil {
+	if s.cfg() == nil {
 		return ""
 	}
-	return s.Cfg.Mirror
+	return s.cfg().Mirror
 }
 
 func cfgDockerMirror(s *Server) string {
-	if s.Cfg == nil {
+	if s.cfg() == nil {
 		return ""
 	}
-	return s.Cfg.DockerMirror
+	return s.cfg().DockerMirror
 }
 
 // applyMirrorProbeFlags 应用本周期探测开关（0.6.321 F7；Cfg 为 nil 时 no-op）。
 func (s *Server) applyMirrorProbeFlags() {
-	if s.Cfg != nil {
-		s.Mirrors.setGhIncludeDirect(s.Cfg.MirrorIncludeDirect)
+	if s.cfg() != nil {
+		s.Mirrors.setGhIncludeDirect(s.cfg().MirrorIncludeDirect)
 	}
 }
 
@@ -865,6 +919,15 @@ func statusOf(stats []MirrorStat, key string) string {
 		}
 	}
 	return ""
+}
+
+// GHMirrorHealth 供 config.SetGHMirrorHealth 注入：返回某个加速源的健康态
+// （"ok"/"limited"/"fail"/""）。2026-11-21（FnDepot#24）用于 ghVariants 健康序。
+func (s *Server) GHMirrorHealth(key string) string {
+	if s == nil || s.Mirrors == nil {
+		return ""
+	}
+	return statusOf(s.Mirrors.gh(), key)
 }
 
 // bestKey 返回健康数据里吞吐最高的 ok 镜像 key（无速度数据时退回首字节延迟最低）。
@@ -1033,11 +1096,11 @@ func (s *Server) healthOf(selected, group string, stats []MirrorStat) MirrorHeal
 	}
 	// 0.6.148：上报本组配置的有效测速间隔（齿轮选择框改后实时跟随）
 	intervalS := config.DefaultProbeIntervalMinutes * 60
-	if s.Cfg != nil {
+	if s.cfg() != nil {
 		if group == "gh" {
-			intervalS = s.Cfg.GhProbeIntervalMinutes() * 60
+			intervalS = s.cfg().GhProbeIntervalMinutes() * 60
 		} else {
-			intervalS = s.Cfg.DkProbeIntervalMinutes() * 60
+			intervalS = s.cfg().DkProbeIntervalMinutes() * 60
 		}
 	}
 	out := make([]MirrorStat, len(stats))
@@ -1063,8 +1126,8 @@ func (s *Server) ghOrderedKeys() []string {
 		tops = fallbackSpeedKeys(s.Mirrors.gh())
 	}
 	mirror, custom := "auto", ""
-	if s.Cfg != nil {
-		mirror, custom = s.Cfg.Mirror, s.Cfg.CustomGitHubMirror
+	if s.cfg() != nil {
+		mirror, custom = s.cfg().Mirror, s.cfg().CustomGitHubMirror
 	}
 	switch mirror {
 	case "", "auto":

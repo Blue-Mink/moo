@@ -91,8 +91,10 @@ func TestRecoCandidatesMirrorFirst_380(t *testing.T) {
 	if got := recoListCandidates(u, nil); len(got) != 1 || got[0] != u {
 		t.Fatalf("无监控时只应回直连，实际 %v", got)
 	}
+	// 2026-11-21：gh-proxy-hk 已下线（清单删除），测试数据改用仍在册的 gh-tbap，
+	// 语义不变：延迟最低的 ok 镜像排第一，limited 不参与。
 	m := &mirrorMonitor{ghStats: []MirrorStat{
-		{Key: "gh-proxy-hk", LatencyMS: 200, Status: "ok"},
+		{Key: "gh-tbap", LatencyMS: 200, Status: "ok"},
 		{Key: "gh-proxy", LatencyMS: 300, Status: "ok"},
 		{Key: "ghproxy-cxkpro", LatencyMS: 100, Status: "limited"},
 	}}
@@ -103,7 +105,7 @@ func TestRecoCandidatesMirrorFirst_380(t *testing.T) {
 	if !strings.HasSuffix(got[0], u) || got[0] == u {
 		t.Fatalf("第一个候选应是镜像前缀 + 原地址，实际 %s", got[0])
 	}
-	if !strings.Contains(got[0], "gh-proxy.org") {
+	if !strings.Contains(got[0], "github.tbap.top") {
 		t.Fatalf("延迟最低的 ok 镜像应排第一，实际 %s", got[0])
 	}
 	if got[len(got)-1] != u {
@@ -174,7 +176,7 @@ func TestRecommendedRefreshForcesFetch_380(t *testing.T) {
 // TestRecoCandidatesNonGitHub_380 非 GitHub 地址不做镜像改写。
 func TestRecoCandidatesNonGitHub_380(t *testing.T) {
 	const u = "https://example.com/recommend_list.txt"
-	m := &mirrorMonitor{ghStats: []MirrorStat{{Key: "gh-proxy-hk", LatencyMS: 100, Status: "ok"}}}
+	m := &mirrorMonitor{ghStats: []MirrorStat{{Key: "gh-tbap", LatencyMS: 100, Status: "ok"}}}
 	if got := recoListCandidates(u, m); len(got) != 1 || got[0] != u {
 		t.Fatalf("非 GitHub 地址只应回原地址，实际 %v", got)
 	}

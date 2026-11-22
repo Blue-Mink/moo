@@ -59,8 +59,9 @@ const (
 	daemonCodeValidation       = 10030
 	daemonCodeTransientTimeout = 10050
 	daemonCodePackageMissing   = 10100
-	// daemonCodeStatusUnsupported 平台「当前状态不支持该操作」：
-	// 常见于重复安装/任务进行中（用户看到的「错误代码 10500」就是它）。
+	// daemonCodeStatusUnsupported 平台「当前状态不支持该操作」，最常见成因是
+	// 同一应用已有任务在跑（每应用单任务槽）——即「应用中心正忙」。
+	// 任务提交层对它会短暂重试（daemonCallRetryBusy），仍忙才交给用户。
 	daemonCodeStatusUnsupported = 10500
 	daemonCodeWizardRequired    = 19000
 	// daemonCodeDependentRunning 平台「依赖方未停用」：升级 nodejs 这类被
@@ -86,7 +87,7 @@ func isDeterministicReject(code int) bool {
 func daemonCodeHint(code int) string {
 	switch code {
 	case daemonCodeStatusUnsupported:
-		return "应用中心当前状态不支持该操作（应用可能已安装或正在安装）"
+		return "应用中心正忙，请稍后重试"
 	case daemonCodePackageMissing:
 		return "安装包不存在（可能已被清理）"
 	case daemonCodeWizardRequired:
@@ -120,6 +121,14 @@ func (e *DaemonError) Error() string {
 	msg := e.Msg
 	if msg == "" {
 		msg = daemonCodeHint(e.Code)
+	}
+	// 10500（应用中心正忙）是最常见的一类：重试 3 次后仍忙才到这里，
+	// 直接给一句话 + 错误码，不再拼「app center 返回错误」前缀（用户要精简）。
+	if e.Code == daemonCodeStatusUnsupported {
+		if msg == "" {
+			msg = daemonCodeHint(e.Code)
+		}
+		return fmt.Sprintf("%s（%d）", msg, e.Code)
 	}
 	if msg != "" {
 		return fmt.Sprintf("app center 返回错误 %d: %s", e.Code, msg)
@@ -302,6 +311,38 @@ func daemonCallMethod(ctx context.Context, method, path string, body any, out an
 
 func daemonCall(ctx context.Context, path string, body any, out any) error {
 	return daemonCallMethod(ctx, http.MethodPost, path, body, out)
+}
+
+// busyRetryBackoff 是 10500（应用中心正忙）的退避节奏，共 1s/2s/4s 三次重试。
+// 提成包级变量是为了让单测把等待缩短到毫秒级。
+var busyRetryBackoff = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
+
+// daemonCallRetryBusy 用于「任务提交」类调用：仅对平台 10500 重试。
+//
+// 10500 = 同一应用已有任务在跑（平台每应用单任务槽）。平台在**建任务之前**
+// 就拒绝，响应 data:null（无 taskId），因此重试不会重复安装/重复升级，是安全的。
+// 其它任何错误（19000/10030/16006/网络错误）都立即返回，绝不重试。
+func daemonCallRetryBusy(ctx context.Context, path string, body any, out any) error {
+	var err error
+	for attempt := 0; attempt <= len(busyRetryBackoff); attempt++ {
+		if attempt > 0 {
+			t := time.NewTimer(busyRetryBackoff[attempt-1])
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return ctx.Err()
+			case <-t.C:
+			}
+		}
+		if err = daemonCall(ctx, path, body, out); err == nil {
+			return nil
+		}
+		var de *DaemonError
+		if !errors.As(err, &de) || de.Code != daemonCodeStatusUnsupported {
+			return err
+		}
+	}
+	return err
 }
 
 func daemonCallGet(ctx context.Context, path string, out any) error {
@@ -806,7 +847,7 @@ func InstallFpk(ctx context.Context, staged *StagedPackage, volume int, params [
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
-	if err := daemonCall(ctx, routeInstallTask, map[string]any{
+	if err := daemonCallRetryBusy(ctx, routeInstallTask, map[string]any{
 		"appName":     staged.AppName,
 		"version":     staged.Version,
 		"packageType": staged.PackageType,
@@ -852,7 +893,7 @@ func UpgradeFpk(ctx context.Context, staged *StagedPackage, params []WizardParam
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
-	if err := daemonCall(ctx, routeUpdateTask, map[string]any{
+	if err := daemonCallRetryBusy(ctx, routeUpdateTask, map[string]any{
 		"appName":       staged.AppName,
 		"updateVersion": staged.Version,
 		"packageType":   staged.PackageType,
@@ -986,7 +1027,7 @@ func UpgradeCloud(ctx context.Context, appName, sourceID, upgradeVersion string,
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
-	if err := daemonCall(ctx, routeUpdateTask, map[string]any{
+	if err := daemonCallRetryBusy(ctx, routeUpdateTask, map[string]any{
 		"appName":       appName,
 		"updateVersion": upgradeVersion,
 		"packageType":   "cloud",
@@ -1149,7 +1190,7 @@ func InstallCloud(ctx context.Context, appName, sourceID, version string, volume
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
-	if err := daemonCall(ctx, routeInstallTask, map[string]any{
+	if err := daemonCallRetryBusy(ctx, routeInstallTask, map[string]any{
 		"appName":     appName,
 		"version":     version,
 		"packageType": "cloud",
@@ -1212,7 +1253,7 @@ func Uninstall(ctx context.Context, appname string, deleteData bool, onProgress 
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
-	err := daemonCall(ctx, routeUninstallTask, map[string]any{
+	err := daemonCallRetryBusy(ctx, routeUninstallTask, map[string]any{
 		"appname":            appname,
 		"wizard_delete_data": del,
 	}, &task)
@@ -1267,7 +1308,7 @@ func submitControl(ctx context.Context, route, appname, what string) error {
 	var task struct {
 		TaskID string `json:"taskId"`
 	}
-	if err := daemonCall(ctx, route, map[string]any{"appName": appname}, &task); err != nil {
+	if err := daemonCallRetryBusy(ctx, route, map[string]any{"appName": appname}, &task); err != nil {
 		return fmt.Errorf("%s失败: %w", what, err)
 	}
 	err := WaitTask(ctx, task.TaskID, what, 5*time.Minute, nil)

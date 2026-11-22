@@ -104,6 +104,36 @@ else
     warn "python3 或 moo.json 缺失，跳过内嵌发布说明（关于页卡片回落源条目）"
 fi
 
+# ── Step 0.6: 内嵌下架黑名单快照（出厂内置，Moo 要求）──────────────────────
+# 出厂必须自带一份下架清单：全新安装、首次拉取前、断网时也要按清单行事，
+# 否则「已下架」控制面对新装/离线用户完全失效。
+# 快照来源 = 仓库 lists/blacklist.json（与远端清单同源、同签名，改清单走
+# build.sh 重新生成，保证「包内清单 == 仓库清单」）。
+# 仅特殊场景可关：MOO_EMBED_BLACKLIST=0（关闭后内嵌空清单 = 纯 fail-open）。
+# 漂移守卫：internal/api/blacklist_test.go 的 TestBlacklistEmbeddedMatchesRepoList
+# 会核对「内嵌 == 仓库清单」，两边不同步即 FAIL。
+if [ "${MOO_EMBED_BLACKLIST:-1}" = "1" ] && command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/lists/blacklist.json" ]; then
+    python3 - "$SCRIPT_DIR/lists/blacklist.json" "$SCRIPT_DIR/internal/api/default_blacklist.json" <<'PY'
+import json, sys
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    with open(src, encoding="utf-8") as f:
+        d = json.load(f)
+except Exception as e:
+    print("WARN 黑名单快照解析失败（保留现有内嵌副本）: %s" % e)
+    raise SystemExit(0)
+if not isinstance(d, dict) or "entries" not in d:
+    print("WARN 黑名单快照缺 entries（保留现有内嵌副本）")
+    raise SystemExit(0)
+with open(dst, "w", encoding="utf-8") as f:
+    json.dump(d, f, ensure_ascii=False, indent=1)
+    f.write("\n")
+PY
+    info "内嵌下架黑名单快照 -> internal/api/default_blacklist.json"
+else
+    warn "lists/blacklist.json 或 python3 缺失，跳过内嵌黑名单快照"
+fi
+
 # ── Step 1: 构建前端 ────────────────────────────────────────────────────────
 info "构建前端..."
 if [ -d "$SCRIPT_DIR/frontend" ] && [ -f "$SCRIPT_DIR/frontend/package.json" ]; then

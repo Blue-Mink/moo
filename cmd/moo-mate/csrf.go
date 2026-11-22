@@ -15,10 +15,11 @@ package main
 // 一律放行：本层只处理浏览器 CSRF，不能代替鉴权。
 
 import (
-	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // csrfPolicy 是一条入口通道的防 CSRF 策略。
@@ -124,10 +125,68 @@ func isJSONContentType(ct string) bool {
 	return strings.EqualFold(mt, "application/json")
 }
 
+// csrfOriginKey 把拒绝日志按「来源站点」归一，便于窗口内折叠：
+// 优先 Origin，其次 Referer 的 scheme://host，都没有则归为 no-origin。
+// 0.2.76（审计 P2-4）：原实现直接拿 Origin 原串当 key —— 外部逐次换 Origin
+// 就能让折叠表无上限增长，并把折叠稀释掉。现只取 scheme://host，
+// 路径/查询/userinfo 一律丢弃，主机名小写；最终再由 boundLogKey 限长。
+func csrfOriginKey(r *http.Request) string {
+	if o := strings.TrimSpace(r.Header.Get("Origin")); o != "" {
+		return originSiteKey(o)
+	}
+	if ref := strings.TrimSpace(r.Header.Get("Referer")); ref != "" {
+		return originSiteKey(ref) // 解析不了就按原串聚合，同来源仍能折叠
+	}
+	return "no-origin"
+}
+
+// originSiteKey 抽出来源站点 scheme://host；Origin "null"、畸形串等
+// 解析不出 scheme/host 时原样返回（交给 boundLogKey 截断）。
+func originSiteKey(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return raw
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+}
+
+// logHeaderMaxRunes 日志里单个头部值最多保留的 rune 数（审计 #14）。
+const logHeaderMaxRunes = 120
+
+// logHeaderValue 把请求头值处理成可安全落盘的短串（审计 #14）：
+// 去掉 userinfo（防止把 URL 里的凭证写进日志）、控制字符压成空格、超长截断。
+// 只影响日志，不参与任何判定。
+func logHeaderValue(v string, max int) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	if u, err := url.Parse(v); err == nil && u.User != nil {
+		u.User = nil
+		v = u.String()
+	}
+	v = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' || r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, v)
+	v = strings.Join(strings.Fields(v), " ")
+	if max > 0 && utf8.RuneCountInString(v) > max {
+		rs := []rune(v)
+		v = string(rs[:max-1]) + "…"
+	}
+	return v
+}
+
 func csrfDeny(w http.ResponseWriter, r *http.Request, p csrfPolicy, code int, reason string) {
-	log.Printf("拒绝可疑请求[%s]：%s %s（%s；Origin=%q Referer=%q Sec-Fetch-Site=%q Host=%q）",
-		p.name, r.Method, r.URL.Path, reason,
-		r.Header.Get("Origin"), r.Header.Get("Referer"),
-		r.Header.Get("Sec-Fetch-Site"), r.Host)
+	// 同一来源 10min 内只打一条，其余折叠并计数（扫描器连发不再刷屏）。
+	// 只影响日志，响应码与文案不变。
+	csrfThrottle.Logf(csrfOriginKey(r), catHTTP, "拒绝可疑请求[%s]：%s %s（%s；Origin=%q Referer=%q Sec-Fetch-Site=%q Host=%q）",
+		p.name, r.Method, logHeaderValue(r.URL.Path, logHeaderMaxRunes), reason,
+		logHeaderValue(r.Header.Get("Origin"), logHeaderMaxRunes),
+		logHeaderValue(r.Header.Get("Referer"), logHeaderMaxRunes),
+		logHeaderValue(r.Header.Get("Sec-Fetch-Site"), 32),
+		logHeaderValue(r.Host, 80))
 	writeErr(w, code, reason)
 }

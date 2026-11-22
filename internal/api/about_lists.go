@@ -59,7 +59,7 @@ type aboutSnapshot struct {
 }
 
 func (s *Server) aboutListsBaseURL() string {
-	if u := strings.TrimSpace(s.Cfg.AboutListsURL); u != "" {
+	if u := strings.TrimSpace(s.cfg().AboutListsURL); u != "" {
 		return strings.TrimRight(u, "/")
 	}
 	return strings.TrimRight(config.DefaultAboutListsURL, "/")
@@ -181,7 +181,7 @@ func (s *Server) fetchAboutFile(ctx context.Context, name string) (string, error
 	u := s.aboutListsBaseURL() + "/" + name
 	// 清单地址是管理员配置的信任面；仍与推荐清单同口径过 netguard，
 	// 指向内网需显式开 source_list_allow_private（本地 Gitea 测试用）。
-	if !s.Cfg.SourceListAllowPrivate {
+	if !s.cfg().SourceListAllowPrivate {
 		if host, err := netguard.Public(u); err != nil {
 			return "", fmt.Errorf("%s 被安全策略拒绝（%s）: %w", name, host, err)
 		}

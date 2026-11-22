@@ -434,7 +434,7 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	// 本机安装次数（下载量展示回退链：源/Release 都无下载量时）。
 	// 已安装的应用本机至少装过一次 → 下限 1，避免「装过但不显示任何数字」。
 	for i := range out {
-		n := s.Cfg.LocalInstalls[out[i].AppName]
+		n := s.cfg().LocalInstalls[out[i].AppName]
 		if out[i].Installed && n < 1 {
 			n = 1
 		}
@@ -481,7 +481,7 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 	// 同一轴，不会再出现「严格 + 自动纠正」这种一个开关静默旁路另一个的组合。
 	// resolveUpdateTargetSelection 返回本轮真正被纠正到上游的应用（upstream
 	// 档之外恒空）——仅供锁外异步通知用，判定逻辑零变化。
-	corrected := resolveUpdateTargetSelection(out, s.Cfg.UpdatePolicy, s.Cfg.AutoCorrect, byName)
+	corrected := resolveUpdateTargetSelection(out, s.cfg().UpdatePolicy, s.cfg().AutoCorrect, byName)
 
 	// 平台权威更新信号（daemon upgradeInfo，与应用中心 UI 同源），
 	// 补齐目录版本滞后漏掉的「有更新」。
@@ -496,7 +496,7 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 
 	// 忽略更新（0.6.181）：必须放在 applyPlatformUpgrades 之后，
 	// 否则平台信号会把被忽略应用的 HasUpdate 再 OR 回来。
-	applyIgnoredUpdates(out, s.Cfg.UpdateIgnored)
+	applyIgnoredUpdates(out, s.cfg().UpdateIgnored)
 
 	// 智能自动归类：原始标签/空值 → 前端 8 分类（标签映射 + 关键词兜底），
 	// 让「AI/媒体自动化/下载传输/网络工具/浏览器」等分类有内容可筛。
@@ -517,11 +517,19 @@ func (s *Server) buildCatalog(l string) []AppInfo {
 
 	// 去重展示层（0.6.312 B2）：在确定性排序之后（代表卡阶梯的「slice
 	// 顺序」步要稳定）；只标 Hidden + 填同名组信息，不改版本/更新判定。
-	applyDedupPolicy(out, s.Cfg.DedupPolicy)
+	applyDedupPolicy(out, s.cfg().DedupPolicy)
 
 	// 应用级禁用（0.6.326）：必须最末——applyDedupPolicy 会写 Hidden，
 	// 在其后置位才不被覆盖。
-	applyHiddenApps(out, s.Cfg.HiddenApps)
+	applyHiddenApps(out, s.cfg().HiddenApps)
+
+	// 远端下架黑名单（2026-11-22；P1-4 起改为**保留并打标**）：命中条目的卡
+	// 不再从列表删除（含已装卡），而是写 blacklisted/blacklist_reason/
+	// blacklist_notice/blacklist_since 并清掉「有更新」类标记——前端据此灰卡 +
+	// 「已下架」角标 + 原因浮层，安装/更新入口由动作闸在后端拦截。
+	// 放在最末：前面的版本/更新判定/去重/禁用互不干扰（本步只会在命中时
+	// 复制一份切片并改这 4 个展示字段 + 3 个更新标记）。
+	out = s.annotateBlacklisted(out)
 
 	// 溯源纠正通知（0.6.326 通知批次）：目录构建是热路径（可被并发触发、
 	// 且调用方可能持锁）——通知一律锁外异步跑，不阻塞构建；事件自带去重表

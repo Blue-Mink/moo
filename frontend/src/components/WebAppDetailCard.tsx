@@ -10,6 +10,8 @@ import { toast } from 'sonner';
 import { META_PILL } from './AppDetailDialog';
 import AppIcon from './AppIcon';
 import { installedStateLabel } from '@/lib/appRunState';
+// P1-4 已下架：桌面标准卡（h-180）同样要灰卡 + 「已下架」角标 + 原因浮层
+import { DELIST_BADGE, delistNotice, delistReasonShort, isDelisted } from '@/lib/delist';
 import { DockerIcon } from './DockerIcon';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { useCoarsePointer } from '@/lib/hooks';
 import { categoryLabel } from '@/lib/categories';
 import {
-  Bell, BellOff, Download, Globe, Loader2, Package,
+  Ban, Bell, BellOff, Download, Globe, Loader2, Package,
   Play, RefreshCw, Square, Star, Tag, Trash2, User, X,
 } from 'lucide-react';
 import MoreMenuButton, { type MoreMenuItem } from './MoreMenu';
@@ -93,10 +95,12 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
   onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstallDone,
 }) => {
   const isInstalled = app.installed;
+  // P1-4：命中远端下架清单 → 灰卡 + 角标 + 原因浮层；安装/更新入口一律不渲染
+  const hit = isDelisted(app);
   /* 0.6.363（用户定稿）：主操作与「→ v新版本」都只认「有效更新」（未忽略）——
      已忽略的应用回落成「打开/启动」，与 ⋯ 里的「取消忽略更新」口径一致。 */
-  const canUpdate = hasActiveUpdate(app);
-  const downloadLabel = appDownloadLabel(app);
+  const canUpdate = hasActiveUpdate(app) && !hit;
+  const downloadLabel = hit ? '' : appDownloadLabel(app);
 
   // 0.6.287 动态整行截断：简介区实际高度 ÷ 行高 = 可完整显示的行数（clamp 值）。
   // 徽章换行、下载进度条出现等任何挤压简介区的情况都会在重排后重新量。
@@ -126,7 +130,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
     ((app.start_stop ?? true) && app.status !== 'nostart' &&
       (app.status === 'stopped' || app.status === 'starting' || app.status === 'stopping')));
   // 0.6.342（用户令）：已停止 → 卡面给置灰「启动」，点击即启动（不再先走「打开」隐式启动）
-  const canStart = canStartInList(app) && !!onControl;
+  // P1-4：下架卡只留「打开 / 卸载」，不渲染启停
+  const canStart = canStartInList(app) && !!onControl && !hit;
   const controlBusy = app.status === 'starting' || app.status === 'stopping';
 
   // 双击非功能区域 → 详情对话框；功能区域 = 任意按钮/链接/输入（closest 拦截）
@@ -252,7 +257,7 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
     });
   }
   const moreDangerItems: MoreMenuItem[] = [];
-  if (hasSource) {
+  if (hasSource && !hit) {
     // 0.6.362：与详情页 ⋯ 同一套语义——无缓存=下载、有缓存=安装（下载完成不显示 ✔）
     moreItems.push({
       key: 'fpk',
@@ -285,12 +290,25 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
       onClick={singleOpen ? openIfSurfaceTap : undefined}
       onDoubleClick={singleOpen ? undefined : onRootDoubleClick}
       title={singleOpen ? (coarse ? '点按打开应用详情' : '单击打开应用详情') : '双击打开应用详情'}
-      className="h-[180px] flex flex-col overflow-hidden rounded-[18px] border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore transition-shadow duration-200 hover:shadow-appstore-hover touch-manipulation"
+      className={cn(
+        "h-[180px] flex flex-col overflow-hidden rounded-[18px] border border-white/10 bg-card/55 backdrop-blur-xl shadow-appstore transition-shadow duration-200 hover:shadow-appstore-hover touch-manipulation relative",
+        // P1-4：命中下架 → 中性灰底（图标/标题另由 grayscale 去饱和）
+        hit && 'border-border/40 bg-gradient-to-b from-muted/70 to-muted/50 shadow-none',
+      )}
     >
+      {hit && (
+        <span
+          data-testid="delist-badge"
+          className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-full border border-destructive/35 bg-destructive/10 px-2 py-[3px] text-[11px] font-bold leading-none text-destructive shadow-sm backdrop-blur-md"
+        >
+          <Ban className="h-3 w-3" />
+          {DELIST_BADGE}
+        </span>
+      )}
       {/* 头部行：图标 + 收藏星 + 名称列（名/appname/版本·下载） + 右侧竖排动作列
           （主操作胶囊在上、⋯ 在下，各自独立占位 → 简介与徽章永远不会压到按钮上） */}
       <div className="flex-none flex items-start gap-2.5 px-3 pt-3">
-        <AppIcon app={app} className="w-10 h-10 rounded-[10px] shrink-0" />
+        <AppIcon app={app} className={cn('w-10 h-10 rounded-[10px] shrink-0', hit && 'grayscale opacity-55')} />
         {onToggleFavorite && (
           <button
             onClick={() => onToggleFavorite(app)}
@@ -303,7 +321,7 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
           </button>
         )}
         <div className="flex-1 min-w-0">
-          <div className="min-w-0">
+          <div className={cn('min-w-0', hit && 'opacity-70')}>
             {/* 0.6.361（用户定稿）：「不要缩略掉左边的应用名称」——主操作与 ⋯ 改成竖排后
                 名字列变宽（68 → 100px），再放开 2 行换行，长名不再变成「Eas…」；
                 docker 图标改为行内尾缀，不再单独占 22px 把英文长名单词挤断
@@ -344,6 +362,9 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
                ⋯ 的垂直位置也一致（顶边 32+4=36px）。 */}
         <div className={cn(
           'shrink-0 flex flex-col items-center gap-1',
+          // P1-4 复测修正（0.6.562）：下架角标固定在右上角（top-2），动作列原本从 pt-3 起，
+          // 「打开」胶囊会被角标压住 → 命中下架时整列下移 22px，让出角标高度。
+          hit && 'mt-[22px]',
           // 只有「列里确实有东西」时占 60px 宽，避免空列白占名字空间
           (!!operation || !isInstalled || (canUpdate && !!onUpdate) || controlBusy || canStart || canOpen
             || moreItems.length > 0 || moreDangerItems.length > 0) && 'min-w-[60px]'
@@ -352,6 +373,11 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
           <button disabled className="h-8 px-3.5 rounded-full text-[13px] font-semibold inline-flex items-center gap-1.5 shrink-0 bg-muted/50 text-muted-foreground border border-border/50 opacity-80">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />处理中
           </button>
+        ) : hit && !isInstalled ? (
+          // P1-4：未安装的下架卡不给「安装」，只给「查看说明」（详情页有完整下架说明）
+          <Button onClick={() => onDetail?.(app)} className="h-8 px-3 rounded-full text-[13px] font-semibold shrink-0 shadow-none bg-muted/60 text-muted-foreground border border-border/50 hover:bg-muted hover:opacity-100">
+            查看说明
+          </Button>
         ) : !isInstalled ? (
           // 0.6.319F（用户定稿）：安装/打开胶囊去箭头图标，只留文字（与详情对话框同款）
           <Button onClick={() => onInstall(app)} className="h-8 px-4 rounded-full text-[13px] font-semibold shrink-0 shadow-none bg-muted/60 text-foreground border border-border/50 hover:bg-muted hover:opacity-100">
@@ -393,7 +419,8 @@ const WebAppDetailCard: React.FC<WebAppDetailCardProps> = ({
         ) : null /* 0.6.365（用户令）：无主操作（工具类应用无 web 入口 / 无启停 / 无更新）
              时不再留 32px 空占位——⋯ 直接顶到主操作位（即「打开」按钮所在的位置），
              竖排列里它就是第一个元素（顶边 0），不再下移一行。 */}
-        {(moreItems.length > 0 || moreDangerItems.length > 0) && (
+        {/* P1-4：下架卡不渲染 ⋯（角标占右上角，且设计只留「打开 / 卸载」；卸载在详情页） */}
+        {!hit && (moreItems.length > 0 || moreDangerItems.length > 0) && (
           /* 0.6.361（用户定稿）：⋯ 从「主操作右侧」改为「主操作下方」——与主操作竖排，
              裸图标无白圈；不再与简介/徽章抢同一行横向空间 */
           <MoreMenuButton
@@ -452,7 +479,7 @@ const pill = (active: boolean) => cn(META_PILL, 'shrink-0', active && 'bg-primar
                   <Tag className="h-3 w-3 mt-px shrink-0" /><span className="min-w-0 break-words">{categoryLabel(app.category)}</span>
                 </span>
               )}
-              {app.update_ignored && (
+              {app.update_ignored && !hit && (
                 <Badge variant="secondary" className="bg-muted text-muted-foreground border-0 font-medium px-1.5 h-5 text-[10px] rounded-full shrink-0 gap-0.5">
                   <BellOff className="h-2.5 w-2.5" />已忽略
                 </Badge>
@@ -466,7 +493,12 @@ const pill = (active: boolean) => cn(META_PILL, 'shrink-0', active && 'bg-primar
           文字只显示一半」）。改为实测简介区高度 → 能完整放下几行就 clamp 几行，
           任何信息量下永远按整行截断（省略号由 clamp 自带）。 */}
       <div ref={descBoxRef} className="min-h-0 flex-1 overflow-hidden px-3 pt-2 pb-3">
-        {app.description && (
+        {hit ? (
+          <div data-testid="delist-reason" className="space-y-0.5">
+            <div className="text-[13px] font-semibold text-destructive/90">{delistReasonShort(app.blacklist_reason)}</div>
+            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{delistNotice(app)}</p>
+          </div>
+        ) : app.description && (
           // 0.6.319e（用户定稿）：16px 太大影响整体风格，回 14px 常规 + foreground/70
           <p ref={descTextRef} style={{ WebkitLineClamp: descLines, display: descLines === 0 ? 'none' : undefined }} className="text-sm text-foreground/70 line-clamp-3 leading-relaxed" title={descriptionPlainText(app.description)}>
             {descriptionPlainText(app.description)}

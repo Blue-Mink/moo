@@ -51,7 +51,7 @@ func parseMirrorList(body string) []config.MirrorOption {
 // fetchMirrorFile 拉一份镜像清单（仅新路径；root 无历史文件）。
 func (s *Server) fetchMirrorFile(ctx context.Context, name string) ([]config.MirrorOption, error) {
 	var lastErr error
-	for _, u := range config.ListFileURLs(s.Cfg.ListBaseURL, name, "") {
+	for _, u := range config.ListFileURLs(s.cfg().ListBaseURL, name, "") {
 		body, err := s.fetchListURL(ctx, u)
 		if err != nil {
 			lastErr = err
@@ -111,9 +111,9 @@ func (s *Server) mirrorsSync(w http.ResponseWriter, r *http.Request) {
 func (s *Server) mirrorsRestore(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	s.Cfg.HiddenMirrors = nil
+	s.cfg().HiddenMirrors = nil
 	config.SetHiddenMirrors(nil)
-	_ = s.Cfg.Save(dataDirOf(s))
+	_ = s.cfg().Save(dataDirOf(s))
 	gh, dk, err := s.refreshMirrorLists(ctx)
 	if err != nil {
 		writeJSON(w, map[string]any{"ok": false, "restored": true, "error": err.Error()})
@@ -135,7 +135,7 @@ func (s *Server) mirrorsHidden(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	cur := append([]string(nil), s.Cfg.HiddenMirrors...)
+	cur := append([]string(nil), s.cfg().HiddenMirrors...)
 	if req.Keys != nil {
 		cur = req.Keys
 	}
@@ -162,9 +162,9 @@ func (s *Server) mirrorsHidden(w http.ResponseWriter, r *http.Request) {
 			have[k] = true
 		}
 	}
-	s.Cfg.HiddenMirrors = cur
+	s.cfg().HiddenMirrors = cur
 	config.SetHiddenMirrors(cur)
-	if err := s.Cfg.Save(dataDirOf(s)); err != nil {
+	if err := s.cfg().Save(dataDirOf(s)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

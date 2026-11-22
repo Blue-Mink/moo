@@ -101,8 +101,20 @@ func (e *Engine) Download(ctx context.Context, o DownloadOpts) error {
 	}
 	var errs []string
 	for i, u := range o.Candidates {
+		// 2026-11-22 P2-1：每个候选先打线路标签（同一个 429，停在镜像那一跳
+		// 和停在源站是两回事），最终汇总天然是线路级的。
+		line := lineLabel(u)
+		// 该 host 仍在 429 限流窗内 → 不发请求（省额度、免一串重复 429）。
+		if d := downloadLimiter.remaining(urlHost(u)); d > 0 {
+			rerr := fmt.Errorf("429 限流中（剩 %s，跳过）", remainingText(d))
+			errs = append(errs, fmt.Sprintf("%s %s: %v", line, u, rerr))
+			if o.OnFail != nil {
+				o.OnFail(u, "限流跳过", rerr)
+			}
+			continue
+		}
 		if _, gerr := netguard.Public(u); gerr != nil {
-			errs = append(errs, fmt.Sprintf("%s: 地址被安全策略拒绝: %v", u, gerr))
+			errs = append(errs, fmt.Sprintf("%s %s: 地址被安全策略拒绝: %v", line, u, gerr))
 			if o.OnFail != nil {
 				o.OnFail(u, fmt.Sprintf("候选%d/%d", i+1, len(o.Candidates)), gerr)
 			}
@@ -112,7 +124,7 @@ func (e *Engine) Download(ctx context.Context, o DownloadOpts) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			errs = append(errs, fmt.Sprintf("%s: %v", u, err))
+			errs = append(errs, fmt.Sprintf("%s %s: %v", line, u, err))
 			if o.OnFail != nil {
 				o.OnFail(u, fmt.Sprintf("候选%d/%d", i+1, len(o.Candidates)), err)
 			}
@@ -122,7 +134,7 @@ func (e *Engine) Download(ctx context.Context, o DownloadOpts) error {
 			if herr := e.checkSHA256(o); herr != nil {
 				_ = os.Remove(o.DestPath)
 				_ = os.Remove(o.DestPath + ".part")
-				errs = append(errs, fmt.Sprintf("%s: %v", u, herr))
+				errs = append(errs, fmt.Sprintf("%s %s: %v", line, u, herr))
 				if o.OnFail != nil {
 					o.OnFail(u, "sha256", herr)
 				}
@@ -149,6 +161,30 @@ func HTTPHint(code int) string {
 		return "源站故障，稍后重试"
 	}
 	return "下载请求被拒绝"
+}
+
+// HTTPHintFor 是 HTTPHint 的 URL 感知版本（2026-11-21，FnDepot#24）：
+// 同一个 5xx，停在「加速镜像」这一跳和停在源站是两回事，旧实现统一报
+// 「源站故障」，把用户的排查方向指向作者仓库。
+func HTTPHintFor(code int, rawURL string) string {
+	if code >= 500 && isMirrorWrappedURL(rawURL) {
+		return "加速源故障（镜像不可用），与源站无关"
+	}
+	return HTTPHint(code)
+}
+
+// isMirrorWrappedURL 判断地址是否是「镜像前缀 + 嵌套绝对地址」形态
+// （https://<mirror>/https://raw.githubusercontent.com/…）。
+func isMirrorWrappedURL(u string) bool {
+	low := strings.ToLower(u)
+	rest := low
+	switch {
+	case strings.HasPrefix(low, "https://"):
+		rest = low[len("https://"):]
+	case strings.HasPrefix(low, "http://"):
+		rest = low[len("http://"):]
+	}
+	return strings.Contains(rest, "/https://") || strings.Contains(rest, "/http://")
 }
 
 // aria2Hint 从 aria2 客户端输出里识别常见原因（它只给英文短句）。
@@ -181,11 +217,25 @@ func aggregateHint(errs []string) string {
 			shaBad++
 		}
 	}
+	mirrorFail, limited := 0, 0
+	for _, e := range errs {
+		if strings.Contains(e, "加速源故障") {
+			mirrorFail++
+		}
+		// 「429 限流中」= 跳过未发请求；「源限流」= 真收到 429
+		if strings.Contains(e, "429 限流") || strings.Contains(e, "源限流") {
+			limited++
+		}
+	}
 	switch {
 	case missing == len(errs):
 		return "\n结论：所有候选地址都不存在（404）——源索引里的下载地址已失效，请等源维护者修复或换一个源安装。"
 	case shaBad == len(errs):
 		return "\n结论：下载到的包与索引 sha256 全部不一致——源索引与包文件不同步，请联系源维护者。"
+	case limited == len(errs):
+		return "\n结论：所有候选都被限流（429）——稍后重试，或换一条线路。"
+	case mirrorFail == len(errs):
+		return "\n结论：所有候选都停在加速镜像这一跳（镜像不可用），源站本身未必有问题——换一个加速源或稍后重试即可。"
 	}
 	return ""
 }
@@ -405,6 +455,19 @@ func (e *Engine) runHTTP(ctx context.Context, o DownloadOpts, u string) error {
 	}
 	defer resp.Body.Close()
 
+	// 2026-11-22 P2-1：429 = 源限流。解析 Retry-After 记下这条线路的解除时刻
+	// （Download 循环据此跳过同 host 的后续候选），并把等待时长回报给用户。
+	// 注意放在总量判定之前：offset>0 时 429 响应若走下面的分支会被当成数据流。
+	if resp.StatusCode == http.StatusTooManyRequests {
+		hint := HTTPHintFor(resp.StatusCode, u)
+		d := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		if d > 0 {
+			downloadLimiter.mark(urlHost(u), d)
+			return fmt.Errorf("HTTP %d（%s；Retry-After %s）", resp.StatusCode, hint, remainingText(d))
+		}
+		return fmt.Errorf("HTTP %d（%s）", resp.StatusCode, hint)
+	}
+
 	// 真实总量（ContentLength）优先于源声明值（声明单位/精度不可靠）
 	actualTotal := o.SizeBytes
 	switch {
@@ -425,7 +488,7 @@ func (e *Engine) runHTTP(ctx context.Context, o DownloadOpts, u string) error {
 		}
 		e.notify(o, 0, actualTotal)
 	default:
-		return fmt.Errorf("HTTP %d（%s）", resp.StatusCode, HTTPHint(resp.StatusCode))
+		return fmt.Errorf("HTTP %d（%s）", resp.StatusCode, HTTPHintFor(resp.StatusCode, u))
 	}
 
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)

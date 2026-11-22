@@ -1,10 +1,13 @@
 import React from 'react';
 import type { AppInfo } from '../api/client';
-import { descriptionPlainText } from '../api/client';
+import { descriptionPlainText, installedVersionLabel } from '../api/client';
 import { useCoarsePointer } from '../lib/hooks';
 import { cn } from '../lib/utils';
 import { centerAppRow } from '../lib/jumpToApp';
 import { installedStateLabel, isStoppedState } from '../lib/appRunState';
+// P1-4 已下架：极简=图标去饱和+红点 Ban 角标+红字状态；极光=渐变转灰+白底红字角标+暗玻璃原因条
+import { DELIST_BADGE, delistNotice, delistReasonShort } from '../lib/delist';
+import { Ban } from 'lucide-react';
 import AppIcon from './AppIcon';
 
 /**
@@ -56,7 +59,9 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode
   }, [highlightKey, apps]);
   return (
   <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-3 gap-y-6 justify-items-center text-center">
-    {apps.map(app => (
+    {apps.map(app => {
+      const hit = !!app.blacklisted;
+      return (
       <div
         key={app.key || app.appname}
         data-app-key={app.key || app.appname}
@@ -71,22 +76,44 @@ export const MinimalIconGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode
           isJumpTarget(app, highlightKey) && 'bg-primary/10 ring-2 ring-inset ring-primary/50',
         )}
       >
-        <AppIcon
-          app={app}
-          className="mx-auto h-[72px] w-[72px] shadow-[0_2px_8px_rgb(0_0_0/0.10)] transition-transform duration-200 group-hover:scale-[1.04]"
-          iconClassName="h-9 w-9"
-        />
-        <p className="mt-2 text-[13px] font-medium leading-tight truncate">{app.display_name}</p>
+        {/* P1-4：下架卡图标去饱和 + 右下角红色圆形 Ban 角标（白描边） */}
+        <div className="relative mx-auto h-[72px] w-[72px]">
+          <AppIcon
+            app={app}
+            className={cn(
+              'h-[72px] w-[72px] shadow-[0_2px_8px_rgb(0_0_0/0.10)] transition-transform duration-200 group-hover:scale-[1.04]',
+              hit && 'grayscale opacity-55',
+            )}
+            iconClassName="h-9 w-9"
+          />
+          {hit && (
+            <span
+              data-testid="delist-ban"
+              className="pointer-events-none absolute -bottom-1 -right-1 flex h-[22px] w-[22px] items-center justify-center rounded-full border-[2.5px] border-background bg-destructive text-white shadow-sm"
+            >
+              <Ban className="h-3 w-3" />
+            </span>
+          )}
+        </div>
+        <p className={cn('mt-2 text-[13px] font-medium leading-tight truncate', hit && 'text-muted-foreground')}>{app.display_name}</p>
         {/* 0.6.319n（用户令）：两态颜色对调——已安装=primary 蓝（突出「我有的」），未安装=灰
-            0.6.348：nostart（系统组件）也用灰，避免「未启动」被当成在用 */}
+            0.6.348：nostart（系统组件）也用灰，避免「未启动」被当成在用
+            P1-4：下架卡状态行改红字「已下架」（不塞原因正文，空间不够 → 详情页承接） */}
         <p className={cn('mt-0.5 text-[11px] truncate',
-          (!app.installed || app.status === 'nostart') ? 'text-muted-foreground'
+          hit ? 'font-semibold text-destructive'
+            : (!app.installed || app.status === 'nostart') ? 'text-muted-foreground'
             : isStoppedState(app) ? 'text-amber-600 dark:text-amber-500'
             : 'text-primary')}>
-          {statusLabel(app)}
+          {hit ? DELIST_BADGE : statusLabel(app)}
         </p>
+        {hit && (
+          <p className="mt-0.5 text-[10px] text-muted-foreground/70 truncate">
+            {app.installed ? '已安装' : '未安装'} · v{(app.installed ? installedVersionLabel(app) : app.latest_version) || '-'}
+          </p>
+        )}
       </div>
-    ))}
+      );
+    })}
   </div>
   );
 };
@@ -123,7 +150,10 @@ export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'd
   }, [highlightKey, apps]);
   return (
   <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-4">
-    {apps.map(app => (
+    {apps.map(app => {
+      const hit = !!app.blacklisted;
+      const acls = auroraFor(app.appname || app.display_name);
+      return (
       <div
         key={app.key || app.appname}
         data-app-key={app.key || app.appname}
@@ -138,13 +168,24 @@ export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'd
           'transition-transform duration-200 hover:scale-[1.01]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
           'touch-manipulation',
-          auroraFor(app.appname || app.display_name),
+          acls,
+          // P1-4：下架卡底部留出原因条高度
+          hit && 'bg-[#4b5563] pb-[86px]',
           // 渐变卡上用白色粗描边才看得见（primary 蓝压在彩底上几乎不可辨）
           isJumpTarget(app, highlightKey) && 'ring-[3px] ring-white/95 ring-offset-2 ring-offset-background',
         )}
       >
-        <div className="flex items-start gap-4">
-          <AppIcon app={app} className="h-16 w-16 shadow-lg" iconClassName="h-8 w-8" />
+        {/* P1-4：下架卡的「垫底」= 同一条 135° 渐变做 grayscale + brightness(.72)
+            （不是整块死灰，仍保留层次）；白色标题/状态/简介不受影响，保证可读 */}
+        {hit && (
+          <span
+            aria-hidden
+            data-testid="delist-aurora-gray"
+            className={cn('pointer-events-none absolute inset-0 z-0 grayscale brightness-[.72]', acls)}
+          />
+        )}
+        <div className="relative z-[1] flex items-start gap-4">
+          <AppIcon app={app} className={cn('h-16 w-16 shadow-lg', hit && 'grayscale opacity-70')} iconClassName="h-8 w-8" />
           <div className="min-w-0 pt-1">
             {/* 「推荐」位置 = 安装状态（用户定稿）；不渲染「查看详情」行 */}
             <p className="text-[11px] font-medium uppercase tracking-widest text-white/70">
@@ -154,8 +195,29 @@ export const AuroraGrid: React.FC<GridProps> = ({ apps, onDetail, clickMode = 'd
             {tagline(app) && <p className="mt-1 text-[13px] text-white/80 line-clamp-2 leading-snug">{tagline(app)}</p>}
           </div>
         </div>
+        {/* P1-4：右上角白底红字「已下架」胶囊（在灰底上最清楚） */}
+        {hit && (
+          <span
+            data-testid="delist-badge"
+            className="absolute right-3 top-3 z-[2] inline-flex items-center gap-1 rounded-full border border-white/70 bg-white/95 px-2 py-[3px] text-[10.5px] font-bold leading-none text-destructive shadow-[0_3px_10px_rgb(0_0_0/0.14)]"
+          >
+            <Ban className="h-3 w-3" />
+            {DELIST_BADGE}
+          </span>
+        )}
+        {/* P1-4：卡底暗玻璃原因条（原因短句 + notice，白色文字） */}
+        {hit && (
+          <div
+            data-testid="delist-reason"
+            className="absolute inset-x-2.5 bottom-2.5 z-[1] rounded-xl border border-white/20 bg-[rgb(10_14_22/0.5)] px-2.5 py-2 backdrop-blur-md"
+          >
+            <b className="block text-[11.5px] font-bold leading-tight text-[#ffb4ab]">{delistReasonShort(app.blacklist_reason)}</b>
+            <span className="mt-px block text-[10.5px] leading-snug text-white/80 line-clamp-1">{delistNotice(app)}</span>
+          </div>
+        )}
       </div>
-    ))}
+      );
+    })}
   </div>
   );
 };

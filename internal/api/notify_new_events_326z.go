@@ -80,7 +80,7 @@ func (s *Server) trackNotifyChannelHealth(key string, errs map[string]string) {
 		return
 	}
 	var enabled []config.NotifyChannel
-	for _, ch := range s.Cfg.NotifyChannels {
+	for _, ch := range s.cfg().NotifyChannels {
 		if ch.Enabled {
 			enabled = append(enabled, ch)
 		}
@@ -210,10 +210,10 @@ func (s *Server) notifyUpstreamCorrected(hits []upstreamCorrection) {
 	on := s.IsNotifyEventOn("upstream_corrected")
 	var news []upstreamCorrection
 	if on {
-		if s.Cfg.NotifyUpstreamNotified == nil {
-			s.Cfg.NotifyUpstreamNotified = make(map[string]string)
+		if s.cfg().NotifyUpstreamNotified == nil {
+			s.cfg().NotifyUpstreamNotified = make(map[string]string)
 		}
-		seen := s.Cfg.NotifyUpstreamNotified
+		seen := s.cfg().NotifyUpstreamNotified
 		for _, h := range hits {
 			if seen[h.AppName] == h.To {
 				continue // 该应用×目标版本已推过
@@ -222,7 +222,7 @@ func (s *Server) notifyUpstreamCorrected(hits []upstreamCorrection) {
 			news = append(news, h)
 		}
 		if len(news) > 0 {
-			_ = s.Cfg.Save(dataDirOf(s))
+			_ = s.cfg().Save(dataDirOf(s))
 		}
 	}
 	notifyMu.Unlock()

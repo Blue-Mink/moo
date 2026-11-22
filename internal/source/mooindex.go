@@ -118,7 +118,7 @@ func buildCandidatesLimited(u string, mirrorLimit int) []string {
 					}
 				}
 				used := 0
-				for _, opt := range config.GitHubMirrorOptions() {
+				for _, opt := range config.GitHubMirrorOptionsHealthy() {
 					if opt.URL == "" { // auto = 非直连项
 						continue
 					}
@@ -241,7 +241,7 @@ func splitRawPath(rest string) (ownerRepo, branch, file string, ok bool) {
 func ghVariants(ownerRepo, branch, file, rawURL string, mirrorLimit int) []string {
 	var out []string
 	used := 0
-	for _, opt := range config.GitHubMirrorOptions() {
+	for _, opt := range config.GitHubMirrorOptionsHealthy() {
 		if opt.URL == "" { // auto/custom/direct = 无固定前缀
 			continue
 		}

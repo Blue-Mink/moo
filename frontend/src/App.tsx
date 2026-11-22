@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useDebouncedValue, useKeyboardDock, useIsDesktop, useCoarsePointer } from './lib/hooks';
-import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download, Menu } from 'lucide-react';
+import { LayoutGrid, CheckCircle2, RefreshCw, Settings, ChevronsLeft, ChevronsRight, Search, X, Film, ArrowDownToLine, Globe, Loader2, AlertTriangle, CircleX, CircleCheck, WifiOff, Compass, Brain, Clapperboard, Network, ChevronsUpDown, ChevronDown, Gamepad2, Camera, Zap, Code2, Home, Database, Cpu, Star, BellOff, EyeOff, Grid2x2, Sparkles, MousePointer2, Download, Menu } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Badge } from './components/ui/badge';
@@ -28,7 +28,7 @@ import FpkDownloads from './components/FpkDownloads';
 import { Dialog, DialogContent, DialogTitle } from './components/ui/dialog';
 import AppRowList from './components/AppRowList';
 import { MinimalIconGridM, AuroraGridM } from './components/ViewModeGrids';
-import { fetchApps, fetchAppDetail, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, hideApp, unhideApp, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads } from './api/client';
+import { fetchApps, fetchAppDetail, triggerCheck, installApp, stageApp, updateApp, uninstallApp, fetchStatus, fetchStoreUpdate, triggerStoreUpdate, reloadApps, ignoreUpdate, unignoreUpdate, hideApp, unhideApp, fetchRecommended, fetchDedupSummary, fetchWizard, controlApp, appWebUrl, isPublicAccessContext, urlReachableInPublicContext, isFnOSAppWebview, fetchPanelDetail, sourceLabel, effectiveMaintainer, fetchFavorites, toggleFavorite, fetchSettings, fetchSearchSourceKeys, updateSettings, fetchFpkDownloads, fetchManualUpdates, fetchSelfUpdateLast, type ManualUpdatesResponse, type SelfUpdateLast } from './api/client';
 import { connectFnOSBridge, openAppInShell } from './lib/fnos-bridge';
 import { alphaInitial } from './lib/pinyin';
 import { isLinkLike, sourceKey } from './lib/sourceKey';
@@ -46,6 +46,8 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/comp
 import { cn } from "@/lib/utils"
 import { stableApps } from "@/lib/stableApps"
 import { resolveDisplayApps } from "@/lib/recoPins"
+// 批次①（用户令 2026-11-22）：更新类提示只在「有更新」页显示；入口用状态点兜底。
+import { shouldShowUpdatePrompts, updateBadgeKind, updateIssueCount } from "@/lib/updatePrompts"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,7 +61,7 @@ import {
 
 // 分类体系以飞牛官方应用中心为准（实用效率/开发工具/生活服务/影音娱乐/
 // 游戏/AI/备份同步/摄影摄像/驱动/下载），fndepot 生态补充官方未覆盖的
-// 媒体自动化/网络工具/浏览器，共 14 类（见后端 classify.go 注释）。
+// 媒体自动化/网络工具/浏览器，共 13 类（见后端 classify.go 注释）。
 const CATEGORIES = [
   { key: 'ai', label: 'AI', icon: Brain },
   { key: 'media', label: '影音娱乐', icon: Film },
@@ -116,6 +118,15 @@ const parseHashParams = (): { app: string | null; settings: string | null } => {
     settings = DEEPLINK_TAB_KEYS.includes(t) ? t : 'system';
   }
   return { app, settings };
+};
+
+// P1-1：手动更新队列里的到期时间本地化展示（到「分」即可）。
+// 解析失败 / 缺字段返回空串——调用方据此省略该段，不显示 Invalid Date。
+const formatManualUntil = (until?: string): string => {
+  if (!until) return '';
+  const d = new Date(until);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
 const App: React.FC = () => {
@@ -254,6 +265,12 @@ const App: React.FC = () => {
 
   const [storeHasUpdate, setStoreHasUpdate] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'installed' | 'update_available' | 'recommended'>('all');
+  // P1-1：自动更新「需人工处理」队列（/api/updates/manual，requireAdmin）。
+  // null = 尚未拿到/拿不到（403、旧版本无此端点）→ 整条提示不渲染。
+  const [manualUpdates, setManualUpdates] = useState<ManualUpdatesResponse | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  // P1-2：上次自更新对账结果（failed / unknown 才提示；confirmed 不打扰）。
+  const [selfUpdateLast, setSelfUpdateLast] = useState<SelfUpdateLast | null>(null);
   const [recommendedApps, setRecommendedApps] = useState<RecommendedApp[]>([]);
   // 应用收藏（目录 key 数组，顺序 = 收藏先后；发现页「收藏列表」按此顺序渲染）。
   const [favoriteKeys, setFavoriteKeys] = useState<string[]>([]);
@@ -556,9 +573,28 @@ const App: React.FC = () => {
     });
   }, []);
 
+  // P1-1：手动更新队列（/api/updates/manual）最多 5 分钟拉一次。
+  // 只在启动与目录刷新后拉，不做轮询：静默期到期是小时级的，5 分钟足够新鲜；
+  // 失败（403 非管理员 / 旧后端 404）静默为 null，整条提示不渲染。
+  const manualFetchedAtRef = useRef(0);
+  const loadManualUpdates = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && now - manualFetchedAtRef.current < 5 * 60 * 1000) return;
+    manualFetchedAtRef.current = now;
+    try {
+      const data = await fetchManualUpdates();
+      setManualUpdates(data.items.length > 0 ? data : null);
+    } catch (e) {
+      console.warn('manual updates unavailable:', e);
+      setManualUpdates(null);
+    }
+  }, []);
+
   useEffect(() => {
     loadApps();
     // 0.6.325 C6（FINDING-325C-1 修复）：挂载首载即拉一次已下载 FPK 数——
+    void loadManualUpdates(true);
+    fetchSelfUpdateLast().then(setSelfUpdateLast).catch(() => { /* 403/旧后端静默 */ });
     // 此前仅「进一次下载页/关一次对话框」才补齐，F5/新开页首载角标恒不显
     void refreshFpkCount();
     fetchStoreUpdate().then(info => setStoreHasUpdate(info.has_update)).catch(() => {});
@@ -794,6 +830,7 @@ const App: React.FC = () => {
       setUpgradeAllowed(data.upgrade_allowed !== false);
       setLastCheck(data.last_check);
       loadDedup(); // 目录变了 → 三档计数同步
+      void loadManualUpdates(); // 同理：目录刷新后手动处理队列可能已变（5 分钟节流）
       if (data.apps.length > 0) {
         setLoadStatus('loaded');
       } else if (!data.last_check && autoReload) {
@@ -1120,6 +1157,16 @@ const App: React.FC = () => {
         loadApps();
         return;
       }
+      // SSE_RESUME（2026-11-21）：连接中断，但服务端操作仍在后台继续——不再报
+      // 「更新请求失败 / Load failed」，改为提示 + 延迟刷新目录（3s / 10s 各一次）。
+      const bg = error as { background?: boolean; opId?: string } | null;
+      if (bg && bg.background === true) {
+        toast.info('连接中断，操作仍在后台继续，正在刷新…');
+        setAppOp(appname, null);
+        window.setTimeout(() => { void loadApps(); }, 3000);
+        window.setTimeout(() => { void loadApps(); }, 10000);
+        return;
+      }
       console.error(error);
       toast.error('安装请求失败', {
         action: {
@@ -1278,6 +1325,16 @@ const App: React.FC = () => {
         loadApps();
         return;
       }
+      // SSE_RESUME（2026-11-21）：连接中断，但服务端操作仍在后台继续——不再报
+      // 「更新请求失败 / Load failed」，改为提示 + 延迟刷新目录（3s / 10s 各一次）。
+      const bg = error as { background?: boolean; opId?: string } | null;
+      if (bg && bg.background === true) {
+        toast.info('连接中断，操作仍在后台继续，正在刷新…');
+        setAppOp(appname, null);
+        window.setTimeout(() => { void loadApps(); }, 3000);
+        window.setTimeout(() => { void loadApps(); }, 10000);
+        return;
+      }
       console.error(error);
       // 0.6.5xx：把后端原文带到主提示上（此前 409「没有可更新的更高版本」
       // 只显示成「更新请求失败」，用户不知道原因；原文只藏在「上报」弹窗里）。
@@ -1326,6 +1383,15 @@ const App: React.FC = () => {
       if (error instanceof DOMException && error.name === 'AbortError') {
         toast.info('已取消');
         setAppOp(appname, null);
+        return;
+      }
+      // SSE_RESUME（审计 G2）：卸载同样可能断流——操作在后台跑完时不再报「卸载请求失败」。
+      const bg = error as { background?: boolean; opId?: string } | null;
+      if (bg && bg.background === true) {
+        toast.info('连接中断，卸载仍在后台继续，正在刷新…');
+        setAppOp(appname, null);
+        window.setTimeout(() => { void loadApps(); }, 3000);
+        window.setTimeout(() => { void loadApps(); }, 10000);
         return;
       }
       console.error(error);
@@ -1604,6 +1670,20 @@ const App: React.FC = () => {
       update_available: apps.filter(a => a.has_update && !a.user_hidden).length,
       recommended: recommendedApps.length
   }), [apps, recommendedApps]);
+
+  // 批次①（用户令 2026-11-22）：两块更新提示（自更新未生效 / 需手动处理）只在
+  // 「有更新」页渲染；其它 tab 不显示，但不静默丢失——侧栏/桌面 Dock/移动端 Dock
+  // 的「有更新」入口按 updateBadgeKind 显示红点(status=red)或琥珀点(amber)，
+  // 并在 title 里补「，N 项需处理」。判定逻辑见 lib/updatePrompts.ts（有单测）。
+  const selfUpdateProblem = !!selfUpdateLast
+    && (selfUpdateLast.status === 'failed' || selfUpdateLast.status === 'unknown');
+  const manualUpdateCount = manualUpdates?.items.length ?? 0;
+  const updateIssues = updateIssueCount(manualUpdateCount, selfUpdateProblem);
+  const updateBadge = updateBadgeKind({
+    updateCount: counts.update_available,
+    manualCount: manualUpdateCount,
+    selfUpdateProblem,
+  });
 
   // 0.6.325 C4：下载数角标（0 不显）；C6 起计数挂在顶栏「下载」钮上。
   // 计数=已下载 FPK 条数；宿主 FpkDownloads 列表变化经 onCountChange 即时回传，
@@ -1902,11 +1982,13 @@ const App: React.FC = () => {
                   variant={activeFilter === 'update_available' ? 'default' : 'ghost'}
                   className={cn("w-full h-10 shadow-none rounded-lg font-medium", sidebarCollapsed ? "justify-center px-0" : "justify-start px-3")}
                   onClick={() => { switchFilter('update_available'); }}
+                  title={updateIssues > 0 ? `有更新（${counts.update_available}），${updateIssues} 项需处理` : undefined}
                 >
                   <div className="relative shrink-0">
                     <RefreshCw className={cn("h-4 w-4", !sidebarCollapsed && "mr-3")} />
-                    {sidebarCollapsed && counts.update_available > 0 && (
-                      <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-destructive" />
+                    {/* 批次①：红点=有应用可更新；琥珀点=无应用可更新但有需人工处理项 */}
+                    {updateBadge !== 'none' && (
+                      <span className={cn("absolute -top-1 -right-1 h-2 w-2 rounded-full", updateBadge === 'red' ? 'bg-destructive' : 'bg-amber-500')} />
                     )}
                   </div>
                   {!sidebarCollapsed && (
@@ -1927,7 +2009,9 @@ const App: React.FC = () => {
                 </Button>
               </TooltipTrigger>
               {sidebarCollapsed && (
-                <TooltipContent side="right">有更新 ({counts.update_available})</TooltipContent>
+                <TooltipContent side="right">
+                  有更新 ({counts.update_available}){updateIssues > 0 ? `，${updateIssues} 项需处理` : ''}
+                </TooltipContent>
               )}
             </Tooltip>
             {/* 0.6.325 C6：「下载」移出 Dock/侧栏=顶栏搜索框后按钮+主页上方弹窗（用户令） */}
@@ -2590,6 +2674,85 @@ const App: React.FC = () => {
             </div>
           ) : loadStatus === 'loaded' ? (
             <>
+              {/* 批次①（用户令 2026-11-22）：下面两块「更新问题」提示只在「有更新」
+                  页渲染——全部/已安装/发现 一律不显示；不静默丢失由侧栏 / 桌面 Dock /
+                  移动端 Dock 的「有更新」入口状态点 + title「，N 项需处理」兜底。 */}
+              {shouldShowUpdatePrompts(activeFilter) && (<>
+              {/* P1-2：上次自更新未生效/结果未知（GET /api/self-update/last）。
+                  confirmed 不提示；旧后端/403 时 selfUpdateLast 为 null，不渲染。 */}
+              {selfUpdateProblem && (
+                <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/5 px-3 py-2.5" data-self-update-warning>
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">
+                        {selfUpdateLast.status === 'failed' ? '上次自更新未生效' : '上次自更新结果未知'}
+                        {selfUpdateLast.from_version && selfUpdateLast.to_version && (
+                          <span className="ml-1 text-xs font-normal tabular-nums text-muted-foreground">
+                            v{selfUpdateLast.from_version} → v{selfUpdateLast.to_version}
+                          </span>
+                        )}
+                      </p>
+                      {selfUpdateLast.detail && (
+                        <p className="mt-0.5 text-xs text-muted-foreground break-words">{selfUpdateLast.detail}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSettingsVisible(true)}
+                      className="inline-flex h-7 shrink-0 items-center rounded-full bg-amber-500/15 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:text-amber-400"
+                    >
+                      前往设置
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* P1-1：自动更新「需人工处理」队列（管理员经 /api/updates/manual）。
+                  无条目时整条不渲染、不占空间；「去更新」切到「有更新」筛选并收起。
+                  在滚动内容区顶部（桌面/移动同一处），不塞进侧栏。 */}
+              {manualUpdates && manualUpdates.items.length > 0 && (
+                <div className="mb-3 overflow-hidden rounded-xl border border-border bg-card" data-manual-updates>
+                  <button
+                    type="button"
+                    onClick={() => setManualOpen(v => !v)}
+                    aria-expanded={manualOpen}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                    <span className="text-sm font-medium">{manualUpdates.items.length} 个应用需手动处理</span>
+                    <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform', manualOpen && 'rotate-180')} />
+                  </button>
+                  {manualOpen && (
+                    <div className="border-t border-border">
+                      <ul className="divide-y divide-border">
+                        {manualUpdates.items.map(item => {
+                          const until = formatManualUntil(item.until);
+                          const name = apps.find(a => a.appname === item.app)?.display_name || item.app;
+                          return (
+                            <li key={`${item.app}@${item.version || ''}@${item.reason}`} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2">
+                              <span className="text-sm font-medium break-all">{name}</span>
+                              {item.version && <span className="text-xs tabular-nums text-muted-foreground">→ {item.version}</span>}
+                              <span className="text-xs text-muted-foreground">{item.reason_label || item.reason}</span>
+                              {until && <span className="text-xs text-muted-foreground">· {until} 后自动重试</span>}
+                              {item.missing && <span className="text-xs text-amber-600">· 缺 {item.missing}</span>}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <div className="flex justify-end px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => { switchFilter('update_available'); setManualOpen(false); }}
+                          className="inline-flex h-7 items-center rounded-full bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          去更新
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              </>)}
               {/* 0.6.535b（用户令）：源列表胶囊跳转后的来源筛选提示，文案改成
                   「☰<源名>的源」——可一键清除；列表已精确过滤到该源。 */}
               {sourceOnly && (
@@ -2732,6 +2895,8 @@ const App: React.FC = () => {
           active={activeFilter}
           onSelect={handleDockTap}
           updateCount={counts.update_available}
+          updateBadge={updateBadge}
+          updateIssues={updateIssues}
           storeHasUpdate={storeHasUpdate}
           order={dockOrder ?? undefined}
           bottomOffset={dockOffsetPx}
@@ -2776,7 +2941,7 @@ const App: React.FC = () => {
               key={key}
               type="button"
               onClick={() => handleDockTap(key)}
-              title={`${label}（${count}）`}
+              title={key === 'update_available' && updateIssues > 0 ? `${label}（${count}），${updateIssues} 项需处理` : `${label}（${count}）`}
               className={cn(
                 'relative flex w-[100px] flex-col items-center gap-1.5 rounded-2xl px-2 py-2 transition-[background-color,color,transform] duration-100 active:scale-90',
                 active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
@@ -2784,8 +2949,9 @@ const App: React.FC = () => {
             >
               <Icon className="h-8 w-8" strokeWidth={active ? 2.2 : 1.8} />
               <span className={cn('text-[12px] leading-none', active && 'font-semibold')}>{label}</span>
-              {key === 'update_available' && count > 0 && (
-                <span className="absolute right-3 top-1 h-2 w-2 rounded-full bg-destructive" />
+              {/* 批次①：红点=有应用可更新；琥珀点=无应用可更新但有需人工处理项 */}
+              {key === 'update_available' && updateBadge !== 'none' && (
+                <span className={cn('absolute right-3 top-1 h-2 w-2 rounded-full', updateBadge === 'red' ? 'bg-destructive' : 'bg-amber-500')} />
               )}
             </button>
           );

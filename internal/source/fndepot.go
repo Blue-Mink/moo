@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"runtime"
 	"sort"
 	"strconv"
@@ -117,7 +118,14 @@ func (f *FnDepot) fetchJSON() ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	return data, indexBaseDir(winner), nil
+	return data, indexBaseForWinner(winner), nil
+}
+
+// indexBaseForWinner 把「胜出索引地址」折算成相对资源 base。
+// P1-4（2026-11-21）：先去掉镜像前缀壳，base 永远是内层 raw 直链——
+// 镜像域名会下线，绝不能经 base 拼进 download_url/icon_url 落库。
+func indexBaseForWinner(winner string) string {
+	return indexBaseDir(canonicalMirrorURL(winner))
 }
 
 // fetchIndex 拉取索引，返回 (内容, 胜出 URL)。
@@ -294,6 +302,56 @@ func indexBaseDir(winner string) string {
 		}
 	}
 	return p
+}
+
+// canonicalMirrorURL 剥掉「镜像前缀 + 内层绝对地址」的外壳，返回内层直链。
+//
+// 只认两种形态都成立的地址才剥：前缀是**源站形态**（host + 可选单个 "/"，没有
+// 路径前缀），内层主机属于 GitHub 系（raw/github/objects/codeload）。这样既覆盖
+// gh-proxy 类镜像壳（https://mirror/<https://raw…>），又不会改写
+// "https://proxy.example.com/gh/<https://github.com/…>" 这类带路径前缀的
+// 自定义反向代理（那可能是用户唯一可达通道，不能替他改掉）。
+func canonicalMirrorURL(u string) string {
+	u = strings.TrimSpace(u)
+	low := strings.ToLower(u)
+	var rest string
+	switch {
+	case strings.HasPrefix(low, "https://"):
+		rest = u[len("https://"):]
+	case strings.HasPrefix(low, "http://"):
+		rest = u[len("http://"):]
+	default:
+		return u
+	}
+	rl := strings.ToLower(rest)
+	for _, marker := range []string{"/https://", "/http://"} {
+		i := strings.Index(rl, marker)
+		if i <= 0 {
+			continue
+		}
+		// 前缀必须只是主机（允许末尾一个 "/" 已被 marker 消耗）。
+		if strings.Contains(rest[:i], "/") {
+			continue
+		}
+		inner := rest[i+1:]
+		if isGitHubHostURL(inner) {
+			return inner
+		}
+	}
+	return u
+}
+
+// isGitHubHostURL 判断地址是否落在可被 GitHub 加速前缀代理的主机集合内。
+func isGitHubHostURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	switch strings.ToLower(u.Host) {
+	case "github.com", "raw.githubusercontent.com", "objects.githubusercontent.com", "codeload.github.com":
+		return true
+	}
+	return false
 }
 
 // raceFetch 并发竞速一组 URL，返回第一个 200 的 JSON（包级：FnDepot 与
@@ -798,6 +856,9 @@ func (f *FnDepot) Fetch() (map[string]*App, error) {
 // base = fnpack.json 所在目录（Fetch 实测胜出的 URL 前缀）；相对路径
 // （download_url/图标/预览）一律按它补全，base 为空时回退仓库 URL 猜测。
 func translateEntry(name string, m map[string]any, srcName, repoURL, base string) *App {
+	// P1-4：仓库地址也可能带镜像壳（用户直接贴镜像链接加源），回退分支
+	// 必须用去壳后的地址拼 raw，否则会拼出 "raw.githubusercontent.com/https:/…"。
+	repoURL = canonicalMirrorURL(repoURL)
 	a := &App{
 		Name:           name,
 		Source:         srcName,

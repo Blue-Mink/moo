@@ -37,6 +37,8 @@ interface Props {
   operation?: AppOperation;
   isInstalled: boolean;
   canUpdate: boolean;
+  /** P1-4 已下架：未装 → 主操作位换「查看说明」；已装 → 打开 + 显式「卸载」；不提供安装/更新 */
+  delisted?: boolean;
   canOpen: boolean;
   canStart: boolean;
   controlBusy: boolean;
@@ -59,16 +61,25 @@ const AppRowActions: React.FC<Props> = ({
   app, operation, isInstalled, canUpdate, canOpen, canStart, controlBusy,
   upgradeAllowed = true, controlling, favorite, onInstall, onUpdate, onOpenApp,
   onControl, onDetail, onUninstall, onIgnoreUpdate, onUnignoreUpdate, onInstallDone,
+  delisted = false,
 }) => {
   const { items, dangerItems, fpkBusy } = useAppMoreMenu({
     app, operation, isInstalled, canUpdate, controlBusy, controlling,
     onUpdate, onControl, onUninstall, onIgnoreUpdate, onUnignoreUpdate,
-    onInstalled: onInstallDone, onNeedDetail: onDetail,
+    onInstalled: onInstallDone, onNeedDetail: onDetail, delisted,
   });
   const hasMore = items.length > 0 || dangerItems.length > 0;
   const hasPrimary = !operation && (!isInstalled || canUpdate || controlBusy || canStart || canOpen);
 
-  const primaryBtn = !isInstalled ? (
+  const primaryBtn = delisted && !isInstalled ? (
+    /* P1-4：未装的已下架应用 → 只给「查看说明」（不渲染安装，点进去由详情红条解释） */
+    <button
+      onClick={() => onDetail?.(app)}
+      className="pill hit-40 shrink-0 h-7 px-4 text-[13px] font-semibold border border-destructive/40 bg-destructive/10 text-destructive active:bg-destructive/15"
+    >
+      查看说明
+    </button>
+  ) : !isInstalled ? (
     <button
       onClick={() => onInstall(app)}
       className="pill hit-40 shrink-0 bg-muted/60 text-foreground border border-border/50 h-7 px-4 text-[13px] font-semibold active:bg-muted"
@@ -134,7 +145,21 @@ const AppRowActions: React.FC<Props> = ({
       {favorite}
       {/* 主操作槽：无主操作时 ⋯ 占这一槽（0.6.365 定稿「放在打开那里」），
           保证「有/无主操作」两行类型的 ⋯ 落点完全同高 */}
-      {hasPrimary ? primaryBtn : moreBtn}
+      {hasPrimary ? (
+        // P1-4：已装的已下架应用 = 「打开」（可继续用）+ 显式「卸载」（红），并排同槽
+        delisted && isInstalled && onUninstall ? (
+          <div className="flex items-center gap-1.5">
+            {primaryBtn}
+            <button
+              onClick={() => onUninstall(app)}
+              title={`卸载 ${app.display_name}`}
+              className="pill hit-40 shrink-0 h-7 px-3 text-[13px] font-semibold border border-destructive/40 bg-destructive/10 text-destructive active:bg-destructive/15"
+            >
+              卸载
+            </button>
+          </div>
+        ) : primaryBtn
+      ) : moreBtn}
       {/* ⋯ 槽恒占位（0.6.367）：三槽总高固定 ⇒ 收藏星标、主操作、⋯ 在
          有/无主操作的行里相对行中心偏移逐像素一致，跨行不跳位 */}
       <div className="h-7 w-7 shrink-0">{hasPrimary ? moreBtn : null}</div>

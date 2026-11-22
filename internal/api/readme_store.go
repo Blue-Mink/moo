@@ -103,7 +103,7 @@ func newReadmeStore(dir string) *readmeStore {
 func (s *Server) readmeStore() *readmeStore {
 	s.readmeStoreOnce.Do(func() {
 		dir := ""
-		if s.Cfg != nil {
+		if s.cfg() != nil {
 			dir = filepath.Join(dataDirOf(s), "cache", "readmes")
 		}
 		s.readmeStoreV = newReadmeStore(dir)
