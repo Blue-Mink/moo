@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-22",
+  "entries": [
+    {
+      "app": "global-radio",
+      "source": "Blue-Mink",
+      "reason": "policy",
+      "notice": "演示用测试条目：验证「已下架」角标、详情说明与安装拦截；到期自动失效",
+      "since": "2026-11-22",
+      "until": "2026-11-25",
+      "ref": "test-20261122"
+    }
+  ]
+}
