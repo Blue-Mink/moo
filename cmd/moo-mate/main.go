@@ -1,5 +1,5 @@
 // Command moo-mate 是 Moo Mate：从第三方 GitHub 仓库发现飞牛应用，
-// 生成 moo.json 并托管在自身 HTTP 端口，自动加源到本机 Moo（免上传 GitHub）。
+// 生成 moo.json 并托管在自身 HTTP 端口，自动加源到本机 Moo（无需上传 GitHub）。
 //
 // 用法：
 //

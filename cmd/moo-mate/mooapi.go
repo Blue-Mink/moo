@@ -1,5 +1,5 @@
 // Package main 是 Moo Mate：从第三方仓库发现飞牛应用，生成 moo.json，
-// 托管在自身 HTTP 端口并自动加源到本机 Moo（免上传 GitHub）。
+// 托管在自身 HTTP 端口并自动加源到本机 Moo（无需上传 GitHub）。
 package main
 
 import (
