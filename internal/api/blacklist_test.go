@@ -31,9 +31,15 @@ var testBLPub, testBLPriv = func() (minisign.PublicKey, minisign.PrivateKey) {
 // useTestBlacklistKey 把生产内嵌公钥临时换成测试公钥（用例结束自动还原）。
 func useTestBlacklistKey(t *testing.T) {
 	t.Helper()
+	blacklistVerifyKeyMu.Lock()
 	old := blacklistVerifyKey
 	blacklistVerifyKey = testBLPub
-	t.Cleanup(func() { blacklistVerifyKey = old })
+	blacklistVerifyKeyMu.Unlock()
+	t.Cleanup(func() {
+		blacklistVerifyKeyMu.Lock()
+		blacklistVerifyKey = old
+		blacklistVerifyKeyMu.Unlock()
+	})
 }
 
 // 2026-11-22 远端下架黑名单单测：匹配粒度 / 目录闸 / 拉取失败语义（

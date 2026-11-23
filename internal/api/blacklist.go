@@ -387,7 +387,18 @@ func (s *Server) fetchBlacklistTextFor(ctx context.Context, urls []string) (stri
 
 // blacklistVerifyKey 黑名单清单的验签公钥（与自更新共用同一把 minisign 公钥）。
 // 做成变量只为单测能换成临时生成的密钥对；生产恒为内嵌公钥。
-var blacklistVerifyKey = selfUpdatePubkey
+// 后台刷新 goroutine 会跨用例存活，读写必须走锁（-race 实测竞态）。
+var (
+	blacklistVerifyKeyMu sync.RWMutex
+	blacklistVerifyKey   = selfUpdatePubkey
+)
+
+// blacklistPubkey 读当前验签公钥（锁内拷贝，避免与单测替换并发）。
+func blacklistPubkey() minisign.PublicKey {
+	blacklistVerifyKeyMu.RLock()
+	defer blacklistVerifyKeyMu.RUnlock()
+	return blacklistVerifyKey
+}
 
 // verifyBlacklistSignature 校验清单的 minisign 分离签名。
 // 黑名单是「下架」控制面：清单经第三方镜像拉取，不验签时镜像可删条目
@@ -397,7 +408,7 @@ func verifyBlacklistSignature(msg, sig []byte) error {
 	if len(bytes.TrimSpace(sig)) == 0 {
 		return errors.New("缺少 minisign 签名（.minisig）")
 	}
-	if !minisign.Verify(blacklistVerifyKey, msg, sig) {
+	if !minisign.Verify(blacklistPubkey(), msg, sig) {
 		return errors.New("minisign 验签失败（清单可能被篡改）")
 	}
 	return nil
