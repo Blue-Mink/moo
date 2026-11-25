@@ -157,7 +157,6 @@ https://github.com/kasbuky-sudo/fndepot
 https://github.com/tnnevol/fn-os-apps
 https://github.com/lianhua/fndepot
 https://github.com/ccrabit/workbuddy2api-hub
-https://github.com/17funnyway8-ux/niudao
 https://github.com/yujian0815/fnmedia-ext
 https://github.com/qilin-zhu/FnDepot
 https://github.com/w5456448820/FnDepot
@@ -198,3 +197,16 @@ https://github.com/zunney/FnDepot
 https://github.com/wangbujiangwude/fndepot-source
 https://github.com/melchior-voidwolf/ofterm
 https://github.com/zsunny6658/ai-nvr
+https://github.com/sinoquan/FnDepot
+https://github.com/gulugulupao/FnDepot
+https://github.com/alexwcy123/FnDepot
+https://github.com/Jadeiin/FnDepot
+https://github.com/zcc050/FnDepot
+https://github.com/jimboo7339/FnDepot
+https://github.com/Homomuse/fndepot
+https://github.com/superproxy/FnDepot
+https://github.com/Rogue324/FnDepot-FnSVN
+https://github.com/firewelly/FnDepot
+https://github.com/Zyc009234/x.erp
+https://github.com/maglcal/fnmedia-dl
+https://github.com/moyilong/ofterm
