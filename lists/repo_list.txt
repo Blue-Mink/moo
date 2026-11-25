@@ -113,3 +113,13 @@ https://github.com/zsunny6658/ai-nvr
 
 # 2026-11-25 追加：用户点名收录 —— 老汪的飞牛应用源（仓库根自带 fnpack.json V2，OESP风扇助手 + IP动态感知）
 https://github.com/wangbujiangwude/fndepot-source
+
+# 2026-11-25 追加：710850609/fndepot + EWEDLCM/FnDepot 两清单缺失源中，有实质新增应用的 8 条（精选口径：非 fork、0 新增的纯重复源不进）
+https://github.com/gulugulupao/FnDepot
+https://github.com/Jadeiin/FnDepot
+https://github.com/zcc050/FnDepot
+https://github.com/jimboo7339/FnDepot
+https://github.com/Rogue324/FnDepot-FnSVN
+https://github.com/Homomuse/fndepot
+https://github.com/superproxy/FnDepot
+https://github.com/Zyc009234/x.erp
