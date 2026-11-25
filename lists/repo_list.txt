@@ -110,3 +110,6 @@ https://github.com/melchior-voidwolf/ofterm
 
 # 2026-11-20 追加：issue #22 收录申请 —— aiNVR（作者仓库根自带 moo.json，x86，v2.3.0）
 https://github.com/zsunny6658/ai-nvr
+
+# 2026-11-25 追加：用户点名收录 —— 老汪的飞牛应用源（仓库根自带 fnpack.json V2，OESP风扇助手 + IP动态感知）
+https://github.com/wangbujiangwude/fndepot-source
