@@ -195,3 +195,4 @@ https://github.com/tfgzs/FnDepot
 https://github.com/xfengyin/FnDepot
 https://github.com/xnkyn/FnDepot
 https://github.com/zunney/FnDepot
+https://github.com/wangbujiangwude/fndepot-source
