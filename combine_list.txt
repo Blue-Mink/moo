@@ -196,3 +196,5 @@ https://github.com/xfengyin/FnDepot
 https://github.com/xnkyn/FnDepot
 https://github.com/zunney/FnDepot
 https://github.com/wangbujiangwude/fndepot-source
+https://github.com/melchior-voidwolf/ofterm
+https://github.com/zsunny6658/ai-nvr
