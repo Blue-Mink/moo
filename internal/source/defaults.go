@@ -6,16 +6,15 @@ import (
 	"strings"
 )
 
-// bundledDefaultSources 0.6.247 起：内置默认应用源集（0.6.316 起 20 条，
-// 0.6.326 起 21 条 = 并入 javycoder/fnos_music_ext；0.6.384 起 29 条 = 再并入 8 个
-// 主 NAS 全量普查确认的自建原生源；2026-11-01 同日追加 bekafka/FnDepot、
-// latte03/fnos-apps、bearhero520/FnDepot 3 条 → 32 条；复核后再追加
-// mac1256/FnDepot、maxsusu/FnDepot、ccyo-fang/FnDepot 3 条 → 35 条；再并入已自带
-// moo.json 的 17funnyway8-ux/niudao、yujian0815/fnmedia-ext 2 条 → 37 条；
-// **2026-11-08 按用户令与仓库根 repo_list.txt 全量对齐 → 96 条**），与仓库根 repo_list.txt
-// 逐条一致；每行一个源地址，全部带协议）。0.6.316 前 = 2026-10-02 备用
-// 测试机在用全量 156 源 + fn-knock 官方源（157 条）；0.6.316 起按用户
-// 指令收敛为 Blue-Mink 精选源，不含官方飞牛应用中心（它是面板账号派生
+// bundledDefaultSources 0.6.247 起：内置默认应用源集（精选集）。
+// **2026-11-26 按用户令收敛为 24 条**：21 条基础精选集（= 0.6.326 时代清单：
+// 20 源 + javycoder/fnos_music_ext 音源扩展）+ 3 个自带索引的应用源：
+// yujian0815/fnmedia-ext（影视扩展，moo.json）、DPanel-dev/FnDepot（dpanel，
+// fnpack.json）、wangbujiangwude/fndepot-source（ipsense / oesp-fanctl，
+// fnpack.json）。与仓库根 repo_list.txt、lists/repo_list.txt 逐条一致。
+// 中间曾扩到 96 条（2026-11-08 与 repo_list 全量对齐），因源过多影响首屏与
+// 刷新开销，按用户要求收敛。
+// 每行一个源地址，全部带协议；不含官方飞牛应用中心（它是面板账号派生
 // 条目，不属于 config.Sources）。
 //
 // 两处用途（同一基准，语义一致）：

@@ -45,7 +45,10 @@ mkdir -p "$BUILD_DIR/tmp"
 #   git add internal/reco/snapshots.json internal/api/changelog_current.json
 #   git commit -m "..."                          # 生成物入库后树才干净
 #   MOO_RELEASE=1 bash build.sh all              # 此时二进制不带 +dirty
-GEN_TRACKED="internal/api/changelog_current.json internal/reco/snapshots.json"
+# 2026-11-27（FIX_0566_0578 批次 1 复核遗漏）：补上 Step 0.6 会重写的内嵌下架清单快照。
+# 此前只盯 changelog_current.json / snapshots.json，黑名单快照被重写时不进校验 →
+# MOO_RELEASE=1 也发现不了，产物会带 +dirty。
+GEN_TRACKED="internal/api/changelog_current.json internal/reco/snapshots.json internal/api/default_blacklist.json"
 IS_GIT=0; DIRTY_BEFORE=""; GEN_HASH_BEFORE=""
 if command -v git >/dev/null 2>&1 && git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
     IS_GIT=1
@@ -104,15 +107,17 @@ else
     warn "python3 或 moo.json 缺失，跳过内嵌发布说明（关于页卡片回落源条目）"
 fi
 
-# ── Step 0.6: 内嵌下架黑名单快照（出厂内置，Moo 要求）──────────────────────
-# 出厂必须自带一份下架清单：全新安装、首次拉取前、断网时也要按清单行事，
-# 否则「已下架」控制面对新装/离线用户完全失效。
-# 快照来源 = 仓库 lists/blacklist.json（与远端清单同源、同签名，改清单走
-# build.sh 重新生成，保证「包内清单 == 仓库清单」）。
-# 仅特殊场景可关：MOO_EMBED_BLACKLIST=0（关闭后内嵌空清单 = 纯 fail-open）。
-# 漂移守卫：internal/api/blacklist_test.go 的 TestBlacklistEmbeddedMatchesRepoList
-# 会核对「内嵌 == 仓库清单」，两边不同步即 FAIL。
-if [ "${MOO_EMBED_BLACKLIST:-1}" = "1" ] && command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/lists/blacklist.json" ]; then
+# ── Step 0.6: 内嵌下架黑名单快照（**默认关闭**，2026-11-28 用户令）─────────
+# 用户令：「黑名单不要进内嵌快照」。理由：黑名单是运营内容（改文件即生效、
+# 随时续期/撤下），塞进二进制会带来三个问题——① 每次续期都要重建发版；
+# ② 运营清单与代码版本强耦合，同一版本号可能对应不同下架集合；
+# ③ 测试/演示条目一旦被内嵌，会在 until 之前对所有用户生效。
+# 现行设计：清单只走远端（多镜像 + 验签 + 10min TTL + last-known-good 落盘
+# blacklist_last.json）；从未拉取成功时 fail-open（空清单，绝不误杀）。
+# `internal/api/default_blacklist.json` 恒为空，只是 go:embed 的占位。
+# 特殊场景确需出厂内置时显式开：MOO_EMBED_BLACKLIST=1（此时必须同步把
+# 内嵌文件与仓库清单对齐，否则 TestBlacklistEmbeddedSnapshotIsEmpty 会 FAIL）。
+if [ "${MOO_EMBED_BLACKLIST:-0}" = "1" ] && command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/lists/blacklist.json" ]; then
     python3 - "$SCRIPT_DIR/lists/blacklist.json" "$SCRIPT_DIR/internal/api/default_blacklist.json" <<'PY'
 import json, sys
 src, dst = sys.argv[1], sys.argv[2]
@@ -130,8 +135,11 @@ with open(dst, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
     info "内嵌下架黑名单快照 -> internal/api/default_blacklist.json"
+elif [ "${MOO_EMBED_BLACKLIST:-0}" = "1" ]; then
+    warn "已显式开启内嵌黑名单，但 lists/blacklist.json 或 python3 缺失，跳过"
 else
-    warn "lists/blacklist.json 或 python3 缺失，跳过内嵌黑名单快照"
+    # 默认分支：这是**正常状态**（黑名单只走远端），不是缺件。
+    info "跳过内嵌下架黑名单快照（默认：黑名单只走远端，出厂快照恒为空）"
 fi
 
 # ── Step 1: 构建前端 ────────────────────────────────────────────────────────
@@ -190,9 +198,9 @@ fi
 info "构建 Go 二进制 (x86)..."
 # -s -w：剥离符号表+DWARF（0.6.304 起 FPK 精简）：二进制 15.6M→11.1M，
 # 运行时行为零变化，panic 堆栈仍带函数名+文件:行（.gopclntab 不剥，已实测）。
-GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.Version=$APP_VERSION -X moo/internal/config.appName=${MOO_APP_NAME:-moo}" -o "$BUILD_DIR/moo-server-x86" ./cmd/server/
 info "构建 Go 二进制 (arm64)..."
-GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.Version=$APP_VERSION" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.Version=$APP_VERSION -X moo/internal/config.appName=${MOO_APP_NAME:-moo}" -o "$BUILD_DIR/moo-server-arm" ./cmd/server/
 info "Go 构建完成"
 
 # ── Step 3: 打包 FPK（pack_fpk <x86|arm>；arm 包 manifest platform=arm）────

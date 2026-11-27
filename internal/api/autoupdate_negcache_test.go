@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -169,5 +170,131 @@ func TestSkipLegacyFileMigration(t *testing.T) {
 	// 迁移后再读仍命中（幂等）
 	if !autoUpdateSkipHit(s.autoUpdateSkips(), "old.app", "2.0.0", "", autoUpdateSkipReasonWizard) {
 		t.Fatalf("二次读取丢失")
+	}
+}
+
+// skipEntryByReason 取某应用某 reason 的缓存条目（不存在即失败）。
+func skipEntryByReason(t *testing.T, s *Server, app, reason string) autoUpdateSkipEntry {
+	t.Helper()
+	for _, e := range s.autoUpdateSkips() {
+		if strings.EqualFold(e.App, app) && e.Reason == reason {
+			return e
+		}
+	}
+	t.Fatalf("缺条目 %s/%s：%#v", app, reason, s.autoUpdateSkips())
+	return autoUpdateSkipEntry{}
+}
+
+// 0.6.578 批次 3a（D1）：channel 负缓存收窄 —— TTL 12h → 2h，且**连续两次**
+// 命中才生效（首轮只计数不拦）。
+// 反向验证：TTL 改回 12h → TTL 断言 FAIL；去掉 Hits>=2 判定 → 首轮断言 FAIL。
+func TestChannelSkipNeedsTwoHitsAndShorterTTL(t *testing.T) {
+	s := negCacheServer(t)
+	const app, ver, sha = "app.c", "2.0.0", "sha-1"
+
+	s.markAutoUpdateSkip(app, ver, sha, autoUpdateSkipReasonChannel, nil)
+	m := s.autoUpdateSkips()
+	if autoUpdateSkipHit(m, app, ver, sha, autoUpdateSkipReasonChannel) {
+		t.Fatalf("首轮不应命中（连击判定）：%#v", m)
+	}
+	// 首轮必须连 hitAny 都不命中：否则 autoUpdatePass 会在建任务前静默过滤，
+	// 既不探测也不写日志，连击永远攒不起来。
+	if autoUpdateSkipHitAny(m, app, ver, sha) {
+		t.Fatalf("首轮 hitAny 也不应命中：%#v", m)
+	}
+	if e := skipEntryByReason(t, s, app, autoUpdateSkipReasonChannel); e.Hits != 1 {
+		t.Fatalf("首轮 Hits 应为 1，实际 %d", e.Hits)
+	}
+
+	s.markAutoUpdateSkip(app, ver, sha, autoUpdateSkipReasonChannel, nil)
+	m = s.autoUpdateSkips()
+	if !autoUpdateSkipHit(m, app, ver, sha, autoUpdateSkipReasonChannel) {
+		t.Fatalf("连击两次应命中：%#v", m)
+	}
+	e := skipEntryByReason(t, s, app, autoUpdateSkipReasonChannel)
+	if e.Hits != 2 {
+		t.Fatalf("连击两次 Hits 应为 2，实际 %d", e.Hits)
+	}
+	until, err := time.Parse(time.RFC3339, e.Until)
+	if err != nil {
+		t.Fatalf("until 不可解析: %q", e.Until)
+	}
+	if left := time.Until(until); left < 115*time.Minute || left > 125*time.Minute {
+		t.Fatalf("channel TTL 应约 2h（误差 ≤5 分钟），实际 %s", left)
+	}
+
+	// 成功更新后清掉该应用全部条目 = 天然重置连击：再标记一次又回到「不命中」。
+	s.clearAutoUpdateWizardSkip(app)
+	if n := len(s.autoUpdateSkips()); n != 0 {
+		t.Fatalf("clear 后应无条目，实际 %d", n)
+	}
+	s.markAutoUpdateSkip(app, ver, sha, autoUpdateSkipReasonChannel, nil)
+	if autoUpdateSkipHit(s.autoUpdateSkips(), app, ver, sha, autoUpdateSkipReasonChannel) {
+		t.Fatalf("clear 后连击应被重置（再标记一次仍不应命中）")
+	}
+}
+
+// 其它 reason 不看 Hits：Hits=1（=首次写入）必须立即命中，行为不得变。
+func TestNonChannelSkipHitsImmediately(t *testing.T) {
+	for _, reason := range []string{
+		autoUpdateSkipReasonWizard, autoUpdateSkipReasonBlocked, autoUpdateSkipReasonUnknown,
+	} {
+		s := negCacheServer(t)
+		s.markAutoUpdateSkip("app.x", "1.0.0", "sha-x", reason, nil)
+		m := s.autoUpdateSkips()
+		if !autoUpdateSkipHit(m, "app.x", "1.0.0", "sha-x", reason) {
+			t.Fatalf("reason=%s 首次写入就该命中（回归保护）", reason)
+		}
+		if e := skipEntryByReason(t, s, "app.x", reason); e.Hits != 0 {
+			t.Fatalf("reason=%s 不应累积 Hits，实际 %d", reason, e.Hits)
+		}
+	}
+}
+
+// 向后兼容：0.6.577 及更早写的 channel 条目没有 hits 字段（Hits=0）→
+// 视为「尚未连击」不命中，下一轮再预检一次才生效（宁可多探一次，不误拦 2h）。
+func TestLegacyChannelEntryWithoutHitsNotHit(t *testing.T) {
+	s := negCacheServer(t)
+	raw := []byte(`{"entries":[{"app":"old.c","version":"3.0.0","sha":"abc",` +
+		`"reason":"channel","until":"` + time.Now().Add(time.Hour).Format(time.RFC3339) + `"}]}`)
+	if err := os.WriteFile(s.autoUpdateSkipPath(), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := s.autoUpdateSkips()
+	if len(m) != 1 {
+		t.Fatalf("旧条目应被读入，实际 %#v", m)
+	}
+	if autoUpdateSkipHit(m, "old.c", "3.0.0", "abc", autoUpdateSkipReasonChannel) {
+		t.Fatalf("旧条目（Hits=0）不应命中")
+	}
+	// 旧条目 Hits=0 视为「尚未连击」：还要再预检两轮才生效（宁可多探一次）。
+	s.markAutoUpdateSkip("old.c", "3.0.0", "abc", autoUpdateSkipReasonChannel, nil)
+	if autoUpdateSkipHit(s.autoUpdateSkips(), "old.c", "3.0.0", "abc", autoUpdateSkipReasonChannel) {
+		t.Fatalf("旧条目 + 一次新命中仍不足连击 2 次")
+	}
+	s.markAutoUpdateSkip("old.c", "3.0.0", "abc", autoUpdateSkipReasonChannel, nil)
+	if !autoUpdateSkipHit(s.autoUpdateSkips(), "old.c", "3.0.0", "abc", autoUpdateSkipReasonChannel) {
+		t.Fatalf("旧条目 + 两次新命中应达到连击 2 次")
+	}
+}
+
+// 复核 M2（2026-11-27）：条目过期后 Hits 必须从 1 重新起算——连击不能
+// 跨过期窗口续用，否则「一次误判 + 一次新误判」会被拼成「连续两次」。
+func TestChannelHitsResetAfterExpiry(t *testing.T) {
+	s := negCacheServer(t)
+	const app, ver, sha = "app.e", "2.0.0", "sha-e"
+	s.markAutoUpdateSkip(app, ver, sha, autoUpdateSkipReasonChannel, nil)
+	m := s.autoUpdateSkips()
+	key := autoUpdateSkipKey(app, ver, sha, autoUpdateSkipReasonChannel)
+	e, ok := m[key]
+	if !ok {
+		t.Fatalf("缺条目：%#v", m)
+	}
+	e.Until = time.Now().Add(-time.Minute).Format(time.RFC3339)
+	m[key] = e
+	s.saveAutoUpdateSkips(m) // 落盘会过滤过期条目
+	s.markAutoUpdateSkip(app, ver, sha, autoUpdateSkipReasonChannel, nil)
+	if got := skipEntryByReason(t, s, app, autoUpdateSkipReasonChannel).Hits; got != 1 {
+		t.Fatalf("过期后应重新从 1 计数，实际 %d", got)
 	}
 }

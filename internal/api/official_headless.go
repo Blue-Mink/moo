@@ -33,9 +33,18 @@ func (s *Server) headlessAuthorize(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		// 2026-11-26（加固 A）：授权范围 full|minimal（缺省 full，旧调用方不变）。
+		Scope string `json:"scope"`
 	}
 	if err := jsonDecode(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, errors.New("请求体需为 {username, password}"))
+		return
+	}
+	// 先做白名单校验（零成本），别为了一个非法 scope 去登录面板——那会
+	// 白白消耗一次面板登录（还可能撞上登录限流）。
+	scope, serr := officialScopeParam(body.Scope)
+	if serr != nil {
+		writeErr(w, http.StatusBadRequest, serr)
 		return
 	}
 	if strings.TrimSpace(body.Username) == "" || body.Password == "" {
@@ -55,7 +64,7 @@ func (s *Server) headlessAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2) 生成 PKCE 对。
-	challenge, deviceID, scope, err := mgr.BeginHeadlessAuthorization()
+	challenge, deviceID, scope, err := mgr.BeginHeadlessAuthorizationScope(scope)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

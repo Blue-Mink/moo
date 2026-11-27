@@ -380,42 +380,47 @@ func TestLineage326K_DisabledSourceCardsAbsentFromCatalog(t *testing.T) {
 	}
 }
 
-// ── ⑨ 与 dedup 的交互：merge 档代表卡可能不带溯源（钉住） ─────────────────
-func TestLineage326K_DedupMergeHidesUpstreamCardPinned(t *testing.T) {
+// ── ⑨ 与 dedup 的交互：去重档必须留真实项目源（0.6.575 修复；本用例原先是
+// 「钉住旧 bug」——搬运卡靠版本/同宗顶掉上游源，现在改成反向断言）──────────
+func TestLineage326K_DedupOneKeepsUpstreamCard(t *testing.T) {
 	s := newLineageServer(t)
-	build := func() (AppInfo, AppInfo) {
-		mover := mkLineageCard("app-a@搬运源", "app-a", "搬运源", "1.9.0", "alice/awesome-apps", false)
-		mover.Maintainer = "一零一二" // 同宗（merge 簇）证据
+	build := func(moverVer string) (AppInfo, AppInfo) {
+		mover := mkLineageCard("app-a@搬运源", "app-a", "搬运源", moverVer, "alice/awesome-apps", false)
 		up := mkLineageCard("app-a@上游源", "app-a", "上游源", "2.5.0", "alice/awesome-apps", false)
-		up.Maintainer = "一零一二"
 		return mover, up
 	}
-	mover, up := build()
+	// 低版本搬运卡：去重档留上游源
+	mover, up := build("1.9.0")
 	out := []AppInfo{mover, up}
 	s.applyUpstreamLineage(out)
 	if out[0].UpstreamRepo == "" {
 		t.Fatalf("前置：搬运卡应有溯源")
 	}
-	applyDedupPolicy(out, "merge")
-	if out[1].Hidden {
-		t.Fatalf("代表卡不应被 Hidden")
+	applyDedupPolicy(out, "one")
+	if out[1].Hidden || !out[0].Hidden {
+		t.Fatalf("去重档应隐藏搬运卡、保留真实项目源：%#v", out)
 	}
-	if !out[0].Hidden {
-		t.Fatalf("钉住行为已变（可能已让代表卡优先带溯源）：%#v", out[0])
+	// 高版本搬运卡（9.9.9）：溯源级必须压过版本 —— 这是 0.6.575 的核心
+	m2, u2 := build("9.9.9")
+	out2 := []AppInfo{m2, u2}
+	s.applyUpstreamLineage(out2)
+	if out2[0].UpstreamRepo == "" {
+		t.Fatalf("前置：高版本搬运卡应有溯源")
 	}
-	if out[1].UpstreamRepo != "" {
-		t.Fatalf("代表卡（版本更高的上游源卡）本无溯源 → 列表里看不到溯源：%#v", out[1])
+	applyDedupPolicy(out2, "one")
+	if out2[1].Hidden || !out2[0].Hidden {
+		t.Fatalf("搬运卡即便版本更高也不得作代表（溯源级）：%#v", out2)
 	}
 	// 去重不得改写溯源字段（详情端点仍按 key 可达 = 逃生门）
 	if out[0].UpstreamSource != "上游源" || out[0].UpstreamVersion != "2.5.0" {
 		t.Fatalf("去重不得改写溯源字段：%#v", out[0])
 	}
 	// all 档：两张都保留，不置 Hidden
-	m2, u2 := build()
-	out2 := []AppInfo{m2, u2}
-	applyDedupPolicy(out2, "all")
-	if out2[0].Hidden || out2[1].Hidden {
-		t.Fatalf("all 档不应置 Hidden：%#v / %#v", out2[0], out2[1])
+	m3, u3 := build("1.9.0")
+	out3 := []AppInfo{m3, u3}
+	applyDedupPolicy(out3, "all")
+	if out3[0].Hidden || out3[1].Hidden {
+		t.Fatalf("all 档不应置 Hidden：%#v / %#v", out3[0], out3[1])
 	}
 }
 

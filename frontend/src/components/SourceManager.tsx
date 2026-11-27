@@ -21,8 +21,10 @@ import { Loader2, Plus, Trash2, ExternalLink, Link2, RefreshCw, ListTree, Chevro
 import { cn } from '@/lib/utils'
 import { shouldWarnPlainHttp } from '@/lib/sourceWarnings'
 import { copyTextToClipboard } from '@/lib/clipboard'
+import { listSyncText } from '@/lib/probeTiming'
 import { toast } from 'sonner'
 import OfficialOAuthDialog from './OfficialOAuthDialog'
+import { SourceCareInline, SourceCareSecondLine } from './SourceCareBadges'
 
 interface SourceManagerProps {
   /** 源列表变化后通知父组件刷新应用目录 */
@@ -107,6 +109,9 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
   const [tokenSet, setTokenSet] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
   const [savingToken, setSavingToken] = useState(false);
+  // 2026-11-26 B-SRC-LISTSYNC：上次同步痕迹（时间 + 上轮新增数），
+  // 此前成功且无新增时前端一片空白，用户无法判断自动同步是否在跑。
+  const [listSyncMeta, setListSyncMeta] = useState<{ last_list_sync_at?: string; last_list_sync_added?: number }>({});
   const [syncingList, setSyncingList] = useState(false);
   const [savingList, setSavingList] = useState(false);
   // 应用源自动监测（连续无应用自动关闭 + 空源沉底）
@@ -271,6 +276,7 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
     try {
       const res = await fetchSources();
       setSources(res.sources || []);
+      setListSyncMeta({ last_list_sync_at: res.last_list_sync_at, last_list_sync_added: res.last_list_sync_added });
     } catch (e) {
       console.error('Failed to load sources:', e);
     } finally {
@@ -420,6 +426,10 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
       if (res.failed > 0) {
         const errs = (res.errors || []).slice(0, 3).join('；');
         toast.warning(`源列表同步：${res.failed} 个地址无效（${errs}${(res.errors || []).length > 3 ? '…' : ''}）`);
+      }
+      // 2026-11-26：失败退避——死链不再每小时被重抓，本轮直接跳过多少条要说清
+      if ((res.backoff_skipped ?? 0) > 0) {
+        toast.info(`${res.backoff_skipped} 个地址因连续失败被暂时跳过（退避 6~24 小时）`);
       }
       await load();
       onCatalogChanged?.();
@@ -879,6 +889,9 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           「同步源」从内置源清单自动发现并添加新应用源，只增不删；「删除源」进入批量删除模式，勾选后一次删除多个源；「刷新源」立即重新抓取所有已启用源的应用。
         </p>
+        {listSyncText(listSyncMeta) && (
+          <p className="text-[11px] text-muted-foreground/80">{listSyncText(listSyncMeta)}</p>
+        )}
         {batchMode && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <span className="text-xs">
@@ -1056,17 +1069,17 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                       {src.app_count}
                     </Badge>
                   ))}
-                  {disabled && (
+                  {/* 策略停用的源改由自动监测角标说「已自动停用（+原因）」，避免
+                      同一状态挂两枚徽标；用户手动关闭仍显示「已关闭」。 */}
+                  {disabled && src.disabled_by !== 'auto-care' && (
                     <Badge variant="outline" className="h-5 shrink-0 whitespace-nowrap px-1.5 text-[10px] font-normal text-muted-foreground">
                       已关闭
                     </Badge>
                   )}
-                  {!disabled && (src.empty_streak ?? 0) > 0 && (
-                    <Badge variant="secondary" className="h-5 min-w-0 max-w-[8.5rem] truncate px-1.5 text-[10px] font-normal text-amber-500"
-                      title="连续抓取失败或 0 应用；再连续 5 次将自动关闭">
-                      连续 {src.empty_streak} 次无应用
-                    </Badge>
-                  )}
+                  {/* 2026-11-26 CARE（P1-2 分因）：宽屏 inline 角标，失败态与空源态
+                      文案分开；窄屏下沉到 URL 行下第二行（见下方 SourceCareSecondLine），
+                      不占源名横向空间。 */}
+                  <SourceCareInline src={src} />
                   {src.error && (
                     <Badge variant="destructive" className="h-5 shrink-0 whitespace-nowrap px-1.5 text-[10px] font-normal">
                       不可用
@@ -1118,6 +1131,8 @@ const SourceManager: React.FC<SourceManagerProps> = ({ onCatalogChanged, saveCou
                     </a>
                   )}
                 </div>
+                {/* 2026-11-26 CARE：窄屏（<sm）第二行——分因小字，不挤压源名与应用数胶囊 */}
+                <SourceCareSecondLine src={src} />
                 {/* 0.6.326z：源重合率（只读一行）——与「最相似的对方源」的应用名/版本
                     重合情况。只读：无按钮、不影响源状态；官方源恒不显示。 */}
                 {!isOfficialSrc && src.overlap_risk && src.overlap_risk !== 'none' && (

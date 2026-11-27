@@ -155,6 +155,29 @@ Moo 采用**两层防线**：
 | `size_bytes` / `sha256` | int64/string | FPK 包大小 / 校验 |
 | `preview_count` / `preview_urls` | int/string[] | 预览图数量 / 直链 |
 | `has_readme` | bool | 是否有 README |
+| `same_name_count` | int | 0.6.312 B2 去重展示层：同名组卡片数（**精确 `appname`**，仅阶梯代表卡承载）；>1 = 有重复 |
+| `same_name` | SameNameEntry[] | 同名组全部卡片（**仅详情下发**，列表瘦身剥离；见 §3.1.1） |
+| `same_name_ci_count` | int | 0.6.579 D3：与本卡 `appname` **大小写不敏感相同、字面不同**的其它卡数（>0 才下发，0 省略）。**纯展示提示**——后端不合并、不隐藏任何卡，列表卡数量与 `/api/dedup` 计数逐字不变 |
+| `same_name_ci` | SameNameEntry[] | 0.6.579 D3：大小写同名变体卡（**仅详情下发**）。与 `same_name` **互补**（只装字面不同的卡，每条 `case_variant=true`）⇒ 两者并集 = 大小写不敏感全组，前端合并渲染无重复行 |
+
+#### 3.1.1 SameNameEntry（同名 / 同名变体候选条目）
+
+```json
+{
+  "key": "1panel@ZJB518", "source": "ZJB518", "display_name": "1Panel",
+  "version": "2.0.14", "arch": "x86", "installed": false, "is_rep": true,
+  "origin": "hxido-rxm/fndepot", "sha256": "…",
+  "source_is_fork": true, "upstream_repo": "hxido-rxm/fndepot",
+  "is_upstream": false, "case_variant": true
+}
+```
+
+- `is_rep`：该卡是当前展示的那张（列表路径 = 阶梯代表卡；详情路径 = `!Hidden`）。
+- `origin` / `sha256`：归一发布仓库 / 最新包 sha（同宗、同构建判定用；列表路径不带）。
+- `upstream_repo`：该卡被判定「搬运上游」时的上游 `owner/repo`；**空 = 未判定为搬运**（即原项目源）。
+- `is_upstream`：本卡发布仓库 == 同组某张兄弟卡声明的 `upstream_repo`。
+- `case_variant`（0.6.579）：本条与目标卡 `appname` 大小写不敏感相同、字面不同；
+  只有 `same_name_ci` 里的条目为 `true`（`same_name` 恒缺省）。
 
 ### 3.2 SourceEntry（应用源）
 
@@ -220,7 +243,7 @@ Docker 组同构（`/api/mirrors/docker/health`）。
 
 `GET /api/settings` 响应字段（全部为当前生效值）：
 
-`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `custom_github_mirrors[]`（0.6.521）, `custom_docker_mirrors[]`（0.6.521）, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `github_token`（0.6.334，只写；GET 仅回 `github_token_set` 布尔）, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`。
+`check_interval_hours`, `mirror`, `mirror_include_direct`（0.6.321 F7，默认关）, `mirror_options[]`, `docker_mirror`, `docker_mirror_options[]`, `custom_github_mirror`, `custom_docker_mirror`, `custom_github_mirrors[]`（0.6.521）, `custom_docker_mirrors[]`（0.6.521）, `install_volume`, `volume_options[]`, `download_dir`, `auto_update`, `auto_correct`（0.6.326 引入；0.6.326x 已弃用，并入 `update_policy=upstream`）, `catalog_language`, `update_policy`, `dedup_policy`, `source_auto_care_disabled`, `source_list_url`, `source_list_disabled`, `github_token`（0.6.334，只写；GET 仅回 `github_token_set` 布尔）, `panel_enabled`, `panel_username`, `panel_base_url`, `panel_has_password`, `backup_dir`, `backup_auto`, `backup_interval_days`, `cache_clean_days`, `cache_clean_every_days`, `gh_probe_hours`, `gh_probe_minutes`, `dk_probe_hours`, `dk_probe_minutes`, `proxy_enabled`, `proxy_url`, `dock_order[]`, `settings_tab_order[]`, `official_scope_mode`（2026-11-26，官方源授权范围偏好，恒为 `full` / `minimal`）。
 
 字段语义与 `PUT /api/settings` 的指针语义见 §11。
 
@@ -345,8 +368,10 @@ data: {"step":"done","progress":100,"message":"更新完成","id":"3f2a9c1d8b7e4
 - 默认最多跟随 30 分钟（大包弱网），连续 3 次查不到即放弃。
 
 ### 5.6c `GET /api/updates/manual`（requireAdmin，P1-1）
-自动更新「需人工处理」队列：聚合 `auto_update_skips.json` 的 wizard / blocked /
-unknown 三类条目，供前端显示数量徽章与清单。
+自动更新「需人工处理」队列：聚合 `auto_update_skips.json` 的 wizard（12h）/ blocked（2h）/
+unknown（6h）/ channel（2h，需连续两次命中才算数）四类条目，供前端显示数量徽章与清单。
+（channel = 平台不允许 FPK 升级通道 10371；0.6.578 起 TTL 12h→2h 且首轮只计数不拦。
+注意：默认 `check_interval_hours=0` 为 24h 一轮，2h 条目会在下一轮前过期 → **默认节奏下该缓存不生效**（fail-open，不误拦）；只有轮次间隔 <2h 或 2h 内重复触发时「连续两次命中」才成立。）
 ```json
 {"count":1,"items":[{"app":"trim.openclaw","version":"2026.8.35-6","reason":"unknown","reason_label":"平台任务结果未知（可能仍在执行）","until":"2026-11-22T16:00:00+08:00"}]}
 ```
@@ -383,6 +408,12 @@ unknown 三类条目，供前端显示数量徽章与清单。
 单个 AppInfo 详情。查询参数：
 - `wizard=1`：附加安装向导信息（配置项表单 schema）。
 
+详情是候选表的**唯一**下发路径（列表瘦身会剥 `same_name` / `same_name_ci`）：
+- `same_name`：字面完全相同的同名组（含被去重隐藏的卡 —— 按 key 可达是逃生门）；
+- `same_name_ci`（0.6.579 D3）：大小写同名变体（字面不同、`EqualFold` 相同），
+  每条 `case_variant=true`；与 `same_name` 互补，两者并集 = 大小写不敏感全组。
+  **只提示、不合并**：该组里没有一张卡因为变体被隐藏，`is_rep` 仍按 `!Hidden` 给出。
+
 ### 6.3 `GET /api/recommended`（公开）
 发现页推荐位列表。数据来自远程清单 `recommend_list`（纯文本，一行一条
 `appname@源名`，`#` 注释；顺序即展示顺序，地址见设置项 `recommend_list_url`）。
@@ -413,13 +444,17 @@ unknown 三类条目，供前端显示数量徽章与清单。
 把仓库根 / raw 前缀 / 路径 / v1v2 索引 / CDN 镜像等形式归一到 `github.com/owner/repo`（或 fndepot JSON 索引键）。
 
 ### 6.6 `GET /api/dedup`（公开）
-去重展示策略当前值 + 三档可见卡数（首页去重胶囊预览）。
+去重展示策略当前值 + 两档可见卡数（首页去重胶囊预览）。
 ```json
-{"policy": "all", "total": 2556, "merged": 1812, "one": 923}
+{"policy": "all", "total": 2771, "one": 1331, "merged": 1331}
 ```
-`policy` ∈ `all`（默认，全部卡片）/ `merge`（同名组内同宗簇留一代表）/
-`one`（每个 appname 留一张代表卡）。`total`/`merged`/`one` 分别为三档下
-列表可见卡数。策略由 `PUT /api/settings` 的 `dedup_policy` 字段设置。
+`policy` ∈ `all`（默认，不去重，全部卡片）/ `one`（去重，每个 appname 留一张
+代表卡，代表卡优先「非搬运」的真实项目源）。分组口径 = **精确 `appname`**；
+0.6.579 D3 的「大小写同名变体」（52 组 / 105 张同时可见）**只提示不合并**，
+因此 `total` / `one` 与引入该提示前逐字一致（不给变体计数开新档、不减可见卡）。`total` / `one` 分别为两档下
+列表可见卡数；`merged` 为旧三档「标准档」的兼容字段，**已废弃**，值恒等于
+`one`。策略由 `PUT /api/settings` 的 `dedup_policy` 字段设置（`merge` 仍接受
+但归一为 `one`）。
 
 ---
 
@@ -525,7 +560,8 @@ unknown 三类条目，供前端显示数量徽章与清单。
 - `custom_github_mirror` / `custom_docker_mirror` / `source_list_url` 随 `GET /api/settings` 透出（0.6.325 H1 修复：此前 PUT 可写但 GET 恒缺键，设置页水合空串后全量保存会静默清除已存自定义镜像）；未设置时键缺席（omitempty），前端水合成空串。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
 - `update_policy`（0.6.272 跨源更新策略；0.6.326x 起新增第四档 `upstream`）：仅接受 `auto`（0.6.532「自动（推荐）」= `lineage` + 上游纠正，搬运应用跟上游原作者）/ `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库）/ `upstream`（**强制上游**：已安装且来自「搬运上游」的应用改用上游原作者版本，其余应用按 `strict` 处理），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
-- `dedup_policy`（0.6.312 B2 列表去重展示策略）：仅接受 `all`（默认，零变化）/ `merge`（同名组内同宗簇留一代表）/ `one`（每 appname 一张代表卡），其余整单拒绝；变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回三档可见数。
+- `dedup_policy`（0.6.312 B2 列表去重展示策略；0.6.575 两档化）：接受 `all`（默认，不去重、零变化）/ `one`（每 appname 一张代表卡，代表卡优先真实项目源），其余整单拒绝；旧值 `merge`（已取消的「标准档」）仍接受但归一为 `one`。变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回两档可见数。
+- `official_scope_mode`（2026-11-26 加固 A，官方源 OAuth 授权范围偏好）：只接受 `full` / `minimal` / `""`（空串 = 完整权限，默认），**其余整单拒绝（400）**。只影响**下一次**发起授权，不改已连接会话；`minimal` = 仅 `trim.appcenter.all`（只读官方目录与版本），`full` = 既有 9 项权限。落盘失败时回滚到提交前的值（配置文件与运行态严格一致）。
 - `auto_correct`（0.6.326 引入；0.6.326x 起**已弃用**）：语义已并入 `update_policy="upstream"`（强制上游）。字段仍可提交以兼容旧客户端（提交 `true` 等价于把 `update_policy` 置为 `upstream`），保存设置后恒为 `false`；新代码请直接用 `update_policy`。
 
 常用片段示例：
@@ -655,6 +691,7 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 |---|---|---|
 | `GET /api/mirrors/health` | admin | GitHub 组健康快照（§3.4） |
 | `GET /api/mirrors/docker/health` | admin | Docker 组健康快照（含本地 KSpeeder 缓存） |
+| `GET /api/datadir-health` | admin | 数据目录自监控（0.6.574）：生效目录/来源/归属标记 + `Save` 守卫拒绝与写盘失败计数（进程内累计） |
 | `POST /api/mirrors/check` | admin | 立即手动测速（两组各自全量候选） |
 | `POST /api/mirrors/sync` | admin | 立即从远端清单刷新加速源列表（免重建 FPK；45s 超时，清单不可达回 502） |
 | `POST /api/mirrors/restore` | admin | 清空本机屏蔽集合（删掉的默认源全部回来）并重拉远端清单 |
@@ -956,12 +993,13 @@ curl -s http://127.0.0.1:38100/api/version    # 验证版本
 
 | 端点 | 权限 | 说明 |
 |---|---|---|
-| `GET /api/official/status` | 公开 | 连接状态（是否已授权、token 过期时间等）。0.6.254 起含 `ui_supported`/`ui_known`：本机面板前端是否支持 /signin PKCE 授权页（仅 fnOS 1.2.0800+ 前端支持，旧版只渲染普通登录页）；`ui_known=false` = 检测中 |
-| `GET /api/official/authorize` | admin | 开始授权：返回 `{url}`，前端打开该 URL 完成登录后带 `code` 回调。0.6.253 起支持 `?base=http(s)://<主机:端口>` 指定用户浏览器可达的面板地址（仅 http/https、无 URL 凭据；缺省用本机回环） |
-| `POST /api/official/callback` | admin | 完成授权：body `{code}`，成功 `{ok:true}` |
+| `GET /api/official/status` | 公开 | 连接状态（是否已授权、token 过期时间等）。0.6.254 起含 `ui_supported`/`ui_known`：本机面板前端是否支持 /signin PKCE 授权页（仅 fnOS 1.2.0800+ 前端支持，旧版只渲染普通登录页）；`ui_known=false` = 检测中。2026-11-26（加固 C/B2）起含 `can_admin`（非管理员视角会裁掉 `panel_base`/`panel_base_source`/`last_error`，仍 **200**）与 **公开**布尔 `session_encrypted`（磁盘上的会话文件是否加密形态）、`encryption_available`（本机密钥是否可用）；加固 A 起再加 `scope_mode`（配置里的授权范围偏好 `full`/`minimal`，非法值按 `full`）与 `scope_minimal_supported`（恒 `true`，前端据此展示两个选项） |
+| `GET /api/official/authorize` | admin | 开始授权：返回 `{url}`，前端打开该 URL 完成登录后带 `code` 回调。0.6.253 起支持 `?base=http(s)://<主机:端口>` 指定用户浏览器可达的面板地址（仅 http/https、无 URL 凭据；缺省用本机回环）。加固 A 起支持 `?scope=full\|minimal`（**白名单**，其它值 **400**；缺省 `full` = 旧客户端行为完全不变）：`full` = 既有 9 项权限，`minimal` = 仅 `trim.appcenter.all`（只读目录/版本，不能读写文件或改系统设置） |
+| `POST /api/official/callback` | admin | 完成授权：body `{code}`，成功 `{ok:true}`。加固 A 起：`minimal` 范围被面板拒绝（换 token 回 `invalid_scope`）→ **400** + `{"error":…,"error_code":"scope_rejected","scope":"minimal"}`（pending 保留，可用 full 重试）；其它失败仍 **502** |
 | `POST /api/official/cancel` | admin | 取消本次授权（丢弃待交换的 PKCE 对），成功 `{ok:true}` |
-| `POST /api/official/authorize-headless` | admin | 0.6.254 无头授权（无浏览器，旧版 fnOS 前端无授权页时的替代路径）：复用面板账号 WS 登录 → `GET /oauthapi/authorize` 取一次性 code → 换 token。成功 `{ok:true}`；面板未配置 400；登录失败/限流 502（附原因）；响应无 code 502（附原始响应片段） |
+| `POST /api/official/authorize-headless` | admin | 0.6.254 无头授权（无浏览器，旧版 fnOS 前端无授权页时的替代路径）：复用面板账号 WS 登录 → `GET /oauthapi/authorize` 取一次性 code → 换 token。成功 `{ok:true}`；面板未配置 400；登录失败/限流 502（附原因）；响应无 code 502（附原始响应片段）。加固 A 起 body 可带 `scope`（`full`/`minimal`，缺省 `full`；非法值 **400**，且在面板登录**之前**校验） |
 | `POST /api/official/logout` | admin | 断开授权：清 token，成功 `{ok:true}` |
+| `POST /api/official/session-encryption` | admin | 2026-11-26 会话落盘加密开关（opt-in，默认关）：body `{enabled:bool}`（缺 `enabled` **400**）。开启时立即把当前会话按新形态重写一次（外层 `{"v":2,"enc":"enc:v1:…","note":…,"access_token":""}`，旧版本读到「未连接」而非报错），并写 `official_session_encrypt` 到配置；本机密钥不可用 → **400**；配置落盘失败 → 回滚运行态与标志后 **500**。成功 `{ok:true, encrypted:bool}`（`encrypted` = 此刻磁盘上的会话文件是否为密文形态） |
 | `GET /api/official/apps` | admin | 商店全量列表 `{total, list}`（10 分钟缓存） |
 | `GET /api/official/search?keyword=…` | admin | 关键词搜索 `{total, list}`；`keyword` 为空返回 **400** |
 | `GET /api/official/apps/{name}` | admin | 单个应用详情（面板 StoreDetail 透传） |
@@ -973,7 +1011,7 @@ curl -s http://127.0.0.1:38100/api/version    # 验证版本
 - **0.6.253 通道接线**：OAuth 会话有效时，官方目录（`Panel.Apps`）、详情回填、安装前 sourceID 查询（`panelApp`）优先走本 OAuth 通道（免面板登录、不受面板限流影响）；会话缺失或通道故障时自动回退面板 WS 通道（含 0.6.252 失败退避）。接线实现见 `internal/api/official_oauth_wiring.go`。
 - **0.6.254 版本门控**：/signin 的 PKCE 授权页仅 fnOS 1.2.0800+ 面板前端有（懒加载 oauth chunk；旧版前端零 OAuth 逻辑，浏览器打开授权链接只见普通登录页）。启动时探测本机面板前端（`internal/official/support_probe.go`，进程内缓存），前端按 `ui_supported` 分流：支持 → iframe 授权页流程；不支持 → 无头授权（`authorize-headless`，面板账号一次性登录取码，授权后目录仍免面板登录）。
 - 该域原为**主线（moo-w）独有**；2026-10-01 两条线合并后（面板线为基线 + 摘入官方模块），
-  发布线同样具备这 7 个端点。
+  发布线同样具备这些端点。
 
 ## 23. fnOS 系统更新（`/api/sysupdate`）
 
@@ -1014,7 +1052,8 @@ curl -s http://127.0.0.1:38100/api/version    # 验证版本
 远端维护的「停止分发」清单：改文件即生效，不用发版。清单由发布者用 **minisign**
 签名（与自更新共用同一把公钥，`.minisig` 缺失或验签失败该候选作废），Moo 每
 10 分钟刷新一次（多镜像候选 + last-known-good；**从未成功拉取过 → fail-open**，
-空清单绝不误杀）。
+空清单绝不误杀）。清单**不内嵌**进安装包（出厂快照恒为空），续期 / 撤下 / 新增条目
+都只改远端文件，无需重建发版。
 
 ### 24.1 清单结构
 

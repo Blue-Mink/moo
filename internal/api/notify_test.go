@@ -47,8 +47,10 @@ func TestNotifySettingsRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("解析响应: %v", err)
 	}
-	if !got.Enabled || len(got.Catalog) != 37 {
-		t.Fatalf("缺省应总开关开且 37 类事件: enabled=%v catalog=%d", got.Enabled, len(got.Catalog))
+	// 2026-11-26 CARE 新增 source_auto_disabled / source_auto_recovered /
+	// source_auto_heal_capped → 40 类；2026-11-26 批次 C 增 official_session_encrypt_mismatch → 41 类。
+	if !got.Enabled || len(got.Catalog) != 41 {
+		t.Fatalf("缺省应总开关开且 41 类事件: enabled=%v catalog=%d", got.Enabled, len(got.Catalog))
 	}
 	defMap := make(map[string]bool, len(got.Catalog))
 	groups := make(map[string]bool, len(got.Catalog))

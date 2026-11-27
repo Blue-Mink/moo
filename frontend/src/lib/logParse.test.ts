@@ -68,3 +68,40 @@ describe('collapseDetail 折叠', () => {
     expect(r.text.length).toBeLessThan(220);
   });
 });
+
+describe('parseLine · [mirror] 每轮摘要不判错（2026-11-26 用户实报）', () => {
+  const round = (ok: number, fail: number, extra: string) =>
+    `2026/11/26 12:40:15.742118 [mirror] gh 探测 12 源 ok=${ok} fail=${fail} limited=0 优选=gh-proxy-org 耗时=20s（异常：${extra}）`;
+
+  it('部分镜像超时/403 属常态波动 → info（不刷红）', () => {
+    const p = parseLine(round(8, 4, 'gh-tbap=超时，ghfast=超时，yylx=超时，conversun=403 拒绝'));
+    expect(p.mod).toBe('mirror');
+    expect(p.level).toBe('info');
+  });
+
+  it('本轮全挂（ok=0）→ warn（真有事，但不升成 ERROR）', () => {
+    const p = parseLine(round(0, 12, 'direct=连接超时，ghfast=超时'));
+    expect(p.level).toBe('warn');
+  });
+
+  it('成功率不足一半 / 出现限流 → warn（批次 C 阈值）', () => {
+    const low = parseLine(round(3, 9, 'ghfast=超时'));
+    expect(low.level).toBe('warn');
+    const limited = parseLine('2026/11/26 14:20:00.000000 [mirror] gh 探测 12 源 ok=10 fail=0 limited=2 优选=direct 耗时=3s');
+    expect(limited.level).toBe('warn');
+    const half = parseLine(round(6, 6, 'ghfast=超时'));
+    expect(half.level).toBe('info');
+  });
+
+  it('[list-sync] 每轮摘要是进度而非错误（失败 0 → info、有失败 → warn）', () => {
+    const zero = parseLine('2026/11/26 13:44:22.335233 [list-sync] 本轮完成：列表 105 条 / 已存在 105 / 新增 0 / 失败 0 / 耗时 237ms');
+    expect(zero.level).toBe('info');
+    const some = parseLine('2026/11/26 13:44:22.335233 [list-sync] 本轮完成：列表 105 条 / 已存在 100 / 新增 3 / 失败 2 / 耗时 2.1s');
+    expect(some.level).toBe('warn');
+  });
+
+  it('同样的词出现在别处仍是 ERROR（只豁免 mirror 摘要行）', () => {
+    const p = parseLine('2026/11/26 12:41:00 [fpk-local] 下载失败：conversun 403 拒绝');
+    expect(p.level).toBe('error');
+  });
+});

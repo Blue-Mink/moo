@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-23",
+  "updated_at": "2026-11-27",
   "entries": [
     {
       "app": "global-radio",
@@ -9,7 +9,7 @@
       "reason": "policy",
       "notice": "下架测试：按包指纹锁定 1.5.4，验证卡面与安装拦截，新版本自动放行",
       "since": "2026-11-23",
-      "until": "2026-11-26",
+      "until": "2026-12-27",
       "ref": "bl-20261123"
     }
   ]

@@ -7,6 +7,8 @@ package api
 //
 //	reason=wizard  ：升级需要先确认向导（必填项无默认值）。TTL 12h。
 //	reason=blocked ：平台自己标记 autoUpdateFailed（依赖未停/向导未确认等）。TTL 2h。
+//	reason=channel ：平台不允许走 FPK 升级通道（10371）。TTL 2h，且**要连续两次**
+//	                 命中才生效（0.6.578 批次 3a）。
 //
 // 两个防误伤设计：
 //   - key 里带**目标包 sha256**：源把同一个版本号重发（例如补了默认值）时 sha 变了，
@@ -36,12 +38,26 @@ const (
 	// 12 分钟预算先超时；旧逻辑每小时重来一次 → 反复 12 分钟轮询 + 重复拷贝，
 	// 后台 CPU/IO 持续偏高。6 小时内不再自动重试，交给手动处理。
 	autoUpdateSkipTTLUnknown = 6 * time.Hour
+	// autoUpdateSkipTTLChannel 「平台不允许 FPK 升级通道」（10371）的静默时长。
+	// 0.6.578 批次 3a：12h → 2h。
+	// 边界（复核补充）：默认 `check_interval_hours=0` → 24h 一轮，2h 的条目会在
+	// 下一轮之前过期，因此**默认节奏下缓存等于不生效**（fail-open，不误拦）；
+	// 只有轮次间隔 < 2h（用户显式调小，或同轮多次触发）时才会真正静默，
+	// 此时「连续两次命中」才起作用。误判放大倍数的上界因此比 12h 小得多：
+	// 30 分钟节奏下最多静默 4 个周期（原 24 个）。
+	autoUpdateSkipTTLChannel = 2 * time.Hour
 	// autoUpdateSkipMaxEntries 缓存条目上限（防御异常增长；正常远小于此值）。
 	autoUpdateSkipMaxEntries = 200
 
 	autoUpdateSkipReasonWizard  = "wizard"
 	autoUpdateSkipReasonBlocked = "blocked"
 	autoUpdateSkipReasonUnknown = "unknown"
+	// autoUpdateSkipReasonChannel 平台不允许走 FPK 升级通道（10371：通常由官方
+	// 应用中心安装的应用）。0.6.575：自动更新分支也先预检，命中就不下载整包
+	// （PATCH_0575 B）。0.6.578 批次 3a 起 TTL 收窄到 2h 且要连击两次才生效
+	// （见 autoUpdateSkipTTLChannel / markAutoUpdateSkip）；卸载重装成 Moo 版本
+	// 后自然失效，同版本换包（sha 变）也会立即重探。
+	autoUpdateSkipReasonChannel = "channel"
 
 	// 文件从 0.6.543 的 auto_update_wizard_skip.json 改名而来：现在也存
 	// blocked 判定，旧名字会误导。读取时自动迁移（写新→删旧）。
@@ -57,6 +73,14 @@ type autoUpdateSkipEntry struct {
 	Reason  string `json:"reason"`
 	Until   string `json:"until"` // RFC3339
 	Missing string `json:"missing,omitempty"`
+	// Hits 是同 key 的**连续命中次数**（0.6.578 批次 3a 起只对 channel 生效，
+	// 其它 reason 恒为 0、也不看它）。
+	// channel 判定要求 Hits>=2 才算命中：首轮只计数不拦，下一轮预检再撞一次
+	// 才静默——一次瞬时 10371 不该让应用静默 2 小时。
+	// 向后兼容：旧版本写的条目没有该字段 → Hits=0 → 视为「尚未连击」，
+	// channel 条目会再预检一轮才生效（宁可多探一次，不误拦）；因此
+	// schema_version 不必升。
+	Hits int `json:"hits,omitempty"`
 }
 
 type autoUpdateSkipState struct {
@@ -151,15 +175,26 @@ func (s *Server) autoUpdateSkips() map[string]autoUpdateSkipEntry {
 func autoUpdateSkipHitAny(skips map[string]autoUpdateSkipEntry, app, version, sha string) bool {
 	return autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonWizard) ||
 		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonBlocked) ||
-		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonUnknown)
+		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonUnknown) ||
+		autoUpdateSkipHit(skips, app, version, sha, autoUpdateSkipReasonChannel)
 }
 
 func autoUpdateSkipHit(m map[string]autoUpdateSkipEntry, app, version, sha, reason string) bool {
 	if len(m) == 0 {
 		return false
 	}
-	_, ok := m[autoUpdateSkipKey(app, version, sha, reason)]
-	return ok
+	e, ok := m[autoUpdateSkipKey(app, version, sha, reason)]
+	if !ok {
+		return false
+	}
+	// 0.6.578 批次 3a：channel 判定是推测性的（10371 在瞬时态也会出现），
+	// 要求**连续两次**预检都撞上才算命中；首轮不命中意味着下一轮会再预检一次，
+	// 这就是设计意图（连击判定），不额外维护内存表。
+	// 其它 reason 不看 Hits：行为与之前完全一致。
+	if reason == autoUpdateSkipReasonChannel && e.Hits < 2 {
+		return false
+	}
+	return true
 }
 
 // saveAutoUpdateSkips 落盘（过期条目不写、超过上限截断、原子替换）。
@@ -196,7 +231,11 @@ func (s *Server) saveAutoUpdateSkips(m map[string]autoUpdateSkipEntry) {
 	_ = os.Rename(tmp, p)
 }
 
-// markAutoUpdateSkip 记一条判定；reason 取 wizard / blocked。
+// markAutoUpdateSkip 记一条判定；reason 取 wizard / blocked / unknown / channel。
+//
+// channel 是唯一会累积 Hits 的 reason：同 key 条目仍在静默期内 → Hits+1，
+// 否则从 1 起算；Until 每次都按 now+TTL 重算。只有 Hits>=2 才会被
+// autoUpdateSkipHit 视为命中（连击判定，见该函数注释）。
 func (s *Server) markAutoUpdateSkip(app, version, sha, reason string, missing []string) {
 	if app == "" || version == "" {
 		return
@@ -210,15 +249,27 @@ func (s *Server) markAutoUpdateSkip(app, version, sha, reason string, missing []
 		ttl = autoUpdateSkipTTLBlocked
 	case autoUpdateSkipReasonUnknown:
 		ttl = autoUpdateSkipTTLUnknown
+	case autoUpdateSkipReasonChannel:
+		ttl = autoUpdateSkipTTLChannel
 	}
+	now := time.Now()
 	m := s.autoUpdateSkips()
-	m[autoUpdateSkipKey(app, version, sha, reason)] = autoUpdateSkipEntry{
+	key := autoUpdateSkipKey(app, version, sha, reason)
+	hits := 0
+	if reason == autoUpdateSkipReasonChannel {
+		if prev, ok := m[key]; ok {
+			hits = prev.Hits
+		}
+		hits++
+	}
+	m[key] = autoUpdateSkipEntry{
 		App:     app,
 		Version: version,
 		Sha:     sha,
 		Reason:  reason,
-		Until:   time.Now().Add(ttl).Format(time.RFC3339),
+		Until:   now.Add(ttl).Format(time.RFC3339),
 		Missing: strings.Join(missing, "、"),
+		Hits:    hits,
 	}
 	s.saveAutoUpdateSkips(m)
 }

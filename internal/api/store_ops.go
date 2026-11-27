@@ -366,6 +366,14 @@ func (s *Server) appUpdateSSE(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("应用尚未安装"))
 		return
 	}
+	// 0.6.574（复核 B-UPDATE-CHANNEL-10371）：先探「平台是否允许 FPK 升级通道」。
+	// 已由官方应用中心安装的应用，平台对 packageType=fpk 的 update/info 恒回
+	// 10371；原流程要先下载整包、到「读取安装向导」才失败，用户只看到裸码。
+	// 这里只拦 10371，探测本身失败一律放行（不挡住正常升级）。
+	if err := platform.ProbeFPKUpgrade(r.Context(), a.Name, a.Version); err != nil {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
 	// 0.6.542/0.6.545：社区源升级同样支持「升级确认」——前端收到 wizard_required
 	// 细节后弹窗收集参数，再带 ?wizard=[{key,value}] 重入本端点。
 	// 与官方 cloud 通道共用 parseWizardQuery（只留一份解析/报错契约）。

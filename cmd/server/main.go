@@ -98,13 +98,29 @@ func main() {
 	}
 
 	dataDir := config.DataDir()
+	// 2026-11-26（批次 B）：继承的 TRIM_PKGVAR 若指向别的应用目录，宁可不启动，
+	// 也不要把 config/cache/operations.json 写进别人的数据目录。
+	if err := config.CheckDataDir(dataDir); err != nil {
+		refuseStart(err)
+		log.Fatalf("[security] 拒绝启动：%v", err)
+	}
+	log.Printf("[datadir] 生效目录=%s（来源 %s，应用名 %s，TRIM_PKGVAR=%q）", dataDir, datadirSource(), config.AppName(), os.Getenv("TRIM_PKGVAR"))
+	// 2026-11-26（P1-3）：数据目录归属标记（.moo-owner）。冲突在上面已经被
+	// 拒绝；这里补「首次启动写标记」。写失败只告警——写入侧仍会各自校验。
+	if err := config.EnsureDataDirOwner(dataDir); err != nil {
+		log.Printf("[datadir] 归属标记不可用（继续启动）: %v", err)
+	}
 	// 0.6.220（方案 X）：敏感字段落盘加密——注入加解密器后再 Load，
 	// 这样读到的面板口令/通知渠道密钥已在内存里是明文。
 	// 密钥 = 每次安装独有的随机值（<dataDir>/.moo-secret.key，0600）；
 	// 不用 /etc/machine-id 派生（实测多台 fnOS 设备 machine-id 相同）。
-	if sealer, serr := secret.LoadOrCreate(dataDir); serr != nil {
+	// 2026-11-26（加固 B2）：sealer 提到外层变量——官方源 OAuth 会话的
+	// opt-in 加密（official.SetSealer）复用它，不再单独生成密钥。
+	var sealer *secret.Sealer
+	if s, serr := secret.LoadOrCreate(dataDir); serr != nil {
 		log.Printf("[security] 凭据加密密钥不可用，凭据将以明文存储（建议检查数据目录权限）: %v", serr)
 	} else {
+		sealer = s
 		config.SetCodec(sealer)
 		config.SetExtraCodec(notify.SealChannelSecrets)
 		log.Printf("[security] 凭据落盘加密已启用（密钥指纹 %s）", sealer.KeyID())
@@ -208,6 +224,12 @@ func main() {
 	if n := srcMgr.SetPrefPath(dataDir + "/cache/indexpref.json"); n > 0 {
 		log.Printf("索引名记忆已恢复: %d 条", n)
 	}
+	// 2026-11-26 CARE P1-4：自动监测计数持久化（空源/失败轮数、首次失败时间、
+	// 最近错误）。重启不清零，否则「连续 N 轮」门槛会被频繁换包抹掉。
+	// 文件缺失/损坏 = 退化为无计数，不阻塞启动。
+	if n := srcMgr.SetCarePath(dataDir + "/cache/source_care.json"); n > 0 {
+		log.Printf("源自动监测计数已恢复: %d 条", n)
+	}
 	// 下载目录：历史配置是相对名（dataDir/downloads）；设置页选择器落地后
 	// 为绝对路径（/volN/共享目录）。绝对路径直接使用。
 	dlDir := cfg.DownloadDir
@@ -256,6 +278,9 @@ func main() {
 		SysUpdate: sysupdate.New(),
 		Official:  official.NewManager(dataDir),
 	}
+	// 2026-11-26 B-SRC-LISTSYNC：源列表同步的运行痕迹 + 失败退避（死链不再
+	// 每小时重抓）。文件缺失/损坏 = 空状态，不阻塞启动。
+	srv.SetListSyncPath(dataDir + "/cache/source_list_sync.json")
 	pipe.FPKCandidates = srv.FpkCandidates
 	// 2026-11-21（FnDepot#24）：索引拉取改用镜像健康序，fail 的源不进前 N 个。
 	config.SetGHMirrorHealth(srv.GHMirrorHealth)
@@ -269,6 +294,20 @@ func main() {
 	// 未配置返回 0 → 平台默认卷探测/诚实报错）。
 	pipe.InstallVolumeFn = func() int { return cfg.InstallVolume }
 
+	// 2026-11-26（加固 B2）：OAuth 会话落盘加密 = opt-in（默认关，零体验变化）。
+	// 顺序不能变：注入 sealer → 按配置开启 → 再 LoadSession（已加密的会话
+	// 文件必须靠 sealer 才解得开；顺序错了会把存量会话读成「密钥不可用」）。
+	if sealer != nil {
+		srv.Official.SetSealer(sealer)
+	}
+	if cfg.OfficialSessionEncrypt {
+		if err := srv.Official.SetEncryption(true); err != nil {
+			// 密钥不可用等 → 只记日志，不阻塞启动（继续按明文形态工作）。
+			log.Printf("[official] 会话加密开启失败，按明文继续: %v", err)
+		} else {
+			log.Printf("[official] OAuth 会话落盘加密已开启")
+		}
+	}
 	// 官方应用中心：加载持久化 OAuth 会话（token 未过期则免重新授权）
 	srv.Official.LoadSession()
 	// P1-2：上次自更新对账（版本 == 目标 → confirmed；仍是旧版 → failed；其它 → unknown）。
@@ -318,6 +357,9 @@ func main() {
 	// 欢迎语（0.6.155）：安装后首次启动自动推送「欢迎使用Moo」一次，
 	// 重启/升级不重复（WelcomeSentAt 持久化）；手动重发走 POST /api/notify/welcome。
 	go srv.MaybeFireWelcome(ctx)
+	// 2026-11-26（批次 C）：若「配置要求加密、会话文件仍是明文」，启动后主动推一条提醒
+	// （24h 节流，状态落 cache/official_encrypt_warn.json）。
+	go srv.MaybeWarnOfficialEncrypt(ctx)
 
 	// GitHub Release 资产下载量同步（第三方源目录不统计下载量的补数通道）
 	srv.GHStats = source.NewGHStats(dataDir + "/cache/ghstats.json")
@@ -461,4 +503,35 @@ func parseMemLimit(v string) (int64, error) {
 		}
 	}
 	return 0, fmt.Errorf("invalid memory limit %q", v)
+}
+
+// refuseStart 0.6.574（P1-d）：拒启要能被应用中心/运维看见。
+//
+// start_daemon 把 stderr 重定向到 ${PKGVAR}/moo.log，而拒启的常见原因恰恰是
+// PKGVAR 指错了目录 —— 这条原因会落进「别人家」的日志里，运维在自己的 Moo
+// 日志中看不到任何东西。平台会收集 TRIM_TEMP_LOGFILE，这里额外写一份；
+// 写不进去也不影响后续 log.Fatalf。
+func refuseStart(err error) {
+	p := strings.TrimSpace(os.Getenv("TRIM_TEMP_LOGFILE"))
+	if p == "" {
+		return
+	}
+	f, ferr := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if ferr != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s [security] 拒绝启动：%v\n", time.Now().Format("2006-01-02 15:04:05"), err)
+}
+
+// datadirSource 报告生效数据目录的来源（日志用，便于判断这次到底用的哪个目录）。
+func datadirSource() string {
+	switch {
+	case os.Getenv("MOO_DATA") != "":
+		return "MOO_DATA"
+	case os.Getenv("TRIM_PKGVAR") != "":
+		return "TRIM_PKGVAR"
+	default:
+		return "默认 ./moo-data"
+	}
 }

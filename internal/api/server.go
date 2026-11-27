@@ -171,6 +171,14 @@ type Server struct {
 	lastProbeGh      atomic.Int64 // gh 组上次探测时间（F6）
 	lastProbeDk      atomic.Int64 // dk 组上次探测时间（F6）
 
+	// 2026-11-26 B-SRC-LISTSYNC：「源列表自动同步」的运行痕迹 + 失败退避。
+	// 落盘路径由 main 注入（SetListSyncPath）；空 = 只存内存，
+	// 单测与未接线场景不落盘（避免测试写进真实数据目录）。
+	listSyncMu   sync.Mutex
+	listSyncPath string
+	listSync     listSyncState
+	listSyncLoad bool // 是否已尝试载入（缺失/损坏也算已尝试）
+
 	// 0.6.326 通知批次：通知健康态（**内存不落盘**——重启后重新计数，避免把
 	// 陈旧的「连续失败」跨重启续算成一次假告警）。
 	//   notifyChanFails：渠道名 → 连续失败状态（notify_channel_error 事件）
@@ -401,6 +409,8 @@ func (s *Server) Handler(trust bool) http.Handler {
 	// GET 版 requireAdmin 只校验 Trusted+IsAdmin，不要求 X-Moo-Admin 头。
 	mux.HandleFunc("GET /api/mirrors/health", s.requireAdmin(s.mirrorHealth))
 	mux.HandleFunc("GET /api/mirrors/docker/health", s.requireAdmin(s.dockerMirrorHealth))
+	// 0.6.574（复核 F1）：数据目录守卫的自监控出口（Save 失败计数 / 生效目录 / 归属标记）。
+	mux.HandleFunc("GET /api/datadir-health", s.requireAdmin(s.datadirHealth))
 	mux.HandleFunc("POST /api/mirrors/check", s.requireAdmin(s.mirrorsCheck))
 	// 0.6.512 清单目录化：加速源清单改读 lists/（同步 / 恢复 / 本机删除默认源）
 	mux.HandleFunc("POST /api/mirrors/sync", s.requireAdmin(s.mirrorsSync))

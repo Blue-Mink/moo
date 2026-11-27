@@ -8,7 +8,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,6 +23,10 @@ import (
 )
 
 var errKeywordRequired = errors.New("keyword 不能为空")
+
+// errSessionKeyUnavailable 本机密钥不可用（.moo-secret.key 缺失/损坏）。
+// 与 internal/official 的 lastErr 文案区分：这条是「拒绝开启」，那条是「读不出」。
+var errSessionKeyUnavailable = errors.New("本机密钥不可用（.moo-secret.key 缺失或损坏），无法开启会话加密")
 
 type officialStore struct {
 	mu       sync.Mutex
@@ -67,6 +74,17 @@ func (s *Server) officialBrowserBase(r *http.Request) string {
 	return u.Scheme + "://" + u.Host
 }
 
+// officialScopeParam 把 ?scope= / body.scope 白名单化为实际 scope 串。
+// 缺省（""）= 完整权限（旧客户端行为不变）；非法值返回 error（上层 400）。
+// 绝不透传任意串——scope 原样透传等于把「提权范围」交给调用方。
+func officialScopeParam(v string) (string, error) {
+	sc, err := official.NormalizeScope(v)
+	if err != nil {
+		return "", errors.New("scope 参数只能是 full 或 minimal")
+	}
+	return sc, nil
+}
+
 // officialRoutes 注册 /api/official/* 路由。
 func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 	mux.HandleFunc("GET /api/official/status", func(w http.ResponseWriter, r *http.Request) {
@@ -78,18 +96,64 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 		st["ui_known"] = known
 		// 0.6.259：面板账号兜底是否已启用（老面板无 OAuth 时 headless 授权会置位）。
 		st["panel_fallback"] = s.Panel.Enabled()
-		// 0.6.349：下发解析后的面板基址（前端局域网分支据此填默认值，
-		// 不再靠猜 5666/5667；issue moo#7 自定义端口）。
-		pb := panel.ResolveBaseCached("")
-		st["panel_base"] = pb.URL
-		st["panel_base_source"] = pb.Source
+		// 2026-11-26（加固 B2）：会话落盘加密状态。**公开布尔**（非管理员也给）：
+		// 只表达「磁盘上是不是密文」「本机密钥能不能用」，不含密钥、不含内容，
+		// 前端据此渲染开关的可用性/当前态。
+		st["session_encrypted"] = store.mgr.SessionEncrypted()
+		st["encryption_available"] = store.mgr.EncryptionAvailable()
+		// 2026-11-26（盲点修复）：把「开关意图」与「磁盘形态」分开暴露。
+		// 无会话时开启加密只改意图（还没有会话可写），若前端只认 session_encrypted，
+		// 开关会弹回「关」——用户以为没生效（实报）。encryption_mismatch 用于
+		// 「意图开、文件仍是明文」（旧版本重授权覆盖）这种需要显式告知的状态。
+		st["session_encryption_on"] = store.mgr.EncryptionEnabled()
+		st["encryption_mismatch"] = store.mgr.EncryptionMismatch()
+		// 2026-11-26（加固 A）：授权范围偏好（公开、非敏感）。配置值非法按 full
+		// 返回；scope_minimal_supported 恒 true = 前端可展示两个选项（旧后端没有
+		// 这两个键，前端缺省按 full，行为不变）。
+		// 配置可能为 nil（最小 Server 夹具 / 早期启动）——nil 按默认 full 处理，
+		// 不让一个状态查询因为配置未注入而 panic。
+		scopeCfg := ""
+		if c := s.cfg(); c != nil {
+			scopeCfg = c.OfficialScopeMode
+		}
+		st["scope_mode"] = official.ScopeModeOf(scopeCfg)
+		st["scope_minimal_supported"] = true
+		// 2026-11-26（加固 C）：status 按身份裁剪，但**保持 200**（前端 / Mate /
+		// 脚本都靠它判断连接状态，改成 403 会把这些调用方全打死）。
+		// 公开字段：authorized / expired / expires_at / scopes / pending /
+		// ui_supported / ui_known / panel_fallback / can_admin。
+		// 仅管理员（可信通道 + 管理员身份）额外可见面板地址与错误详情——
+		// last_error 会把面板基址与面板侧错误原文带出来，panel_base 本身就是
+		// 内网拓扑，二者都不该给非管理员。
+		u, _ := userFrom(r.Context())
+		canAdmin := u.Trusted && u.IsAdmin
+		st["can_admin"] = canAdmin
+		if canAdmin {
+			// 0.6.349：下发解析后的面板基址（前端局域网分支据此填默认值，
+			// 不再靠猜 5666/5667；issue moo#7 自定义端口）。
+			pb := panel.ResolveBaseCached("")
+			st["panel_base"] = pb.URL
+			st["panel_base_source"] = pb.Source
+		} else {
+			// 双保险：即使 Status 将来新增敏感键，非管理员也拿不到。
+			delete(st, "last_error")
+			delete(st, "panel_base")
+			delete(st, "panel_base_source")
+		}
 		writeJSON(w, st)
 	})
 	mux.HandleFunc("GET /api/official/authorize", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		// 0.6.253：?base= 指定用户浏览器可达的面板地址（如
 		// http://192.0.2.22:5666）；缺省用本机回环（浏览器不可达，
 		// 仅供本机调试）。授权 URL 不含密钥，覆盖仅改 host:port。
-		urlStr, err := store.mgr.BeginAuthorizationAt(s.officialBrowserBase(r))
+		// 2026-11-26（加固 A）：?scope=full|minimal（白名单，非法 400；缺省 full
+		// → 旧客户端行为完全不变）。
+		scope, serr := officialScopeParam(r.URL.Query().Get("scope"))
+		if serr != nil {
+			writeErr(w, http.StatusBadRequest, serr)
+			return
+		}
+		urlStr, err := store.mgr.BeginAuthorizationAtScope(s.officialBrowserBase(r), scope)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -114,6 +178,19 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 			return
 		}
 		if err := store.mgr.CompleteAuthorization(r.Context(), body.Code); err != nil {
+			// 2026-11-26（加固 A）：面板拒绝 minimal 范围 → **400 + error_code**
+			// （其它失败仍是 502）。前端据此**弹窗让用户显式确认**是否改用完整权限重试
+			// （2026-11-27 批次 3c：不再静默扩权；用户取消则保持未连接、不写任何设置）。
+			if errors.Is(err, official.ErrScopeRejected) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error":      err.Error(),
+					"error_code": "scope_rejected",
+					"scope":      official.ScopeModeMinimal,
+				})
+				return
+			}
 			writeErr(w, http.StatusBadGateway, err)
 			return
 		}
@@ -133,6 +210,43 @@ func (s *Server) officialRoutes(mux *http.ServeMux, store *officialStore) {
 		// 反向变化）→ 同样失效目录 + body 缓存。
 		s.invalidateCatalog()
 		writeJSON(w, map[string]any{"ok": true})
+	}))
+	// 2026-11-26（加固 B2）：会话落盘加密开关（opt-in，默认关）。
+	// 语义：先切运行态（含把当前内存会话立即按新形态重写一次），成功后才落配置；
+	// 配置落盘失败 → 回滚运行态与标志再报错，保证「配置文件 == 运行态」。
+	// 开启需要本机密钥可用（否则会写出自己都解不开的密文）。
+	mux.HandleFunc("POST /api/official/session-encryption", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := jsonDecode(r, &body); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if body.Enabled == nil {
+			writeErr(w, http.StatusBadRequest, errors.New("缺少 enabled 参数"))
+			return
+		}
+		want := *body.Enabled
+		if want && !store.mgr.EncryptionAvailable() {
+			writeErr(w, http.StatusBadRequest, errSessionKeyUnavailable)
+			return
+		}
+		prev := s.cfg().OfficialSessionEncrypt
+		if err := store.mgr.SetEncryption(want); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		s.cfg().OfficialSessionEncrypt = want
+		if err := s.cfg().Save(dataDirOf(s)); err != nil {
+			s.cfg().OfficialSessionEncrypt = prev
+			if rbErr := store.mgr.SetEncryption(prev); rbErr != nil {
+				log.Printf("[official] 回滚会话加密状态失败: %v", rbErr)
+			}
+			writeErr(w, http.StatusInternalServerError, fmt.Errorf("保存配置失败: %w", err))
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "encrypted": store.mgr.SessionEncrypted()})
 	}))
 	mux.HandleFunc("GET /api/official/apps", s.requireAdmin(func(w http.ResponseWriter, r *http.Request) {
 		apps, err := store.list(r.Context())

@@ -5,7 +5,7 @@ import { cn, formatSpeed, formatProgress } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
-  Download, Package, X, BellOff, Globe, User, Check, Star, Ban,
+  Download, Package, X, BellOff, Globe, User, Check, Star, Ban, Copy,
 } from 'lucide-react';
 import { CheckCircle2, RefreshCw as UpdateIcon, Search } from 'lucide-react';
 // 0.6.342：已停止/启动中 的列表口径（与桌面卡、极简/极光网格共用）
@@ -13,6 +13,7 @@ import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRu
 // P1-4 已下架：行模式同语义（名称旁小徽章 + 一行原因；已装打开/卸载，未装查看说明）
 import { DELIST_BADGE, delistNotice, delistReasonShort } from '@/lib/delist';
 import { centerAppRow } from '@/lib/jumpToApp';
+import { CI_BADGE, caseVariantCount, hasCaseVariant } from './SameNamePanel';
 import AppIcon from './AppIcon';
 import { DockerIcon } from './DockerIcon';
 import AppRowActions from './AppRowActions';
@@ -193,7 +194,7 @@ const AppRowList: React.FC<AppRowListProps> = ({
             {/* 中部信息 */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="font-semibold text-[16px] leading-tight truncate" title={app.display_name}>
+                <span data-testid="app-name" className="font-semibold text-[16px] leading-tight truncate" title={app.display_name}>
                   {app.display_name}
                 </span>
                 {/* 0.6.219：Docker 应用标记由通用盒子改为 Docker 官方鲸鱼
@@ -248,6 +249,21 @@ const AppRowList: React.FC<AppRowListProps> = ({
                       <Download className="h-3 w-3" />{downloadLabel}
                     </span>
                   </>
+                )}
+                {/* D3（0.6.579）：同名透明化——「另有同名变体」只提示不合并。
+                    放版本行（flex-wrap）而不挂名称旁：窄屏上名称会被角标挤成
+                    「全…」（P1-4 下架角标已因此移到行右上角）。同源徽章行还会
+                    与动作列抢宽，故取版本行；点击整行即开详情，无需额外按钮。
+                    旧后端缺字段 ⇒ 不渲染。 */}
+                {hasCaseVariant(app) && (
+                  <span
+                    data-testid="ci-badge"
+                    title={`另有 ${caseVariantCount(app)} 张同名变体卡（appname 大小写不同）· 打开详情查看`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/40 bg-muted/50 px-1.5 py-[1px] text-[11px] leading-[16px] text-muted-foreground"
+                  >
+                    <Copy className="h-2.5 w-2.5 shrink-0" />
+                    {CI_BADGE}
+                  </span>
                 )}
               </div>
 

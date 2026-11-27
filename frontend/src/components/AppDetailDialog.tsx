@@ -24,6 +24,8 @@ import AppIcon from "./AppIcon";
 import MoreMenuButton from "./MoreMenu";
 import WizardDialog from "./WizardDialog";
 import { auroraFor } from "./ViewModeGrids";
+// D3（0.6.579）：同名候选表 + 「原项目源」提示（只提示不合并）
+import SameNamePanel from "./SameNamePanel";
 // P1-4 已下架：详情红条 + 强制忽略 aurora 底板 + 主操作位语义
 import DelistBanner from './DelistBanner';
 import { delistAuroraClass, delistPrimary } from '@/lib/delist';
@@ -269,6 +271,11 @@ interface AppDetailDialogProps {
   onToggleFavorite?: (app: AppInfo) => void;
   /** 极光预览模式（0.6.297，仅网页端）：面板底=该应用极光卡同款渐变 */
   aurora?: boolean;
+  /**
+   * D3（0.6.579）：同名候选表点击 → 按 key 切到该卡详情（沿用既有详情通道；
+   * 被去重隐藏的卡也能打开 = 显式引用逃生门）。缺省 ⇒ 候选项不可点。
+   */
+  onOpenKey?: (key: string) => void;
 }
 
 export const DetailRow: React.FC<{ icon: React.ElementType; label: string; className?: string; children: React.ReactNode }> = ({ icon: Icon, label, className, children }) => (
@@ -337,7 +344,7 @@ export const formatDownloads = (n?: number): string => {
 // DOMPurify 默认策略即剥离 script/style/iframe/object/embed/on* 与
 // javascript: 数据 URL，只保留展示型标签。
 
-const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onToggleHide, onSourceToggled, onUninstall, onLocalInstallDone, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora }) => {
+const AppDetailDialog: React.FC<AppDetailDialogProps> = ({ app: propApp, open, onOpenChange, onInstall, onUpdate, onIgnoreUpdate, onUnignoreUpdate, onToggleHide, onSourceToggled, onUninstall, onLocalInstallDone, operation, onSourceFilter, onAuthorFilter, onDistributorFilter, activeTerms, onOpenApp, onControl, controlling, isFavorite, onToggleFavorite, aurora, onOpenKey }) => {
   // 0.6.301：打开时刻记录 —— 配合 DialogContent 的 400ms 外点免疫窗
   //（触屏双击卡片：第一下开详情，第二下落在遮罩上会秒关 = 用户观感仍「没反应」）
   const openedAtRef = useRef(0);
@@ -1990,6 +1997,10 @@ mdsSim && "mds-sim")}>
 
           {/* 0.6.337（用户定稿）：系统最低版本整行移除（用户明确不要，含源声明 min_fnos）。 */}
         </div>
+
+        {/* D3（0.6.579）：同名透明化——大小写变体候选表 + D2「原项目源」提示。
+            无同名兄弟卡且无 D2 场景时 SameNamePanel 自身返回 null（普通应用零变化）。 */}
+        <SameNamePanel app={app} onOpenKey={onOpenKey} />
 
         {/* README */}
         {((app.has_readme && !readmeMissing) || !!readme) && (

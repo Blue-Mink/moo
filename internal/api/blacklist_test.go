@@ -382,48 +382,37 @@ func TestBlacklistReasonShort(t *testing.T) {
 }
 
 // TestBlacklistEmbeddedMatchesRepoList 出厂内嵌清单必须与仓库 lists/blacklist.json
-// 同源（build.sh Step 0.6 生成）：两边不同步即 FAIL，防「改了清单忘了重建」。
-func TestBlacklistEmbeddedMatchesRepoList(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "lists", "blacklist.json"))
-	if err != nil {
-		t.Fatalf("读取仓库清单失败: %v", err)
-	}
-	want, err := parseBlacklist(string(raw))
-	if err != nil {
-		t.Fatalf("仓库清单解析失败: %v", err)
-	}
+// TestBlacklistEmbeddedSnapshotIsEmpty 出厂内嵌快照必须为空
+// （2026-11-28 用户令「黑名单不要进内嵌快照」）。
+//
+// 为什么：黑名单是运营内容（改文件即生效、随时续期/撤下）。此前 build.sh
+// Step 0.6 会把 lists/blacklist.json 抄进 internal/api/default_blacklist.json
+// 并 go:embed，导致 ① 每次续期都要重建发版；② 同一版本号可能对应不同下架集合；
+// ③ 测试/演示条目一旦被内嵌，会在 until 之前对所有用户生效。
+//
+// 现行语义：清单只走远端（多镜像 + 验签 + TTL + last-known-good 落盘）；
+// 从未拉取成功 → fail-open（空清单，绝不误杀），见 blacklist.go 头部注释。
+//
+// 反向验证：把任一 entry 塞回 internal/api/default_blacklist.json，本用例必须 FAIL。
+func TestBlacklistEmbeddedSnapshotIsEmpty(t *testing.T) {
 	got := embeddedBlacklist()
-	if len(got) != len(want) {
-		t.Fatalf("内嵌 %d 条 != 仓库清单 %d 条（需重新构建/同步 default_blacklist.json）", len(got), len(want))
-	}
-	for i := range want {
-		if got[i].App != want[i].App || got[i].Source != want[i].Source || got[i].Sha256 != want[i].Sha256 || got[i].Reason != want[i].Reason {
-			t.Fatalf("第 %d 条不一致：内嵌 %+v / 仓库 %+v", i, got[i], want[i])
-		}
+	if len(got) != 0 {
+		t.Fatalf("出厂内嵌快照必须为空（黑名单只走远端），实际 %d 条：%+v", len(got), got)
 	}
 }
 
-// TestBlacklistNeverFetchedUsesEmbeddedSnapshot 从未成功拉取 → 按出厂内嵌快照判定
-// （Moo 要求出厂内置，不再 fail-open 空清单）；未命中的应用一律不误杀。
-func TestBlacklistNeverFetchedUsesEmbeddedSnapshot(t *testing.T) {
-	embedded := embeddedBlacklist()
-	if len(embedded) == 0 {
-		t.Skip("仓库清单为空：内嵌快照为空，本用例无意义")
-	}
+// TestBlacklistNeverFetchedFailOpen 从未成功拉取 → fail-open（空清单）。
+// 反向验证：把 embeddedBlacklist() 换成返回任意一条固定条目，本用例必须 FAIL。
+func TestBlacklistNeverFetchedFailOpen(t *testing.T) {
 	s, _ := newBlacklistEnv(t, "", http.StatusInternalServerError)
 	if _, _, err := s.refreshBlacklist(context.Background()); err == nil {
 		t.Fatal("清单源 500 时 refresh 必须报错")
 	}
-	e := embedded[0]
-	app, source, sha := e.App, e.Source, e.Sha256
-	if app == "" {
-		app = "任意名字"
+	if entries := s.blacklistEntries(); len(entries) != 0 {
+		t.Fatalf("从未拉取成功时必须 fail-open（0 条），实际 %d 条", len(entries))
 	}
-	if source == "" || source == "*" {
-		source = "任意源"
-	}
-	if !s.isBlacklisted(app, source, sha) {
-		t.Fatalf("从未拉取成功时必须按内嵌快照命中 %q（%+v）", app, e)
+	if s.isBlacklisted("global-radio", "", "6ce351d7dfa964d7e76d7c53faa217502794ed9859955e97e028935dd2dd7666") {
+		t.Fatal("无清单时不得凭历史演示条目命中（不得把运营条目固化进二进制）")
 	}
 	if s.isBlacklisted("definitely-not-in-blacklist-app", "A", "") {
 		t.Fatal("未命中的应用不得被判为下架（不得误杀）")

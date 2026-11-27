@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, Check, ChevronDown, Upload } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, RefreshCw, Trash2, Check, ChevronDown, Upload, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
 import WizardDialog from './WizardDialog';
 import { cn } from '../lib/utils';
+import { filterFpkDownloads } from '../lib/fpkFilter';
 import {
   fetchFpkDownloads,
   deleteFpkDownload,
@@ -127,6 +128,9 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
   // 0.6.397：向导标题用的应用名（打开时从列表条目取，避免回退成包文件名）
   const [fpkWizardTitle, setFpkWizardTitle] = useState<string | null>(null);
   // 已下载列表折叠（本地持久化）
+  // 2026-11-26（用户令）：已下载 FPK 搜索——按应用名 / 包文件名 / 源名过滤。
+  // 与「应用源」搜索同款：列表卡前面一个输入框，输入即筛选，清空即还原。
+  const [fpkQuery, setFpkQuery] = useState<string>('');
   const [fpkListCollapsed, setFpkListCollapsed] = useState<boolean>(() => {
     try {
       // 无持久化记录时取 defaultExpanded 的补数（弹窗默认展开/设置页默认折叠）；
@@ -136,11 +140,14 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
     } catch { return !defaultExpanded; }
   });
   const toggleFpkList = () => {
-    setFpkListCollapsed((v) => {
-      try { localStorage.setItem('fpk-list-collapsed', v ? '0' : '1'); } catch { /* ignore */ }
-      return !v;
-    });
+    const next = !fpkListCollapsed;
+    setFpkListCollapsed(next);
+    // 折叠时清空搜索（与「应用源」一致：搜索框随列表一起收起，展开是新的一屏）
+    if (next) setFpkQuery('');
+    try { localStorage.setItem('fpk-list-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
   };
+  // 2026-11-26（用户令）：按应用名 / 包文件名 / 显示名 / 版本 / 源名过滤。
+  const fpkShown = useMemo(() => filterFpkDownloads(fpkFiles, fpkQuery), [fpkFiles, fpkQuery]);
   // ── 0.6.393 批量删除 ───────────────────────────────────────────────────
   const clearBatchConfirm = useCallback(() => {
     if (batchConfirmTimer.current !== null) {
@@ -174,11 +181,12 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
       return next;
     });
   };
-  const batchAllSelected = fpkFiles.length > 0 && fpkFiles.every((f) => batchSel.has(f.name));
+  // 搜索态下「全选」只作用于当前命中项（避免看不见的行被删掉）
+  const batchAllSelected = fpkShown.length > 0 && fpkShown.every((f) => batchSel.has(f.name));
   const toggleBatchSelectAll = () => {
     if (batchBusy) return;
     clearBatchConfirm();
-    setBatchSel(batchAllSelected ? new Set() : new Set(fpkFiles.map((f) => f.name)));
+    setBatchSel(batchAllSelected ? new Set() : new Set(fpkShown.map((f) => f.name)));
   };
   // 列表为空（全删完 / 目录被清空）→ 自动退出批量模式，避免留下空操作条
   useEffect(() => {
@@ -418,7 +426,9 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
           aria-expanded={fpkFiles.length > 0 ? !fpkListCollapsed : undefined}
         >
           <span className="truncate text-xs font-medium text-muted-foreground">
-            已下载的 FPK{fpkFiles.length > 0 ? `（${fpkFiles.length}）` : ''}
+            已下载的 FPK{fpkFiles.length > 0
+              ? (fpkQuery.trim() ? `（${fpkShown.length}/${fpkFiles.length}）` : `（${fpkFiles.length}）`)
+              : ''}
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-3 sm:gap-4">
@@ -561,13 +571,40 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
       )}
       {/* 0.6.530（用户令）：折叠态不再渲染「已下载 N 个 FPK · 点击展开」重复条
           （标题行已显示条数，且整行可点展开）；列表只在展开时存在。 */}
+      {/* 2026-11-26（用户令）：已下载 FPK 搜索框——与应用源同款，输入即筛选
+          （应用名 / 包文件名 / 源名 / 版本）；折叠时随列表一起收起并清空。 */}
+      {fpkFiles.length > 0 && !fpkListCollapsed && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={fpkQuery}
+            onChange={(e) => setFpkQuery(e.target.value)}
+            placeholder="搜索已下载 FPK（应用名 / 源名 / 文件名）"
+            aria-label="搜索已下载 FPK"
+            className="h-8 w-full rounded-lg border border-border/50 bg-background pl-8 pr-8 text-xs outline-none placeholder:text-muted-foreground focus:border-primary/60"
+          />
+          {fpkQuery && (
+            <button
+              type="button"
+              onClick={() => setFpkQuery('')}
+              aria-label="清空已下载 FPK 搜索"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
       {fpkFiles.length > 0 && !fpkListCollapsed && (
         <div className={cn(
           'overflow-y-auto rounded-lg border border-border/40 divide-y divide-border/40',
           // C13：弹窗（stableHeight）用定高 h-60 与加载占位区同高；设置页保持 max-h-60
           stableHeight ? 'h-60' : 'max-h-60',
         )}>
-          {fpkFiles.map((f) => {
+          {fpkShown.length === 0 && (
+            <div className="px-3 py-6 text-center text-[11px] text-muted-foreground">没有匹配的已下载 FPK</div>
+          )}
+          {fpkShown.map((f) => {
             // 0.6.391：主行=应用名，副行=包文件名（详见 fpkTitleLine 注释）。
             const title = fpkTitleLine(f);
             const primary = title && !title.pending ? title.text : f.name;
@@ -611,6 +648,14 @@ const FpkDownloads: React.FC<FpkDownloadsProps> = ({
                   </span>
                   {verLabel && (
                     <span className="shrink-0 text-[11px] text-muted-foreground/80">{verLabel}</span>
+                  )}
+                  {f.source && (
+                    <span
+                      className="shrink-0 rounded bg-muted px-1 py-[1px] text-[10px] text-muted-foreground"
+                      title={`来源：${f.source}`}
+                    >
+                      {f.source}
+                    </span>
                   )}
                 </div>
                 {title?.pending ? (

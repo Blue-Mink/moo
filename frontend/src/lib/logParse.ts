@@ -12,6 +12,18 @@ const WARN_RE = /\b(warn|warning|deprecat|skip|skipped|fallback|conflict|retry|r
 const DEBUG_RE = /\b(debug|trace|verbose)\b/i;
 const FATAL_ZH = /崩溃|致命|内存溢出|panic/;
 const ERROR_ZH = /错误|失败|异常|超时|拒绝|无法|不能|非法|无效|不存在|限流|丢失|断连|不可达|panic/;
+
+// 每轮镜像探测摘要行：`[mirror] gh 探测 12 源 ok=8 fail=4 limited=0 优选=… 耗时=20s（异常：…）`。
+// 2026-11-26（用户实报「这些为什么会是错误日志，误导用户」）：部分镜像超时/403 属于
+// **常态波动**（地域、限流、并发），不代表 Moo 出故障——文案里的「异常/超时/拒绝」会命中
+// 下面的 ERROR 关键词，把一条观测指标刷成红色。规则：每轮摘要判 info；只有「本轮全挂」
+// （ok=0）才升 warn（另有 mirrorsAllFailedCheck 的专门通知兜底）。
+const MIRROR_ROUND_RE = /探测\s*\d+\s*源\s+ok=\d+/; // 行首可能带组名（gh / dk）
+
+// 源列表自动同步的每轮摘要：`[list-sync] 本轮完成：列表 105 条 / 已存在 105 / 新增 0 / 失败 0 / 耗时 437ms`。
+// 同类问题（2026-11-26）：这条是**例行进度**，失败数 >0 也只是一次重试即可恢复的波动，
+// 不该按 ERROR 刷红；判 info（失败 0）/ warn（有失败），单条「跳过 <URL>」仍按原因判级。
+const LISTSYNC_ROUND_RE = /^本轮完成[:：]/;
 const WARN_ZH = /警告|降级|回退|跳过|重试|冲突|忽略|丢弃|不完整/;
 const DEBUG_ZH = /调试|跟踪/;
 
@@ -58,8 +70,21 @@ export function parseLine(line: string): Parsed {
   const probe = detail
     .replace(/0\s*个?\s*失败|失败\s*[:：]?\s*0(?!\d)/g, '')
     .replace(/确定缺失\s*\d+|网络失败\s*\d+|其它\s*\d+/g, '');
+  const mirrorRound = ml === 'mirror' && MIRROR_ROUND_RE.test(detail);
+  const listSyncRound = ml === 'list-sync' && LISTSYNC_ROUND_RE.test(detail);
   let level: Level = 'info';
   if (FATAL_RE.test(detail) || FATAL_ZH.test(detail)) level = 'fatal';
+  else if (mirrorRound) {
+    // 阈值化（2026-11-26 批次 C）：全挂 / 有限流 / 成功率不足一半 → warn，
+    // 其余（部分镜像超时、个别 403）是常态波动 → info。
+    const m = detail.match(/ok=(\d+)\s+fail=(\d+)(?:\s+limited=(\d+))?/);
+    const ok = m ? Number(m[1]) : 1;
+    const fail = m ? Number(m[2]) : 0;
+    const limited = m && m[3] ? Number(m[3]) : 0;
+    const total = ok + fail;
+    level = ok === 0 || limited > 0 || (total > 0 && ok * 2 < total) ? 'warn' : 'info';
+  }
+  else if (listSyncRound) level = /失败\s*[:：]?\s*0(?!\d)/.test(detail) ? 'info' : 'warn';
   else if (ERROR_RE.test(probe) || ERROR_ZH.test(probe)) level = 'error';
   else if (WARN_RE.test(probe) || WARN_ZH.test(probe)) level = 'warn';
   else if (DEBUG_RE.test(probe) || DEBUG_ZH.test(probe) || VERBOSE_MODS.has(ml)) level = 'debug';

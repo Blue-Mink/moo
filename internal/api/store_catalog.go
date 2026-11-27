@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"moo/internal/config"
 	"moo/internal/lang"
 	"moo/internal/platform"
 	"moo/internal/source"
@@ -1469,8 +1470,7 @@ func applyLineageUpdates(out []AppInfo, policy string, byName map[string]platfor
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// 去重展示层（0.6.312 B2，首页胶囊；0.6.313 档位文案：默认 / 标准 / 去重，
-// 值 all/merge/one 不变——「标准」=同仓同构建组留一张代表，「去重」=每应用一张卡）
+// 去重展示层（0.6.312 B2 引入；0.6.575 两档化：默认 / 去重，值 all/one）
 //
 // 硬约束：
 //   - 只并展示身份，不并版本/更新判定：Hidden 卡的 LatestVersion/HasUpdate
@@ -1480,14 +1480,23 @@ func applyLineageUpdates(out []AppInfo, policy string, byName map[string]platfor
 //   - 代表卡承载 SameName/SameNameCount（候选表数据源）；按 key 的详情
 //     不受 Hidden 影响（显式引用逃生门）。
 //
-// merge 档：组内「同宗」（仓库/作者，同 0.6.272 lineage 语义+否决规则）
-// 或「同版本+同 sha」的卡并簇，每簇留一张代表。
-// one 档：每个 appname 留一张代表。
+// all 档（默认）：一张都不隐藏（代表卡仍按阶梯选出，作同名候选表宿主）。
+// one 档（去重）：每个 appname 只留一张代表卡，其余 Hidden。
+// 旧 merge 档（标准）已取消：读写两侧归一为 one（config.NormalizeDedupPolicy）。
 //
-// 代表卡阶梯（两档通用）：① 已装规范卡 → ② 官方目录卡 → ③ 本机可装卡
-// （archs 含当前架构/all；未提供架构信息不否决）→ ④ 最高版本 → ⑤ 下载量
-// → ⑥ slice 顺序（= 源顺序，确定性，ETag 稳定）。
-func applyDedupPolicy(out []AppInfo, policy string) (mergedVisible, oneVisible int) {
+// 代表卡阶梯（0.6.575 起插入「溯源级」）：
+//
+//	① 已装规范卡 → ② 官方目录卡 → ③ 本机可装且非搬运 → ④ 本机可装且搬运
+//	→ ⑤ 本机不可装且非搬运 → ⑥ 本机不可装且搬运
+//	→ ⑦ 最高版本 → ⑧ 下载量 → ⑨ slice 顺序（= 源顺序，确定性，ETag 稳定）。
+//
+// 溯源级（③④/⑤⑥ 的区分）是本次修复的核心：此前 fork/搬运卡只要版本顶得住
+// 就一定赢，真实项目源被 Hidden（实测 453 个多卡组里 75 组如此）。搬运证据 =
+// UpstreamRepo != ""（0.6.326 已算好）；**不用** SourceIsFork 降级（整仓 fork
+// 源里的作者二创会被误伤，且实测 2 组会顶出更旧/同 owner 的卡）。
+// 可装性排在搬运标识之前：宁可显示能装的搬运卡，也不显示本机装不上的真实卡。
+func applyDedupPolicy(out []AppInfo, policy string) (oneVisible int) {
+	policy = config.NormalizeDedupPolicy(policy)
 	groupIdx := map[string][]int{}
 	var groupNames []string
 	for i := range out {
@@ -1502,21 +1511,11 @@ func applyDedupPolicy(out []AppInfo, policy string) (mergedVisible, oneVisible i
 	}
 	arch := localArch()
 
-	// 并查集（组内小，局部实现；按卡下标分配，跨组安全）
-	parent := make([]int, len(out))
-	find := func(x int) int {
-		for parent[x] != x {
-			parent[x] = parent[parent[x]]
-			x = parent[x]
-		}
-		return x
-	}
-
 	for _, n := range groupNames {
 		idxs := groupIdx[n]
 		if len(idxs) == 1 {
 			oneVisible++
-			mergedVisible++
+			out[idxs[0]].Hidden = false
 			continue
 		}
 		oneVisible++
@@ -1553,95 +1552,156 @@ func applyDedupPolicy(out []AppInfo, policy string) (mergedVisible, oneVisible i
 			}
 		}
 
-		// ── merge 簇（并查集：同宗 或 同版本同 sha）──
-		for _, j := range idxs {
-			parent[j] = j
-		}
-		union := func(a, b int) {
-			ra, rb := find(a), find(b)
-			if ra != rb {
-				parent[ra] = rb
-			}
-		}
-		for x := 0; x < len(idxs); x++ {
-			for y := x + 1; y < len(idxs); y++ {
-				a, b := idxs[x], idxs[y]
-				sameBuild := out[a].LatestVersion != "" &&
-					out[a].LatestVersion == out[b].LatestVersion &&
-					out[a].Sha256 != "" && out[a].Sha256 == out[b].Sha256
-				if sameBuild || dedupSameLineage(&out[a], &out[b]) {
-					union(a, b)
-				}
-			}
-		}
-		clusters := map[int]int{} // find(root) → 簇内代表卡
-		var clusterRoots []int
-		for _, j := range idxs {
-			r := find(j)
-			if cur, ok := clusters[r]; ok {
-				if better(&out[cur], &out[j]) {
-					clusters[r] = j
-				}
-			} else {
-				clusters[r] = j
-				clusterRoots = append(clusterRoots, r)
-			}
-		}
-		mergedVisible += len(clusterRoots)
-
-		// ── 隐藏判定（当前策略）──
+		// ── 隐藏判定（两档：all 不隐藏 / one 只留阶梯代表卡）──
+		// 分组口径 = 精确 appname（fnOS 的安装身份）。同名不同应用属源数据错误，
+		// 仍按「一把卡」去重；详情按 key 可达，候选表能看全组（含隐藏卡）。
 		repSet := map[int]bool{}
 		if policy == "one" {
 			repSet[oneRep] = true
-		} else if policy == "merge" {
-			for _, j := range clusters {
-				repSet[j] = true
-			}
 		}
-		// policy = all/""：repSet 空 = 不隐藏（oneRep 仍作候选表宿主）
+		// all 档：repSet 空 = 不隐藏（oneRep 仍作候选表宿主）
 
-		// ── 同名组信息（候选表 + 角标）：宿主 = 当前策略的代表卡；
-		// all 档下 = 阶梯代表 ──
+		// ── 同名组信息（候选表 + 角标）：宿主 = 阶梯代表卡 ──
 		entries := make([]SameNameEntry, 0, len(idxs))
 		for _, j := range idxs {
-			a := &out[j]
-			entries = append(entries, SameNameEntry{
-				Key:         a.Key,
-				Source:      a.Source,
-				DisplayName: a.DisplayName,
-				Version:     a.LatestVersion,
-				Arch:        a.Arch,
-				Installed:   a.Installed,
-				IsRep:       repSet[j] || (policy != "one" && policy != "merge" && j == oneRep),
-				Origin:      releaseOrigin(a.ReleaseURL),
-				Sha256:      a.Sha256,
-			})
+			e := sameNameEntryOf(&out[j])
+			e.IsRep = j == oneRep
+			entries = append(entries, e)
 		}
-		host := oneRep
-		if policy == "merge" {
-			// merge 档每簇一个宿主（组内可能多张代表卡都需候选表）
-			for _, j := range clusters {
-				out[j].SameNameCount = len(idxs)
-				out[j].SameName = entries
-			}
-		} else {
-			if !repSet[host] {
-				host = oneRep
-			}
-			out[host].SameNameCount = len(idxs)
-			out[host].SameName = entries
-		}
+		markSameNameUpstream(entries)
+		out[oneRep].SameNameCount = len(idxs)
+		out[oneRep].SameName = entries
 		for _, j := range idxs {
 			if len(repSet) > 0 && !repSet[j] {
 				out[j].Hidden = true
 			}
 		}
 	}
-	return mergedVisible, oneVisible
+
+	// 大小写同名变体（D3，0.6.579）：**只写展示计数**，不参与上面的分组/隐藏/
+	// 计数——本函数返回的 oneVisible 与 out[j].Hidden 与改动前逐字一致。
+	// 为什么不做合并：52 组里 49 张新隐藏卡是真实项目卡，且 minesweeper /
+	// terminal 两组是**不同应用**撞名（见 _audit_0578/BATCH3_D3_AUDIT.md）。
+	applySameNameCaseVariants(out)
+	return oneVisible
 }
 
-// dedupRepClass 代表卡阶梯等级（小者胜）：0 已装规范 / 1 官方目录 /
-// 2 本机可装 / 3 本机不可装（archs 非空且不含当前架构/all）。
+// sameNameCIKey 大小写不敏感分组键（D3）。取 ToLower 作桶键（对 fnOS 的
+// ASCII appname 与 strings.EqualFold 等价）；桶内再逐对 EqualFold 复核，
+// Unicode 简单折叠的边缘写法（如 ſ/s）宁可少提示也不误合并。
+func sameNameCIKey(name string) string { return strings.ToLower(name) }
+
+// applySameNameCaseVariants 填 SameNameCICount（D3「只提示不合并」）。
+//
+// 口径：对每张卡，统计「同桶内 appname 大小写不敏感相同、**字面不同**」的
+// 其它卡数（同字面卡由 SameNameCount 表达，此处不重复计）。0 则留空不下发。
+// 语义边界（硬约束，勿改）：不读不写 Hidden、不动 SameName/SameNameCount、
+// 不影响 oneVisible —— 列表卡数量与 /api/dedup 计数完全不变。
+func applySameNameCaseVariants(out []AppInfo) {
+	if len(out) < 2 {
+		return
+	}
+	buckets := make(map[string][]int, len(out))
+	for i := range out {
+		n := out[i].AppName
+		if n == "" {
+			continue
+		}
+		k := sameNameCIKey(n)
+		buckets[k] = append(buckets[k], i)
+	}
+	for _, idxs := range buckets {
+		if len(idxs) < 2 { // 桶内只有一张卡 ⇒ 无变体
+			continue
+		}
+		for _, i := range idxs {
+			ni := out[i].AppName
+			n := 0
+			for _, j := range idxs {
+				if j == i || out[j].AppName == ni {
+					continue
+				}
+				if strings.EqualFold(out[j].AppName, ni) {
+					n++
+				}
+			}
+			if n > 0 {
+				out[i].SameNameCICount = n
+			}
+		}
+	}
+}
+
+// sameNameEntryOf 组装一条同名候选表条目（含 0.6.575 溯源标注）。
+// IsRep 由调用方按上下文填：列表代表卡（j == oneRep）vs 详情里当前可见卡（!Hidden）。
+func sameNameEntryOf(a *AppInfo) SameNameEntry {
+	return SameNameEntry{
+		Key:          a.Key,
+		Source:       a.Source,
+		DisplayName:  a.DisplayName,
+		Version:      a.LatestVersion,
+		Arch:         a.Arch,
+		Installed:    a.Installed,
+		Origin:       releaseOrigin(a.ReleaseURL),
+		Sha256:       a.Sha256,
+		SourceIsFork: a.SourceIsFork,
+		UpstreamRepo: a.UpstreamRepo,
+	}
+}
+
+// markSameNameUpstream 组内「谁是谁的上游」：本条发布仓库 == 某兄弟条声明的
+// upstream_repo。只在发布仓库可知时判定（Origin 取自 ReleaseURL；列表瘦身会剥
+// ReleaseURL，故列表路径在 applyDedupPolicy 内调用，详情路径在目录缓存上调用）。
+func markSameNameUpstream(entries []SameNameEntry) {
+	markSameNameUpstreamPeers(entries, nil)
+}
+
+// markSameNameUpstreamPeers 同 markSameNameUpstream，但 peers 也作为「兄弟卡」
+// 参与判定（只读 peers，不回写）。D3 的 same_name_ci 用它把精确同名组的卡一并
+// 纳入比对，避免「上游卡在另一个字面组里」这种跨组标注丢失。
+func markSameNameUpstreamPeers(entries, peers []SameNameEntry) {
+	for x := range entries {
+		o := entries[x].Origin
+		if o == "" {
+			continue
+		}
+		hit := false
+		for y := range entries {
+			if y == x || entries[y].UpstreamRepo == "" {
+				continue
+			}
+			if strings.EqualFold(entries[y].UpstreamRepo, o) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			for y := range peers {
+				if peers[y].UpstreamRepo == "" {
+					continue
+				}
+				if strings.EqualFold(peers[y].UpstreamRepo, o) {
+					hit = true
+					break
+				}
+			}
+		}
+		if hit {
+			entries[x].IsUpstream = true
+		}
+	}
+}
+
+// dedupRepClass 代表卡阶梯等级（小者胜；0.6.575 起含「溯源级」）：
+//
+//	0 已装规范卡 / 1 官方目录卡 /
+//	2 本机可装 + 非搬运 / 3 本机可装 + 搬运 /
+//	4 本机不可装 + 非搬运 / 5 本机不可装 + 搬运。
+//
+// 可装 = archs 为空（未知，不否决）或含当前架构/all。
+// 搬运 = UpstreamRepo != ""（0.6.326 溯源判定的既有证据）。**不看**
+// SourceIsFork：整仓 fork 源里的作者二创不判搬运（0.6.326z2 交叉印证），把
+// fork 当降级信号会误压它们（实测 agent2api / workbuddy2api 两组）。
 func dedupRepClass(a *AppInfo, arch string) int {
 	if a.Installed {
 		return 0
@@ -1649,39 +1709,21 @@ func dedupRepClass(a *AppInfo, arch string) int {
 	if a.Source == OfficialSourceID {
 		return 1
 	}
-	if len(a.Archs) == 0 {
-		return 2
-	}
+	installable := len(a.Archs) == 0
 	for _, x := range a.Archs {
 		if x == arch || x == "all" {
-			return 2
+			installable = true
+			break
 		}
 	}
-	return 3
-}
-
-// dedupSameLineage 同宗判定（与 0.6.272 lineage 语义+否决规则一致）：
-// 显示名不同（同名不同应用）、双方 maintainer 均非空且不同且 distributor
-// 也不相等 → 否决；否则 maintainer/distributor 相等或发布仓库相同 → 同宗。
-func dedupSameLineage(a, b *AppInfo) bool {
-	if a.DisplayName != "" && b.DisplayName != "" &&
-		!strings.EqualFold(strings.TrimSpace(a.DisplayName), strings.TrimSpace(b.DisplayName)) {
-		return false
+	base := 2
+	if !installable {
+		base = 4
 	}
-	mt := a.Maintainer != "" && b.Maintainer != "" &&
-		strings.EqualFold(a.Maintainer, b.Maintainer)
-	di := a.Distributor != "" && b.Distributor != "" &&
-		strings.EqualFold(a.Distributor, b.Distributor)
-	if !mt && !di &&
-		a.Maintainer != "" && b.Maintainer != "" &&
-		!strings.EqualFold(a.Maintainer, b.Maintainer) {
-		return false // maintainer 明显不同且 distributor 不救
+	if a.UpstreamRepo != "" {
+		base++
 	}
-	if mt || di {
-		return true
-	}
-	o1 := releaseOrigin(a.ReleaseURL)
-	return o1 != "" && o1 == releaseOrigin(b.ReleaseURL)
+	return base
 }
 
 // localArch 本机架构（fnpack 约定 x86/arm，同 source.currentArch 语义）。

@@ -3,10 +3,12 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"moo/internal/secret"
 )
@@ -174,10 +176,11 @@ type Config struct {
 	// lineage = origin 之外 maintainer / distributor 相等也算同宗。
 	// 平台跟踪应用（sourceID 非空 / official）不受影响。
 	UpdatePolicy string `json:"update_policy,omitempty"`
-	// DedupPolicy 列表去重展示策略（0.6.312 B2，首页胶囊三选一，仅展示层）：
-	// ""/all = 全部卡片照旧（默认，零变化）；
-	// merge = 同名组内同宗卡（同仓库/同作者/同版本同 sha）每簇留一张代表；
-	// one = 每个 appname 只留一张代表卡。
+	// DedupPolicy 列表去重展示策略（0.6.575 两档化；仅展示层）：
+	// ""/all = 全部卡片照旧（默认，不去重，零变化）；
+	// one = 每个 appname 只留一张代表卡（代表卡优先「非搬运」的真实项目源）。
+	// 旧「标准档」merge 已取消：读到/写入时一律归一为 one
+	//（NormalizeDedupPolicy），存量配置无需手工改。
 	// 只并展示身份，不动版本/更新判定（数据层全量卡仍在，详情按 key 可达）。
 	DedupPolicy string `json:"dedup_policy,omitempty"`
 	// 本机安装次数（appname → 经 moo 安装/更新的累计次数）。
@@ -192,6 +195,20 @@ type Config struct {
 	// 从匿名 60 次/小时提到 5000 次/小时，冷装可在 2 分钟内补满。空 = 匿名。
 	// 与面板口令同口径：落盘为 enc:v1 密文，绝不写日志、绝不下发前端。
 	GithubToken string `json:"github_token,omitempty"`
+	// OfficialSessionEncrypt 2026-11-26（加固 B2）：官方源 OAuth 会话文件
+	//（official_session.json）是否加密落盘。**opt-in，默认 false = 零变化**。
+	// 开 = 外层仍是合法 JSON 外壳 {"v":2,"enc":"enc:v1:…"}（旧版本 Unmarshal
+	// 后 access_token 为空 → 干净地显示「未连接」，不报解析错误）；
+	// 关 = 沿用明文（旧版本写的文件也照旧可读）。
+	// 注意：密钥（.moo-secret.key）与密文同目录，整目录备份仍可解密——
+	// 加密是纵深，主修复是备份脚本排除该文件。
+	OfficialSessionEncrypt bool `json:"official_session_encrypt,omitempty"`
+	// OfficialScopeMode 2026-11-26（加固 A）：官方源 OAuth 授权范围偏好。
+	// "" / "full" = 完整权限（默认，与历史行为一致）；"minimal" = 仅应用中心
+	//（只读官方目录与版本信息）。**只影响下一次发起授权**，不影响已连接的会话；
+	// 旧版本读到此键会忽略（未知字段），旧客户端永远请求完整权限。
+	// 写侧（PUT settings）只接受 full/minimal/""，其它值整单拒绝；读侧非法值按 full。
+	OfficialScopeMode string `json:"official_scope_mode,omitempty"`
 	// 运行期状态（不落盘，0.6.220）：有凭据存在但解不开（换机/密钥文件丢失）
 	// → 已按「未设置」处理；设置页据此提示用户重填，而不是静默失效。
 	SecretDecryptFailed bool   `json:"-"`
@@ -356,7 +373,9 @@ func (c *Config) IsNotifyEventOn(key string) bool {
 // DefaultSourceListURL 内置的应用源列表（每行一个 GitHub 仓库地址）。
 // 0.6.316+：弃用 710850609/FnDepot 的 repo_list.txt（117 条），改用 moo 仓
 // 自带的精选清单 repo_list.txt（0.6.316 起 20 条 → 0.6.326 起 21 条，Blue-Mink 维护），
-// 「立即同步源列表」只认这份清单。
+// 「立即同步源列表」只认这份清单。**2026-11-26 按用户令收敛为 24 条**（21 条基础
+// 精选 + 3 个自带索引的应用源）：中间曾扩到 96/105 条，源过多影响首屏与刷新开销，
+// 现与内置默认源（default_sources.txt）同步收敛。
 const DefaultSourceListURL = "https://raw.githubusercontent.com/Blue-Mink/moo/main/repo_list.txt"
 
 // DefaultRecommendListURL 0.6.379：发现页推荐位清单（纯文本，一行一条，
@@ -414,6 +433,21 @@ func Path(dataDir string) string {
 }
 
 // Load 从 dataDir 读取配置；不存在或损坏时返回默认配置。
+// NormalizeDedupPolicy 归一列表去重策略（0.6.575 两档化）：
+// "one" → "one"；已取消的旧「标准档」"merge" → "one"（语义最接近的档位）；
+// 其余（"" / 脏值）→ "all"（安全默认：一张卡都不隐藏）。
+//
+// 读取与写入两侧都归一：存量 config.json 里的 merge 不必等用户点设置页，
+// 启动即按去重档工作；旧前端（浏览器缓存着三档胶囊）提交 merge 也不会被 400。
+func NormalizeDedupPolicy(p string) string {
+	switch strings.TrimSpace(p) {
+	case "one", "merge":
+		return "one"
+	default:
+		return "all"
+	}
+}
+
 func Load(dataDir string) (*Config, error) {
 	cfg := Default()
 	raw, err := os.ReadFile(Path(dataDir))
@@ -426,6 +460,7 @@ func Load(dataDir string) (*Config, error) {
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return Default(), nil // 配置损坏不致命，回退默认
 	}
+	cfg.DedupPolicy = NormalizeDedupPolicy(cfg.DedupPolicy)
 	openSecrets(cfg)
 	return cfg, nil
 }
@@ -514,21 +549,57 @@ func (c *Config) storageCopy() *Config {
 }
 
 // Save 将配置写回 dataDir（目录不存在时创建）；敏感字段在此加密（0.6.220）。
+//
+// 2026-11-26（批次 B）：写盘前过 CheckDataDir —— 各处调用点多为
+// `_ = cfg.Save(dataDirOf(s))`（忽略返回值），所以守卫必须在函数内部生效并
+// 自己打日志，否则「拒绝」会被静默吞掉、写盘照旧。
+// 0.6.574（P1-c）：写盘失败可观测。
+//
+// 39 个 Save 调用点里有 32 个写成 `_ = s.cfg().Save(...)`（丢返回值），守卫
+// 拒绝或写盘失败时只留一行日志、界面照常 200 —— 用户看到「保存成功」，重启
+// 后发现设置回退。这里累计两类计数，供 /api/health、通知与设置页横幅使用；
+// 日志也按类别分开，避免「拒绝写入」和「磁盘满」混在一起。
+var (
+	saveRejected atomic.Int64 // 被数据目录守卫拒绝
+	saveFailed   atomic.Int64 // 通过守卫但真正写盘失败（权限/磁盘/IO）
+)
+
+// SaveStats 返回 (守卫拒绝次数, 写盘失败次数)，进程内自增、不落盘。
+func SaveStats() (rejected, failed int64) {
+	return saveRejected.Load(), saveFailed.Load()
+}
+
 func (c *Config) Save(dataDir string) error {
+	if err := CheckDataDir(dataDir); err != nil {
+		saveRejected.Add(1)
+		log.Printf("[datadir] 拒绝写入 %s: %v", dataDir, err)
+		return err
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		saveFailed.Add(1)
+		log.Printf("[datadir] 建目录失败 %s: %v", dataDir, err)
 		return err
 	}
 	raw, err := json.MarshalIndent(c.storageCopy(), "", "  ")
 	if err != nil {
+		saveFailed.Add(1)
+		log.Printf("[datadir] 序列化配置失败 %s: %v", dataDir, err)
 		return err
 	}
 	p := Path(dataDir)
 	if err := os.WriteFile(p, raw, 0o600); err != nil {
+		saveFailed.Add(1)
+		log.Printf("[datadir] 写盘失败 %s: %v", p, err)
 		return err
 	}
 	// 0.6.215 折中 P0：WriteFile 的 mode 仅对新建文件生效——显式 chmod 存量
 	// 文件（config 含面板口令/企微 webhook key 等凭据，不依赖 umask/平台默认）。
-	return os.Chmod(p, 0o600)
+	if err := os.Chmod(p, 0o600); err != nil {
+		saveFailed.Add(1)
+		log.Printf("[datadir] 权限设置失败 %s: %v", p, err)
+		return err
+	}
+	return nil
 }
 
 // DataDir 按优先级解析数据目录：MOO_DATA > TRIM_PKGVAR > ./moo-data。
@@ -540,6 +611,57 @@ func DataDir() string {
 		return d
 	}
 	return "./moo-data"
+}
+
+// MOODataExplicit 数据目录是否由显式 MOO_DATA 指定（自监控/日志用）。
+func MOODataExplicit() bool { return os.Getenv("MOO_DATA") != "" }
+
+// CheckDataDir 2026-11-26（安全/健壮性批次 B）：校验「这次要写的目录」来源。
+//
+// 背景：未显式给 MOO_DATA 时 DataDir() 会继承 TRIM_PKGVAR。若进程不是在
+// appcenter 里拉起的（调试 / 容器 / 测试 / 误启动），该变量可能指向**别的
+// 应用**的数据目录，Moo 会把 config.json / operations.json /
+// blacklist_last.json 写进去（实测把某目录的 operations.json 覆盖成 []）。
+//
+// 规则（按顺序）：
+//  1. MOO_DATA 显式指定 → 信任（独立实例/调试的正式通道）；
+//  2. MOO_ALLOW_FOREIGN_DATA=1 → 显式放行（特殊部署）；
+//  3. dir 与继承的 TRIM_PKGVAR 是**同一路径**（Clean 后相等）时，目录名必须
+//     是 moo（appcenter 按 appname 建目录）；不同路径一律放行。
+//
+// 为什么限定「同一路径」而不是「env 像别人的目录就全拒」：本函数有三个调用
+// 场景，只有第一种是 env 直接决定落点，后两种必须放行，否则单测往临时目录
+// 写也会被误杀：
+//   - 启动（cmd/server/main.go）：dir = DataDir()，走 TRIM_PKGVAR 时就是 env
+//     本身 → 命中判定，目录名非 moo 即拒绝启动；
+//   - 库内写点（config.Save / ops 快照 / 黑名单 LKG）：dir 来自 DataDir()，
+//     同上命中；单测注入 t.TempDir() 时不等 env → 放行；
+//   - 显式传目录的调用方（如备份恢复）：语义同第二条。
+func CheckDataDir(dir string) error {
+	// P1-3（2026-11-26）：先看归属标记 <dir>/.moo-owner。这一条独立于环境变量
+	// ——即使 MOO_DATA 是显式给的，只要目录已被别的应用（或别的 Moo 变体）
+	// 认领，就不能写。
+	if err := CheckDataDirOwner(dir); err != nil {
+		return err
+	}
+	if os.Getenv("MOO_DATA") != "" || os.Getenv("MOO_ALLOW_FOREIGN_DATA") == "1" {
+		return nil
+	}
+	v := strings.TrimSpace(os.Getenv("TRIM_PKGVAR"))
+	if v == "" {
+		return nil
+	}
+	clean := filepath.Clean(v)
+	if filepath.Clean(dir) != clean {
+		return nil // 与继承的 TRIM_PKGVAR 无关（临时目录 / 显式目录）
+	}
+	// 0.6.574：目录名与**本二进制**的 appname 比对（原来硬编码 "moo"，moo-dev
+	// 复用同一份代码时会被自己锁死）。appname 来自 MOO_APPNAME / 构建注入，
+	// 不取 TRIM_APPNAME —— 后者会被别的应用 shell 继承，反而把别人的目录当成自己家。
+	if app := AppName(); filepath.Base(clean) != app {
+		return fmt.Errorf("数据目录 %q 看起来不是本应用的（目录名 %q ≠ 应用名 %q）；拒绝写入，如确需使用请显式设置 MOO_DATA 或 MOO_ALLOW_FOREIGN_DATA=1", clean, filepath.Base(clean), app)
+	}
+	return nil
 }
 
 // SocketPath 按优先级解析统一网关 socket 路径：MOO_SOCKET > TRIM_APPDEST/app.sock > ./app.sock。

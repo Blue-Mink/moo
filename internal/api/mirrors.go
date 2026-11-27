@@ -96,6 +96,11 @@ type mirrorMonitor struct {
 	// 0.6.321 F7：「智能选源包含直连」开关（config.MirrorIncludeDirect，默认关）。
 	// Server 每探测周期/按需入口前 set；probeGh 据此决定是否追加 direct 候选。
 	ghIncludeDirect bool
+	// 2026-11-27 盲点 4b：用户触发（面板「立即测速」/?refresh=1）专用闸门。
+	// 单独一把锁：只在 ensureFresh() 外层短暂持有，不与探测过程抢 m.mu。
+	userMu        sync.Mutex
+	userProbeDone chan struct{} // 非 nil = 一轮用户触发探测在进行（single-flight 门闩）
+	lastUserProbe time.Time     // 上次用户触发**强制**探测的起始时刻（5s 最小间隔判据）
 }
 
 // setGhIncludeDirect 设置「智能选源包含直连」开关（0.6.321 F7）。
@@ -537,6 +542,51 @@ func (m *mirrorMonitor) ensureFresh(force bool) {
 	}
 }
 
+// mirrorUserProbeMinGap 用户触发强制探测的服务端最小间隔（2026-11-27 盲点 4b）。
+// 前端按钮有连点保护，但浏览器多标签 / 页面刷新 / curl 仍可能连发强制探测；
+// 一轮探测本身就要数秒，5s 内的重复强制探测对结果毫无增益，只会把出口带宽
+// 打满（probeGh 每轮要读每个源前 2MB）。
+const mirrorUserProbeMinGap = 5 * time.Second
+
+// ensureFreshUser 用户触发入口（面板「立即测速」/?refresh=1 专用）：在
+// ensureFresh 之上叠加两道闸门，**不改 ensureFresh 自身语义**（后台循环与
+// 三个内部调用方行为完全不变）。
+//
+//  1. single-flight：同一时刻只允许一轮用户触发探测。并发 N 个请求只有第一个
+//     真正探测，其余阻塞等待该轮结束（<-done）后立即返回，不叠加探测。
+//  2. 最小间隔：距上次用户触发**强制**探测不足 mirrorUserProbeMinGap 的再次
+//     强制请求直接返回，不触发新探测。
+//
+// 返回 throttled = 本次请求没有被单独执行探测（复用了进行中/刚完成的一轮）。
+// 调用方把它作为 additive 字段 throttled 下发给前端（旧前端忽略即可）。
+func (m *mirrorMonitor) ensureFreshUser(force bool) (throttled bool) {
+	m.userMu.Lock()
+	if done := m.userProbeDone; done != nil {
+		m.userMu.Unlock()
+		<-done // 复用进行中的这一轮，不叠加探测
+		return true
+	}
+	if force && !m.lastUserProbe.IsZero() && time.Since(m.lastUserProbe) < mirrorUserProbeMinGap {
+		m.userMu.Unlock()
+		return true
+	}
+	done := make(chan struct{})
+	m.userProbeDone = done
+	if force {
+		m.lastUserProbe = time.Now()
+	}
+	m.userMu.Unlock()
+
+	defer func() {
+		m.userMu.Lock()
+		m.userProbeDone = nil
+		m.userMu.Unlock()
+		close(done) // 唤醒等待者（必须在放锁之后 close，避免等待者抢锁空转）
+	}()
+	m.ensureFresh(force)
+	return false
+}
+
 // dkWWWAuthRe WWW-Authenticate Bearer 参数解析（预编译）。
 var (
 	dkRealmRe = regexp.MustCompile(`realm="([^"]+)"`)
@@ -797,11 +847,18 @@ func (s *Server) StartMirrorProbeLoop(ctx context.Context) {
 	case <-time.After(10 * time.Second):
 	}
 	s.applyMirrorProbeFlags()
-	s.Mirrors.ensureFresh(true) // 首批：全量探一次
+	// 首批：两组各全量探一次。2026-11-26：改为分组建模单探（原 ensureFresh(true)
+	// 一次探两组），每组落一行摘要日志（P1-1），探测语义不变。
+	tGh := time.Now()
+	s.Mirrors.probeGh()
+	ghActive, _ := s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
+	s.logMirrorRound("gh", tGh, s.Mirrors.gh(), ghActive)
+	tDk := time.Now()
+	s.Mirrors.probeDk()
+	dkActive, _ := s.evaluateMirror(orAuto(cfgDockerMirror(s)), "dk", s.Mirrors.dk())
+	s.logMirrorRound("dk", tDk, s.Mirrors.dk(), dkActive)
 	// 0.6.187：首轮也评估一次——建立 prevActive 基线（首调不推），
 	// 之后后台循环每齿轮周期自动评估，UI 不开也推。
-	s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
-	s.evaluateMirror(orAuto(cfgDockerMirror(s)), "dk", s.Mirrors.dk())
 	go s.mirrorProbeLoopGh(ctx)
 	go s.mirrorProbeLoopDk(ctx)
 }
@@ -825,10 +882,13 @@ func (s *Server) mirrorProbeLoopGh(ctx context.Context) {
 			continue
 		}
 		s.applyMirrorProbeFlags()
+		tProbe := time.Now()
 		s.Mirrors.probeGh()
 		s.lastProbeGh.Store(time.Now().Unix())
 		// 0.6.187：每齿轮周期评估优选切换（生效源变化 → 通知，30min 冷却防抖）
-		s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
+		active, _ := s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
+		// 2026-11-26 P1-1：每轮恰一行摘要（不逐源刷屏）
+		s.logMirrorRound("gh", tProbe, s.Mirrors.gh(), active)
 		s.mirrorsAllFailedCheck() // D3：全部镜像+直连失败 = 网络层异常（30min 冷却）
 		// 2026-11-04：续传深测——对吞吐 Top3 低频执行（每源 24h 一次），
 		// 独立 goroutine，不阻塞本轮测速与优选。
@@ -852,10 +912,13 @@ func (s *Server) mirrorProbeLoopDk(ctx context.Context) {
 		if s.uiInactive() && time.Since(s.probeDkLast()) < mirrorProbeIdleGap {
 			continue
 		}
+		tProbe := time.Now()
 		s.Mirrors.probeDk()
 		s.lastProbeDk.Store(time.Now().Unix())
 		// 0.6.187：每齿轮周期评估优选切换（同 gh，独立组）
-		s.evaluateMirror(orAuto(cfgDockerMirror(s)), "dk", s.Mirrors.dk())
+		active, _ := s.evaluateMirror(orAuto(cfgDockerMirror(s)), "dk", s.Mirrors.dk())
+		// 2026-11-26 P1-1：每轮恰一行摘要
+		s.logMirrorRound("dk", tProbe, s.Mirrors.dk(), active)
 		// 0.6.188：dk 组全挂/恢复监测（与 gh 组对偶）
 		s.mirrorsAllFailedCheckOf("dk")
 	}
@@ -1105,13 +1168,23 @@ func (s *Server) healthOf(selected, group string, stats []MirrorStat) MirrorHeal
 	}
 	out := make([]MirrorStat, len(stats))
 	copy(out, stats)
+	// 2026-11-26 P1-2：下一轮到期时刻 = last_probe + interval_s（配置口径）。
+	// 不活跃门控生效时实际最慢 mirrorProbeIdleGap，由 idle_throttled + idle_gap_s
+	// 告知前端（门控阈值本身本批不改）。
+	nextProbe := ""
+	if tp := s.Mirrors.lastProbeOf(group); !tp.IsZero() {
+		nextProbe = tp.Add(time.Duration(intervalS) * time.Second).Format(time.RFC3339)
+	}
 	return MirrorHealth{
-		Mirrors:    out,
-		Selected:   selected,
-		Active:     active,
-		LastProbe:  last,
-		IntervalS:  intervalS,
-		LastSwitch: s.Mirrors.lastSwitchOf(group),
+		Mirrors:       out,
+		Selected:      selected,
+		Active:        active,
+		LastProbe:     last,
+		IntervalS:     intervalS,
+		LastSwitch:    s.Mirrors.lastSwitchOf(group),
+		NextProbe:     nextProbe,
+		IdleThrottled: s.uiInactive(),
+		IdleGapS:      int(mirrorProbeIdleGap / time.Second),
 	}
 }
 

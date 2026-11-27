@@ -425,7 +425,7 @@ func TestCorrect326K_CanonicalAndDedupInteraction(t *testing.T) {
 	if out[1].HasUpdate || out[1].AvailableVersion != "" {
 		t.Fatalf("降级卡自身不得带回更新标记：%#v", out[1])
 	}
-	applyDedupPolicy(out, "merge")
+	applyDedupPolicy(out, "one")
 	if out[0].Hidden {
 		t.Fatalf("已装规范卡永不隐藏（dedup 不得吞掉纠正目标）：%#v", out[0])
 	}

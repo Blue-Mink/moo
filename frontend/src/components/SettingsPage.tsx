@@ -32,6 +32,8 @@ import { Activity, AlertTriangle, ArrowLeft, Archive, Bell, BookOpen, ChevronDow
 import { toast } from 'sonner'
 import { cn } from "@/lib/utils"
 import { depWindowIssue, depWindowSpanMinutes, formatSpanMinutes } from "@/lib/depWindow"
+import { manualProbePlan, probeTimingText } from "@/lib/probeTiming"
+import { summarizeProbe } from '../lib/mirrorProbeSummary'
 import SourceManager from './SourceManager'
 import NotifySettingsTab from './NotifySettingsTab'
 import LogSettingsTab from './LogSettingsTab'
@@ -266,6 +268,9 @@ const MirrorHealthPanel: React.FC<{
   // 0.6.333 F4：429 限流单列计数（不计入失败，也不计入正常）
   const limitedCount = rows.filter((r) => r.status === 'limited').length;
   const failCount = rows.filter((r) => r.status === 'fail').length;
+  // 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-2：上次/下次测速时序
+  //（不活跃被拉长到 15 分钟时显式注明——降频不再隐形；门控阈值本身不改）。
+  const timingText = probeTimingText(health);
   const tallyText = [
     limitedCount > 0 ? `${limitedCount} 限流` : '',
     failCount > 0 ? `${failCount} 失败` : '',
@@ -380,6 +385,9 @@ const MirrorHealthPanel: React.FC<{
             </Button>
           )}
         </div>
+      )}
+      {timingText && (
+        <p className="mb-1.5 text-[11px] leading-relaxed text-muted-foreground">{timingText}</p>
       )}
       {/* 0.6.525（用户令）：卡片高度恒定——「包含直连」行常驻占位；
           0.6.527：折叠时随同步/恢复/添加一起隐藏（折叠起点在按钮组）。 */}
@@ -1583,30 +1591,34 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   ) => {
     const before = await fetchFn();
     apply(before);
-    const probeAge = before.last_probe ? Date.now() - new Date(before.last_probe).getTime() : Number.POSITIVE_INFINITY;
-    const summarize = (h: MirrorHealth) => {
-      const ok = (h.mirrors || []).filter((m) => m.status === 'ok').length;
-      // 0.6.333 F4：限流单列（既不算正常也不算失败），为 0 的项省略
-      const limited = (h.mirrors || []).filter((m) => m.status === 'limited').length;
-      const fail = (h.mirrors || []).filter((m) => m.status === 'fail').length;
-      return `${ok} 个正常${limited > 0 ? `，${limited} 个限流` : ''}${fail > 0 ? `，${fail} 个失败` : ''}`;
-    };
-    if (Number.isFinite(probeAge) && probeAge < 60000) {
-      toast.success(`${label}：${summarize(before)}（${Math.max(1, Math.round(probeAge / 1000))} 秒前刚测过）`);
-      return;
-    }
-    await fetchFn(true); // ?refresh=1 触发后台立即探测
-    const deadline = Date.now() + 45000;
+    // 2026-11-27 盲点 4b：结果文案改走 lib/mirrorProbeSummary（三态可区分：
+    // 无数据 / 全部线路失败 / 有数据但 0 成功），纯函数有单测钉住。
+    // 2026-11-27：手动测速**不再被「60 秒内刚测过」挡回**——用户明确点了
+    // 「立即测速」就必须真测一次；节流只约束自动轮询。判定见
+    // lib/probeTiming.ts 的 manualProbePlan（force 恒 true，有单测钉住）。
+    const plan = manualProbePlan(before.last_probe);
+    let prevNote = plan.note;
+    // 2026-11-27 盲点 4b：服务端对用户触发路径做了 single-flight + 5s 最小间隔。
+    // 被去重/节流时响应带 throttled=true（本轮没有新探测）：此时**不能**进下面
+    // 的轮询等待——last_probe 不会变，会白等满 45s。直接用当前数据出结果并说明。
+    const forced = await fetchFn(true); // ?refresh=1 触发后台立即探测
     let latest = before;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        latest = await fetchFn();
-        apply(latest);
-      } catch { break; }
-      if (latest.last_probe && latest.last_probe !== before.last_probe) break;
+    if (forced && forced.throttled) {
+      latest = forced;
+      apply(latest);
+      prevNote = '（5 秒内刚测过，本次未重复探测）';
+    } else {
+      const deadline = Date.now() + 45000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          latest = await fetchFn();
+          apply(latest);
+        } catch { break; }
+        if (latest.last_probe && latest.last_probe !== before.last_probe) break;
+      }
     }
-    toast.success(`${label}完成：${summarize(latest)}`);
+    toast.success(`${label}完成：${summarizeProbe(latest).text}${prevNote}`);
   }, []);
   const refreshHealth = useCallback(async () => {
     setHealthRefreshing(true);
@@ -2059,7 +2071,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       // ——后端本就把「开始=结束」当全天，语义等效，且不会把整张设置卡在 400 上。
       const winStart = depPolicy !== 'stop' && depWindowRawError ? '' : depWindowStart;
       const winEnd = depPolicy !== 'stop' && depWindowRawError ? '' : depWindowEnd;
-      await updateSettings({
+      // 2026-11-26 P1-3：接住后端「已回退默认」提示（updateSettings 现回结果体）
+      const saved = await updateSettings({
         check_interval_hours: interval,
         mirror,
         mirror_include_direct: mirrorIncludeDirect,
@@ -2094,6 +2107,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         proxy_enabled: proxyEnabled,
         proxy_url: proxyUrl.trim(),
       });
+      // 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-3：测速间隔回落默认值不再静默
+      //（0h0m 合法 = 未设置 → 按 5 分钟跑；此前只显示「已保存」）。
+      const fb = saved?.probe_interval_fallback;
+      if (fb) {
+        const groups = Object.entries(fb)
+          .map(([g, min]) => `${g === 'dk' ? 'Docker' : 'GitHub'} 按 ${min} 分钟`)
+          .join('、');
+        toast.warning(`测速间隔已回退默认值：${groups}（0h0m = 未设置）`);
+      }
       toast.success('设置已保存');
       // 0.6.364：保存成功 → 当前表单成为新基线，底部「保存」随即收起
       formBaselineRef.current = formSnapshot;

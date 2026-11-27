@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"moo/internal/config"
 	"moo/internal/source"
 )
@@ -156,6 +158,18 @@ type AppInfo struct {
 	SameNameCount int `json:"same_name_count,omitempty"`
 	// SameName：同名组全部卡片（仅详情下发；列表瘦身时剥离）。
 	SameName []SameNameEntry `json:"same_name,omitempty"`
+	// ── 大小写同名变体（D3，0.6.579：**只提示不合并**）──
+	// SameNameCICount：与本卡 appname **大小写不敏感相同、字面不同**的其它卡
+	// 数量（0 = 无变体，omitempty 不下发）。仅供列表卡角标「另有同名变体」。
+	// 硬约束：本字段与 SameNameCI 都**只承载展示信息**——Hidden 判定、去重档
+	// 计数（/api/dedup 的 one）、列表卡数量一律不变（守卫用例
+	// same_name_ci_test.go:TestSameNameCI_DedupCountsUnchanged）。
+	SameNameCICount int `json:"same_name_ci_count,omitempty"`
+	// SameNameCI：大小写同名变体卡（仅详情下发；列表瘦身剥离）。与 SameName
+	// **互补**：SameName 是字面完全相同的组，本字段只装字面不同的卡
+	// （每条 case_variant=true）⇒ 两者并集 = 大小写不敏感全组，前端合并渲染
+	// 不会出现重复行。
+	SameNameCI []SameNameEntry `json:"same_name_ci,omitempty"`
 	// ── 远端下架黑名单（P1-4，2026-11-22）──
 	// Blacklisted 该卡命中远端 blacklist.json：**卡片仍保留在目录**（已装 + 未装
 	// 都不删），前端据此显示「已下架」角标 + 原因浮层，隐藏安装/更新入口
@@ -187,6 +201,18 @@ type SameNameEntry struct {
 	IsRep       bool   `json:"is_rep"`           // 当前代表卡（= 列表里显示的那张）
 	Origin      string `json:"origin,omitempty"` // 归一发布仓库（同宗判定）
 	Sha256      string `json:"sha256,omitempty"` // 最新包 sha（同构建判定）
+	// ── 溯源标注（0.6.575 / P0，均为已算好的展示字段，不触发任何动作）──
+	// SourceIsFork：该卡本源仓库是 GitHub fork（同 AppInfo.SourceIsFork）。
+	SourceIsFork bool `json:"source_is_fork,omitempty"`
+	// UpstreamRepo：该卡被判定搬运时的上游 owner/repo（同 AppInfo.UpstreamRepo）。
+	UpstreamRepo string `json:"upstream_repo,omitempty"`
+	// IsUpstream：该卡是组内其它卡的「上游」——本卡发布仓库 == 某张兄弟卡声明的
+	// upstream_repo。发布仓库不可知（ReleaseURL 为空/非 GitHub）时为 false。
+	IsUpstream bool `json:"is_upstream,omitempty"`
+	// CaseVariant（D3，0.6.579）：本条与「目标卡」的 appname 大小写不敏感相同、
+	// 字面不同。只有 same_name_ci 里的条目会是 true（same_name 恒 false/缺省），
+	// 前端据此在候选表里打「大小写变体」标签、并单独提示「这是另一个字面组」。
+	CaseVariant bool `json:"case_variant,omitempty"`
 }
 
 // AppsResponse 是 GET /api/apps 的响应。
@@ -206,6 +232,27 @@ type SourceEntry struct {
 	LastFetched string `json:"last_fetched,omitempty"`
 	Enabled     bool   `json:"enabled"`
 	EmptyStreak int    `json:"empty_streak"`
+	// FailStreak 连续「确定性刷新失败」轮数（2026-11-26 CARE P1-2）。
+	// 与 EmptyStreak 分因展示：失败态与空态在界面上不能都说成「无应用」。
+	FailStreak int `json:"fail_streak"`
+	// LastError 最近一次刷新失败的简短原因（已脱敏，P1-3）。
+	LastError string `json:"last_error,omitempty"`
+	// DisabledBy 停用来源（P1-1c 只读）：auto-care = 策略停用（会低频自愈）。
+	// 空 = 未停用或用户手动停用。前端据此分因展示，不影响任何开关语义。
+	DisabledBy string `json:"disabled_by,omitempty"`
+	// ── 抖动上限 / 冷却（2026-11-26 CARE，只读信号）──
+	// HealCapped = 30 天内已自动恢复 2 次、达到上限：源保持停用，需手动开启。
+	// HealCount30d = 当前窗口内已恢复次数；LastRecoveredAt = 最近一次恢复时间
+	//（空源通道 72h 冷却窗起点）。三者与 source.SourceStatus 同名透传。
+	HealCapped      bool      `json:"heal_capped,omitempty"`
+	HealCount30d    int       `json:"heal_count_30d,omitempty"`
+	LastRecoveredAt time.Time `json:"last_recovered_at,omitempty"`
+	// ── 判定可观测（2026-11-27 FIXPLAN 盲点 #3 · C2，只读信号）──
+	// LastVerdict 最近一轮通道复核的结论：alive / dead / uncertain。空 = 从未
+	// 复核过（旧数据/新加源）→ 因 omitempty 不出现在 JSON 里，旧前端无感。
+	// VerdictAt 该结论的时间（unix 秒）。两者都不影响 enabled 语义与任何计数。
+	LastVerdict string `json:"last_verdict,omitempty"`
+	VerdictAt   int64  `json:"verdict_at,omitempty"`
 	// Favorite 是否关注（星标，0.6.143）；关注源新增应用时推通知。
 	Favorite bool `json:"favorite,omitempty"`
 	// ── 源重合率（0.6.326z，只读信号）──
@@ -246,6 +293,17 @@ type MirrorHealth struct {
 	LastProbe  string        `json:"last_probe"`
 	LastSwitch *MirrorSwitch `json:"last_switch,omitempty"`
 	IntervalS  int           `json:"interval_s"`
+	// 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-2：把「下一轮何时到期」与
+	// 「当前是否被不活跃门控拉长」显式下发——此前降频完全不可见，用户按
+	// 5 分钟预期看会觉得「没在监测」。NextProbe = LastProbe + IntervalS
+	// （门控生效时实际最慢 IdleGapS）。旧前端忽略这三个可选字段。
+	NextProbe     string `json:"next_probe,omitempty"`
+	IdleThrottled bool   `json:"idle_throttled,omitempty"`
+	IdleGapS      int    `json:"idle_gap_s,omitempty"`
+	// 2026-11-27 盲点 4b：本次 ?refresh=1 请求是否被服务端去重/节流（即没有
+	// 单独跑一轮探测：并发合并 或 距上次用户触发强制探测 < 5s）。additive +
+	// omitempty —— 不节流时字段不出现，旧前端零感知。
+	Throttled bool `json:"throttled,omitempty"`
 }
 
 // VolumeOption 是安装卷选项。
@@ -304,8 +362,9 @@ type Settings struct {
 	// lineage = origin 之外，author / distributor 相等也算同宗。
 	// 平台跟踪应用（sourceID 非空 / official）不受本策略影响。
 	UpdatePolicy string `json:"update_policy"`
-	// DedupPolicy 列表去重展示策略（0.6.312 B2，首页胶囊三选一）：
-	// all（默认，零变化）/ merge（同宗簇留一代表）/ one（每 appname 一张）。
+	// DedupPolicy 列表去重展示策略（0.6.575 两档）：
+	// all（默认，不去重，零变化）/ one（每 appname 一张，代表卡优先非搬运的
+	// 真实项目源）。旧 merge（标准档）已取消，读写两侧归一为 one。
 	DedupPolicy       string `json:"dedup_policy"`
 	SourceAutoCareOff bool   `json:"source_auto_care_disabled"`
 	SourceListURL     string `json:"source_list_url,omitempty"`
@@ -321,6 +380,13 @@ type Settings struct {
 	// 绝不回传 token 本身**）。有 token 时 fork 关系查询额度 5000/h，
 	// 冷装 2 分钟内可补满溯源；未知时匿名 60/h、需数小时。
 	GitHubTokenSet bool `json:"github_token_set"`
+	// OfficialSessionEncrypt 2026-11-26（加固 B2）：官方源 OAuth 会话文件是否
+	// 加密落盘（opt-in，默认 false）。不带 omitempty：false 也要透出，否则
+	// 前端开关会把「显式关闭」读成 undefined。
+	OfficialSessionEncrypt bool `json:"official_session_encrypt"`
+	// OfficialScopeMode 2026-11-26（加固 A）：官方源授权范围偏好。GET 恒给
+	// 显式值 "full" / "minimal"（配置为空或非法 → full），前端据此水合单选。
+	OfficialScopeMode string `json:"official_scope_mode"`
 	// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_base_url/
 	// panel_has_password/panel_decrypt_failed）已从设置中彻底移除——官方源
 	// 改为纯 OAuth，授权时临时输入面板账号（不落地存储）。
@@ -336,8 +402,15 @@ type Settings struct {
 	// 0h0m = 未设置（后端按默认 5 分钟执行）。
 	GhProbeHours   int `json:"gh_probe_hours"`
 	GhProbeMinutes int `json:"gh_probe_minutes"`
-	DkProbeHours   int `json:"dk_probe_hours"`
-	DkProbeMinutes int `json:"dk_probe_minutes"`
+	// 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-3：实际生效分钟数 + 是否回落。
+	// 0h0m（未设置）或越界时按 ProbeIntervalDefault 执行，前端据此提示。
+	GhProbeIntervalMinutes int  `json:"gh_probe_interval_minutes"`
+	DkProbeIntervalMinutes int  `json:"dk_probe_interval_minutes"`
+	GhProbeFallback        bool `json:"gh_probe_fallback"`
+	DkProbeFallback        bool `json:"dk_probe_fallback"`
+	ProbeIntervalDefault   int  `json:"probe_interval_default_minutes"`
+	DkProbeHours           int  `json:"dk_probe_hours"`
+	DkProbeMinutes         int  `json:"dk_probe_minutes"`
 	// 科学加速（0.6.206）：本机代理（仅 GitHub 域名改道）
 	ProxyEnabled bool   `json:"proxy_enabled"`
 	ProxyURL     string `json:"proxy_url,omitempty"`
@@ -352,6 +425,9 @@ type FpkDownloadFile struct {
 	Size    int64  `json:"size"`
 	ModAt   string `json:"mod_at"`
 	AppName string `json:"appname,omitempty"`
+	// Source 2026-11-26：该包对应的应用源名（从已构建的目录快照按 appname 反查；
+	// 目录未就绪/包不在目录里时为空）。「已下载 FPK」搜索支持按源名筛选。
+	Source string `json:"source,omitempty"`
 	// DisplayName 包 manifest 的 display_name（中文名/正式名；索引未就绪时为空）。
 	DisplayName string `json:"display_name,omitempty"`
 	// Version 0.6.392：包 manifest 的 version（列表第三行显示在安装包大小前）。

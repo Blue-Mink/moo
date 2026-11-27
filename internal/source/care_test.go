@@ -20,7 +20,11 @@ func careManager(t *testing.T, off bool) (*Manager, *config.Config) {
 			{Name: "c", URL: "https://c.example/fnpack.json"},
 		},
 	}
-	return NewManager(cfg), cfg
+	m := NewManager(cfg)
+	// 2026-11-26 CARE：失败通道会在「疑为永久失效」时实测通道。用例只验证
+	// 计数语义，复核统一给「不确定」（等价于暂态/无法确认）——绝不出网。
+	m.CareProbe = func(name, url string) CareVerdict { return CareUncertain }
+	return m, cfg
 }
 
 // careRound 按 counts 造一轮全量刷新状态（err 里的源带错误）。
@@ -123,6 +127,10 @@ func TestAutoCarePassErrorNotCounted(t *testing.T) {
 	}
 	if cfg.Sources[0].Name != "a" {
 		t.Error("失败源不应沉底")
+	}
+	// 2026-11-26 CARE：复核不确定 = 计数不推进（失败通道的失败计数也恒 0）
+	if got := careFailCount(m, "a"); got != 0 {
+		t.Errorf("复核不确定时 fail_streak 应保持 0, got %d", got)
 	}
 }
 

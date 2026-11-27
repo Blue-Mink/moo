@@ -24,6 +24,7 @@ import {
   Check,
   Star,
   Ban,
+  Copy,
   Info,
   Trash2,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ import {
 import { canStartInList, installedStateLabel, isStoppedState } from '@/lib/appRunState';
 // P1-4 已下架：卡面灰度 + 「已下架」角标 + 原因浮层（文案与判定口径见 lib/delist）
 import { DELIST_BADGE, delistNotice, delistReasonShort, isDelisted } from '@/lib/delist';
+import { CI_BADGE, caseVariantCount, hasCaseVariant } from './SameNamePanel';
 import MoreMenuButton from './MoreMenu';
 import { useAppMoreMenu } from '@/lib/useAppMoreMenu';
 
@@ -164,7 +166,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             <div className={cn("flex items-center justify-between gap-2", hit && "pr-14")}>
               <div className="flex items-center gap-1.5 min-w-0">
-                <h3 className="font-semibold text-[15px] leading-tight text-foreground truncate" title={app.display_name}>
+                <h3 data-testid="app-name" className="font-semibold text-[15px] leading-tight text-foreground truncate" title={app.display_name}>
                   {app.display_name}
                 </h3>
                 {/* 0.6.219：Docker 应用标记改为 Docker 官方鲸鱼（配色跟随主题色） */}
@@ -207,6 +209,21 @@ const AppCard: React.FC<AppCardProps> = ({ app, operation, onInstall, onUpdate, 
                     {downloadLabel}
                   </span>
                 </>
+              )}
+              {/* D3（0.6.579）：同名透明化——「另有同名变体」只提示不合并。
+                  刻意放在版本行（flex-wrap）而不是名称行：名称行挂角标会把长名
+                  挤成「全…」（0.6.290 / P1-4 已踩过的坑）。旧后端缺字段 ⇒ 不渲染。 */}
+              {hasCaseVariant(app) && (
+                <button
+                  type="button"
+                  data-testid="ci-badge"
+                  title={`另有 ${caseVariantCount(app)} 张同名变体卡（appname 大小写不同）· 打开详情查看`}
+                  onClick={(e) => { e.stopPropagation(); onDetail?.(app); }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/40 bg-muted/50 px-1.5 py-[1px] text-[11px] leading-[16px] text-muted-foreground transition-colors hover:bg-muted"
+                >
+                  <Copy className="h-2.5 w-2.5 shrink-0" />
+                  {CI_BADGE}
+                </button>
               )}
             </div>
 

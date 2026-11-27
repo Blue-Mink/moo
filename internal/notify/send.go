@@ -260,11 +260,10 @@ func sendWeComFull(client *http.Client, ch config.NotifyChannel, msg *Message) e
 	if u == "" {
 		return fmt.Errorf("webhook_url 未配置")
 	}
-	content := capWeComContent(msg.Content)
 	body := map[string]any{
 		"msgtype": "markdown",
 		"markdown": map[string]string{
-			"content": "### " + msg.Title + "\n\n" + timeLine(msg.TS) + content,
+			"content": weComCompose("### ", msg.Title, msg.TS, msg.Content),
 		},
 	}
 	if ml := strings.TrimSpace(ch.Params["mentioned_list"]); ml != "" {
@@ -282,26 +281,60 @@ func sendWeComFull(client *http.Client, ch config.NotifyChannel, msg *Message) e
 	})
 }
 
-// capWeComContent 企微 markdown/markdown_v2 单条上限 4096 字节的保护
-// （0.6.175 完整详细模式的全量列表可能超限）：按行边界截断到 ≤3800 字节，
-// 并显式标注截断去向——不静默隐藏。
-func capWeComContent(s string) string {
-	const limit = 3800
-	if len([]byte(s)) <= limit {
-		return s
+// weComSingleLimit 企业微信 markdown/markdown_v2 单条消息正文的硬上限（字节）。
+const weComSingleLimit = 4096
+
+// weComCutMark 截断标注（换行开头，与最后一个保留行分隔）。
+const weComCutMark = "\n…（超出企业微信单条消息长度上限，其余条目见应用内通知记录）"
+
+// weComNewlineSlack 回退到换行时允许浪费的最大字节数（见 capWeComContentAfter）。
+const weComNewlineSlack = 512
+
+// capWeComContent 企微 markdown/markdown_v2 单条上限 4096 字节的保护（仅正文，
+// 不含调用方拼在正文前的标题/时间行）。
+//
+// 0.6.175 引入；盲点补测 4d（2026-11-27）重写：旧实现从 3800 起**向后找换行**
+// 且不设预算上限 —— 单行正文（长错误串 / 长源名）会把截断点推到 6000+ 字节，
+// 实测 payload 6227 B / 4361 B，企微整条拒收（45009/超长），用户实际收不到。
+//
+// 新口径：
+//
+//	budget = 4096 - len(尾注) - len(prefix)   // prefix = 已拼在正文前的标题行
+//	正文 ≤ budget → 原样返回（不加尾注，保持"短内容一字不改"的语义）
+//	否则在 budget 之内优先回退到最后一个换行；没有换行就按 budget 切，
+//	并回退到合法 UTF-8 起点（绝不切出半个汉字，用字节计数不用 rune 计数）。
+func capWeComContent(s string) string { return capWeComContentAfter("", s) }
+
+// capWeComContentAfter 同 capWeComContent，额外预留 prefix 的字节数，
+// 使「prefix + 返回正文」整条 ≤ weComSingleLimit。
+func capWeComContentAfter(prefix, s string) string {
+	budget := weComSingleLimit - len(weComCutMark) - len(prefix)
+	if budget <= 0 {
+		// 标题行本身已吃掉全部预算（异常输入）：只留尾注，正文完全省略。
+		return weComCutMark
 	}
 	b := []byte(s)
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(b[cut]) {
-		cut--
+	if len(b) <= budget {
+		return s
 	}
-	for cut < len(b) && b[cut] != '\n' {
-		cut++
+	cut := budget
+	if i := bytes.LastIndexByte(b[:cut], '\n'); i > 0 && i >= cut-weComNewlineSlack {
+		// 预算内的最后一个换行：截断点落在行边界，比硬切半行可读。
+		// 仅当它距预算不超过 slack 才采用 —— 否则（单行正文/超长表格单元格）
+		// 退到很靠前的换行会把 4000 字节可用内容丢成几百字节。
+		cut = i
+	} else {
+		for cut > 0 && !utf8.RuneStart(b[cut]) {
+			cut--
+		}
 	}
-	if cut >= len(b) {
-		cut = limit
-	}
-	return string(b[:cut]) + "\n…（超出企业微信单条消息长度上限，其余条目见应用内通知记录）"
+	return string(b[:cut]) + weComCutMark
+}
+
+// weComCompose 组装「H1 标题 + 事件时间行 + 正文」，并保证整条正文 ≤4096 字节。
+func weComCompose(h1, title string, ts int64, body string) string {
+	head := h1 + title + "\n\n" + timeLine(ts)
+	return head + capWeComContentAfter(head, body)
 }
 
 // timeLine md / md_v2 共用的事件时间引用行（0.6.161）。企微 markdown 类消息
@@ -326,7 +359,7 @@ func sendWeComMarkdown(client *http.Client, ch config.NotifyChannel, msg *Messag
 			// 0.6.144 排版：标题与正文之间空行，观感更清爽；
 			// 0.6.161：标题下加事件时间引用行（对齐卡片时间）；
 			// 0.6.175：完整详细模式全量正文按行截断保护（防超企微单条上限）。
-			"content": "### " + msg.Title + "\n\n" + timeLine(msg.TS) + capWeComContent(msg.Content),
+			"content": weComCompose("### ", msg.Title, msg.TS, msg.Content),
 		},
 	}
 	if ml := strings.TrimSpace(ch.Params["mentioned_list"]); ml != "" {
@@ -361,7 +394,7 @@ func sendWeComV2(client *http.Client, ch config.NotifyChannel, msg *Message) err
 		"markdown_v2": map[string]any{
 			// 0.6.161：标题下加事件时间引用行（对齐卡片时间）；
 			// 0.6.175：完整详细模式全量表格按行截断保护（防超企微单条上限）。
-			"content": "# " + msg.Title + "\n\n" + timeLine(msg.TS) + capWeComContent(bodyText),
+			"content": weComCompose("# ", msg.Title, msg.TS, bodyText),
 		},
 	}
 	if ml := strings.TrimSpace(ch.Params["mentioned_list"]); ml != "" {

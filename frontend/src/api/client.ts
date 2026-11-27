@@ -27,6 +27,15 @@ export interface SameNameEntry {
   is_rep: boolean;
   origin?: string;
   sha256?: string;
+  /** 0.6.575（P0 溯源标注）：本源仓库是 GitHub fork。 */
+  source_is_fork?: boolean;
+  /** 0.6.575：该卡被判定搬运时的上游 owner/repo。 */
+  upstream_repo?: string;
+  /** 0.6.575：该卡是组内其它卡的上游（发布仓库 == 兄弟卡的 upstream_repo）。 */
+  is_upstream?: boolean;
+  /** D3（0.6.579）：本条与目标卡 appname 大小写不敏感相同、字面不同（只有
+   *  `same_name_ci` 的条目会是 true）。前端据此打「大小写变体」标签。 */
+  case_variant?: boolean;
 }
 
 export interface AppInfo {
@@ -168,6 +177,14 @@ export interface AppInfo {
   same_name_count?: number;
   /** 0.6.312 B2：同名组全部卡片（仅详情下发；候选表 + 安装冲突判定） */
   same_name?: SameNameEntry[];
+  /**
+   * D3（0.6.579）：大小写同名变体卡数 —— 与本卡 appname **大小写不敏感相同、
+   * 字面不同**的其它卡（0 / 缺省 = 无变体）。**只做展示提示**：后端不合并、
+   * 不隐藏任何卡，列表卡数量与去重档计数都不变。旧后端缺此字段 ⇒ 不渲染角标。
+   */
+  same_name_ci_count?: number;
+  /** D3：大小写同名变体卡（仅详情下发；与 `same_name` **互补**，两者并集 = 大小写不敏感全组） */
+  same_name_ci?: SameNameEntry[];
   /** 0.6.312 B2：安装冲突分支（仅详情下发）：same/lineage/different/official */
   install_conflict?: string;
   size_bytes?: number;
@@ -439,10 +456,11 @@ export const fetchRecommended = async (): Promise<RecommendedAppsResponse> => {
   return response.json();
 };
 
-/** 去重三档计数（0.6.312 B2，首页去重胶囊预览）。 */
+/** 去重计数（0.6.312 B2；0.6.575 两档：all / one）。 */
 export interface DedupSummary {
   policy: string;
   total: number;
+  /** 已废弃：后端仍回（旧前端三档胶囊兼容），值恒等于 `one`。 */
   merged: number;
   one: number;
 }
@@ -1128,6 +1146,13 @@ export interface Settings {
   source_list_allow_private?: boolean;
   // 0.6.334：是否已配置 GitHub API token（只回传布尔，token 本身不下发）
   github_token_set?: boolean;
+  /** 2026-11-26（加固 B2）：官方源会话文件是否加密落盘（opt-in，默认关） */
+  official_session_encrypt?: boolean;
+  /**
+   * 2026-11-26（加固 A）：官方源授权范围偏好（恒为显式值 full/minimal；
+   * 缺省=旧后端 → 按 full 处理）。
+   */
+  official_scope_mode?: OfficialScopeMode;
   // FPK 下载目录 + 应用源自动监测（缺省 = 目录默认 / 监测开启）
   download_dir?: string;
   source_auto_care_disabled?: boolean;
@@ -1165,6 +1190,14 @@ export interface Settings {
   gh_probe_minutes?: number;
   dk_probe_hours?: number;
   dk_probe_minutes?: number;
+  /** 实际生效分钟数（P1-3：0h0m/越界 → 后端按默认值跑，界面据此提示） */
+  gh_probe_interval_minutes?: number;
+  dk_probe_interval_minutes?: number;
+  /** 该组配置是否已回落默认（齿轮值 ≠ 生效值） */
+  gh_probe_fallback?: boolean;
+  dk_probe_fallback?: boolean;
+  /** 回落时使用的默认分钟数（当前 5） */
+  probe_interval_default_minutes?: number;
   // 科学加速（0.6.206）：本机代理（仅 GitHub 域名改道）
   proxy_enabled?: boolean;
   proxy_url?: string;
@@ -1209,6 +1242,8 @@ export interface SourceListSyncResult {
   failed: number;
   added_names?: string[];
   errors?: string[];
+  /** 2026-11-26：本轮因连续失败退避而跳过的地址数（>0 才下发） */
+  backoff_skipped?: number;
 }
 
 export interface MirrorCheckResult {
@@ -1271,6 +1306,17 @@ export interface MirrorHealth {
   last_probe: string;
   last_switch?: MirrorSwitchInfo | null;
   interval_s: number;
+  /** 下一轮测速到期时刻（= last_probe + interval_s，后端 RFC3339）。
+   *  2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-2：降频不再隐形。 */
+  next_probe?: string;
+  /** 当前是否被「UI 不活跃」门控拉长（实际最慢 idle_gap_s）。 */
+  idle_throttled?: boolean;
+  /** 不活跃时的最大间隔（秒，当前 900 = 15 分钟）。 */
+  idle_gap_s?: number;
+  /** 2026-11-27 盲点 4b：本次 ?refresh=1 是否被服务端去重/节流（并发合并或
+   *  距上次用户触发探测 <5s）。true = 本轮没有单独跑探测，last_probe 不会变。
+   *  旧后端不带该字段 → undefined，按"未被节流"处理。 */
+  throttled?: boolean;
 }
 
 export const fetchMirrorHealth = async (refresh = false): Promise<MirrorHealth> => {
@@ -1309,8 +1355,23 @@ export interface SourceEntry {
   last_fetched?: string;
   /** 源是否启用（关闭后不再抓取）；内置官方源恒为 true */
   enabled?: boolean;
-  /** 连续「抓取失败或 0 应用」次数（自动监测：连续 5 次自动关闭） */
+  /** 连续「刷新成功但 0 应用」次数（自动监测：连续 5 次自动关闭） */
   empty_streak?: number;
+  /** 连续「确定性刷新失败」轮数（2026-11-26 CARE；与 empty_streak 分因展示：
+   *  失败态与空源态在界面上不能都说成「无应用」）。 */
+  fail_streak?: number;
+  /** 最近一次刷新失败的简短原因（已脱敏；界面截 40 字，全文放 title） */
+  last_error?: string;
+  /** 停用来源（只读）：'auto-care' = 连续刷新失败被自动停用（会低频自愈）；
+   *  空 = 未停用或用户手动关闭。仅用于分因展示，不影响开关语义。 */
+  disabled_by?: 'auto-care' | '';
+  /** 30 天内自动恢复已达上限（2026-11-26 CARE P1-1b，只读）：
+   *  服务端已停止自动恢复，保持停用等人工确认；与 disabled_by='auto-care' 同时出现。 */
+  heal_capped?: boolean;
+  /** 30 天内已自动恢复次数（只读；配合 heal_capped 显示「已达 N 次」） */
+  heal_count_30d?: number;
+  /** 最近一次自动恢复时间（RFC3339，只读；24h 内展示「已自动恢复」并以相对时间标注） */
+  last_recovered_at?: string;
   /** 是否关注（星标，0.6.143）；关注源新增应用时推通知 */
   favorite?: boolean;
   /** ── 源重合率（0.6.326z，只读信号）──
@@ -1337,6 +1398,14 @@ export interface SourceEntry {
 
 export interface SourcesResponse {
   sources: SourceEntry[];
+  /** 上次源列表抓取成功时刻（RFC3339；从未跑过则缺省）。
+   *  2026-11-26 B-SRC-LISTSYNC 缺陷 1：让「在跑」与「摆设」可区分。 */
+  last_list_sync_at?: string;
+  /** 上轮新增源数 / 清单条数 / 失败数 / 退避跳过数 */
+  last_list_sync_added?: number;
+  last_list_sync_fetched?: number;
+  last_list_sync_failed?: number;
+  last_list_sync_backoff?: number;
 }
 
 /** 0.6.198 搜索源链接：归一化 key → 源名集合（公开端点，不含原始 URL） */
@@ -1540,6 +1609,8 @@ export interface FpkDownloadFile {
   parsing?: boolean;
   /** 该应用当前是否已安装（含官方中心/其他方式安装）。 */
   installed?: boolean;
+  /** 2026-11-26：包对应的应用源名（目录未就绪/不在目录里时为空；用于搜索/展示）。 */
+  source?: string;
 }
 
 /**
@@ -1785,7 +1856,14 @@ export const resumeDownload = async (appname: string): Promise<void> => {
 
 // 字段均可选：后端按「缺省不改动」处理（读全量→改单字段→写回），
 // 允许局部更新（如只切下载目录 / 只切自动更新开关）。
-export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; custom_github_mirrors?: string[]; custom_docker_mirrors?: string[]; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; auto_update_dep_policy?: string; auto_update_dep_allow?: string[]; auto_update_window_start?: string; auto_update_window_end?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<void> => {
+/** PUT /api/settings 的响应（目前只用于「测速间隔已回退」提示）。 */
+export interface UpdateSettingsResult {
+  ok?: boolean;
+  /** 键 = gh/dk，值 = 实际生效分钟数（仅本次提交的组发生回落时才出现）。 */
+  probe_interval_fallback?: Record<string, number>;
+}
+
+export const updateSettings = async (settings: { check_interval_hours?: number; mirror?: string; mirror_include_direct?: boolean; docker_mirror?: string; custom_github_mirror?: string; custom_docker_mirror?: string; custom_github_mirrors?: string[]; custom_docker_mirrors?: string[]; install_volume?: number; source_list_url?: string; source_list_disabled?: boolean; source_list_allow_private?: boolean; github_token?: string; official_session_encrypt?: boolean; official_scope_mode?: OfficialScopeMode; download_dir?: string; source_auto_care_disabled?: boolean; auto_update?: boolean; auto_correct?: boolean; catalog_language?: string; update_policy?: string; dedup_policy?: string; auto_update_dep_policy?: string; auto_update_dep_allow?: string[]; auto_update_window_start?: string; auto_update_window_end?: string; backup_dir?: string | null; backup_auto?: boolean; backup_interval_days?: number; cache_clean_days?: number; cache_clean_every_days?: number; log_lines?: number; gh_probe_hours?: number; gh_probe_minutes?: number; dk_probe_hours?: number; dk_probe_minutes?: number; proxy_enabled?: boolean; proxy_url?: string; dock_order?: string[]; settings_tab_order?: string[] }): Promise<UpdateSettingsResult> => {
   const response = await apiFetch(apiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
@@ -1796,6 +1874,9 @@ export const updateSettings = async (settings: { check_interval_hours?: number; 
   if (!response.ok) {
     throw new Error(await extractError(response, `Failed to update settings: ${response.statusText}`));
   }
+  // 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-3：0h0m/越界时后端会回落默认值，
+  // 这里把「已回退」明细回给调用方（设置页据此 toast，不再静默）。
+  return (await response.json().catch(() => ({}))) as UpdateSettingsResult;
 };
 
 // ── Docker 系统镜像源应用（0.6.269，M4 Docker 优选接入）────────────────
@@ -2437,6 +2518,35 @@ export async function fetchDiagnostic(app: string, step: string, errorMsg: strin
 // 授权页（面板 /signin + PKCE）在 iframe 内打开；code 换 token 后目录走
 // /ogh/ac/h 代理，不再触发面板登录限流。
 
+/**
+ * 2026-11-26（加固 A）：官方源授权范围模式。
+ * full = 既有 9 项权限（默认，旧版一致）；minimal = 仅应用中心（只读目录/版本）。
+ */
+export type OfficialScopeMode = 'full' | 'minimal';
+
+/**
+ * 2026-11-26（加固 A）：`POST /api/official/callback` 的失败细分。
+ * 后端在「面板拒绝 minimal 范围」时返回 400 + `error_code:"scope_rejected"`
+ * （其它失败仍是 502 无 error_code）→ 调用方据此自动改回 full 重试。
+ */
+export class OfficialCallbackError extends Error {
+  readonly status: number;
+  readonly errorCode?: string;
+  readonly scope?: string;
+
+  constructor(message: string, status: number, errorCode?: string, scope?: string) {
+    super(message);
+    this.name = 'OfficialCallbackError';
+    this.status = status;
+    this.errorCode = errorCode;
+    this.scope = scope;
+  }
+}
+
+/** 取出错误码（非 OfficialCallbackError / 旧后端缺字段 → undefined）。 */
+export const officialErrorCodeOf = (e: unknown): string | undefined =>
+  e instanceof OfficialCallbackError ? e.errorCode : undefined;
+
 export interface OfficialStatus {
   authorized: boolean;
   expired?: boolean;
@@ -2455,6 +2565,34 @@ export interface OfficialStatus {
   panel_base?: string;
   /** 解析来源：env / explicit / gateway-conf / probe / default */
   panel_base_source?: string;
+  /**
+   * 2026-11-26（加固 C）：当前身份是否有官方源管理权限。
+   * false = 只读（后端已裁掉 panel_base / last_error）；**缺省视为有权限**
+   * （兼容尚未裁剪的旧后端，避免旧后端下把授权入口误藏）。
+   */
+  can_admin?: boolean;
+  /**
+   * 2026-11-26（加固 B2）：磁盘上的会话文件当前是否为加密形态。
+   * 公开字段（非管理员也给）——只表达形态，不含密钥与内容。
+   */
+  session_encrypted?: boolean;
+  /** 会话加密是否可用（false = 本机密钥不可用，开关须禁用） */
+  encryption_available?: boolean;
+  /**
+   * 2026-11-26（盲点修复）：加密开关的「意图」（配置/运行态），与磁盘形态
+   * session_encrypted 分开。未连接时开启只改意图，开关据此保持「开」。
+   * 缺省（旧后端）回退到 session_encrypted。
+   */
+  session_encryption_on?: boolean;
+  /** 意图为开但文件仍是明文（旧版本重授权覆盖）——需要显式提示 */
+  encryption_mismatch?: boolean;
+  /**
+   * 2026-11-26（加固 A）：配置里的授权范围偏好（非法值后端按 full 返回）。
+   * 缺省（旧后端）视为 full。
+   */
+  scope_mode?: OfficialScopeMode;
+  /** 是否可展示「仅应用中心」选项（旧后端缺省 → 不展示额外选项，只用 full） */
+  scope_minimal_supported?: boolean;
 }
 
 export async function fetchOfficialStatus(): Promise<OfficialStatus> {
@@ -2463,14 +2601,25 @@ export async function fetchOfficialStatus(): Promise<OfficialStatus> {
   return res.json();
 }
 
-/** 开始授权。base = 用户浏览器可达的面板地址（如 http://192.0.2.22:5666）。 */
-export async function officialAuthorize(base?: string): Promise<{ url: string }> {
-  const q = base ? `?base=${encodeURIComponent(base)}` : '';
-  const res = await apiFetch(apiUrl(`/api/official/authorize${q}`));
+/**
+ * 开始授权。base = 用户浏览器可达的面板地址（如 http://192.0.2.22:5666）；
+ * scope = 授权范围（缺省 full → 旧行为完全不变）。
+ */
+export async function officialAuthorize(base?: string, scope?: OfficialScopeMode): Promise<{ url: string }> {
+  const params = new URLSearchParams();
+  if (base) params.set('base', base);
+  if (scope) params.set('scope', scope);
+  const q = params.toString();
+  const res = await apiFetch(apiUrl(`/api/official/authorize${q ? `?${q}` : ''}`));
   if (!res.ok) throw new Error(`发起授权失败: ${res.status}`);
   return res.json();
 }
 
+/**
+ * 提交授权码。失败时抛 `OfficialCallbackError`（带 errorCode）：
+ * `scope_rejected` = 面板不支持 minimal → 调用方改回 full 重试；
+ * 旧后端 / 其它失败只有 message（errorCode 为 undefined），行为不变。
+ */
 export async function officialCallback(code: string): Promise<void> {
   const res = await apiFetch(apiUrl('/api/official/callback'), {
     method: 'POST',
@@ -2479,8 +2628,15 @@ export async function officialCallback(code: string): Promise<void> {
   });
   if (!res.ok) {
     let msg = `验证码提交失败: ${res.status}`;
-    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* keep */ }
-    throw new Error(msg);
+    let errorCode: string | undefined;
+    let scope: string | undefined;
+    try {
+      const j = await res.json();
+      if (j && j.error) msg = j.error;
+      if (j && typeof j.error_code === 'string') errorCode = j.error_code;
+      if (j && typeof j.scope === 'string') scope = j.scope;
+    } catch { /* keep */ }
+    throw new OfficialCallbackError(msg, res.status, errorCode, scope);
   }
 }
 
@@ -2492,13 +2648,38 @@ export async function officialLogout(): Promise<void> {
   await apiFetch(apiUrl('/api/official/logout'), { method: 'POST' });
 }
 
+/**
+ * 2026-11-26（加固 B2）：切换官方源会话的落盘加密（opt-in，默认关）。
+ *
+ * 开启时后端会把现有会话立即按新形态重写一次；本机密钥不可用 → 400。
+ * 返回的 encrypted = 磁盘上「此刻」是否为密文（无会话时开启也会返回 false，
+ * 因为还没有文件可写）。
+ */
+export async function setOfficialSessionEncryption(enabled: boolean): Promise<{ ok: boolean; encrypted: boolean }> {
+  const res = await apiFetch(apiUrl('/api/official/session-encryption'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) {
+    let msg = `切换会话加密失败: ${res.status}`;
+    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch { /* keep */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 /** 无头授权（0.6.255）：无需浏览器，临时面板账号登录取码换 token。
  *  username/password 仅本次请求使用，服务端不落盘/不缓存。 */
-export async function officialAuthorizeHeadless(username: string, password: string): Promise<void> {
+export async function officialAuthorizeHeadless(
+  username: string,
+  password: string,
+  scope?: OfficialScopeMode,
+): Promise<void> {
   const res = await apiFetch(apiUrl('/api/official/authorize-headless'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(scope ? { username, password, scope } : { username, password }),
   });
   if (!res.ok) {
     let msg = `无头授权失败: ${res.status}`;

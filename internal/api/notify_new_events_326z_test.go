@@ -528,14 +528,19 @@ func TestOfficialSessionWiring_326Z(t *testing.T) {
 
 // ────────────────── 事件目录（33 → 36 → 37） ──────────────────
 func TestNewEventsCatalog_326Z(t *testing.T) {
-	// 0.6.504 新增 system_update_available（fnOS 系统更新提示）→ 37 条。
-	if len(notifyEventCatalog) != 37 {
-		t.Fatalf("事件目录应为 37 条（33 + 3 + 1）, got %d", len(notifyEventCatalog))
+	// 0.6.504 新增 system_update_available（fnOS 系统更新提示）→ 37 条；
+	// 2026-11-26 CARE 新增 source_auto_disabled / source_auto_recovered /
+	// source_auto_heal_capped → 40 条；2026-11-26 批次 C 增 official_session_encrypt_mismatch → 41 条。
+	if len(notifyEventCatalog) != 41 {
+		t.Fatalf("事件目录应为 40 条（33 + 3 + 1 + 3）, got %d", len(notifyEventCatalog))
 	}
 	want := map[string]struct{ label, group string }{
 		"upstream_corrected":       {"溯源纠正到上游", "应用更新"},
 		"notify_channel_error":     {"渠道推送失败", "Moo 自身"},
 		"official_session_expired": {"官方源连接失效", "源与网络"},
+		"source_auto_disabled":     {"源自动停用", "源与网络"},
+		"source_auto_recovered":    {"源自动恢复", "源与网络"},
+		"source_auto_heal_capped":  {"源自动恢复已达上限", "源与网络"},
 	}
 	for _, e := range notifyEventCatalog {
 		w, ok := want[e.Key]

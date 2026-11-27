@@ -6,6 +6,7 @@ package api
 //   wizard  —— 升级要先在界面确认必填项（12h）
 //   blocked —— 平台标记自动更新失败/依赖占用（2h）
 //   unknown —— 任务结果未知，大应用升级超预算但平台可能仍在跑（6h）
+//   channel —— 平台不允许 FPK 升级通道（2h，**需连续两次命中**才计入）
 //
 // 这些应用自动通道跑不通，但用户仍需要看到「哪几个、为什么、什么时候可以
 // 再试」。这里只做只读聚合；真正的更新仍走原有手动更新链路。
@@ -33,6 +34,9 @@ func manualReasonLabel(reason string) string {
 		return "平台标记需人工处理（依赖占用等）"
 	case autoUpdateSkipReasonUnknown:
 		return "平台任务结果未知（可能仍在执行）"
+	case autoUpdateSkipReasonChannel:
+		// 平台不允许走 FPK 通道（10371）：只能到官方应用中心升级。
+		return "该应用需在官方应用中心升级"
 	default:
 		return "需人工处理"
 	}
@@ -42,15 +46,36 @@ func manualReasonLabel(reason string) string {
 // 返回当前处于「需人工处理」静默期的应用清单，按到期时间升序（先解禁的在前）。
 func (s *Server) listManualUpdates(w http.ResponseWriter, r *http.Request) {
 	skips := s.autoUpdateSkips()
+	// 用户已「忽略更新」的应用不计入本队列（2026-11-27）：判定与目录构建期的
+	// applyIgnoredUpdates 同源（config.UpdateIgnored 按 AppName 精确匹配），
+	// 所以卡片显示「已忽略」时横幅数字必然同步减一。这里**不删**负缓存条目：
+	// 取消忽略后条目仍有效，数字自动回来。
+	var ignoredNames []string
+	if c := s.cfg(); c != nil { // 单测构造的 Server 可能没有配置快照
+		ignoredNames = c.UpdateIgnored
+	}
+	ignored := make(map[string]bool, len(ignoredNames))
+	for _, n := range ignoredNames {
+		ignored[n] = true
+	}
 	items := make([]manualUpdateItem, 0, len(skips))
 	for _, e := range skips {
 		if e.App == "" {
+			continue
+		}
+		if ignored[e.App] {
 			continue
 		}
 		// 下架黑名单闸：已停止分发的应用不该再出现在「需人工处理」队列里
 		// 提示用户去更新（负缓存里可能还留着它过期前的判定）。本地队列拿不到
 		// 源名，按应用名整名拦截。
 		if _, hit := s.blacklistHitByAppName(e.App, e.Sha); hit {
+			continue
+		}
+		// 0.6.578 批次 3a：channel 判定要连续两次命中才算数（见
+		// autoUpdateSkipHit）。首轮只计数不拦，当然也不该在“需人工处理”横幅里
+		// 告诉用户去应用中心升级——否则停下来的是一次误判。
+		if e.Reason == autoUpdateSkipReasonChannel && e.Hits < 2 {
 			continue
 		}
 		items = append(items, manualUpdateItem{

@@ -90,15 +90,14 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'updated', label: '最近更新' },
 ];
 
-// 0.6.312 B2：列表去重三档（首页胶囊，「全部」与「AI」之间）。只并展示
-// 身份，不动版本/更新判定；代表卡详情仍有候选表 + 显式引用逃生门。
-// 0.6.312c（用户定稿）：菜单三档文案 上→下 = 默认 / 去重 / 一卡；
-// 0.6.313（用户定稿）：三档改名、档位值不变，上→下 = 默认 / 标准 / 去重
-// （all=默认 / merge=标准 / one=去重；后端 /api/dedup 键值体系零改动）
+// 0.6.312 B2：列表去重（首页胶囊，「全部」与「AI」之间）。只并展示身份，
+// 不动版本/更新判定；代表卡详情仍有候选表 + 显式引用逃生门。
+// 0.6.575（用户定稿）：三档 → 两档，取消「标准」档；「去重」档吸收溯源级
+//（代表卡优先真实项目源，不再让 fork/搬运卡靠版本顶掉上游）。
+// 值 = all（默认，不去重）/ one（去重）；旧 merge 由后端归一为 one。
 const DEDUP_OPTIONS: { value: string; label: string; sub: string }[] = [
-  { value: 'all', label: '默认', sub: '所有源卡片照旧' },
-  { value: 'merge', label: '标准', sub: '同仓/同构建组留一张代表' },
-  { value: 'one', label: '去重', sub: '每个应用只留一张卡' },
+  { value: 'all', label: '默认', sub: '所有源卡片照旧（不去重）' },
+  { value: 'one', label: '去重', sub: '每个应用留一张代表卡，优先真实项目源' },
 ];
 
 // 0.6.312 B2：安装冲突分支（后端 install_conflict 字段，与详情页同源）。
@@ -812,7 +811,7 @@ const App: React.FC = () => {
   };
 
   // 0.6.312 B2：去重策略同步（GET /api/dedup）——随每次列表刷新对齐服务端真值
-  //（applyDedup 后回读；三档计数展示已按用户要求从菜单移除，仅保留策略回读）。
+  //（applyDedup 后回读；档位计数展示已按用户要求从菜单移除，仅保留策略回读）。
   const loadDedup = async () => {
     try {
       const d = await fetchDedupSummary();
@@ -829,7 +828,7 @@ const App: React.FC = () => {
       setShuffleTick(t => t + 1); // 新数据 → 重新洗牌（随机展示，322R4 回退 321 最早态）
       setUpgradeAllowed(data.upgrade_allowed !== false);
       setLastCheck(data.last_check);
-      loadDedup(); // 目录变了 → 三档计数同步
+      loadDedup(); // 目录变了 → 去重策略回读（两档）
       void loadManualUpdates(); // 同理：目录刷新后手动处理队列可能已变（5 分钟节流）
       if (data.apps.length > 0) {
         setLoadStatus('loaded');
@@ -1821,7 +1820,7 @@ const App: React.FC = () => {
           // 0.6.312：弹出框宽度 = 「去重」胶囊自身实测宽度，左缘与胶囊对齐
           const r = e.currentTarget.getBoundingClientRect();
           const menuW = r.width;
-          const menuH = 116; // 3 项估算高，仅用于视口内 clamp
+          const menuH = 84; // 2 项估算高，仅用于视口内 clamp
           const left = Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8));
           const top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - menuH - 8));
           setDedupMenuPos({ left, top, w: Math.round(menuW) });
@@ -3226,6 +3225,15 @@ const App: React.FC = () => {
           isFavorite={detailApp ? favoriteSet.has(detailApp.key || detailApp.appname) : false}
           onToggleFavorite={handleToggleFavorite}
           aurora={viewMode === 'aurora'}
+          /* D3（0.6.579）：同名候选表 → 按 key 切到该卡详情（沿用既有详情通道）。
+             列表里找不到（被去重隐藏的卡）就用最小骨架开对话框——AppDetailDialog
+             会用 key 拉 /api/apps/{key} 补齐全字段（显式引用逃生门）。 */
+          onOpenKey={(key) => {
+            if (!key) return;
+            const found = appsRef.current.find(a => a.key === key);
+            setDetailApp(found ?? ({ key } as AppInfo));
+            setHighlightKey(key);
+          }}
         />
       </Suspense>
 

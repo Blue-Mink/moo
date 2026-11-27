@@ -56,6 +56,15 @@ func (p *opsPersister) Save(vs []operation.View) {
 	if vs == nil {
 		vs = []operation.View{}
 	}
+	// 2026-11-26（批次 B）：写盘前过数据目录守卫。shell 继承的 TRIM_PKGVAR
+	// 若指向别的应用目录，单测（以及误启动的进程）会把 operations.json
+	// 覆盖进别人的数据目录（实测把某目录的 operations.json 写成 []）。
+	if dir := filepath.Dir(p.path); dir != "" {
+		if err := config.CheckDataDir(dir); err != nil {
+			log.Printf("[ops-persist] 拒绝写入 %s: %v", dir, err)
+			return
+		}
+	}
 	b, err := json.Marshal(vs)
 	if err != nil {
 		log.Printf("[ops-persist] 序列化失败: %v", err)

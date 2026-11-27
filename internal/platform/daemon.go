@@ -67,6 +67,11 @@ const (
 	// daemonCodeDependentRunning 平台「依赖方未停用」：升级 nodejs 这类被
 	// 运行中应用依赖的运行时会被拒绝（error.log: dependent app not stopped）。
 	daemonCodeDependentRunning = 16006
+	// daemonCodeNotAllowUpgrade 平台「该应用不允许此渠道升级」。实测语义：
+	// 对官方应用中心（cloud/thirdparty 渠道）安装的应用用 packageType=fpk 查
+	// update/info，恒返回 10371；同一应用改 packageType=cloud 即变成 10100
+	// （包未下载）—— 唯一变量是渠道，故按「渠道不匹配」处理。
+	daemonCodeNotAllowUpgrade = 10371
 )
 
 // isDeterministicReject 判断该错误码是否属于「平台已明确拒绝」。
@@ -96,6 +101,8 @@ func daemonCodeHint(code int) string {
 		return "参数校验失败"
 	case daemonCodeDependentRunning:
 		return "依赖该应用的其他应用正在运行，请先停用它们"
+	case daemonCodeNotAllowUpgrade:
+		return "该应用不允许通过 FPK 渠道升级（通常由官方应用中心安装）；请在应用中心升级，或先卸载再从 Moo 安装"
 	}
 	return ""
 }
@@ -532,6 +539,79 @@ func FetchWizard(ctx context.Context, staged *StagedPackage) (*AppWizard, error)
 		Content:         w.WizardContent,
 		InstallVolumeID: w.InstalledVolumeID,
 	}, nil
+}
+
+// ProbeFPKUpgrade 在**下载整包之前**探测平台是否允许走 FPK 升级通道。
+//
+// 背景（2026-11-26 本机实测）：已由官方应用中心安装的应用，点社区源卡片的
+// 「更新」时，平台对 packageType=fpk 的 update/info 恒回 10371
+// （TRIMEVENT: APP_UPDATE_FAILED_NOT_ALLOW_UPGRADE）。原流程是先下载整包、
+// 读向导时才失败，用户等半天只看到裸错误码。
+//
+// 语义：只有 **10371** 被判定为「渠道不允许」并返回可读错误；探测本身的任何
+// 其它失败（daemon 不可达、10100 包未下载、其它 code）都返回 nil —— 不能
+// 因为探测失败挡住正常升级，后续流程会用真实错误报告。
+//
+// 0.6.578 批次 3a：10371 不再直接定罪，先做**二次确认**（见 confirmNotAllowUpgrade）——
+// 已装记录没有 sourceID 时判为瞬时态放行，避免把 Moo 自己装的应用误报成
+// 「请在应用中心升级」。
+func ProbeFPKUpgrade(ctx context.Context, appName, version string) error {
+	// 探针是「点更新后的第一屏」，daemon 客户端默认 90s 超时会让用户干等；
+	// 这里限 5s：超时按「未知」放行，后续流程会给出真实错误。
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	body := map[string]any{
+		"appName":       appName,
+		"updateVersion": version,
+		"packageType":   "fpk",
+		"language":      "zh-CN",
+	}
+	var out map[string]any
+	err := daemonCall(ctx, routeUpdateInfo, body, &out)
+	if err == nil {
+		return nil
+	}
+	var de *DaemonError
+	if errors.As(err, &de) && de.Code == daemonCodeNotAllowUpgrade {
+		return confirmNotAllowUpgrade(ctx, appName, de.Code)
+	}
+	return nil
+}
+
+// confirmNotAllowUpgrade 是 10371 命中后的**二次确认**（0.6.578 批次 3a / BATCH3_D1）。
+//
+// 背景（2026-11-27 真机审计，见 _audit_0578/BATCH3_D1_AUDIT.md）：10371 的真实
+// 语义是「安装记录通道 ≠ 请求的 packageType」，双向成立。判别量是已装记录里
+// 有没有 sourceID：
+//   - sourceID 非空：该安装归某个应用源管理，走 FPK 通道确实不被允许 →
+//     维持可读错误（去应用中心升级，或卸载后从 Moo 重装）。
+//   - sourceID 为空：appcenter 不跟踪这个安装（Moo 用 appcenter-cli 装的），
+//     平台报 10371 常见于升级过程中的瞬时态；照旧拦下会让用户看到
+//     「请在应用中心升级」这种无从操作的提示（用户实报的误判）。
+//
+// 探测纪律不变：二次查询花的是首次查询剩下来的预算（ctx 已过期即放行），
+// 且 daemon 不可达 / 查不到记录一律放行——探测永远不能挡住正常升级。
+func confirmNotAllowUpgrade(ctx context.Context, appName string, code int) error {
+	if err := ctx.Err(); err != nil {
+		log.Printf("[10371] %s 二次确认跳过（预检预算已耗尽：%v）→ 放行", appName, err)
+		return nil
+	}
+	inst, err := FindInstalled(ctx, appName)
+	if err != nil {
+		log.Printf("[10371] %s 二次确认失败（安装记录查询出错：%v）→ 放行", appName, err)
+		return nil
+	}
+	if inst == nil {
+		// 平台说通道不匹配，已装列表里却没有它（命名不一致或刚被卸载）：
+		// 没有证据就不拦人。
+		log.Printf("[10371] %s 平台报通道不匹配但已装列表无此应用（判为瞬时态）→ 放行", appName)
+		return nil
+	}
+	if inst.SourceID == "" {
+		log.Printf("[10371] %s 平台报通道不匹配但安装记录无 sourceID（判为瞬时态）→ 放行", appName)
+		return nil
+	}
+	return fmt.Errorf("%s 不允许通过 FPK 渠道升级（通常由官方应用中心安装，%d；平台安装记录含 sourceID，说明该应用由某个应用源管理）：请在应用中心升级，或先卸载再从 Moo 安装", appName, code)
 }
 
 // AutoFillParams 读取暂存包的向导定义并自动填充参数（initValue）。

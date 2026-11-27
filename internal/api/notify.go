@@ -69,10 +69,17 @@ var notifyEventCatalog = []notifyEvent{
 	{Key: "notify_channel_error", Label: "渠道推送失败", Desc: "同一推送渠道连续 3 次发送失败时推送（1 小时冷却），用于发现通知渠道本身已失效", Group: "Moo 自身", Default: true},
 	// D. 源与网络
 	// F. 系统（fnOS 本体，不是 Moo 自身）
+	// 2026-11-26（批次 C）：会话加密「已开启但没生效」必须主动说一声，
+	// 否则用户以为凭据已加密，实际还是明文落盘。
+	{Key: "official_session_encrypt_mismatch", Label: "会话加密未生效", Desc: "已开启「加密保存会话凭据」，但当前会话文件仍是明文（多为旧版本重新授权覆盖）时提示；同一台机器 24 小时内只推一条", Group: "系统", Default: true},
 	{Key: "system_update_available", Label: "系统有可用更新", Desc: "fnOS 系统更新（稳定分支）可用时推送：当前版本 → 可用版本 + 更新说明摘要；同版本只推一次（只提示，不安装）", Group: "系统", Default: true},
 
 	{Key: "source_sync_failed", Label: "源同步失败", Desc: "每轮源刷新后聚合推送：失败源列表（前 5）+ 总数，一轮一条", Group: "源与网络", Default: true},
 	{Key: "source_recovered", Label: "源同步恢复", Desc: "此前失败的源本轮恢复（同源 24 小时内不重复推）", Group: "源与网络", Default: false},
+	// 2026-11-26 CARE P1-1c：停用必须通知（此前只有一行日志，用户无从知晓）。
+	{Key: "source_auto_disabled", Label: "源自动停用", Desc: "源连续多次刷新失败（仓库已失效）被自动停用时推送：原因 + 恢复指引（可在应用源页重新启用，Moo 也会低频复查）；同一源 24 小时内只推一条", Group: "源与网络", Default: true},
+	{Key: "source_auto_recovered", Label: "源自动恢复", Desc: "被自动停用的源经低频探测连续 2 次看到有应用后自动恢复启用时推送（含恢复后的应用数）", Group: "源与网络", Default: true},
+	{Key: "source_auto_heal_capped", Label: "源自动恢复已达上限", Desc: "30 天内自动恢复 2 次后再次达到恢复条件时不再自动启用（防来回抖），推送一次提示需手动开启；同一源 24 小时内只推一条", Group: "源与网络", Default: true},
 	{Key: "source_sync_summary", Label: "源同步摘要", Desc: "每轮源同步后各源应用数 / 应用总数（含多源重复）/ 关注与收藏数目；仅数字变化时推送（无变化不重复推）。外部渠道发紧凑版，应用内记录可展开看全部源明细", Group: "源与网络", Default: true},
 	{Key: "favorite_source_apps", Label: "关注源新增应用", Desc: "关注（星标）的源出现新增应用时推送（源×应用只推一次；首次关注记基线不推；每个关注源单独一条通知）", Group: "应用更新", Default: true},
 	{Key: "favorite_source_report", Label: "关注源报表", Desc: "关注（星标）源的应用清单变化（新增/移除）时推送：当前应用总数 + 本轮新增/移除 + 全部应用清单（含源地址）。每个关注源单独一条通知，多源分开不挤一张卡；首次关注记基线不推；与「关注源新增应用」独立，可分别开关", Group: "应用更新", Default: true},

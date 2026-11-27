@@ -27,6 +27,7 @@ import (
 	"moo/internal/netguard"
 	"moo/internal/netx"
 	"moo/internal/notify"
+	"moo/internal/official"
 	"moo/internal/operation"
 	"moo/internal/platform"
 	"moo/internal/reco"
@@ -171,7 +172,8 @@ func (s *Server) appsResponse(r *http.Request) AppsResponse {
 		a.BugReportURL = "" // 问题反馈链接仅详情页消费（3000 卡 × ~50B 不进列表）
 		a.Sha256 = ""
 		a.ReleaseURL = ""
-		a.SameName = nil // 候选表仅详情下发（列表留 SameNameCount 角标）
+		a.SameName = nil   // 候选表仅详情下发（列表留 SameNameCount 角标）
+		a.SameNameCI = nil // D3 大小写变体同理（列表只留 SameNameCICount 角标）
 	}
 	return AppsResponse{Apps: catalog, LastCheck: s.lastCheckStamp(), UpgradeAllowed: true}
 }
@@ -244,10 +246,17 @@ func (s *Server) appDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	// 0.6.312 B2：候选表 + 安装冲突对组内任意卡现算（含被去重隐藏的卡——
 	// 显式引用/候选表跳转打开的正是它们）。
-	if entries := buildSameNameGroup(catalog, a.Key); len(entries) > 1 {
+	entries := buildSameNameGroup(catalog, a.Key)
+	if len(entries) > 1 {
 		a.SameName = entries
 		a.SameNameCount = len(entries)
 		a.InstallConflict = installConflictOf(&a, entries)
+	}
+	// D3（0.6.579）：大小写同名变体——与 same_name 互补（这里只装字面不同的卡）。
+	// 注意不受上面 len>1 限制：D3 的 52 组里绝大多数是「每个字面各 1 张」，
+	// 精确同名组只有 1 条时变体照样要出（否则最典型场景反而看不到提示）。
+	if ci := buildSameNameCIGroup(catalog, a.Key, entries); len(ci) > 0 {
+		a.SameNameCI = ci
 	}
 	writeJSON(w, a)
 }
@@ -272,18 +281,50 @@ func buildSameNameGroup(catalog []AppInfo, key string) []SameNameEntry {
 		if c.AppName != name {
 			continue
 		}
-		entries = append(entries, SameNameEntry{
-			Key:         c.Key,
-			Source:      c.Source,
-			DisplayName: c.DisplayName,
-			Version:     c.LatestVersion,
-			Arch:        c.Arch,
-			Installed:   c.Installed,
-			IsRep:       !c.Hidden,
-			Origin:      releaseOrigin(c.ReleaseURL),
-			Sha256:      c.Sha256,
-		})
+		e := sameNameEntryOf(c)
+		e.IsRep = !c.Hidden
+		entries = append(entries, e)
 	}
+	markSameNameUpstream(entries)
+	return entries
+}
+
+// buildSameNameCIGroup 收集目标卡的**大小写同名变体**（D3，0.6.579）：
+// appname 与目标卡 strings.EqualFold 相同、但**字面不同**的卡。
+// 与 buildSameNameGroup 互补（后者恒为字面完全相同组）⇒ 两者并集 = 大小写
+// 不敏感全组，前端合并渲染不会有重复行。peers 传入精确同名组条目，仅用于
+// IsUpstream 跨组标注（只读，不回写）。
+// IsRep = 该卡当前策略下是否在列表可见（!Hidden）；CaseVariant 恒 true。
+func buildSameNameCIGroup(catalog []AppInfo, key string, peers []SameNameEntry) []SameNameEntry {
+	self := -1
+	for i := range catalog {
+		if catalog[i].Key == key {
+			self = i
+			break
+		}
+	}
+	if self < 0 || catalog[self].AppName == "" {
+		return nil
+	}
+	name := catalog[self].AppName
+	var entries []SameNameEntry
+	for i := range catalog {
+		c := &catalog[i]
+		if c.AppName == name || c.AppName == "" {
+			continue // 同字面/空名：前者已在 same_name，后者不参与任何分组
+		}
+		if !strings.EqualFold(c.AppName, name) {
+			continue
+		}
+		e := sameNameEntryOf(c)
+		e.IsRep = !c.Hidden
+		e.CaseVariant = true
+		entries = append(entries, e)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	markSameNameUpstreamPeers(entries, peers)
 	return entries
 }
 
@@ -407,19 +448,20 @@ func daySeedInt(s string) int64 {
 	return int64(h)
 }
 
-// dedupSummary GET /api/dedup：当前去重策略 + 三档可见数（首页胶囊预览：
-// 「默认 N / 标准 M / 去重 K」，0.6.313 文案；键 all/merge/one 不变）。计数在副本上现算（不污染目录缓存；
-// 组内并查集对 ~2500 卡是亚毫秒级，只在胶囊展开/策略切换时调用）。
+// dedupSummary GET /api/dedup：当前去重策略 + 两档可见数（首页胶囊预览）。
+// 0.6.575 两档化：键 all/one；`merged` 字段保留但值恒等于 `one`——旧前端
+// （浏览器里缓存着三档胶囊）读到它会显示成「标准 = 去重」，不会 undefined。
+// 计数在副本上现算（不污染目录缓存；~2700 卡亚毫秒级）。
 func (s *Server) dedupSummary(w http.ResponseWriter, r *http.Request) {
 	catalog := s.cachedCatalogCopy(lang.From(r.Context()))
 	probe := make([]AppInfo, len(catalog))
 	copy(probe, catalog)
-	merged, one := applyDedupPolicy(probe, "merge")
+	one := applyDedupPolicy(probe, "one")
 	writeJSON(w, map[string]any{
 		"policy": orAll(s.cfg().DedupPolicy),
 		"total":  len(catalog), // all 档可见数 = 全量卡数
-		"merged": merged,
 		"one":    one,
+		"merged": one, // 已废弃：旧前端兼容，值 = 去重档
 	})
 }
 
@@ -594,12 +636,21 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 			log.Printf("[auto-refresh] 源刷新完成（预算轮 %d 源）: %d 成功 / %d 失败, 耗时 %s", len(sts), ok, fail, time.Since(start).Round(time.Second))
 			// 「应用源自动监测」：连续 5 次刷新无应用的源自动停用 + 空源沉底
 			//（策略关闭或无动作时为 nil）。变更落在共享 cfg 上，落盘 + 失效缓存。
-			if acts := s.Src.AutoCarePass(sts); len(acts) > 0 {
+			acts := s.Src.AutoCarePass(sts)
+			// P1-1b 自愈：策略停用的源按 6h 低频探测（独立于 60 源预算轮），
+			// 连续 2 次看到有应用 → 自动恢复启用。没有停用源时只遍历一遍源列表。
+			acts = append(acts, s.Src.AutoCareHealPass()...)
+			if len(acts) > 0 {
 				for _, a := range acts {
 					log.Printf("[auto-care] %s", a)
 				}
 				_ = s.cfg().Save(dataDirOf(s))
+				// 停用/恢复/沉底改变目录内容：立刻失效，别让已停用源的卡片
+				// 在缓存 TTL 内继续出现在 /api/apps（P2-5 目录重建跳过）。
+				s.invalidateCatalog()
 			}
+			// P1-1c：停用/恢复通知（24h/源节流已在 source 侧判定并落盘）。
+			s.autoCareNotifyPass()
 			// 通知轮次：源同步失败摘要/恢复/目录异常下跌 + 收藏应用有更新（0.6.121）
 			s.sourceRoundNotify(sts)
 			s.invalidateCatalog()
@@ -612,8 +663,10 @@ func (s *Server) StartSourceAutoRefresh(ctx context.Context) {
 		}
 		// 「自动更新应用」开启时，源刷新后顺势跑一轮自动更新（同一周期）。
 		if ctx.Err() == nil {
-			// 0.6.325 G3：源列表自动同步接线（开关关=直接跳过）——在
-			// autoUpdatePass 之前，新增的源本轮目录重建后即可参与更新判定。
+			// 0.6.325 G3：源列表自动同步接线（开关关=直接跳过）。
+			// 注意顺序（2026-11-26 修正注释）：本处于本轮 invalidateCatalog()
+			// **之后**——靠 autoSyncSourceList 自己在 Added>0 时再失效一次，
+			// 新增源的卡片才会立即出现，否则要等下一轮或手动刷新。
 			s.autoSyncSourceList(ctx)
 			s.autoUpdatePass(ctx)
 		}
@@ -696,7 +749,8 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 	}
 	// 0.6.543/0.6.545：负缓存 —— 同一「应用 + 目标版本 + 目标包 sha」已判定
 	// 「需人工处理」的，本轮直接不建任务（不下载、不试探、不写日志、不进通知）。
-	// 缓存分两类：wizard（升级需确认向导，12h）/ blocked（平台标记自动更新失败，2h）。
+	// 缓存分四类：wizard（升级需确认向导，12h）/ blocked（平台标记自动更新失败，2h）
+	// / unknown（任务结果未知，6h）/ channel（平台不允许 FPK 通道，2h 且要连击两次命中）。
 	// 同版本号换包（sha 变）或平台标志消失（reason 变）都会立刻重新探测。
 	if len(jobs) > 0 {
 		if skips := s.autoUpdateSkips(); len(skips) > 0 {
@@ -755,6 +809,22 @@ func (s *Server) autoUpdatePass(ctx context.Context) {
 		if cur := s.Ops.Current(); cur != nil && cur.State == operation.StateRunning {
 			log.Printf("[auto-update] 手动操作进行中（%s %s），跳过本轮自动更新", cur.Kind, cur.Target)
 			return
+		}
+		// 0.6.575（PATCH_0575 B，B-UPDATE-CHANNEL-10371 遗留）：社区源自动更新
+		// 同样先探「平台是否允许 FPK 升级通道」。官方应用中心安装的应用恒回
+		// 10371，旧流程要先下载整包、到「读取安装向导」才失败（每小时重来一次）。
+		// 命中只计「跳过（渠道不允许）」并写负缓存，不下载、不记失败。
+		// 0.6.578 批次 3a：预检自带二次确认（无 sourceID 的瞬时态不再拦），负缓存
+		// TTL 12h → 2h 且要连续两次命中才静默（见 autoUpdateSkipTTLChannel）。
+		// 官方升级走 cloud 通道（与应用中心 UI 同源），不做此预检。
+		if !j.official {
+			if perr := platform.ProbeFPKUpgrade(ctx, j.appName, j.target); perr != nil {
+				skipped++
+				skippedNames = append(skippedNames, j.display)
+				s.markAutoUpdateSkip(j.appName, j.target, j.sha, autoUpdateSkipReasonChannel, nil)
+				log.Printf("[auto-update] %s 跳过（渠道不允许：%v），已记 2h 负缓存（连续 2 次命中才静默）", j.appName, perr)
+				continue
+			}
 		}
 		log.Printf("[auto-update] %s → v%s（%s）开始…", j.appName, j.target, j.source)
 		var stoppedDeps []string
@@ -1384,12 +1454,23 @@ func (s *Server) sourceEntry(st source.SourceStatus) SourceEntry {
 		}
 	}
 	e := SourceEntry{
-		ID:       st.Name,
-		Name:     st.Name,
-		URL:      st.URL,
-		AppCount: st.Count,
-		Error:    st.Error,
-		Enabled:  ref.IsEnabled(),
+		ID:          st.Name,
+		Name:        st.Name,
+		URL:         st.URL,
+		AppCount:    st.Count,
+		Error:       st.Error,
+		Enabled:     ref.IsEnabled(),
+		EmptyStreak: st.EmptyStreak,
+		FailStreak:  st.FailStreak,
+		LastError:   st.LastError,
+		DisabledBy:  st.DisabledBy,
+		// 2026-11-26 CARE：抖动上限 / 冷却窗（前端据此写「需手动开启」角标）。
+		HealCapped:      st.HealCapped,
+		HealCount30d:    st.HealCount30d,
+		LastRecoveredAt: st.LastRecoveredAt,
+		// C2：判定可观测（只读透传，omitempty → 无记录时不出现在 JSON）。
+		LastVerdict: st.LastVerdict,
+		VerdictAt:   st.VerdictAt,
 	}
 	// 0.6.326z：源重合率（只读信号）——目录重建时算好的缓存，这里只读；
 	// 官方源不走本函数（s.Panel.sourceEntry 另实现），故恒不带这些字段。
@@ -1480,7 +1561,18 @@ func (s *Server) listSources(w http.ResponseWriter, r *http.Request) {
 			out[i].Favorite = true
 		}
 	}
-	writeJSON(w, map[string]any{"sources": out})
+	body := map[string]any{"sources": out}
+	// 2026-11-26 B-SRC-LISTSYNC 缺陷 1：「源列表自动同步」的成功痕迹——
+	// 此前成功且无新增时零输出，用户无法区分「在跑」与「摆设」。
+	// last_list_sync_at = 上次清单抓取成功时刻；added/fetched/failed 为上轮计数。
+	if at, added, fetched, failed, backoff := s.listSyncSnapshot(); at > 0 {
+		body["last_list_sync_at"] = time.Unix(at, 0).Format(time.RFC3339)
+		body["last_list_sync_added"] = added
+		body["last_list_sync_fetched"] = fetched
+		body["last_list_sync_failed"] = failed
+		body["last_list_sync_backoff"] = backoff
+	}
+	writeJSON(w, body)
 }
 
 func (s *Server) addSource(w http.ResponseWriter, r *http.Request) {
@@ -1598,6 +1690,9 @@ type sourceListSyncResult struct {
 	Failed     int      `json:"failed"`
 	AddedNames []string `json:"added_names,omitempty"`
 	Errors     []string `json:"errors,omitempty"`
+	// Backoff 本轮因失败退避而跳过的清单地址数（2026-11-26 B-SRC-LISTSYNC）。
+	// 只在 >0 时透出，旧前端忽略。
+	Backoff int `json:"backoff_skipped,omitempty"`
 }
 
 // parseSourceList 解析源列表文本：每行一个 URL，支持 # 注释与行内注释，按 URL 去重。
@@ -1717,6 +1812,20 @@ func (s *Server) fetchListURL(ctx context.Context, listURL string) (string, erro
 // addMissingSources 并发添加 urls 中缺失的源（并发 4；单源失败不影响其他；
 // 0.6.271：重名自动消歧、同地址计已存在）。0.6.172 从 syncList 抽出，restoreDefaults 复用。
 func (s *Server) addMissingSources(urls []string) (added, already, failed int, addedNames, errs []string) {
+	added, already, failed, addedNames, errs, _ = s.addMissingSourcesTracked(urls)
+	return
+}
+
+// addMissingSourcesTracked 同 addMissingSources，另返回「失败地址 → 原因」表
+// （2026-11-26 B-SRC-LISTSYNC：失败退避与逐条日志需要精确到 URL，
+// 从 errs 文本反解太脆；restoreDefaults 不需要该表，走上面的包装）。
+func (s *Server) addMissingSourcesTracked(urls []string) (added, already, failed int, addedNames, errs []string, failURL map[string]string) {
+	failURL = map[string]string{}
+	note := func(u, reason string) {
+		failed++
+		errs = append(errs, u+": "+reason)
+		failURL[u] = reason
+	}
 	existing := make(map[string]bool, len(s.Src.Sources()))
 	for _, st := range s.Src.Sources() {
 		existing[source.NormalizeSourceURL(st.URL)] = true
@@ -1748,8 +1857,7 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 			if !s.cfg().SourceListAllowPrivate {
 				if _, gerr := netguard.Public(u); gerr != nil {
 					mu.Lock()
-					failed++
-					errs = append(errs, u+": 跳过（安全策略）"+gerr.Error())
+					note(u, "跳过（安全策略）"+gerr.Error())
 					mu.Unlock()
 					return
 				}
@@ -1757,8 +1865,7 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 			name := sourceNameFromURL(u)
 			if name == "" {
 				mu.Lock()
-				failed++
-				errs = append(errs, u+": 无法推导源名称")
+				note(u, "无法推导源名称")
 				mu.Unlock()
 				return
 			}
@@ -1778,8 +1885,7 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 					mu.Unlock()
 				} else {
 					mu.Lock()
-					failed++
-					errs = append(errs, u+": "+err.Error())
+					note(u, err.Error())
 					mu.Unlock()
 				}
 			}
@@ -1794,13 +1900,23 @@ func (s *Server) addMissingSources(urls []string) (added, already, failed int, a
 // fetchSourceList 失败即返回 err（调用方决定 502 还是记日志跳过）。
 func (s *Server) sourceListSyncOnce(ctx context.Context) (sourceListSyncResult, error) {
 	var res sourceListSyncResult
+	start := time.Now()
 	body, err := s.fetchSourceList(ctx)
 	if err != nil {
+		// 抓不到清单 = 本轮无结论：单行说明（不写退避、不动「上次同步」时间——
+		// 那个字段表示「上次真正跑完的一轮」，前端据此判断是否在跑）。
+		log.Printf("[list-sync] 本轮跳过（清单获取失败）: %v", err)
 		return res, err
 	}
 	urls := parseSourceList(body)
 	res.Fetched = len(urls)
-	res.Added, res.Already, res.Failed, res.AddedNames, res.Errors = s.addMissingSources(urls)
+	// 2026-11-26 B-SRC-LISTSYNC：失败退避——死链不再每小时被真抓一次。
+	allowed, skipped := s.listSyncFilter(urls)
+	res.Backoff = skipped
+	var failURL map[string]string
+	res.Added, res.Already, res.Failed, res.AddedNames, res.Errors, failURL = s.addMissingSourcesTracked(allowed)
+	s.listSyncRecord(res, allowed, failURL)
+	logListSyncRound(res, failURL, time.Since(start))
 	return res, nil
 }
 
@@ -1814,15 +1930,17 @@ func (s *Server) autoSyncSourceList(ctx context.Context) {
 	if s.cfg().SourceListOff {
 		return
 	}
+	// 摘要/失败日志在 sourceListSyncOnce 内（与手动按钮同口径，每轮恰一行）。
 	res, err := s.sourceListSyncOnce(ctx)
 	if err != nil {
-		log.Printf("[list-sync] 源列表自动同步跳过（获取失败）: %v", err)
-		return
+		return // 失败行已由 sourceListSyncOnce 记录，不重复刷屏
 	}
 	if res.Added > 0 {
 		_ = s.cfg().Save(dataDirOf(s))
-		log.Printf("[list-sync] 源列表自动同步：本轮新增 %d 个源（列表 %d 条 / 已存在 %d / 失败 %d）",
-			res.Added, res.Fetched, res.Already, res.Failed)
+		// 2026-11-26 B-SRC-LISTSYNC 缺陷 3：本轮 invalidateCatalog 已在
+		// 源刷新之后跑过（见 StartSourceAutoRefresh），此刻新增的源若不再
+		// 失效一次，卡片要等下一轮（1h）或手动刷新才可见。这里补一次。
+		s.invalidateCatalog()
 	}
 }
 
@@ -1835,6 +1953,11 @@ func (s *Server) syncList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.cfg().Save(dataDirOf(s))
+	// 2026-11-26 B-SRC-LISTSYNC 缺陷 3：手动「同步源」也必须在新增后失效目录，
+	// 否则新源的卡片要等下一轮自动刷新/手动刷新才可见（与自动路径同口径）。
+	if res.Added > 0 {
+		s.invalidateCatalog()
+	}
 	writeJSON(w, res)
 }
 
@@ -2166,14 +2289,19 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		// 0.6.325 安全加固 R1：随设置页下发（默认 false）。
 		SourceListAllowPrivate: s.cfg().SourceListAllowPrivate,
 		// 0.6.334：只下发「是否已配置」，token 本身绝不回传。
-		GitHubTokenSet:    s.cfg().GithubToken != "",
+		GitHubTokenSet: s.cfg().GithubToken != "",
+		// 2026-11-26（加固 B2）：会话落盘加密开关（opt-in，默认 false）。
+		OfficialSessionEncrypt: s.cfg().OfficialSessionEncrypt,
+		// 2026-11-26（加固 A）：授权范围偏好，GET 恒给显式值 full/minimal
+		//（配置 "" 或非法值 → full），前端不用再猜。
+		OfficialScopeMode: official.ScopeModeOf(s.cfg().OfficialScopeMode),
 		SourceAutoCareOff: s.cfg().SourceAutoCareOff,
 		AutoUpdate:        s.cfg().AutoUpdate,
 		// 0.6.326 溯源批次：自动纠正上游版本（独立开关，默认关）。
 		AutoCorrect:         s.cfg().AutoCorrect,
 		CatalogLanguage:     orAuto(s.cfg().CatalogLanguage),
 		UpdatePolicy:        orStrict(s.cfg().UpdatePolicy),
-		DedupPolicy:         orAll(s.cfg().DedupPolicy),
+		DedupPolicy:         config.NormalizeDedupPolicy(s.cfg().DedupPolicy),
 		BackupDir:           s.cfg().BackupDir,
 		BackupAuto:          s.cfg().BackupAuto,
 		BackupIntervalDays:  s.backupIntervalDaysOf(),
@@ -2184,10 +2312,18 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		GhProbeMinutes:      s.cfg().GhProbeMinutes,
 		DkProbeHours:        s.cfg().DkProbeHours,
 		DkProbeMinutes:      s.cfg().DkProbeMinutes,
-		ProxyEnabled:        s.cfg().ProxyEnabled,
-		ProxyURL:            s.cfg().ProxyURL,
-		DockOrder:           resolveOrderWithLegacy(s.cfg().DockOrder, DockTabKeys, legacyDockTabKeys),
-		SettingsTabOrder:    resolveOrder(s.cfg().SettingsTabOrder, SettingsTabKeys),
+		// 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-3：齿轮原值（上面四个）与
+		// 「实际生效值」一并下发——0h0m/越界时后端按默认 5 分钟跑，界面据此
+		// 显式提示「已回退」，不再静默。
+		GhProbeIntervalMinutes: s.cfg().GhProbeIntervalMinutes(),
+		DkProbeIntervalMinutes: s.cfg().DkProbeIntervalMinutes(),
+		GhProbeFallback:        s.cfg().GhProbeIntervalMinutes() != s.cfg().GhProbeHours*60+s.cfg().GhProbeMinutes,
+		DkProbeFallback:        s.cfg().DkProbeIntervalMinutes() != s.cfg().DkProbeHours*60+s.cfg().DkProbeMinutes,
+		ProbeIntervalDefault:   config.DefaultProbeIntervalMinutes,
+		ProxyEnabled:           s.cfg().ProxyEnabled,
+		ProxyURL:               s.cfg().ProxyURL,
+		DockOrder:              resolveOrderWithLegacy(s.cfg().DockOrder, DockTabKeys, legacyDockTabKeys),
+		SettingsTabOrder:       resolveOrder(s.cfg().SettingsTabOrder, SettingsTabKeys),
 	}
 	if set.Mirror == "" {
 		set.Mirror = "auto"
@@ -2277,6 +2413,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// ghp_ / github_pat_ 前缀，脏值整单拒绝。
 		GitHubToken       *string `json:"github_token"`
 		SourceAutoCareOff *bool   `json:"source_auto_care_disabled"`
+		// 2026-11-26（加固 B2）：OAuth 会话落盘加密（opt-in）。nil = 未提交不改动；
+		// 非 nil = 写配置标志，并在**配置落盘成功之后**才切运行态（含按新形态重写
+		// 会话文件）——顺序见函数内 F9/N3 注释：先落盘再产生磁盘副作用。
+		OfficialSessionEncrypt *bool `json:"official_session_encrypt"`
+		// 2026-11-26（加固 A）：官方源授权范围偏好。nil = 未提交不改动；
+		// 只接受 "full" / "minimal" / ""，其它值整单拒绝（400）。
+		OfficialScopeMode *string `json:"official_scope_mode"`
 		// 0.6.255：面板账号字段（panel_enabled/panel_username/panel_password/
 		// panel_base_url/panel_clear_password）已从设置中彻底移除。
 		// 指针区分「未提交」与「显式关闭」，开关允许切回 false。
@@ -2329,6 +2472,32 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// 2026-11-27（F9/N3）：半提交防护。
+	//
+	// 本 handler 的赋值散布在 20+ 个校验点之间，后面的每个 400 出口都不会回滚
+	// 前面已经发生的改动。其中带**立即生效运行态/磁盘副作用**的有两项：
+	//   · GitHub token → s.Forks / s.GHStats 的查询器（改内存即生效）；
+	//   · 会话加密 → 重写磁盘上的会话文件（不可撤销）。
+	// 这两项必须在任何提前退出时回到提交前的值，否则就是 N3 的形态：
+	// 「内存/界面已变、config.json 未变」→ 用户重启后发现设置静默回退。
+	// committed 只在 Save 成功后才置真；此后由函数末尾自己负责一致性。
+	committed := false
+	prevToken := ""
+	tokenTouched := false
+	defer func() {
+		if committed || !tokenTouched {
+			return
+		}
+		if c := s.cfg(); c != nil {
+			c.GithubToken = prevToken
+		}
+		if s.Forks != nil {
+			s.Forks.SetToken(prevToken)
+		}
+		if s.GHStats != nil {
+			s.GHStats.SetToken(prevToken)
+		}
+	}()
 	// 读全量→改单字段→写回（防止部分提交抹掉其它配置）。
 	// 字符串/布尔开关用指针语义：nil=未提交不改动，非 nil=按值设置
 	// （空串/ false 均合法 = 显式清除/关闭）。
@@ -2476,6 +2645,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, errors.New("GitHub token 格式不正确（应以 ghp_ 或 github_pat_ 开头）"))
 			return
 		}
+		// F9/N3：记下提交前的值，供任何后续 400 出口回滚（见函数头部 defer）。
+		prevToken = s.cfg().GithubToken
+		tokenTouched = true
 		s.cfg().GithubToken = tok
 		if s.Forks != nil {
 			s.Forks.SetToken(tok)
@@ -2487,6 +2659,45 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.SourceAutoCareOff != nil {
 		s.cfg().SourceAutoCareOff = *in.SourceAutoCareOff
+	}
+	// 2026-11-26（加固 B2）：会话落盘加密（opt-in，默认关）。
+	//
+	// 2026-11-27（F9/N3 半提交修复）：这一步**只做准入校验、记下意图**，绝不在此
+	// 改运行态或重写会话文件。历史实现在这里就调 SetEncryption（把磁盘上的会话
+	// 文件按新形态重写一次），而本 handler 后面还有 18 处 400 出口（catalog_language、
+	// 自动更新时段、排序…）；任一处校验失败都不会回滚已经发生的磁盘副作用 →
+	// 界面「开」、config.json「关」、文件已换形态，重启后设置静默回退。
+	// 现在的顺序：全量校验通过 → 写内存 cfg → Save 成功 → committed →
+	// 才切运行态并按新形态重写会话文件；重写失败再回滚 cfg 并补一次 Save（见末尾）。
+	var encWant *bool
+	if in.OfficialSessionEncrypt != nil {
+		want := *in.OfficialSessionEncrypt
+		if want && s.Official != nil && !s.Official.EncryptionAvailable() {
+			writeErr(w, http.StatusBadRequest, errSessionKeyUnavailable)
+			return
+		}
+		encWant = &want
+	}
+	// 2026-11-26（加固 A）：官方源授权范围偏好。
+	// "full" 归一成 ""（默认值不写进 config.json，旧配置文件形状不变）；
+	// "minimal" 原样落盘。非法值整单拒绝（与 catalog_language 同款白名单口径）。
+	// 只影响**下一次**发起授权，已连接会话不受影响。
+	var prevOfficialScope string
+	officialScopeTouched := false
+	if in.OfficialScopeMode != nil {
+		next := ""
+		switch strings.ToLower(strings.TrimSpace(*in.OfficialScopeMode)) {
+		case "", official.ScopeModeFull:
+			next = ""
+		case official.ScopeModeMinimal:
+			next = official.ScopeModeMinimal
+		default:
+			writeErr(w, http.StatusBadRequest, errors.New("official_scope_mode 只能是 full 或 minimal"))
+			return
+		}
+		prevOfficialScope = s.cfg().OfficialScopeMode
+		officialScopeTouched = true
+		s.cfg().OfficialScopeMode = next
 	}
 	// 0.6.255：面板账号已彻底移除——不再接受/落盘 panel_* 字段。
 	if in.AutoUpdate != nil {
@@ -2585,15 +2796,18 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			s.invalidateCatalog()
 		}
 	}
-	// 列表去重展示策略（0.6.312 B2）：nil = 未提交不改动；白名单外值整单拒绝。
-	// 策略变化只影响展示层 → 失效目录缓存（Hidden 标记随下次构建重算）。
+	// 列表去重展示策略（0.6.575 两档）：nil = 未提交不改动；白名单外值整单拒绝。
+	// 旧「标准档」merge 仍接受但归一为 one（浏览器里缓存着旧三档胶囊的前端
+	// 不会因这次升级报 400）。策略变化只影响展示层 → 失效目录缓存
+	//（Hidden 标记随下次构建重算）。
 	if in.DedupPolicy != nil {
 		v := strings.TrimSpace(*in.DedupPolicy)
-		if v != "all" && v != "merge" && v != "one" {
-			writeErr(w, http.StatusBadRequest, errors.New("去重策略仅支持 all / merge / one"))
+		if v != "all" && v != "one" && v != "merge" {
+			writeErr(w, http.StatusBadRequest, errors.New("去重策略仅支持 all / one"))
 			return
 		}
-		if orAll(s.cfg().DedupPolicy) != v {
+		v = config.NormalizeDedupPolicy(v)
+		if config.NormalizeDedupPolicy(s.cfg().DedupPolicy) != v {
 			s.cfg().DedupPolicy = v
 			s.invalidateCatalog()
 			// 0.6.312 B3/F9：档位切换改变可见集 → 触发一轮增量预热
@@ -2628,6 +2842,25 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.DkProbeMinutes != nil {
 		s.cfg().DkProbeMinutes = *in.DkProbeMinutes
+	}
+	// 2026-11-26 B-MIRROR-PROBE-VISIBILITY P1-3：0h0m（=未设置）合法但会静默
+	// 回落到默认 5 分钟——此前界面显示保存成功、实际按 5 分钟跑。
+	// 这里把「本次提交的组」若有回落一并回给前端（toast「已回退默认 N 分钟」）。
+	probeFallback := map[string]int{}
+	for _, f := range []struct {
+		name    string
+		touched bool
+		want    int
+		got     int
+	}{
+		{"gh", in.GhProbeHours != nil || in.GhProbeMinutes != nil,
+			s.cfg().GhProbeHours*60 + s.cfg().GhProbeMinutes, s.cfg().GhProbeIntervalMinutes()},
+		{"dk", in.DkProbeHours != nil || in.DkProbeMinutes != nil,
+			s.cfg().DkProbeHours*60 + s.cfg().DkProbeMinutes, s.cfg().DkProbeIntervalMinutes()},
+	} {
+		if f.touched && f.want != f.got {
+			probeFallback[f.name] = f.got
+		}
 	}
 	// 科学加速（0.6.206）：开关+地址成对校验；地址非空即须合法，
 	// 通过后即时生效（netx 全局代理），失败整单拒绝。
@@ -2746,8 +2979,46 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// 0.6.521：让新列表立即生效（无需重启）——选项表/测速/下载候选都读内存。
 	config.SetCustomMirrors(s.cfg().GitHubCustomMirrors(), s.cfg().DockerCustomMirrors())
-	_ = s.cfg().Save(dataDirOf(s))
-	writeJSON(w, map[string]any{"ok": true})
+	// F9/N3：走到这里说明全部字段校验都过了，才把「会话加密」意图写进内存
+	// （Save 会带上它）；磁盘侧副作用留到落盘成功之后。
+	prevOfficialEncrypt := s.cfg().OfficialSessionEncrypt
+	if encWant != nil {
+		s.cfg().OfficialSessionEncrypt = *encWant
+	}
+	saveErr := s.cfg().Save(dataDirOf(s))
+	if saveErr != nil {
+		// 只有「会话加密 / 授权范围」这两档要求配置文件与运行态严格一致
+		// （其余字段历史上忽略落盘错误，不在本批行为范围内）。回滚后回到提交前的值。
+		if officialScopeTouched {
+			s.cfg().OfficialScopeMode = prevOfficialScope
+		}
+		if encWant != nil {
+			s.cfg().OfficialSessionEncrypt = prevOfficialEncrypt
+		}
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("保存配置失败: %w", saveErr))
+		return
+	}
+	// 配置已落盘：后续再提前 return 属于「已提交」，不再走函数头部的回滚 defer。
+	committed = true
+	// F9/N3：会话文件的形态重写放在配置落盘之后——它是本 handler 唯一
+	// 不可撤销的磁盘副作用，放在最后能把「半提交」的窗口压到最小。
+	// 失败：把配置标志改回去并补一次 Save（保持文件与磁盘一致），返回 500。
+	if encWant != nil && s.Official != nil {
+		if encErr := s.Official.SetEncryption(*encWant); encErr != nil {
+			s.cfg().OfficialSessionEncrypt = prevOfficialEncrypt
+			if rbErr := s.cfg().Save(dataDirOf(s)); rbErr != nil {
+				log.Printf("[official] 会话加密切换失败后回滚配置也失败: %v", rbErr)
+			}
+			writeErr(w, http.StatusInternalServerError, fmt.Errorf("切换会话加密失败: %w", encErr))
+			return
+		}
+	}
+	out := map[string]any{"ok": true}
+	if len(probeFallback) > 0 {
+		// 键 = gh/dk，值 = 实际生效分钟数（前端拼「已回退默认 N 分钟」）。
+		out["probe_interval_fallback"] = probeFallback
+	}
+	writeJSON(w, out)
 }
 
 // normalizeCustomMirrorList 校验并归一多条自定义加速源：http(s)、无凭据、
@@ -2991,18 +3262,25 @@ func copyFileFull(src, dst string) error {
 // ?refresh=1 强制立即重探（面板「立即测速」按钮；阻塞至探测完成，上限 ~15s）。
 func (s *Server) mirrorHealth(w http.ResponseWriter, r *http.Request) {
 	s.applyMirrorProbeFlags()
-	s.Mirrors.ensureFresh(r.URL.Query().Get("refresh") == "1")
-	writeJSON(w, s.healthOf(orAuto(s.cfg().Mirror), "gh", s.Mirrors.gh()))
+	// 2026-11-27 盲点 4b：用户触发路径走 ensureFreshUser（single-flight + 5s
+	// 最小间隔）。被去重/节流时 throttled=true 原样下发（additive 字段）。
+	throttled := s.Mirrors.ensureFreshUser(r.URL.Query().Get("refresh") == "1")
+	out := s.healthOf(orAuto(s.cfg().Mirror), "gh", s.Mirrors.gh())
+	out.Throttled = throttled
+	writeJSON(w, out)
 }
 
 // dockerMirrorHealth GET /api/mirrors/docker/health：Docker 镜像加速源健康。
 // ?refresh=1 强制立即重探（面板「立即测速」按钮；阻塞至探测完成，上限 ~15s）。
 func (s *Server) dockerMirrorHealth(w http.ResponseWriter, r *http.Request) {
 	s.applyMirrorProbeFlags()
-	s.Mirrors.ensureFresh(r.URL.Query().Get("refresh") == "1")
+	// 2026-11-27 盲点 4b：同 mirrorHealth，用户触发路径走 ensureFreshUser。
+	throttled := s.Mirrors.ensureFreshUser(r.URL.Query().Get("refresh") == "1")
 	// 0.6.325 C12：与 getSettings 同源归一——老配置残留的已下线 key
 	// （registry-cyou）不得作为 Selected/Active 透出（面板会显示生 key）。
-	writeJSON(w, s.healthOf(normalizeDockerMirror(s.cfg().DockerMirror), "dk", s.Mirrors.dk()))
+	out := s.healthOf(normalizeDockerMirror(s.cfg().DockerMirror), "dk", s.Mirrors.dk())
+	out.Throttled = throttled
+	writeJSON(w, out)
 }
 
 // mirrorsCheck POST /api/mirrors/check：强制全量测速。
@@ -3010,7 +3288,15 @@ func (s *Server) mirrorsCheck(w http.ResponseWriter, r *http.Request) {
 	// 0.6.321 F7：与两个 health 端点一致——手动全量测速前应用开关
 	//（漏调则「立即测速」恒按上一周期标志跑，切换开关后点测速看不到 direct）。
 	s.applyMirrorProbeFlags()
+	// 2026-11-26 E2E 补漏：手动「立即测速」也是一轮真实探测，必须与后台
+	// 循环同口径落摘要日志（此前 ensureFresh(true) 不在两个 loop 里，
+	// 测速完成却不留任何 [mirror] 行，运维无法确认「点了有没有跑」）。
+	tProbe := time.Now()
 	s.Mirrors.ensureFresh(true)
+	ghActive, _ := s.evaluateMirror(orAuto(cfgMirror(s)), "gh", s.Mirrors.gh())
+	s.logMirrorRound("gh", tProbe, s.Mirrors.gh(), ghActive)
+	dkActive, _ := s.evaluateMirror(orAuto(cfgDockerMirror(s)), "dk", s.Mirrors.dk())
+	s.logMirrorRound("dk", tProbe, s.Mirrors.dk(), dkActive)
 	gh := make([]MirrorCheckResult, 0)
 	for _, st := range s.Mirrors.gh() {
 		gh = append(gh, MirrorCheckResult{Key: st.Key, Label: st.Label, LatencyMS: st.LatencyMS, SpeedBPS: st.SpeedBPS, Status: checkStatus(st)})
@@ -3071,6 +3357,29 @@ func checkStatus(st MirrorStat) string {
 
 // ---- FPK 下载缓存 ----
 
+// sourceByAppName 从**已构建**的目录快照取 appname → 源名，供「已下载 FPK」展示/搜索。
+// 只读快照：不触发重建（列表接口不该因为一次查询把目录重建拖进来）。
+func (s *Server) sourceByAppName() map[string]string {
+	s.catalogMu.Lock()
+	data := s.catalogData
+	s.catalogMu.Unlock()
+	if len(data) == 0 {
+		// body 缓存命中时 /api/apps 不会走 cachedCatalog，快照可能还没建；
+		// 此时按需构建一次（有缓存，代价可忽略），否则源名恒为空。
+		data = s.cachedCatalog("")
+	}
+	m := make(map[string]string, len(data))
+	for _, a := range data {
+		if a.AppName == "" || a.Source == "" {
+			continue
+		}
+		if _, ok := m[strings.ToLower(a.AppName)]; !ok {
+			m[strings.ToLower(a.AppName)] = a.Source
+		}
+	}
+	return m
+}
+
 func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 	entries, _ := os.ReadDir(s.Pipe.Downloads)
 	files := make([]FpkDownloadFile, 0, len(entries))
@@ -3079,6 +3388,8 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 	// 后台渐进解析，未就绪时该字段为空、下次请求补齐）。
 	fpkLocalInstance.SetExtraDirs([]string{s.Pipe.Downloads})
 	fpkLocalInstance.EnsureIndex()
+	// 2026-11-26：appname → 源名（只读已构建快照，不触发目录重建）。
+	srcByApp := s.sourceByAppName()
 	for _, e := range entries {
 		if e.IsDir() || !isFpk(e.Name()) {
 			continue
@@ -3116,6 +3427,14 @@ func (s *Server) listDownloads(w http.ResponseWriter, r *http.Request) {
 			}
 		} else if fpkLocalInstance.Pending(full) {
 			f.Parsing = true
+		}
+		// 源名：优先按包内 appname，回退到文件名派生的 appname。
+		if f.Source == "" {
+			if src := srcByApp[strings.ToLower(f.AppName)]; src != "" {
+				f.Source = src
+			} else if src := srcByApp[strings.ToLower(appName)]; src != "" {
+				f.Source = src
+			}
 		}
 		files = append(files, f)
 	}

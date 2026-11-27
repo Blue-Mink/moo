@@ -1,8 +1,14 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"moo/internal/official"
 	"moo/internal/platform"
 )
 
@@ -157,4 +163,113 @@ func TestApplyPlatformUpdateAuthority_OfficialCardSkipped(t *testing.T) {
 		t.Errorf("官方卡不应被本函数改动: HasUpdate=%v avail=%q latest=%q",
 			a.HasUpdate, a.AvailableVersion, a.LatestVersion)
 	}
+}
+
+// ===== 2026-11-26 加固 C：GET /api/official/status 三态身份裁剪 =====
+//
+// 口径（用户令）：status **永远 200**（前端 apiFetch GET / Mate / 脚本都靠它判断
+// 连接状态，改成 403 会把这些调用方全打死），但 panel_base / panel_base_source /
+// last_error 只给管理员。last_error 里含面板基址与面板侧错误原文，panel_base 本身
+// 就是内网拓扑 → 非管理员一律看不到，改用 can_admin=false 表达「你没有管理权限」。
+
+// newStatusProbeHandler 造最小 Server（只含 /api/official/* 路由）并制造一条
+// last_error：用不可达的面板基址跑一次换 token，失败信息里带面板地址——正是
+// 非管理员必须被裁掉的内容（这样「删键」断言才有意义，不是空断言）。
+func newStatusProbeHandler(t *testing.T) http.Handler {
+	t.Helper()
+	// 固定面板基址解析：env 命中即返回，不触发 5666/5667 回环探测。
+	t.Setenv("MOO_PANEL_BASE", "http://127.0.0.1:5666")
+	m := official.NewManagerWithBase(t.TempDir(), "http://127.0.0.1:1")
+	if _, err := m.BeginAuthorizationAt(""); err != nil {
+		t.Fatalf("BeginAuthorizationAt: %v", err)
+	}
+	if err := m.CompleteAuthorization(context.Background(), "MOCKCODE"); err == nil {
+		t.Fatal("不可达面板应换 token 失败（用于制造 last_error）")
+	}
+	if _, ok := m.Status(time.Now())["last_error"]; !ok {
+		t.Fatal("前置条件失败：Status 未记录 last_error")
+	}
+	srv := &Server{Official: m, Panel: &Panel{}}
+	mux := http.NewServeMux()
+	srv.officialRoutes(mux, srv.officialStoreV())
+	return mux
+}
+
+// statusAs 以指定身份取一次 status（nil = 匿名/TCP 调试通道）。
+func statusAs(t *testing.T, h http.Handler, u *User) map[string]any {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/official/status", nil)
+	if u != nil {
+		req = req.WithContext(withUserCtx(req.Context(), *u))
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status 必须恒为 200（不因身份改 403），实际 %d body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v body=%s", err, w.Body.String())
+	}
+	return got
+}
+
+// assertTrimmed 断言「非管理员视角」：无面板地址、无错误详情，can_admin=false，
+// 但公开字段 authorized 仍在（脚本/前端靠它判断连接状态）。
+func assertTrimmed(t *testing.T, got map[string]any) {
+	t.Helper()
+	for _, k := range []string{"panel_base", "panel_base_source", "last_error"} {
+		if v, ok := got[k]; ok {
+			t.Errorf("非管理员不得拿到 %q（实际值 %v）", k, v)
+		}
+	}
+	if got["can_admin"] != false {
+		t.Errorf("can_admin 应为 false，实际 %v", got["can_admin"])
+	}
+	if _, ok := got["authorized"]; !ok {
+		t.Error("公开字段 authorized 必须保留（调用方据此判断连接状态）")
+	}
+}
+
+// ① 匿名（TCP 调试通道 / 未登录 / 无身份上下文）：200 + 裁掉敏感键。
+func TestOfficialStatus_AnonymousTrimmed(t *testing.T) {
+	h := newStatusProbeHandler(t)
+	got := statusAs(t, h, nil)
+	assertTrimmed(t, got)
+}
+
+// ② 网关非管理员（可信通道但 IsAdmin=false）：与匿名同口径，仍然 200。
+func TestOfficialStatus_GatewayNonAdminTrimmed(t *testing.T) {
+	h := newStatusProbeHandler(t)
+	got := statusAs(t, h, &User{Username: "guest", UserID: "2", Trusted: true, IsAdmin: false})
+	assertTrimmed(t, got)
+}
+
+// ③ 管理员（可信通道 + X-Trim-Isadmin:true → IsAdmin=true）：can_admin=true，
+//
+//	面板基址与错误详情照常下发（管理界面需要它填默认端口）。
+func TestOfficialStatus_AdminSeesPanelBase(t *testing.T) {
+	h := newStatusProbeHandler(t)
+	got := statusAs(t, h, &User{Username: "admin", UserID: "1", Trusted: true, IsAdmin: true})
+	if got["can_admin"] != true {
+		t.Fatalf("管理员 can_admin 应为 true，实际 %v", got["can_admin"])
+	}
+	if pb, _ := got["panel_base"].(string); pb == "" {
+		t.Errorf("管理员应拿到 panel_base，实际 %v", got["panel_base"])
+	}
+	if _, ok := got["panel_base_source"]; !ok {
+		t.Error("管理员应拿到 panel_base_source")
+	}
+	if _, ok := got["last_error"]; !ok {
+		t.Error("管理员应拿到 last_error（排障需要）")
+	}
+}
+
+// ④ 不可信通道即使自报管理员头也拿不到（withUser 只在 trust=true 时解析
+//
+//	X-Trim-Isadmin；这里直接构造 Untrusted+IsAdmin 表达「头伪造」场景）。
+func TestOfficialStatus_UntrustedAdminHeaderIgnored(t *testing.T) {
+	h := newStatusProbeHandler(t)
+	got := statusAs(t, h, &User{Username: "fake", IsAdmin: true, Trusted: false})
+	assertTrimmed(t, got)
 }

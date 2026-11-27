@@ -1,16 +1,5 @@
 {
  "schema_version": 1,
- "updated_at": "2026-11-23",
- "entries": [
-  {
-   "app": "global-radio",
-   "source": "Blue-Mink",
-   "sha256": "6ce351d7dfa964d7e76d7c53faa217502794ed9859955e97e028935dd2dd7666",
-   "reason": "policy",
-   "notice": "下架测试：按包指纹锁定 1.5.4，验证卡面与安装拦截，新版本自动放行",
-   "since": "2026-11-23",
-   "until": "2026-11-26",
-   "ref": "bl-20261123"
-  }
- ]
+ "updated_at": "2026-11-28",
+ "entries": []
 }

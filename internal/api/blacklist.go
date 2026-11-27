@@ -310,6 +310,12 @@ func (s *Server) saveBlacklistLKG(entries []blacklistEntry) {
 		return
 	}
 	if dir := filepath.Dir(path); dir != "" {
+		// 2026-11-26（批次 B）：过数据目录守卫，避免把 blacklist_last.json
+		// 写进别人的应用目录（单测继承 TRIM_PKGVAR 时实测发生过）。
+		if err := config.CheckDataDir(dir); err != nil {
+			log.Printf("[blacklist] 拒绝写入 %s: %v", dir, err)
+			return
+		}
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			log.Printf("[blacklist] 快照目录创建失败: %v", err)
 			return

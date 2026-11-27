@@ -1,7 +1,6 @@
 package source
 
 import (
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -19,8 +18,39 @@ type Manager struct {
 	fresh     map[string]time.Time       // source name → 上次拉取时间
 	cachePath string                     // 目录落盘快照路径（空 = 禁用）
 	// 自动监测：source name → 连续「刷新成功但 0 应用」轮数（成功有应用清零；
-	// 刷新失败不计）。进程内计数，重启归零（连续 5 轮按默认 24h 间隔约 5 天）。
+	// 刷新失败不计）。
 	careEmpty map[string]int
+	// careParseSkipLogged 2026-11-27（F11/N12 复核 M2）：source name → 「0 条
+	// 且索引结构未识别」的那一行日志已经记过。只在首轮记一行，防上游索引
+	// 格式坏掉时每轮刷屏；真看到应用（Count>0）后清除，让下次故障重新可见。
+	// 与 careEmpty 同属 careMu 保护区；纯内存态，不落盘。
+	careParseSkipLogged map[string]bool
+	// 失败通道（2026-11-26 CARE P1-1/P1-4）：source name → 连续确定性失败
+	// 轮数 / 首次失败时间 / 最近错误 / 停用来源。落盘见 carestore.go。
+	careRecs map[string]careRec
+	// careMu 保护 careEmpty / careRecs / carePath（独立于 m.mu：落盘快照
+	// 与 cfg 读写互不阻塞，也避免「持 m.mu 时异步落盘」的死锁）。
+	// 锁序固定为 m.mu → careMu，绝不反向。
+	careMu   sync.Mutex
+	carePath string
+	// careSeq / careWritten 2026-11-26（全量测试暴露的落盘乱序）：
+	// 异步落盘在「取快照」时就固定了内容，若它晚于更新的同步 SaveCare 落盘，
+	// 会把新计数覆盖回旧值（实测重启后 4 → 2）。每次取快照自增 seq，
+	// 落盘前比较 careWritten，只允许更大的 seq 写盘，保证文件永不回退。
+	careSeq     uint64
+	careWritten uint64
+	// careFlush 统计在途异步落盘，供 WaitCareFlush 等干净（测试清理临时目录
+	// 时必须先等它，否则异步写会在 RemoveAll 之后重建目录 → 偶发
+	// 「directory not empty」）。
+	careFlush sync.WaitGroup
+	// CareProbe 停用前的强制全量复核钩子（nil = 真实网络探测）。
+	CareProbe CareProbeFunc
+	// CareHealProbe 自愈通道的低频探测钩子（nil = ProbeCareAppCount）。
+	// 返回索引条目数，<0 = 不确定（P1-1b，见 careheal.go）。
+	CareHealProbe CareHealProbeFunc
+	// careEvents 待外发通知的自动监测事件（DrainCareEvents 取走即清空）。
+	// 受 careMu 保护（与 careRecs 同锁区，避免额外锁序）。
+	careEvents []CareEvent
 
 	// 0.6.330 WP1：源索引名记忆（见 indexpref.go）。path 为空 = 不落盘。
 	prefs *prefStore
@@ -39,6 +69,7 @@ func NewManager(cfg *config.Config) *Manager {
 		cache:     map[string]map[string]*App{},
 		fresh:     map[string]time.Time{},
 		careEmpty: map[string]int{},
+		careRecs:  map[string]careRec{},
 		prefs:     newPrefStore(),
 	}
 }
@@ -66,10 +97,17 @@ func (m *Manager) SetPrefPath(path string) int {
 var exploreSem = make(chan struct{}, 2)
 
 // Refresh 拉取单个源的目录并更新缓存。
-func (m *Manager) Refresh(name string) error { return m.refresh(name, false) }
+func (m *Manager) Refresh(name string) error {
+	_, err := m.refresh(name, false)
+	return err
+}
 
 // refresh forceFull=true 时忽略记忆、放开全部镜像（后台重探路径）。
-func (m *Manager) refresh(name string, forceFull bool) error {
+//
+// 返回值 structOK（2026-11-27 F11/N12）：本轮拿到的索引是否是「结构可识别
+// 且至少 1 个应用」。false 而 err==nil = 0 条来自「没认出索引结构」，不能当作
+// 「源里确实没有应用」——空源计数据此拒绝推进（宁可漏停，不可错停）。
+func (m *Manager) refresh(name string, forceFull bool) (structOK bool, err error) {
 	m.mu.RLock()
 	var ref *config.SourceRef
 	for i := range m.cfg.Sources {
@@ -80,7 +118,7 @@ func (m *Manager) refresh(name string, forceFull bool) error {
 	}
 	m.mu.RUnlock()
 	if ref == nil {
-		return &ErrNoSuchSource{Name: name}
+		return false, &ErrNoSuchSource{Name: name}
 	}
 	// 0.6.330 WP1：有记忆时只试记忆中的索引名（4s 预算、fast 镜像）；
 	// 失败 → 当轮快速失败 + 清记忆 + 后台全量重探（不阻塞本轮调用方）。
@@ -103,7 +141,7 @@ func (m *Manager) refresh(name string, forceFull bool) error {
 			m.prefs.Clear(name, ref.URL)
 			m.scheduleExplore(name, ref.URL)
 		}
-		return err
+		return false, err
 	}
 	// 0.6.331 P0：陈旧索引拦截。
 	//
@@ -123,7 +161,8 @@ func (m *Manager) refresh(name string, forceFull bool) error {
 			log.Printf("[sync] %s 条目 %d→%d（降幅>20%%）且 raw 复核失败：保留旧缓存并安排重探", name, prevCount, len(apps))
 			m.prefs.Clear(name, ref.URL)
 			m.scheduleExplore(name, ref.URL)
-			return nil
+			// 保留旧缓存：本轮条目数不是本源的结论，按「结构可用」处理。
+			return true, nil
 		case staleUseVerify:
 			log.Printf("[sync] %s 条目 %d→%d（降幅>20%%）疑似陈旧索引，已用 raw 直连复核结果 %d 覆盖", name, prevCount, len(apps), len(fresh))
 			apps = fresh
@@ -153,7 +192,14 @@ func (m *Manager) refresh(name string, forceFull bool) error {
 	m.fresh[name] = time.Now()
 	m.mu.Unlock()
 	m.saveIfConfigured() // 成功后落盘（首开/重启秒开的底气）
-	return nil
+	// F11/N12：只有「解析出至少 1 条」才算拿到可识别的索引结构。
+	// （Parser 现在对空索引直接报错，所以这条在当下是**不变式**而非新行为；
+	// 它防的是将来解析器放宽/上游换格式后「0 条且无错」被当成真空源。）
+	structOK = true
+	if fd, ok := src.(*FnDepot); ok && fd.parsedEntries == 0 {
+		structOK = false
+	}
+	return structOK, nil
 }
 
 // cacheCount 当前缓存里该源的条目数（陈旧判定的对照基线）。
@@ -221,7 +267,7 @@ func (m *Manager) scheduleExplore(name, url string) {
 			return // 本次让位，下轮刷新再探
 		}
 		defer func() { <-exploreSem }()
-		_ = m.refresh(name, true)
+		_, _ = m.refresh(name, true)
 	}()
 }
 
@@ -236,13 +282,14 @@ func (m *Manager) RefreshAll() []SourceStatus {
 	var out []SourceStatus
 	for _, n := range names {
 		st := SourceStatus{Name: n}
-		if err := m.Refresh(n); err != nil {
+		if structOK, err := m.refresh(n, false); err != nil {
 			st.Error = err.Error()
 		} else {
 			m.mu.RLock()
 			st.Count = len(m.cache[n])
 			st.UpdatedAt = m.fresh[n]
 			m.mu.RUnlock()
+			st.ParseFailed = !structOK && st.Count == 0
 		}
 		out = append(out, st)
 	}
@@ -275,12 +322,13 @@ func (m *Manager) RefreshAllConcurrent(n int) []SourceStatus {
 			defer wg.Done()
 			defer func() { <-sem }()
 			st := SourceStatus{Name: name}
-			if err := m.Refresh(name); err != nil {
+			if structOK, err := m.refresh(name, false); err != nil {
 				st.Error = err.Error()
 			} else {
 				m.mu.RLock()
 				st.Count = len(m.cache[name])
 				m.mu.RUnlock()
+				st.ParseFailed = !structOK && st.Count == 0
 			}
 			mu.Lock()
 			out = append(out, st)
@@ -371,12 +419,13 @@ func (m *Manager) RefreshNames(names []string, n int) []SourceStatus {
 			defer wg.Done()
 			defer func() { <-sem }()
 			st := SourceStatus{Name: name}
-			if err := m.Refresh(name); err != nil {
+			if structOK, err := m.refresh(name, false); err != nil {
 				st.Error = err.Error()
 			} else {
 				m.mu.RLock()
 				st.Count = len(m.cache[name])
 				m.mu.RUnlock()
+				st.ParseFailed = !structOK && st.Count == 0
 			}
 			mu.Lock()
 			out = append(out, st)
@@ -395,82 +444,6 @@ func (m *Manager) RefreshNames(names []string, n int) []SourceStatus {
 func (m *Manager) RefreshBudgeted(priority []string, budget int, n int) []SourceStatus {
 	names := m.SelectBudgetedRefresh(priority, budget)
 	return m.RefreshNames(names, n)
-}
-
-// AutoCarePass 一轮「应用源自动监测」策略，在后台刷新轮结束后调用
-// （sts 来自 RefreshAll / RefreshAllConcurrent / RefreshBudgeted 等；
-// 单源手动同步不计数）。0.6.312 B3/F5 轮转预算后 sts 只含本轮实际刷新
-// 的源：未排到的源计数不变（不递增也不清零），语义与全量轮一致。
-//
-//  1. 刷新成功但 0 应用、连续达 AutoCareThreshold 轮 → 自动停用该源
-//  2. 本轮刷新成功的空源在源列表沉底（稳定分区：两组内部保序，
-//     手动排序/停用源不受影响）
-//
-// 计数与配置变更都在 m.cfg 上进行，**持久化由调用方负责**（Save + 日志 +
-// 目录缓存失效）。策略关闭（cfg.SourceAutoCareOff）或无动作时返回 nil。
-func (m *Manager) AutoCarePass(sts []SourceStatus) []string {
-	if m.cfg.SourceAutoCareOff {
-		return nil
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 本轮成功刷新的源 → 应用数（失败源不计数、不沉底：网络故障≠空源）
-	counts := make(map[string]int, len(sts))
-	for _, st := range sts {
-		if st.Error != "" {
-			continue
-		}
-		counts[st.Name] = st.Count
-		if st.Count == 0 {
-			m.careEmpty[st.Name]++
-		} else {
-			delete(m.careEmpty, st.Name)
-		}
-	}
-
-	var actions []string
-	// 1) 连续空 N 轮 → 停用
-	for name, n := range m.careEmpty {
-		if n < AutoCareThreshold {
-			continue
-		}
-		for i := range m.cfg.Sources {
-			if m.cfg.Sources[i].Name == name && m.cfg.Sources[i].IsEnabled() {
-				off := false
-				m.cfg.Sources[i].Enabled = &off
-				actions = append(actions, fmt.Sprintf("源「%s」连续 %d 次刷新无应用，已自动停用", name, n))
-			}
-		}
-		delete(m.careEmpty, name)
-	}
-	// 2) 空源沉底（仅重排；停用源保留原位由用户管理）
-	if len(counts) > 0 {
-		kept := make([]config.SourceRef, 0, len(m.cfg.Sources))
-		sunk := make([]config.SourceRef, 0)
-		for _, s := range m.cfg.Sources {
-			if c, ok := counts[s.Name]; ok && c == 0 {
-				sunk = append(sunk, s)
-			} else {
-				kept = append(kept, s)
-			}
-		}
-		if len(sunk) > 0 {
-			newOrder := append(kept, sunk...)
-			if !sameSourceOrder(m.cfg.Sources, newOrder) {
-				m.cfg.Sources = newOrder
-				names := make([]string, 0, len(sunk))
-				for _, s := range sunk {
-					names = append(names, s.Name)
-				}
-				actions = append(actions, fmt.Sprintf("空源沉底: %s", strings.Join(names, "、")))
-			}
-		}
-	}
-	if len(actions) == 0 {
-		return nil
-	}
-	return actions
 }
 
 // sameSourceOrder 按名称序列比较两个源列表是否同序。
@@ -640,10 +613,16 @@ func (m *Manager) RenameSource(oldName, newName string) error {
 		m.fresh[newName] = t
 		delete(m.fresh, oldName)
 	}
+	m.careMu.Lock()
 	if n, ok := m.careEmpty[oldName]; ok {
 		m.careEmpty[newName] = n
 		delete(m.careEmpty, oldName)
 	}
+	if rec, ok := m.careRecs[oldName]; ok {
+		m.careRecs[newName] = rec
+		delete(m.careRecs, oldName)
+	}
+	m.careMu.Unlock()
 	return nil
 }
 
@@ -660,6 +639,10 @@ func (m *Manager) RemoveSource(name string) error {
 	}
 	delete(m.cache, name)
 	delete(m.fresh, name)
+	m.careMu.Lock()
+	delete(m.careEmpty, name)
+	delete(m.careRecs, name)
+	m.careMu.Unlock()
 	m.mu.Unlock()
 	if !found {
 		return &ErrNoSuchSource{Name: name}
@@ -679,6 +662,22 @@ func (m *Manager) Sources() []SourceStatus {
 			st.Count = len(m.cache[s.Name])
 			st.CacheAgeSeconds = int(time.Since(t).Seconds())
 		}
+		// P1-2/P1-3（2026-11-26 CARE）：计数与最近错误回填到源列表。
+		// 之前这两个字段只有声明、无赋值 → 前端角标永不显示、死源与
+		// 「刚添加未拉取」在界面上无法区分。
+		m.careMu.Lock()
+		st.EmptyStreak = m.careEmpty[s.Name]
+		if rec, ok := m.careRecs[s.Name]; ok {
+			st.FailStreak = rec.FailStreak
+			st.LastError = rec.LastError
+			st.DisabledBy = rec.DisabledBy
+			st.HealCapped = rec.HealCapped
+			st.HealCount30d = rec.HealCount
+			st.LastRecoveredAt = rec.LastRecoveredAt
+			st.LastVerdict = rec.LastVerdict
+			st.VerdictAt = rec.VerdictAt
+		}
+		m.careMu.Unlock()
 		out = append(out, st)
 	}
 	return out
@@ -820,19 +819,48 @@ func KeyOfCounted(a *App, sameNameCount int) string {
 }
 
 // ToggleSource 开关源。
+//
+// 2026-11-26 CARE：停用/启用时同步维护自动监测状态——用户手动启用视为
+// 「我确认这个源要跑」：空源计数与失败计数清零、清掉策略停用标记（自愈通道
+// 只允许复活 auto-care 停用的源，绝不覆盖用户意愿）；用户手动停用则清掉
+// 策略标记，避免自愈通道把它当成「策略停用」而擅自复活。
 func (m *Manager) ToggleSource(name string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.cfg.Sources {
-		if m.cfg.Sources[i].Name == name {
-			v := enabled
-			m.cfg.Sources[i].Enabled = &v
-			if !enabled {
-				delete(m.cache, name)
-				delete(m.fresh, name)
-			}
-			return nil
+		if m.cfg.Sources[i].Name != name {
+			continue
 		}
+		v := enabled
+		m.cfg.Sources[i].Enabled = &v
+		if !enabled {
+			delete(m.cache, name)
+			delete(m.fresh, name)
+		}
+		m.careMu.Lock()
+		if enabled {
+			delete(m.careEmpty, name) // 手动启用：计数从 0 重来
+		}
+		if rec, ok := m.careRecs[name]; ok {
+			if enabled {
+				rec.FailStreak = 0
+				rec.FirstFailAt = time.Time{}
+				// 用户动作优先：手动打开 = 「我确认要跑」，抖动上限、冷却窗与
+				// 触顶通知节流一并作废（否则用户开了又会被旧上限立刻再停用）。
+				rec.LastRecoveredAt = time.Time{}
+				rec.HealCount = 0
+				rec.HealWindowStart = time.Time{}
+				rec.HealCapped = false
+				rec.CappedNoticeAt = time.Time{}
+			}
+			rec.DisabledBy = "" // 用户动作优先：策略停用标记作废（自愈不再介入）
+			rec.HealStreak = 0  // 自愈进度由用户动作重置
+			rec.LastHealAt = time.Time{}
+			m.setCareRecordLocked(name, rec)
+		}
+		m.careMu.Unlock()
+		m.saveCareAsync()
+		return nil
 	}
 	return &ErrNoSuchSource{Name: name}
 }
@@ -871,6 +899,30 @@ type SourceStatus struct {
 	UpdatedAt       time.Time `json:"updated_at,omitempty"`
 	CacheAgeSeconds int       `json:"cache_age_seconds"`
 	Error           string    `json:"error,omitempty"`
+	// P1-2（2026-11-26 CARE）：空源 / 失败连续计数（自动监测角标用）。
+	EmptyStreak int `json:"empty_streak"`
+	FailStreak  int `json:"fail_streak"`
+	// P1-3：最近一次刷新失败的简短原因（已脱敏，见 careerr.go）。
+	LastError string `json:"last_error,omitempty"`
+	// ParseFailed 2026-11-27（F11/N12）：本轮 0 条来自「索引没被识别/无结构」，
+	// 而不是「源里确实没应用」。空源计数据此拒绝推进（宁可漏停，不可错停）。
+	ParseFailed bool `json:"parse_failed,omitempty"`
+	// P1-1c：停用来源标记（auto-care = 策略停用；空 = 未停用/用户手动停用）。
+	// 前端据此分因展示「已自动停用（可自动恢复）」与「已关闭」。
+	DisabledBy string `json:"disabled_by,omitempty"`
+	// ── 抖动上限 / 冷却（2026-11-26 CARE，只读信号）──
+	// HealCapped 本窗口内自动恢复次数已用尽：源保持停用，Moo 只低频复查，
+	// 不再自动复活。前端据此把角标从「可自动恢复」改成「需手动开启」。
+	HealCapped bool `json:"heal_capped,omitempty"`
+	// HealCount30d 当前 30 天滚动窗口内已自动恢复的次数（上限 2）。
+	HealCount30d int `json:"heal_count_30d,omitempty"`
+	// LastRecoveredAt 最近一次自动恢复时间（空源通道 72h 冷却窗的起点）。
+	LastRecoveredAt time.Time `json:"last_recovered_at,omitempty"`
+	// ── 判定可观测（2026-11-27 FIXPLAN 盲点 #3 · C2，只读信号）──
+	// LastVerdict 最近一轮通道复核的结论（alive/dead/uncertain；空 = 从未复核）。
+	// VerdictAt 该结论的时间（unix 秒）。两者都不参与任何判定。
+	LastVerdict string `json:"last_verdict,omitempty"`
+	VerdictAt   int64  `json:"verdict_at,omitempty"`
 }
 
 // NormalizeSourceURL 归一化源地址用于去重：去协议/尾斜杠/fnpack.json，小写 host。

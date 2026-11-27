@@ -28,6 +28,9 @@ type FnDepot struct {
 	lastStage   int    // 命中所在阶段（1=常规名，2=扩展名，3=CDN，4=apps.json）
 	lastWinner  string // 命中地址（判断是否 CDN 兜底）
 	noCDN       bool   // 0.6.331 P0：真源复核模式——候选里剔除 jsDelivr（见 withRawOnly）
+	// parsedEntries 本次 Fetch 从索引里**解析出的条目数**（2026-11-27 F11/N12）。
+	// 0 且 err==nil = 「拉到了东西但没认出应用集合」，不能当作真空源。
+	parsedEntries int
 }
 
 // NewFnDepot 创建一个 FnDepot 源。url 可以是 fnpack.json 直链，
@@ -835,6 +838,7 @@ func (f *FnDepot) FetchWithIndex() (map[string]*App, string, error) {
 }
 
 func (f *FnDepot) Fetch() (map[string]*App, error) {
+	f.parsedEntries = 0 // 每次 Fetch 重新计（避免上一轮的值泄漏到本轮判定）
 	data, base, err := f.fetchJSON()
 	if err != nil {
 		return nil, err
@@ -847,6 +851,7 @@ func (f *FnDepot) Fetch() (map[string]*App, error) {
 	for name, m := range entries {
 		out[name] = translateEntry(name, m, f.name, f.url, base)
 	}
+	f.parsedEntries = len(out)
 	return out, nil
 }
 
