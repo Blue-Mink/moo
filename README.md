@@ -209,7 +209,7 @@ go test ./...     # 单元测试
 
 > 其余三项随本仓库分发（见 [`skills/`](skills/)），「下载」列为对应资源的单独压缩包（保持原目录结构）。
 
-📦 **[下载「文档与技能」压缩包](downloads/moo-docs-skills.zip)**（约 140 KB）——内容严格对应 Moo 关于页「文档和技能」卡片：`README.md`、`应用介绍.md`、`docs/API.md` 与两个 Agent Skill（`skills/moo`、`skills/moo-app-security-audit`），解压后把 `skills/` 下的目录放进工作区即可被 Agent 识别；配图不打包，见仓库 [`docs/`](docs/)。开发者向的构建 / 发布 / 索引维护材料另见 **[开发者文档压缩包](downloads/moo-devdocs.zip)**。
+📦 **[下载「文档与技能」压缩包](downloads/moo-docs-skills.zip)**（约 172 KB）——内容严格对应 Moo 关于页「文档和技能」卡片：`README.md`、`应用介绍.md`、`docs/API.md` 与两个 Agent Skill（`skills/moo`、`skills/moo-app-security-audit`），解压后把 `skills/` 下的目录放进工作区即可被 Agent 识别；配图不打包，见仓库 [`docs/`](docs/)。开发者向的构建 / 发布 / 索引维护材料另见 **[开发者文档压缩包](downloads/moo-devdocs.zip)**。
 
 ## 开发者须知
 

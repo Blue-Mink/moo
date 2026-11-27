@@ -54,6 +54,23 @@ Upstream unreachable or not authorized → **502**; `status` only reports local 
 | Restore default source list (fill missing + dedup, never removes official) | `POST /api/sources/restore-defaults` |
 | Sync built-in source list | `POST /api/sources/sync-list` |
 | Favorite (star) a source | `POST /api/sources/{id}/favorite` |
+| Delete legacy default community sources in one go | `POST /api/sources/delete-defaults` |
+| Sync-list round summary (`fetched` / `added` / `failed` / `backoff_skipped`; per-URL skip reason in the `[list-sync]` log) | `POST /api/sources/sync-list` |
+| Source health verdict + timestamps (0.6.579+) | `GET /api/sources` (`last_verdict`, `verdict_at`, `fail_streak`, `empty_streak`, `heal_capped`, `heal_count_30d`, `disabled_by`) |
+| Auto-disable after consecutive failures + low-frequency self-heal (0.6.579+, fail-safe: rather miss than mis-stop) | `GET /api/sources`, `POST /api/sources/{id}/toggle` |
+
+## Data Directory Guard (0.6.579+, admin)
+
+| Feature | Endpoints |
+|---|---|
+| Data-dir ownership marker + save counters (`ok`, `save_failed`, `save_rejected`) | `GET /api/datadir-health` |
+
+## Dedup Policy & Official Session Encryption (0.6.579+, admin)
+
+| Feature | Endpoints |
+|---|---|
+| Two-tier dedup — `all` (off) / `one` (one representative card per appname, real-project source wins) + visible counts | `GET /api/settings`, `PUT /api/settings` (`dedup_policy`), `GET /api/dedup` |
+| Official session encryption toggle (opt-in; rewrites the session atomically, `400` when the local secret key is unavailable) | `POST /api/official/session-encryption` |
 
 ## Favorites (apps)
 
@@ -103,7 +120,8 @@ Backup file = full config snapshot **including credentials** — treat the file 
 | Feature | Endpoints |
 |---|---|
 | Health snapshot (GitHub group / Docker group) | `GET /api/mirrors/health`, `GET /api/mirrors/docker/health` |
-| Manual re-probe | `POST /api/mirrors/check` |
+| Manual full re-probe (also writes one `[mirror]` summary line) | `POST /api/mirrors/check` |
+| Probe freshness / idle throttle (`last_probe`, `next_probe`, `idle_throttled`); `?refresh=1` = user-triggered probe with 5s single-flight → `throttled` | `GET /api/mirrors/health`, `GET /api/mirrors/docker/health` |
 
 ## Notifications (admin unless noted)
 
