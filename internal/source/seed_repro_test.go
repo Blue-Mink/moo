@@ -13,7 +13,7 @@ import (
 func TestSeedPipelineUnique(t *testing.T) {
 	urls := BundledDefaultSources()
 	if len(urls) != 24 {
-		t.Fatalf("内置基准集应为 24 源（与 repo_list.txt 对齐），实际 %d", len(urls))
+		t.Fatalf("内置基准集应为 24 源（内嵌首发基准），实际 %d", len(urls))
 	}
 	var seeded []config.SourceRef
 	taken := make(map[string]bool, len(urls))

@@ -11,9 +11,12 @@ import (
 // 20 源 + javycoder/fnos_music_ext 音源扩展）+ 3 个自带索引的应用源：
 // yujian0815/fnmedia-ext（影视扩展，moo.json）、DPanel-dev/FnDepot（dpanel，
 // fnpack.json）、wangbujiangwude/fndepot-source（ipsense / oesp-fanctl，
-// fnpack.json）。与仓库根 repo_list.txt、lists/repo_list.txt 逐条一致。
-// 中间曾扩到 96 条（2026-11-08 与 repo_list 全量对齐），因源过多影响首屏与
-// 刷新开销，按用户要求收敛。
+// fnpack.json）。
+// **2026-11-28 用户令：内嵌快照保持 24 条不动**；同时远端精选清单 repo_list.txt /
+// lists/repo_list.txt 已恢复为 105+ 条（0.6.579 曾随本收敛一并收到 24）。自此
+// 二者不再逐条一致：内嵌 24 只决定首装与「恢复默认源」的基准，远端清单决定
+// 已装实例的「源列表同步」。中间曾扩到 96 条（2026-11-08 与 repo_list 全量对齐），
+// 因源过多影响首屏与刷新开销，按用户要求收敛。
 // 每行一个源地址，全部带协议；不含官方飞牛应用中心（它是面板账号派生
 // 条目，不属于 config.Sources）。
 //

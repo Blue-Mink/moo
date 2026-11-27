@@ -8,13 +8,13 @@ import (
 // TestBundledDefaultSources 0.6.247：内置默认源集完整且规范——
 // 2026-11-26 按用户令收敛为 24 条：21 条基础精选集（含 javycoder/fnos_music_ext
 // 音源扩展）+ 3 个自带索引的应用源（fnmedia-ext / dpanel / ipsense），
-// 与仓库根 repo_list.txt / lists/repo_list.txt
-// 逐条一致；全部带协议、去重后唯一、无回环/空地址、含 fn-knock 官方源
+// （2026-11-28 起远端精选清单 repo_list.txt 已恢复 105+ 条，内嵌保持 24 条不动，
+// 二者不再逐条一致）；全部带协议、去重后唯一、无回环/空地址、含 fn-knock 官方源
 // （kci-lnk/fn-knock-turborepo）。
 func TestBundledDefaultSources(t *testing.T) {
 	urls := BundledDefaultSources()
 	if len(urls) != 24 {
-		t.Fatalf("内置默认源应为 24 条（与 repo_list.txt 对齐），实际 %d", len(urls))
+		t.Fatalf("内置默认源应为 24 条（内嵌首发基准），实际 %d", len(urls))
 	}
 	hasKnock := false
 	for _, u := range urls {
