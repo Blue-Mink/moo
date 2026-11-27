@@ -196,7 +196,7 @@ Moo 采用**两层防线**：
 
 - `error`：最近一次同步失败原因（成功时为空）。
 - `empty_streak`：连续 0 应用同步轮次（自动监测据此停用空源）。
-- `last_verdict` / `verdict_at`（0.6.575+）：源有效性判定结果（`alive` / `dead` / `uncertain`，表示直连与镜像是否都确认失效）与判定时间（unix 秒）；无判定记录时两字段都省略。
+- `last_verdict` / `verdict_at`（0.6.579+）：源有效性判定结果（`alive` / `dead` / `uncertain`，表示直连与镜像是否都确认失效）与判定时间（unix 秒）；无判定记录时两字段都省略。
 - `overlap_*`（0.6.326z）：**源重合率（只读信号，绝不影响任何源的状态）**——该源与
   「最相似的对方源」的应用名/版本重合情况，用于让「同 owner 且 `fork=false` 的整仓
   复制源」可见（这是溯源判定（`lineage`）看不到的盲点）。口径与 FnDepot 对齐：
@@ -239,7 +239,7 @@ Moo 采用**两层防线**：
 
 Docker 组同构（`/api/mirrors/docker/health`）。
 
-`GET /api/mirrors/health?refresh=1`（0.6.578+）：用户触发路径走 **single-flight + 5 秒防抖**——并发 N 个请求只真跑一轮，其余复用这一轮的结果，并在响应里带 additive 字段 `"throttled": true`（旧前端忽略即可）；响应体其余结构与普通快照同构。
+`GET /api/mirrors/health?refresh=1`（0.6.579+）：用户触发路径走 **single-flight + 5 秒防抖**——并发 N 个请求只真跑一轮，其余复用这一轮的结果，并在响应里带 additive 字段 `"throttled": true`（旧前端忽略即可）；响应体其余结构与普通快照同构。
 
 `mirrors[].status` = `ok | limited | fail | ""`（0.6.333 F2 起新增 `limited` = 429 限流：链路可达但临时受限——冻结连败计数、不计入「全部加速源不可用」判定、不参与优选排名；`error` 在 fail/limited 时给原因短语）。
 
@@ -374,7 +374,7 @@ data: {"step":"done","progress":100,"message":"更新完成","id":"3f2a9c1d8b7e4
 ### 5.6c `GET /api/updates/manual`（requireAdmin，P1-1）
 自动更新「需人工处理」队列：聚合 `auto_update_skips.json` 的 wizard（12h）/ blocked（2h）/
 unknown（6h）/ channel（2h，需连续两次命中才算数）四类条目，供前端显示数量徽章与清单。
-（channel = 平台不允许 FPK 升级通道 10371；0.6.578 起 TTL 12h→2h 且首轮只计数不拦。
+（channel = 平台不允许 FPK 升级通道 10371；0.6.579 起 TTL 12h→2h 且首轮只计数不拦。
 注意：默认 `check_interval_hours=0` 为 24h 一轮，2h 条目会在下一轮前过期 → **默认节奏下该缓存不生效**（fail-open，不误拦）；只有轮次间隔 <2h 或 2h 内重复触发时「连续两次命中」才成立。）
 ```json
 {"count":1,"items":[{"app":"trim.openclaw","version":"2026.8.35-6","reason":"unknown","reason_label":"平台任务结果未知（可能仍在执行）","until":"2026-11-22T16:00:00+08:00"}]}
@@ -564,7 +564,7 @@ unknown（6h）/ channel（2h，需连续两次命中才算数）四类条目，
 - `custom_github_mirror` / `custom_docker_mirror` / `source_list_url` 随 `GET /api/settings` 透出（0.6.325 H1 修复：此前 PUT 可写但 GET 恒缺键，设置页水合空串后全量保存会静默清除已存自定义镜像）；未设置时键缺席（omitempty），前端水合成空串。
 - `dock_order` / `settings_tab_order`：非空提交必须是**完整排列**（全量提交防脏序）。
 - `update_policy`（0.6.272 跨源更新策略；0.6.326x 起新增第四档 `upstream`）：仅接受 `auto`（0.6.532「自动（推荐）」= `lineage` + 上游纠正，搬运应用跟上游原作者）/ `strict`（默认，只认安装源）/ `origin`（同发布仓库）/ `lineage`（同作者或同发布仓库）/ `upstream`（**强制上游**：已安装且来自「搬运上游」的应用改用上游原作者版本，其余应用按 `strict` 处理），其余整单拒绝；变化后目录缓存失效、下次 `/api/apps` 重建。
-- `dedup_policy`（0.6.312 B2 列表去重展示策略；0.6.575 两档化）：接受 `all`（默认，不去重、零变化）/ `one`（每 appname 一张代表卡，代表卡优先真实项目源），其余整单拒绝；旧值 `merge`（已取消的「标准档」）仍接受但归一为 `one`。变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回两档可见数。
+- `dedup_policy`（0.6.312 B2 列表去重展示策略；0.6.579 两档化）：接受 `all`（默认，不去重、零变化）/ `one`（每 appname 一张代表卡，代表卡优先真实项目源），其余整单拒绝；旧值 `merge`（已取消的「标准档」）仍接受但归一为 `one`。变化后目录缓存失效。只并展示身份，不动版本/更新判定；`GET /api/dedup` 返回两档可见数。
 - `official_scope_mode`（2026-11-26 加固 A，官方源 OAuth 授权范围偏好）：只接受 `full` / `minimal` / `""`（空串 = 完整权限，默认），**其余整单拒绝（400）**。只影响**下一次**发起授权，不改已连接会话；`minimal` = 仅 `trim.appcenter.all`（只读官方目录与版本），`full` = 既有 9 项权限。落盘失败时回滚到提交前的值（配置文件与运行态严格一致）。
 - `auto_correct`（0.6.326 引入；0.6.326x 起**已弃用**）：语义已并入 `update_policy="upstream"`（强制上游）。字段仍可提交以兼容旧客户端（提交 `true` 等价于把 `update_policy` 置为 `upstream`），保存设置后恒为 `false`；新代码请直接用 `update_policy`。
 
@@ -695,7 +695,7 @@ GitHub 加速组（源同步/图标/readme/自更新下载的前缀镜像）与 
 |---|---|---|
 | `GET /api/mirrors/health` | admin | GitHub 组健康快照（§3.4） |
 | `GET /api/mirrors/docker/health` | admin | Docker 组健康快照（含本地 KSpeeder 缓存） |
-| `GET /api/datadir-health` | admin | 数据目录自监控（0.6.574）：生效目录/来源/归属标记 + `Save` 守卫拒绝与写盘失败计数（进程内累计） |
+| `GET /api/datadir-health` | admin | 数据目录自监控（0.6.579）：生效目录/来源/归属标记 + `Save` 守卫拒绝与写盘失败计数（进程内累计） |
 | `POST /api/mirrors/check` | admin | 立即手动测速（两组各自全量候选） |
 | `POST /api/mirrors/sync` | admin | 立即从远端清单刷新加速源列表（免重建 FPK；45s 超时，清单不可达回 502） |
 | `POST /api/mirrors/restore` | admin | 清空本机屏蔽集合（删掉的默认源全部回来）并重拉远端清单 |
