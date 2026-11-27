@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Blue-Mink/moo/releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.566-2563eb?style=flat-square"></a>
+  <a href="https://github.com/Blue-Mink/moo/releases/latest"><img alt="FPK" src="https://img.shields.io/badge/FPK-0.6.579-2563eb?style=flat-square"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-single_binary-00add8?style=flat-square&logo=go&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/fnOS-x86__64_%7C_arm64-7c3aed?style=flat-square">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-111827?style=flat-square"></a>
@@ -58,12 +58,12 @@
 
 | # | 做什么 | 说明 |
 | --- | --- | --- |
-| 1 | [下载 FPK](https://github.com/Blue-Mink/moo/releases/latest) | 当前 `0.6.566` · x86 `63bba70b196b581f231f743c8128ac7aef32ef46ced5ccc2fe366f50973f68ac`（5.22MB） / arm `8a00c22e1e72072869799e766816f6ff33869b9588d4e5e1168cf65bd818865a`（4.73MB） |
+| 1 | [下载 FPK](https://github.com/Blue-Mink/moo/releases/latest) | 当前 `0.6.579` · x86 `51fc4c57a2e144827cc1f7a29da7543acdfb381f2cea4c823ac002d336eec578`（5.29MB） / arm `de56021226b05cb03ee14562146eea4ec217f8f7714cb6d50840b1948c0f38c1`（4.80MB） |
 | 2 | 应用中心 → 手动安装 | 向导可选 Web 端口（默认 `38100`） |
 | 3 | 面板打开 `/app/moo/` | 统一网关入口，继承面板登录 + 仅管理员 |
 | 4 | （可选）配置推送渠道 | 设置 → 通知设置：企业微信 / 钉钉 / 飞书等 7 种外部渠道 |
 
-运行要求：fnOS x86_64 / arm64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 5.1 MB（x86）/ 4.6 MB（arm）。
+运行要求：fnOS x86_64 / arm64。无其他依赖——后端 Go 单二进制（web embed），前端构建后内嵌，整包约 5.3 MB（x86）/ 4.8 MB（arm）。
 
 > [!TIP]
 > 装完可应用内自更新：版本号红点 + 确认框，走平台升级通道就地更新，`@appdata` 数据保留。
@@ -135,6 +135,9 @@
 | 恢复与对账 | 操作状态落盘，重启后仍能看到上次安装 / 更新 / 卸载的结果（中断的标「重启中断」）；页面断线自动续传，续不上按操作 ID 轮询；自更新重启后自动对账，未生效 / 未知会提示（0.6.553→566） |
 | 提示与下架 | 异常与「需手动处理」提示收敛到「有更新」页；新增需手动处理清单，12 分钟超时的应用 6 小时内不再反复重试；下架名单强制验签 + 按包指纹拦截，命中保留卡片标「已下架」，手机行列表角标移到右上角（0.6.553→566） |
 | 下载与稳定性 | 429 限流感知与线路归因、同 host 不重复撞、加速源 19→14；断线漏结算改幂等、「应用中心正忙」自动退避、黑名单误判修正（0.6.553→566） |
+| 源自动停用与自愈 | 失效源改为「连续失败才停」，停用后按低频探测自愈（30 天内最多自动恢复 2 次，超限只提示手动开启）；空源与索引解析失败不误停；判定结果与时间可在源列表查看（`last_verdict` / `verdict_at`）（0.6.567→579） |
+| 源同步与测速可见 | 源列表同步每轮出摘要（新增源立即刷新目录、失败地址 6→24 小时退避）；加速源测速每轮一行摘要、降频与下次时间可见，「立即测速」即点即测、连点只跑一轮（0.6.567→579） |
+| 去重 · 官方源 · 通知 · 数据目录 | 去重档位三档改两档（代表卡优先真实项目源，搬运卡不因版本更高顶掉上游），大小写同名只提示不合并；官方源会话原子写 + 可选加密、授权范围可选「仅应用中心」；企微超长正文按 4096 字节截断，新增源停用 / 恢复 / 自愈上限 / 加密未生效四类通知；数据目录归属校验与写入守卫（`/api/datadir-health`）（0.6.567→579） |
 
 ## 工作原理
 

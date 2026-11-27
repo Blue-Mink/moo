@@ -1,8 +1,8 @@
 # Moo HTTP API 全量文档
 
-> 版本基线：0.6.566（2026-11-23）· 适用架构：fnOS x86_64 / arm64（Go 后端 + React 前端单二进制服务）
+> 版本基线：0.6.579（2026-11-28）· 适用架构：fnOS x86_64 / arm64（Go 后端 + React 前端单二进制服务）
 >
-> 本文档覆盖 Moo 对外提供的全部 115 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
+> 本文档覆盖 Moo 对外提供的全部 117 个 HTTP 端点，含请求/响应结构、SSE 事件协议、认证与安全模型、构建部署流程。文中不出现任何真实主机地址、凭据或令牌；示例一律使用占位符。
 
 ---
 
@@ -52,7 +52,7 @@
 - `Content-Type: application/json`（POST/PUT 必须）；响应 `Accept-Encoding: gzip` 时 JSON 透明压缩（SSE 与二进制直通不压缩）。
 - 列表类大响应（如 `GET /api/apps`）带 **ETag**，支持 `If-None-Match` → `304` 协商缓存。
 
-### 1.3 端点统计（2026-11-23 按代码重算，共 115 条）
+### 1.3 端点统计（2026-11-28 按代码重算，共 117 条）
 
 | 域 | 数量 |
 |---|---|
@@ -67,13 +67,13 @@
 | 备份与缓存 | 6 |
 | FPK 下载缓存 | 6 |
 | 后台任务 | 4 |
-| 加速源 | 6 |
+| 加速源 | 7 |
 | 面板与 Mate 协作 | 2 |
 | 通知系统 | 14 |
 | Moo 自更新 | 3 |
-| 官方应用中心 | 11 |
+| 官方应用中心 | 12 |
 | KSpeeder 独立应用 | 2 |
-| **合计** | **115** |
+| **合计** | **117** |
 
 ### 1.4 上限与超时（2026-10-01 API 审计）
 
@@ -186,6 +186,7 @@ Moo 采用**两层防线**：
   "id": "src-xxxx", "name": "FnDepot", "url": "https://…/fndepot.json",
   "app_count": 123, "enabled": true, "favorite": false,
   "error": "", "last_fetched": "2026-09-29T12:00:00+08:00", "empty_streak": 0,
+  "last_verdict": "alive", "verdict_at": 1795789256,
   "overlap_risk": "high", "overlap_with": "other-src",
   "overlap_name_count": 53, "overlap_exact_count": 33,
   "overlap_name_ratio": 0.5, "overlap_exact_ratio": 0.31,
@@ -195,6 +196,7 @@ Moo 采用**两层防线**：
 
 - `error`：最近一次同步失败原因（成功时为空）。
 - `empty_streak`：连续 0 应用同步轮次（自动监测据此停用空源）。
+- `last_verdict` / `verdict_at`（0.6.575+）：源有效性判定结果（`alive` / `dead` / `uncertain`，表示直连与镜像是否都确认失效）与判定时间（unix 秒）；无判定记录时两字段都省略。
 - `overlap_*`（0.6.326z）：**源重合率（只读信号，绝不影响任何源的状态）**——该源与
   「最相似的对方源」的应用名/版本重合情况，用于让「同 owner 且 `fork=false` 的整仓
   复制源」可见（这是溯源判定（`lineage`）看不到的盲点）。口径与 FnDepot 对齐：
@@ -236,6 +238,8 @@ Moo 采用**两层防线**：
 ```
 
 Docker 组同构（`/api/mirrors/docker/health`）。
+
+`GET /api/mirrors/health?refresh=1`（0.6.578+）：用户触发路径走 **single-flight + 5 秒防抖**——并发 N 个请求只真跑一轮，其余复用这一轮的结果，并在响应里带 additive 字段 `"throttled": true`（旧前端忽略即可）；响应体其余结构与普通快照同构。
 
 `mirrors[].status` = `ok | limited | fail | ""`（0.6.333 F2 起新增 `limited` = 429 限流：链路可达但临时受限——冻结连败计数、不计入「全部加速源不可用」判定、不参与优选排名；`error` 在 fail/limited 时给原因短语）。
 
@@ -806,14 +810,15 @@ done|error`；已存在且校验通过的安装包会跳过下载。
 `PUT /api/notify-settings`：局部提交（`enabled`、`events` 部分键、阈值、`view_base`）。
 规则语义：**事件 key 缺失 = 目录缺省；仅显式 false 为关**。关闭的事件既不推送也不入记录。
 
-事件目录（30 类，5 组）：
+事件目录（41 类，6 组）：
 
 | 组 | 事件 key |
 |---|---|
 | 应用生命周期 | `install_success` `install_error` `update_success` `update_error` `uninstall_success` `uninstall_error` `download_done` `download_error` `backup_done` `backup_error` |
-| 应用更新 | `updates_available` `favorite_update` `auto_update_round` `favorite_source_apps` `favorite_source_report` |
-| Moo 自身 | `welcome` `store_update_available` `store_update_success` `store_update_error` `resource_mem_alert` `resource_cpu_alert` `health_error` `health_recovered` `disk_space_alert` |
-| 源与网络 | `source_sync_failed` `source_recovered` `source_sync_summary` `mirror_switched` `mirrors_recovered` `mirrors_all_failed` `docker_mirrors_all_failed` `docker_mirrors_recovered` |
+| 应用更新 | `updates_available` `favorite_update` `auto_update_round` `upstream_corrected` `favorite_source_apps` `favorite_source_report` |
+| Moo 自身 | `welcome` `store_update_available` `store_update_success` `store_update_error` `resource_mem_alert` `resource_cpu_alert` `health_error` `health_recovered` `disk_space_alert` `notify_channel_error` |
+| 源与网络 | `source_sync_failed` `source_recovered` `source_auto_disabled` `source_auto_recovered` `source_auto_heal_capped` `source_sync_summary` `mirror_switched` `mirrors_recovered` `mirrors_all_failed` `docker_mirrors_all_failed` `docker_mirrors_recovered` `official_session_expired` |
+| 系统 | `official_session_encrypt_mismatch` `system_update_available` |
 | 数据面 | `catalog_drop` |
 
 ### 17.3 记录与触发

@@ -8,7 +8,7 @@ All commands below use placeholders. Run them on a build machine with Node 22+ a
 moo/
 ├── cmd/server/          # Go entry: config load → proxy restore → source manager → HTTP server
 ├── internal/
-│   ├── api/             # all 87 endpoints + SSE + catalog/icon/readme caches
+│   ├── api/             # all 117 endpoints + SSE + catalog/icon/readme caches
 │   ├── config/          # config.json schema + load/save (atomic, 700 perms)
 │   ├── source/          # source sync engines (fndepot index / conversun / official list)
 │   ├── netx/            # scientific-acceleration proxy transport (0.6.206+)
