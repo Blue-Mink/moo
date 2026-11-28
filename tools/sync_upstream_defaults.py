@@ -66,6 +66,12 @@ UPSTREAM = {
     "fan-control": "AriesOxO/fnos-fan-control",
     "istoreos": "wukongdaily/istoreos-docker-builder",
     "motrix": "RockerHX/motrix-fnos",
+    # 2026-11-28 新增（ffvz7850 的 5 个 FPK 应用，随远端清单一起登记）
+    "mediaview": "ffvz7850/mediaview",
+    "cloud-sync": "ffvz7850/cloud-sync",
+    "autounpack": "ffvz7850/autounpack-fnos",
+    "folder-picker": "ffvz7850/folder-picker",
+    "caesium": "ffvz7850/caesium-fnos",
 }
 UA = "moo-mate-upstream-sync/1.0"
 # 需要「以包内 manifest 为准」的应用：tag 是日期或与包内版本脱钩的仓库。
