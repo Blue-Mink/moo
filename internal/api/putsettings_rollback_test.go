@@ -13,12 +13,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"moo/internal/config"
+	"moo/internal/netx"
+	"moo/internal/pipeline"
 	"moo/internal/secret"
 	"moo/internal/source"
+	"moo/internal/task"
 )
 
 // putSettingsRaw 发一个 PUT /api/settings 并返回原始响应（不预设状态码）。
@@ -99,5 +103,155 @@ func TestPutSettingsTokenRolledBackOnLaterValidation(t *testing.T) {
 	}
 	if s.Forks.HasToken() {
 		t.Error("Forks 查询器的 token 未回滚（运行态已带 token，配置却是空）")
+	}
+}
+
+// ── 2026-11-28（BACKLOG B-PUTSETTINGS-HALFCOMMIT）──
+//
+// 点位 1 / 点位 2：putSettings 中段就先写 cfg().ProxyEnabled/ProxyURL 并
+// netx.SetProxy（改内存即生效），并在中段调 applyDownloadDir（MkdirAll + 搬缓存 +
+// Tasks/Pipe/cfg 全改），而后面还有 8 处 400 出口不回滚 →
+// 「代理已生效 / 缓存已被搬走，config.json 未变」，重启后设置静默回退。
+// 本组用例的口径：被 400 拒绝的请求不得留下任何可观察副作用；
+// 合法请求则必须仍然即时生效（不许为了修半提交而牺牲「无需重启」）。
+
+// writeFpkCache 在 dir 下写一个假 FPK 缓存文件（下载目录迁移用例的夹具）。
+func writeFpkCache(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatalf("写测试 FPK 失败: %v", err)
+	}
+}
+
+// snapshotDir 返回目录下「文件名 → 内容」的快照（断言缓存清单/内容不变）。
+func snapshotDir(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("读目录 %s 失败: %v", dir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		b, rerr := os.ReadFile(filepath.Join(dir, e.Name()))
+		if rerr != nil {
+			t.Fatalf("读 %s 失败: %v", e.Name(), rerr)
+		}
+		out[e.Name()] = string(b)
+	}
+	return out
+}
+
+// TestPutSettingsProxyHalfCommitRollback（点位 1）：proxy_url 合法 +
+// 后续字段非法（log_lines=0）→ 400，cfg 与 netx 生效代理都必须是旧值。
+func TestPutSettingsProxyHalfCommitRollback(t *testing.T) {
+	const oldURL = "http://127.0.0.1:7890"
+	const newURL = "http://127.0.0.1:7891"
+	prevEffective := netx.ProxyURL()
+	netx.SetProxy(oldURL)
+	t.Cleanup(func() { netx.SetProxy(prevEffective) })
+
+	t.Setenv("MOO_DATA", t.TempDir())
+	cfg := &config.Config{ProxyEnabled: true, ProxyURL: oldURL}
+	s := &Server{Cfg: cfg, Pipe: &pipeline.Pipeline{}}
+
+	rec := putSettingsRaw(t, s, `{"proxy_enabled":true,"proxy_url":"`+newURL+`","log_lines":0}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("非法 log_lines 应 400，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !cfg.ProxyEnabled || cfg.ProxyURL != oldURL {
+		t.Errorf("被拒绝的请求改了内存代理配置: enabled=%v url=%q", cfg.ProxyEnabled, cfg.ProxyURL)
+	}
+	if got := netx.ProxyURL(); got != oldURL {
+		t.Errorf("netx 生效代理未回滚: got %q want %q（400 时代理已在内存生效 = 半提交）", got, oldURL)
+	}
+	if raw, err := os.ReadFile(config.Path(os.Getenv("MOO_DATA"))); err == nil {
+		if strings.Contains(string(raw), newURL) {
+			t.Errorf("被拒绝的请求把新代理写进了 config.json: %s", raw)
+		}
+	}
+}
+
+// TestPutSettingsDownloadDirHalfCommitRollback（点位 2）：download_dir 合法 +
+// 后续字段非法 → 400，旧目录缓存清单/内容不变，cfg/Pipe/Tasks 仍是旧目录。
+func TestPutSettingsDownloadDirHalfCommitRollback(t *testing.T) {
+	t.Setenv("MOO_DATA", t.TempDir())
+	oldDir := t.TempDir()
+	writeFpkCache(t, oldDir, "demo_1.0.0_all.fpk", "FPK-PAYLOAD-A")
+	before := snapshotDir(t, oldDir)
+
+	cfg := &config.Config{DownloadDir: oldDir}
+	tm, err := task.NewManager(oldDir, nil)
+	if err != nil {
+		t.Fatalf("建任务管理器失败: %v", err)
+	}
+	s := &Server{Cfg: cfg, Pipe: pipeline.New(source.NewManager(cfg), t.TempDir(), oldDir), Tasks: tm}
+	t.Cleanup(func() { fpkLocalInstance.SetExtraDirs(nil) })
+
+	target := defaultDownloadDir() // $MOO_DATA/downloads：白名单内的合法目标
+	body, _ := json.Marshal(map[string]any{"download_dir": target, "log_lines": 0})
+	rec := putSettingsRaw(t, s, string(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("非法 log_lines 应 400，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	if after := snapshotDir(t, oldDir); !reflect.DeepEqual(before, after) {
+		t.Errorf("被拒绝的请求搬走了旧目录缓存: before=%v after=%v", before, after)
+	}
+	if entries, err := os.ReadDir(target); err == nil && len(entries) > 0 {
+		t.Errorf("被拒绝的请求把缓存搬到了新目录 %s（%d 项）", target, len(entries))
+	}
+	if cfg.DownloadDir != oldDir {
+		t.Errorf("被拒绝的请求改了 cfg.DownloadDir: %q", cfg.DownloadDir)
+	}
+	if s.Pipe.Downloads != oldDir || tm.DownloadDir() != oldDir {
+		t.Errorf("运行态目录未保持旧值: pipe=%q tasks=%q", s.Pipe.Downloads, tm.DownloadDir())
+	}
+}
+
+// TestPutSettingsProxyAndDownloadDirApplyOnSuccess：回归 —— 合法请求必须仍然
+// 「即时生效」：代理切到新值（netx 同步），缓存搬到新目录且 Tasks/Pipe/cfg 跟上。
+func TestPutSettingsProxyAndDownloadDirApplyOnSuccess(t *testing.T) {
+	const newURL = "http://127.0.0.1:7892"
+	prevEffective := netx.ProxyURL()
+	t.Cleanup(func() { netx.SetProxy(prevEffective) })
+
+	t.Setenv("MOO_DATA", t.TempDir())
+	oldDir := t.TempDir()
+	writeFpkCache(t, oldDir, "demo_1.0.0_all.fpk", "FPK-PAYLOAD-B")
+
+	cfg := &config.Config{DownloadDir: oldDir}
+	tm, err := task.NewManager(oldDir, nil)
+	if err != nil {
+		t.Fatalf("建任务管理器失败: %v", err)
+	}
+	s := &Server{Cfg: cfg, Pipe: pipeline.New(source.NewManager(cfg), t.TempDir(), oldDir), Tasks: tm}
+	t.Cleanup(func() { fpkLocalInstance.SetExtraDirs(nil) })
+
+	target := defaultDownloadDir()
+	body, _ := json.Marshal(map[string]any{
+		"proxy_enabled": true, "proxy_url": newURL, "download_dir": target,
+	})
+	rec := putSettingsRaw(t, s, string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("合法请求应 200，实际 %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := netx.ProxyURL(); got != newURL {
+		t.Errorf("合法保存后代理未即时生效: netx=%q want %q", got, newURL)
+	}
+	if !cfg.ProxyEnabled || cfg.ProxyURL != newURL {
+		t.Errorf("代理未写入内存配置: enabled=%v url=%q", cfg.ProxyEnabled, cfg.ProxyURL)
+	}
+	if cfg.DownloadDir != target || s.Pipe.Downloads != target || tm.DownloadDir() != target {
+		t.Errorf("下载目录未即时生效: cfg=%q pipe=%q tasks=%q want=%q",
+			cfg.DownloadDir, s.Pipe.Downloads, tm.DownloadDir(), target)
+	}
+	moved, err := os.ReadFile(filepath.Join(target, "demo_1.0.0_all.fpk"))
+	if err != nil || string(moved) != "FPK-PAYLOAD-B" {
+		t.Errorf("缓存未迁移到新目录: err=%v content=%q", err, moved)
+	}
+	if left, _ := os.ReadDir(oldDir); len(left) != 0 {
+		t.Errorf("旧目录仍残留 %d 个文件", len(left))
 	}
 }

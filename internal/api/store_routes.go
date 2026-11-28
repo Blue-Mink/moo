@@ -2862,8 +2862,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			probeFallback[f.name] = f.got
 		}
 	}
-	// 科学加速（0.6.206）：开关+地址成对校验；地址非空即须合法，
-	// 通过后即时生效（netx 全局代理），失败整单拒绝。
+	// 科学加速（0.6.206）：开关+地址成对校验；地址非空即须合法。
+	//
+	// 2026-11-28（B-PUTSETTINGS-HALFCOMMIT 点位 1）：这里**只校验、记意图**，
+	// 不再「校验通过就 netx.SetProxy」。本 handler 后面还有 8 处 400 出口
+	// （备份目录 / 备份周期 / 清理周期 / 日志行数 / dock 与设置 tab 排序），
+	// 此前任一处失败都会留下「netx 已切到新代理、config.json 还是旧值」——
+	// 界面看着改了、重启后静默回退，而请求其实已经 400。代理的 cfg 写入与
+	// netx 切换统一挪到「全部校验通过」之后（见下方 SIDE-EFFECTS 段）。
+	var proxyWant *proxyIntent
 	if in.ProxyEnabled != nil || in.ProxyURL != nil {
 		enabled := s.cfg().ProxyEnabled
 		if in.ProxyEnabled != nil {
@@ -2883,22 +2890,24 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		s.cfg().ProxyEnabled = enabled
-		s.cfg().ProxyURL = u
-		if enabled {
-			netx.SetProxy(u)
-		} else {
-			netx.SetProxy("")
-		}
-		log.Printf("[accel] 科学加速: %s", map[bool]string{true: "开启 " + u, false: "关闭"}[enabled])
+		proxyWant = &proxyIntent{enabled: enabled, url: u}
 	}
 	// FPK 下载目录：只接受选择器给出的可访问目录（/volN 卷根或卷下顶层
 	// 共享目录）；切换会迁移旧目录缓存并即时生效，失败要整单报错。
+	//
+	// 2026-11-28（B-PUTSETTINGS-HALFCOMMIT 点位 2）：这里同样只做**预检**
+	// （绝对路径 / 白名单 / 无进行中任务），绝不在此 MkdirAll + 搬文件。此前
+	// 该动作发生在 handler 中段，后续任一字段校验失败 → 400 时缓存已被搬走、
+	// Tasks/Pipe 已指向新目录，而 config.json 仍是旧值 → 重启后目录回退，用户
+	// 的缓存却停在新目录里（数据看着「丢了」）。
+	var dirPlan *downloadDirPlan
 	if in.DownloadDir != "" {
-		if err := s.applyDownloadDir(in.DownloadDir); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		plan, derr := s.checkDownloadDir(in.DownloadDir)
+		if derr != nil {
+			writeErr(w, http.StatusBadRequest, derr)
 			return
 		}
+		dirPlan = plan
 	}
 	// 备份设置：目录允许 /volN 下任意目录或空串（回默认）；保存时验证可写。
 	if in.BackupDir != nil {
@@ -2977,6 +2986,25 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if settingsTabOrder != nil {
 		s.cfg().SettingsTabOrder = settingsTabOrder
 	}
+	// ── SIDE-EFFECTS（2026-11-28 B-PUTSETTINGS-HALFCOMMIT）──
+	// 走到这里说明全部字段校验都过了，现在才允许产生副作用。顺序刻意安排成
+	// 「先磁盘（唯一可失败的不可撤销动作）→ 再内存 cfg → 再 Save → 再运行态」，
+	// 任一步失败时「配置 / 运行态 / 磁盘」三者仍然自洽，不会出现界面显示已保存
+	// 而重启后又静默回退。
+	if dirPlan != nil {
+		if err := s.migrateDownloadCache(dirPlan.from, dirPlan.to); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	prevProxyEnabled, prevProxyURL := s.cfg().ProxyEnabled, s.cfg().ProxyURL
+	prevDownloadDir := s.cfg().DownloadDir
+	if proxyWant != nil {
+		s.cfg().ProxyEnabled, s.cfg().ProxyURL = proxyWant.enabled, proxyWant.url
+	}
+	if dirPlan != nil {
+		s.cfg().DownloadDir = dirPlan.to
+	}
 	// 0.6.521：让新列表立即生效（无需重启）——选项表/测速/下载候选都读内存。
 	config.SetCustomMirrors(s.cfg().GitHubCustomMirrors(), s.cfg().DockerCustomMirrors())
 	// F9/N3：走到这里说明全部字段校验都过了，才把「会话加密」意图写进内存
@@ -2995,11 +3023,45 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		if encWant != nil {
 			s.cfg().OfficialSessionEncrypt = prevOfficialEncrypt
 		}
+		// B-PUTSETTINGS-HALFCOMMIT：代理与下载目录的新值只暂存在内存 cfg 里，
+		// 落盘失败就整单退回旧值。下载缓存此刻已搬到新目录（不搬回，见需求），
+		// 但运行态（Tasks / Pipe / netx）仍全部指向旧值，不会出现半提交。
+		if proxyWant != nil {
+			s.cfg().ProxyEnabled, s.cfg().ProxyURL = prevProxyEnabled, prevProxyURL
+		}
+		if dirPlan != nil {
+			s.cfg().DownloadDir = prevDownloadDir
+		}
 		writeErr(w, http.StatusInternalServerError, fmt.Errorf("保存配置失败: %w", saveErr))
 		return
 	}
 	// 配置已落盘：后续再提前 return 属于「已提交」，不再走函数头部的回滚 defer。
 	committed = true
+	// 2026-11-28（B-PUTSETTINGS-HALFCOMMIT）：配置已落盘，现在才把「暂存意图」
+	// 变成运行态。这两步都不会失败（netx 是纯内存赋值；目标目录已在
+	// migrateDownloadCache 里建好，SetDownloadDir 只重复一次 MkdirAll），
+	// 因此放在落盘之后不会引入新的半提交窗口。
+	if proxyWant != nil {
+		if proxyWant.enabled {
+			netx.SetProxy(proxyWant.url)
+		} else {
+			netx.SetProxy("")
+		}
+		log.Printf("[accel] 科学加速: %s", map[bool]string{true: "开启 " + proxyWant.url, false: "关闭"}[proxyWant.enabled])
+	}
+	if dirPlan != nil {
+		if err := s.switchDownloadDirRuntime(dirPlan.to); err != nil {
+			// 理论上走不到（目录已建好）；万一失败则把配置退回旧值并补一次
+			// Save，避免出现「配置写的是新目录、运行态还是旧目录」。
+			s.cfg().DownloadDir = prevDownloadDir
+			if rbErr := s.cfg().Save(dataDirOf(s)); rbErr != nil {
+				log.Printf("[settings] 下载目录切换失败后回滚配置也失败: %v", rbErr)
+			}
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		log.Printf("[settings] FPK 下载目录已切换: %s → %s（缓存已迁移）", dirPlan.from, dirPlan.to)
+	}
 	// F9/N3：会话文件的形态重写放在配置落盘之后——它是本 handler 唯一
 	// 不可撤销的磁盘副作用，放在最后能把「半提交」的窗口压到最小。
 	// 失败：把配置标志改回去并补一次 Save（保持文件与磁盘一致），返回 500。
@@ -3195,34 +3257,57 @@ func (s *Server) browseDownloadDirs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// applyDownloadDir 切换 FPK 下载目录并即时生效（无需重启应用）：
-// 有进行中/已暂停下载任务时拒绝；旧目录的 FPK 缓存文件迁移到新目录
-// （跨卷 = 跨文件系统时 rename 降级为复制）；任务管理器与管线目录同步。
-func (s *Server) applyDownloadDir(path string) error {
+// proxyIntent 是一次「尚未生效」的科学加速改动（nil = 本次未提交）。
+//
+// 2026-11-28（B-PUTSETTINGS-HALFCOMMIT）：putSettings 里「校验 + 生效」被拆成
+// 两段——校验阶段只记录意图，等全部字段都过了校验、且配置成功落盘之后才
+// netx.SetProxy。这样任何一个后置字段的 400 都不会留下「代理已生效、配置未变」。
+type proxyIntent struct {
+	enabled bool
+	url     string
+}
+
+// downloadDirPlan 是「切换 FPK 下载目录」的预检结果：from = 当前生效目录，
+// to = 目标目录。预检零副作用，真正的搬迁在 migrateDownloadCache。
+type downloadDirPlan struct {
+	from string
+	to   string
+}
+
+// checkDownloadDir 只做校验（绝对路径 / 白名单 / 无进行中任务），不产生任何
+// 副作用。返回 (nil, nil) = 目标就是当前目录，无需切换。
+func (s *Server) checkDownloadDir(path string) (*downloadDirPlan, error) {
 	path = filepath.Clean(strings.TrimSpace(path))
 	if !filepath.IsAbs(path) {
-		return errors.New("下载目录必须是绝对路径")
+		return nil, errors.New("下载目录必须是绝对路径")
 	}
 	if !s.isAccessibleDownloadDir(path) {
-		return fmt.Errorf("目录不可用：%s（只允许 /volN 卷根或卷下顶层共享目录）", path)
+		return nil, fmt.Errorf("目录不可用：%s（只允许 /volN 卷根或卷下顶层共享目录）", path)
 	}
 	cur := s.Pipe.Downloads
 	if path == cur {
-		return nil
+		return nil, nil
 	}
 	if s.Tasks.HasActive() {
-		return errors.New("有下载任务进行中或已暂停，请完成后再切换目录")
+		return nil, errors.New("有下载任务进行中或已暂停，请完成后再切换目录")
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	return &downloadDirPlan{from: cur, to: path}, nil
+}
+
+// migrateDownloadCache 把旧目录里的 FPK 缓存搬到新目录（跨卷时 rename 降级为
+// 复制）。这是整条设置链路上唯一不可撤销的磁盘动作，所以只在「全部字段校验
+// 通过、整单即将提交」时执行；失败时调用方整单 400，配置与运行态都不动。
+func (s *Server) migrateDownloadCache(from, to string) error {
+	if err := os.MkdirAll(to, 0o755); err != nil {
 		return fmt.Errorf("创建目录失败: %w", err)
 	}
-	entries, _ := os.ReadDir(cur)
+	entries, _ := os.ReadDir(from)
 	for _, e := range entries {
 		if e.IsDir() || !isFpk(e.Name()) {
 			continue
 		}
-		old := filepath.Join(cur, e.Name())
-		new := filepath.Join(path, e.Name())
+		old := filepath.Join(from, e.Name())
+		new := filepath.Join(to, e.Name())
 		if err := os.Rename(old, new); err != nil {
 			if cerr := copyFileFull(old, new); cerr != nil {
 				return fmt.Errorf("迁移 %s 失败: %w", e.Name(), cerr)
@@ -3230,13 +3315,17 @@ func (s *Server) applyDownloadDir(path string) error {
 			_ = os.Remove(old)
 		}
 	}
-	if err := s.Tasks.SetDownloadDir(path); err != nil {
+	return nil
+}
+
+// switchDownloadDirRuntime 切换运行态（任务管理器 / 管线 / 本地包索引快照）。
+// 只做内存赋值 + MkdirAll，调用方保证目标目录已由 migrateDownloadCache 建好。
+func (s *Server) switchDownloadDirRuntime(dir string) error {
+	if err := s.Tasks.SetDownloadDir(dir); err != nil {
 		return err
 	}
-	s.Pipe.SetDownloads(path)
-	s.cfg().DownloadDir = path
-	fpkLocalInstance.SetExtraDirs([]string{path}) // 下载目录变更 → 索引快照失效
-	log.Printf("[settings] FPK 下载目录已切换: %s → %s（缓存已迁移）", cur, path)
+	s.Pipe.SetDownloads(dir)
+	fpkLocalInstance.SetExtraDirs([]string{dir}) // 下载目录变更 → 索引快照失效
 	return nil
 }
 

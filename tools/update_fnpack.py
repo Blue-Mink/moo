@@ -211,6 +211,13 @@ def plan_update(index, paths, args):
         if has_size_mb:
             pkg["size_mb"] = round(size / 1048576, 2)
         pkgs[arch] = pkg
+    # 2026-11-28：本次没给到的架构要沿用既有节点（release 只补一个架构、
+    # 或 CI 只产出 x86 时，不能把 arm 包从索引里删掉——那是用户侧的真丢包）。
+    kept = []
+    for arch, pkg in (old_pkgs or {}).items():
+        if arch not in pkgs and isinstance(pkg, dict):
+            pkgs[arch] = pkg
+            kept.append(arch)
     order = [k for k in keys if k in pkgs] + sorted(k for k in pkgs if k not in keys)
     pkgs = {k: pkgs[k] for k in order}
 
@@ -218,9 +225,13 @@ def plan_update(index, paths, args):
     if changelog is None:
         changelog = old.get("changelog") or ""
     node = {k: v for k, v in old.items() if k not in ("updated_at", "changelog", "packages")}
-    node["updated_at"] = args.now
+    # 幂等：同版本、同包集合、同日志时保持原 updated_at，让整份索引字节不变
+    # （否则每次 dispatch 都会因时间戳变化产生一次空提交）。
+    node["updated_at"] = old.get("updated_at") or args.now
     node["changelog"] = changelog
     node["packages"] = pkgs
+    if old and node != old:
+        node["updated_at"] = args.now
 
     rest = [v for v in u.sorted_versions(list(rels))[::-1] if v != version]
     entry["releases"] = {version: node}

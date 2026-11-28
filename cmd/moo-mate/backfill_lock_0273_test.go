@@ -3,18 +3,30 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 )
 
+// mustReadMateSource 按 runtime.Caller 定位同包源码并读取。
+// 读不到一律 Fatal：旧实现用 t.Skipf，源码一被改名/移动守卫就静默跳过，形同虚设。
+func mustReadMateSource(t *testing.T, name string) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatalf("runtime.Caller 取不到测试源文件路径，无法定位 %s", name)
+	}
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(file), name))
+	if err != nil {
+		t.Fatalf("读不到 %s（源码守卫必须生效，不得跳过）：%v", name, err)
+	}
+	return string(b)
+}
+
 // 0.2.73-fix（B-1）回归：协议字段回填只能通过持写锁的 updateFields 落地。
 func TestBackfillMustUseLockedUpdate(t *testing.T) {
-	b, err := os.ReadFile("backfill_0273.go")
-	if err != nil {
-		t.Skipf("读不到 backfill_0273.go：%v", err)
-	}
-	src := string(b)
+	src := mustReadMateSource(t, "backfill_0273.go")
 	if strings.Contains(src, "c.idx.put(") {
 		t.Fatalf("回填不得直接调用 c.idx.put —— put 要求调用方已持写锁，后台 goroutine 无锁调用会与 HTTP 侧 list() 形成 map 竞态（fatal error）。请改用 c.idx.updateFields")
 	}

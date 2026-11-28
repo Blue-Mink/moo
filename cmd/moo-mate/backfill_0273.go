@@ -139,7 +139,7 @@ func (c *companion) backfillOnce(ctx context.Context, limit int) int {
 			}
 			readmeURL := ""
 			if a.ReadmeURL == "" && c.ensureReadme(ctx, a.Appname, src, rp) {
-				readmeURL = c.base + "/moo/" + a.Appname + "/README.md"
+				readmeURL = readmeSelfURL(c.base, a.Appname)
 			}
 			// 0.2.73-fix（B-1）：必须走持写锁的字段级更新。
 			// put() 要求调用方已持锁，而本函数跑在后台 goroutine，直接 put 会在无锁下写

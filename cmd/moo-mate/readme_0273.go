@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,50 @@ const (
 	readmeTTL      = 7 * 24 * time.Hour
 	maxReadmeBytes = 512 << 10
 	readmeFetchTO  = 8 * time.Second
+	// readmeNegTTL：上游拉取失败后的负缓存时长。上游挂掉时每个 GET 都会带 token
+	// 打一次 GitHub（详情页刷新即触发），用短期负缓存把请求压成「每 TTL 一次」。
+	readmeNegTTL = 2 * time.Minute
 )
+
+// readmeNegCache 记录各应用最近一次上游拉取失败的时间（内存态，重启即清空）。
+type readmeNegCache struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+func (n *readmeNegCache) hit(app string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	at, ok := n.at[app]
+	return ok && time.Since(at) < readmeNegTTL
+}
+
+func (n *readmeNegCache) fail(app string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.at == nil {
+		n.at = map[string]time.Time{}
+	}
+	now := time.Now()
+	for k, v := range n.at {
+		if now.Sub(v) >= readmeNegTTL {
+			delete(n.at, k)
+		}
+	}
+	n.at[app] = now
+}
+
+func (n *readmeNegCache) clear(app string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	delete(n.at, app)
+}
+
+// readmeSelfURL 拼自托管 README 地址。应用名可能含空格 / 中文 / 斜杠，
+// 必须按路径段转义：不转义时斜杠会多切出路径段，空格/中文会产出非法 URL。
+func readmeSelfURL(base, app string) string {
+	return base + "/moo/" + url.PathEscape(app) + "/README.md"
+}
 
 // readmeFile 把 appname 映射成安全文件名（appname 可能含路径分隔符等字符）。
 func readmeFile(app string) string {
@@ -202,15 +246,20 @@ func (c *companion) ensureReadme(ctx context.Context, app, rawURL, path string) 
 }
 
 // serveReadme 输出 /moo/<app>/README.md。缺失/过期时做一次有界刷新，再回落旧副本。
+// 上游失败写一条短期负缓存（readmeNegTTL）：命中后不再打上游，直接出旧副本或 404。
 func (c *companion) serveReadme(w http.ResponseWriter, r *http.Request, app string) {
 	b, mt, ok := c.readReadme(app)
-	if !ok || time.Since(mt) > readmeTTL {
+	if (!ok || time.Since(mt) > readmeTTL) && !c.readmeNeg.hit(app) {
 		if ia := c.idx.get(app); ia != nil && ia.Source != "" {
 			ctx, cancel := context.WithTimeout(r.Context(), readmeFetchTO)
-			if nb, err := c.fetchReadme(ctx, ia.Source, c.readmeMeta(app)); err == nil && len(nb) > 0 {
-				if c.saveReadme(app, nb, c.readmeMeta(app)) == nil {
+			path := c.readmeMeta(app)
+			if nb, err := c.fetchReadme(ctx, ia.Source, path); err == nil && len(nb) > 0 {
+				if c.saveReadme(app, nb, path) == nil {
 					b, ok = nb, true
+					c.readmeNeg.clear(app)
 				}
+			} else {
+				c.readmeNeg.fail(app)
 			}
 			cancel()
 		}
@@ -223,5 +272,3 @@ func (c *companion) serveReadme(w http.ResponseWriter, r *http.Request, app stri
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write(b)
 }
-
-var _ = url.PathEscape

@@ -37,6 +37,11 @@ type companion struct {
 	sealer  *secret.Sealer // 敏感字段加解密器（保留：旧配置兼容/后续敏感项）
 	webFS   http.Handler
 
+	// 0.2.77：README 上游拉取失败的负缓存（app → 失败时间）。
+	// 上游不可达时 /moo/<app>/README.md 每次 GET 都会带 token 打一次 GitHub，
+	// 负缓存把重试压到每 readmeNegTTL 一次。
+	readmeNeg readmeNegCache
+
 	// GitHub token 缓存：向 Moo 取（Moo 未配置时回落 token 兜底）。
 	// 2 分钟 TTL，避免每个 GitHub 请求都打一次 Moo。
 	tokMu    sync.Mutex
@@ -391,7 +396,7 @@ func (c *companion) discoverAccs(ctx context.Context, discovered []discoveredApp
 			rp = readmeRoot
 		}
 		if c.ensureReadme(ctx, acc.ia.Appname, acc.ia.Source, rp) {
-			acc.ia.appEntry.ReadmeURL = c.base + "/moo/" + url.PathEscape(acc.ia.Appname) + "/README.md"
+			acc.ia.appEntry.ReadmeURL = readmeSelfURL(c.base, acc.ia.Appname)
 		}
 	}
 	return accs, skipped
