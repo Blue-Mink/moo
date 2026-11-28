@@ -8,6 +8,7 @@ fndepot@Blue-Mink aurora-9
 fn-knock@kci-lnk aurora-12
 fnmedia-ext@yujian0815 aurora-5
 fnmusic-ext@javycoder aurora-7
+fnmonitor@MisiteQ aurora-3
 ainvr@zsunny6658 aurora-2
 wb2api@shuangji66 aurora-10
 moo-mate@Blue-Mink aurora-11
